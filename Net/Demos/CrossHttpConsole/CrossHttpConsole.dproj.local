@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BorlandProject>
+	<Transactions>
+    <Transaction>2017/03/29 16:25:15.000.769,D:\VclFmxRtl\zLib\Net\Demos\CrossHttpLinux\CrossHttpLinux.dproj=C:\Users\Zeng\Documents\Embarcadero\Studio\Projects\Project1.dproj</Transaction>
+    <Transaction>2017/04/01 12:17:05.000.614,D:\VclFmxRtl\zLib\Net\Demos\CrossHttpLinux\CrossHttpLinux.dproj=D:\VclFmxRtl\zLib\Net\Demos\CrossHttpLinux\CrossHttpConsole.dproj</Transaction>
+  </Transactions>
+	<ActiveMobileDevice>
+		<POSX iOSSimulator="iPhone5" iOSDevice64="_iosdevice_501889ee832e0ea5c4ae4121661549727436ab27" iOSDevice32="_iosdevice_501889ee832e0ea5c4ae4121661549727436ab27"/>
+	</ActiveMobileDevice>
+</BorlandProject>

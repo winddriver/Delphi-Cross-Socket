@@ -1,0 +1,310 @@
+object fmMain: TfmMain
+  Left = 0
+  Top = 0
+  BorderIcons = [biSystemMenu, biMinimize]
+  BorderStyle = Single
+  Caption = 'Cross Socket Tester'
+  ClientHeight = 411
+  ClientWidth = 527
+  FormFactor.Width = 320
+  FormFactor.Height = 480
+  FormFactor.Devices = [Desktop]
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  DesignerMasterStyle = 0
+  object Timer1: TTimer
+    OnTimer = Timer1Timer
+    Left = 472
+    Top = 152
+  end
+  object MagicDock1: TRectangle
+    Fill.Kind = None
+    Position.X = 23.000000000000000000
+    Position.Y = 25.000000000000000000
+    Size.Width = 249.000000000000000000
+    Size.Height = 105.000000000000000000
+    Size.PlatformDefault = False
+    Stroke.Color = claDarkgray
+    XRadius = 4.000000000000000000
+    YRadius = 4.000000000000000000
+    object Label6: TLabel
+      Align = Top
+      Margins.Left = 10.000000000000000000
+      Position.X = 10.000000000000000000
+      Size.Width = 239.000000000000000000
+      Size.Height = 33.000000000000000000
+      Size.PlatformDefault = False
+      Text = #30417#21548#65306
+    end
+    object btnListen: TButton
+      Position.X = 152.000000000000000000
+      Position.Y = 72.000000000000000000
+      TabOrder = 0
+      Text = #21551#21160
+      OnClick = btnListenClick
+    end
+    object edtListenPort: TSpinBox
+      Touch.InteractiveGestures = [LongTap, DoubleTap]
+      TabOrder = 12
+      Cursor = crIBeam
+      Min = 1000.000000000000000000
+      Max = 65533.000000000000000000
+      Value = 8888.000000000000000000
+      Position.X = 102.000000000000000000
+      Position.Y = 32.000000000000000000
+    end
+    object Label14: TLabel
+      Position.X = 46.000000000000000000
+      Position.Y = 37.000000000000000000
+      Size.Width = 59.000000000000000000
+      Size.Height = 17.000000000000000000
+      Size.PlatformDefault = False
+      Text = #31471#21475#65306
+    end
+  end
+  object MagicDock2: TRectangle
+    Fill.Kind = None
+    Position.X = 23.000000000000000000
+    Position.Y = 145.000000000000000000
+    Size.Width = 249.000000000000000000
+    Size.Height = 240.000000000000000000
+    Size.PlatformDefault = False
+    Stroke.Color = claDarkgray
+    XRadius = 4.000000000000000000
+    YRadius = 4.000000000000000000
+    object Label7: TLabel
+      Align = Top
+      Margins.Left = 10.000000000000000000
+      Position.X = 10.000000000000000000
+      Size.Width = 239.000000000000000000
+      Size.Height = 33.000000000000000000
+      Size.PlatformDefault = False
+      Text = #36830#25509#65306
+    end
+    object btnConnect: TButton
+      Position.X = 32.000000000000000000
+      Position.Y = 184.000000000000000000
+      TabOrder = 0
+      Text = #36830#25509
+      OnClick = btnConnectClick
+    end
+    object edtConnCount: TSpinBox
+      Touch.InteractiveGestures = [LongTap, DoubleTap]
+      TabOrder = 9
+      Cursor = crIBeam
+      Min = 1.000000000000000000
+      Max = 10000.000000000000000000
+      Value = 1.000000000000000000
+      Increment = 50.000000000000000000
+      Position.X = 15.000000000000000000
+      Position.Y = 123.000000000000000000
+    end
+    object edtConnHost: TEdit
+      Touch.InteractiveGestures = [LongTap, DoubleTap]
+      TabOrder = 10
+      Text = '127.0.0.1'
+      Position.X = 15.000000000000000000
+      Position.Y = 64.000000000000000000
+    end
+    object edtConnPort: TSpinBox
+      Touch.InteractiveGestures = [LongTap, DoubleTap]
+      TabOrder = 11
+      Cursor = crIBeam
+      Min = 1000.000000000000000000
+      Max = 65533.000000000000000000
+      Value = 8888.000000000000000000
+      Position.X = 135.000000000000000000
+      Position.Y = 64.000000000000000000
+    end
+    object Label11: TLabel
+      Position.X = 15.000000000000000000
+      Position.Y = 45.000000000000000000
+      Text = #20027#26426#65306
+    end
+    object Label12: TLabel
+      Position.X = 135.000000000000000000
+      Position.Y = 45.000000000000000000
+      Size.Width = 97.000000000000000000
+      Size.Height = 17.000000000000000000
+      Size.PlatformDefault = False
+      Text = #31471#21475#65306
+    end
+    object Label13: TLabel
+      Position.X = 15.000000000000000000
+      Position.Y = 104.000000000000000000
+      Text = #36830#25509#25968#65306
+    end
+    object btnDisconnect: TButton
+      Position.X = 136.000000000000000000
+      Position.Y = 184.000000000000000000
+      TabOrder = 15
+      Text = #26029#24320
+      OnClick = btnDisconnectClick
+    end
+    object checkGraceful: TCheckBox
+      IsChecked = True
+      Position.X = 136.000000000000000000
+      Position.Y = 160.000000000000000000
+      Size.Width = 81.000000000000000000
+      Size.Height = 19.000000000000000000
+      Size.PlatformDefault = False
+      TabOrder = 16
+      Text = #20248#38597
+    end
+    object Button2: TButton
+      Position.X = 152.000000000000000000
+      Position.Y = 16.000000000000000000
+      TabOrder = 17
+      Text = #22823#25968#25454
+      OnClick = Button2Click
+    end
+    object Button3: TButton
+      Position.X = 56.000000000000000000
+      Position.Y = 16.000000000000000000
+      TabOrder = 18
+      Text = #36830#25509#22238#35843
+      OnClick = Button3Click
+    end
+  end
+  object MagicDock3: TRectangle
+    Fill.Kind = None
+    Position.X = 295.000000000000000000
+    Position.Y = 25.000000000000000000
+    Size.Width = 209.000000000000000000
+    Size.Height = 105.000000000000000000
+    Size.PlatformDefault = False
+    Stroke.Color = claDarkgray
+    XRadius = 4.000000000000000000
+    YRadius = 4.000000000000000000
+    object Label8: TLabel
+      Align = Top
+      Margins.Left = 10.000000000000000000
+      Position.X = 10.000000000000000000
+      Size.Width = 199.000000000000000000
+      Size.Height = 33.000000000000000000
+      Size.PlatformDefault = False
+      Text = #21457#36865#65306
+    end
+    object btnStart: TButton
+      Position.X = 113.000000000000000000
+      Position.Y = 72.000000000000000000
+      TabOrder = 2
+      Text = #24320#22987
+      OnClick = btnStartClick
+    end
+    object edtBufSize: TSpinBox
+      Touch.InteractiveGestures = [LongTap, DoubleTap]
+      TabOrder = 5
+      Cursor = crIBeam
+      Max = 104857600.000000000000000000
+      Value = 32768.000000000000000000
+      Increment = 8192.000000000000000000
+      Position.X = 97.000000000000000000
+      Position.Y = 32.000000000000000000
+    end
+    object Label10: TLabel
+      Position.X = 12.000000000000000000
+      Position.Y = 37.000000000000000000
+      Size.Width = 89.000000000000000000
+      Size.Height = 17.000000000000000000
+      Size.PlatformDefault = False
+      Text = #25968#25454#22359#22823#23567#65306
+    end
+  end
+  object MagicDock4: TRectangle
+    Fill.Kind = None
+    Position.X = 295.000000000000000000
+    Position.Y = 145.000000000000000000
+    Size.Width = 209.000000000000000000
+    Size.Height = 240.000000000000000000
+    Size.PlatformDefault = False
+    Stroke.Color = claDarkgray
+    XRadius = 4.000000000000000000
+    YRadius = 4.000000000000000000
+    object labelConns: TLabel
+      Position.X = 12.000000000000000000
+      Position.Y = 34.000000000000000000
+      Size.Width = 180.000000000000000000
+      Size.Height = 16.000000000000000000
+      Size.PlatformDefault = False
+      TextSettings.WordWrap = False
+      Text = 'labelConns'
+    end
+    object labelRcvData: TLabel
+      Position.X = 12.000000000000000000
+      Position.Y = 71.000000000000000000
+      Size.Width = 180.000000000000000000
+      Size.Height = 16.000000000000000000
+      Size.PlatformDefault = False
+      TextSettings.WordWrap = False
+      Text = 'labelRcvData'
+    end
+    object labelSndData: TLabel
+      Position.X = 12.000000000000000000
+      Position.Y = 160.000000000000000000
+      Size.Width = 180.000000000000000000
+      Size.Height = 16.000000000000000000
+      Size.PlatformDefault = False
+      TextSettings.WordWrap = False
+      Text = 'labelSndData'
+    end
+    object labelSndSpeed: TLabel
+      Position.X = 12.000000000000000000
+      Position.Y = 185.000000000000000000
+      Size.Width = 180.000000000000000000
+      Size.Height = 16.000000000000000000
+      Size.PlatformDefault = False
+      TextSettings.WordWrap = False
+      Text = 'labelSndSpeed'
+    end
+    object labelRcvSpeed: TLabel
+      Position.X = 12.000000000000000000
+      Position.Y = 96.000000000000000000
+      Size.Width = 180.000000000000000000
+      Size.Height = 16.000000000000000000
+      Size.PlatformDefault = False
+      TextSettings.WordWrap = False
+      Text = 'labelRcvSpeed'
+    end
+    object labelTime: TLabel
+      Position.X = 12.000000000000000000
+      Position.Y = 13.000000000000000000
+      Size.Width = 180.000000000000000000
+      Size.Height = 17.000000000000000000
+      Size.PlatformDefault = False
+      Text = 'labelTime'
+    end
+    object labelRcvCount: TLabel
+      Position.X = 12.000000000000000000
+      Position.Y = 122.000000000000000000
+      Size.Width = 180.000000000000000000
+      Size.Height = 16.000000000000000000
+      Size.PlatformDefault = False
+      TextSettings.WordWrap = False
+      Text = 'labelRcvCount'
+    end
+    object labelSndCount: TLabel
+      Position.X = 12.000000000000000000
+      Position.Y = 211.000000000000000000
+      Size.Width = 180.000000000000000000
+      Size.Height = 16.000000000000000000
+      Size.PlatformDefault = False
+      TextSettings.WordWrap = False
+      Text = 'labelSndCount'
+    end
+  end
+  object labelOsVer: TLabel
+    Align = Bottom
+    StyledSettings = [Family, Size, Style]
+    Margins.Left = 4.000000000000000000
+    Margins.Right = 4.000000000000000000
+    Margins.Bottom = 4.000000000000000000
+    Position.X = 4.000000000000000000
+    Position.Y = 390.000000000000000000
+    Size.Width = 519.000000000000000000
+    Size.Height = 17.000000000000000000
+    Size.PlatformDefault = False
+    TextSettings.FontColor = claGray
+    TextSettings.VertAlign = Trailing
+  end
+end
