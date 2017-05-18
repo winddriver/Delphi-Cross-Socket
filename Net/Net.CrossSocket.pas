@@ -2,7 +2,7 @@
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
-{       Copyright (c) 2017 Souledge(soulawing@gmail.com) QQ:21305383         }
+{       Copyright (c) 2017 WiNDDRiVER(soulawing@gmail.com)                     }
 {                                                                              }
 {       Homepage: https://github.com/winddriver/Delphi-Cross-Socket            }
 {                                                                              }
@@ -12,7 +12,7 @@ unit Net.CrossSocket;
 {
   跨平台 Socket 通讯库
 
-  作者: Souledge (soulawing@gmail.com)
+  作者: WiNDDRiVER(soulawing@gmail.com)
 
   特性:
 
@@ -33,7 +33,7 @@ unit Net.CrossSocket;
   3.同时支持IPv4、IPv6
 
   已通过测试:
-  Windows, OSX, iOS, Android
+  Windows, OSX, iOS, Android, Linux
 
   iOS做了初步测试, 连接数超过80以后还有些问题, 不过通常iOS下的应用谁会去开好几十
   连接呢？

@@ -2,7 +2,7 @@
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
-{       Copyright (c) 2017 Souledge(soulawing@gmail.com) QQ:21305383         }
+{       Copyright (c) 2017 WiNDDRiVER(soulawing@gmail.com)                     }
 {                                                                              }
 {       Homepage: https://github.com/winddriver/Delphi-Cross-Socket            }
 {                                                                              }
