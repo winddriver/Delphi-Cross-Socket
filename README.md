@@ -1,6 +1,6 @@
 # Delphi 跨平台 Socket 通讯库
 
-作者: WiNDDRiVER(soulawing@gmail.com) QQ:21305383
+作者: WiNDDRiVER(soulawing@gmail.com)
 
 ## 特性
 
