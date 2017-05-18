@@ -6,22 +6,22 @@
 
 - 针对不同平台使用不同的IO模型:
   - IOCP
-  Windows
-  
+  > Windows
+
   - KQUEUE
-  FreeBSD(MacOSX, iOS...)
-  
+  > FreeBSD(MacOSX, iOS...)
+
   - EPOLL
-  Linux(Linux, Android...)
+  > Linux(Linux, Android...)
 
 - 支持极高的并发
  
-  - Windows
-  能跑10万以上的并发数, 需要修改注册表调整默认的最大端口数
+  - Windows    
+  > 能跑10万以上的并发数, 需要修改注册表调整默认的最大端口数
 
-  - Mac  
-  做了初步测试, 测试环境为虚拟机中的 OSX 10.9.5, 即便修改了系统的句柄数限制,
-  最多也只能打开32000多个并发连接, 或许 OSX Server 版能支持更高的并发吧
+  - Mac    
+  > 做了初步测试, 测试环境为虚拟机中的 OSX 10.9.5, 即便修改了系统的句柄数限制,
+  > 最多也只能打开32000多个并发连接, 或许 OSX Server 版能支持更高的并发吧
 
 - 同时支持IPv4、IPv6
 
