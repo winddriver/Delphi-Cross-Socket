@@ -1,0 +1,4 @@
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+extendedKeyUsage=serverAuth,clientAuth
+subjectAltName=email:copy,DNS:*.ssldemo.com,DNS:ssldemo.com

@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BorlandProject>
+	<Transactions/>
+	<MobileDevice>6O5717A21412-Android</MobileDevice>
+	<ActiveMobileDevice>
+		<POSX iOSSimulator="iPhone5"/>
+		<NoProfile Android="Android6.0"/>
+	</ActiveMobileDevice>
+</BorlandProject>
