@@ -168,7 +168,7 @@ var
   I: Integer;
   B: Byte;
 begin
-  LConns := FSocket.LockConnections;
+  LConns := FSocket.LockConnections.Values.ToArray;
   if (LConns <> nil) then
   begin
     LStream := TBytesStream.Create(nil);
@@ -235,7 +235,7 @@ begin
 
     FTesting := True;
 
-    LConns := FSocket.LockConnections;
+    LConns := FSocket.LockConnections.Values.ToArray;
     try
       for LConn in LConns do
       begin

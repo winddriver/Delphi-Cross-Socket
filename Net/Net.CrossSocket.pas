@@ -344,7 +344,8 @@ type
     constructor Create(AIoThreads: Integer); override;
     destructor Destroy; override;
 
-    function LockConnections: TArray<ICrossConnection>;
+    function LockConnections: TDictionary<THandle, ICrossConnection>;
+    function GetConnection(const ASocket: THandle): ICrossConnection;
     procedure UnlockConnections;
   end;
 
@@ -732,6 +733,12 @@ begin
   inherited Destroy;
 end;
 
+function TCustomCrossSocket.GetConnection(
+  const ASocket: THandle): ICrossConnection;
+begin
+  FConnections.TryGetValue(ASocket, Result);
+end;
+
 function TCustomCrossSocket.GetConnectionClass: TCrossConnectionClass;
 begin
   Result := TCrossConnection;
@@ -944,15 +951,14 @@ begin
   end;
 end;
 
-function TCustomCrossSocket.LockConnections: TArray<ICrossConnection>;
+function TCustomCrossSocket.LockConnections: TDictionary<THandle, ICrossConnection>;
 begin
   FConnectionsLocker.BeginRead;
-  Result := FConnections.Values.ToArray;
+  Result := FConnections;
 end;
 
 procedure TCustomCrossSocket.LogicConnected(AConnection: ICrossConnection);
 begin
-
 end;
 
 procedure TCustomCrossSocket.LogicConnectFailed(ASocket: THandle);
