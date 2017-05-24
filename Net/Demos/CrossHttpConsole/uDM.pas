@@ -341,6 +341,11 @@ begin
           LWatch.Stop;
         end);
     end)
+  .Get('/code',
+    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    begin
+      AResponse.SendStatus(600, '无法获取对象池中的对象(HttpRequestDB)');
+    end)
     ;
 
   for I := 0 to AppCfg.DirMaps.Count - 1 do

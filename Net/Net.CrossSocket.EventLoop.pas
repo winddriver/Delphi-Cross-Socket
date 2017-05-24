@@ -102,21 +102,20 @@ type
     ///     </item>
     ///   </list>
     /// </returns>
-//    function Listen(const AHost: string; APort: Word): Integer; virtual; abstract;
     function Listen(const AHost: string; APort: Word;
-      const ACallback: TProc<Boolean> = nil): Integer; virtual; abstract;
+      const ACallback: TProc<THandle, Boolean> = nil): Integer; virtual; abstract;
 
     // 连接到主机, 返回0成功或连接中, -1失败
     // TriggerConnected 被触发才表示连接真正完成
     // 连接失败会触发 TriggerConnectFailed
     function Connect(const AHost: string; APort: Word;
-      const ACallback: TProc<Boolean> = nil): Integer; virtual; abstract;
+      const ACallback: TProc<THandle, Boolean> = nil): Integer; virtual; abstract;
 
     // 发送数据, 返回发送的字节数, -1失败
     // 由于发送是异步的, 所以需要调用者保证发送完成之前缓存的有效性
     // 发送可能会被拆成多次io调用, 返回值只能表明首次发送成功与否
     function Send(ASocket: THandle; const ABuf; ALen: Integer;
-      const ACallback: TProc<Boolean> = nil): Integer; virtual; abstract;
+      const ACallback: TProc<THandle, Boolean> = nil): Integer; virtual; abstract;
 
     function Disconnect(ASocket: THandle): Integer; virtual;
     function CloseSocket(ASocket: THandle): Integer; virtual;

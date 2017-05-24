@@ -199,7 +199,7 @@ end;
 procedure TfmMain.Button3Click(Sender: TObject);
 begin
   FSocket.Connect(edtConnHost.Text, Trunc(edtConnPort.Value),
-    procedure(ASuccess: Boolean)
+    procedure(ASocket: THandle; ASuccess: Boolean)
     begin
       TThread.Synchronize(nil,
         procedure

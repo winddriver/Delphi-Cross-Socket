@@ -49,7 +49,7 @@ type
       Buffer: TPerIoBufUnion;
       Action: TIocpAction;
       Socket: THandle;
-      Callback: TProc<Boolean>;
+      Callback: TProc<THandle, Boolean>;
 
       case Integer of
         1: (Accept:
@@ -80,11 +80,11 @@ type
     procedure StopLoop; override;
 
     function Listen(const AHost: string; APort: Word;
-      const ACallback: TProc<Boolean> = nil): Integer; override;
+      const ACallback: TProc<THandle, Boolean> = nil): Integer; override;
     function Connect(const AHost: string; APort: Word;
-      const ACallback: TProc<Boolean> = nil): Integer; override;
+      const ACallback: TProc<THandle, Boolean> = nil): Integer; override;
     function Send(ASocket: THandle; const ABuf; ALen: Integer;
-      const ACallback: TProc<Boolean> = nil): Integer; override;
+      const ACallback: TProc<THandle, Boolean> = nil): Integer; override;
 
     function ProcessIoEvent: Boolean; override;
   end;
@@ -198,11 +198,15 @@ end;
 
 procedure TIocpLoop.RequestConnectComplete(ASocket: THandle;
   APerIoData: PPerIoData);
+var
+  LOptVal: Integer;
+
   procedure _Success;
   begin
     TriggerConnected(ASocket, CT_CONNECT);
+
     if Assigned(APerIoData.Callback) then
-      APerIoData.Callback(True);
+      APerIoData.Callback(ASocket, True);
   end;
 
   procedure _Failed;
@@ -211,12 +215,13 @@ procedure TIocpLoop.RequestConnectComplete(ASocket: THandle;
     __RaiseLastOSError;
     {$ENDIF}
     TSocketAPI.CloseSocket(ASocket);
+
     TriggerConnectFailed(ASocket);
+
     if Assigned(APerIoData.Callback) then
-      APerIoData.Callback(False);
+      APerIoData.Callback(ASocket, False);
   end;
-var
-  LOptVal: Integer;
+
 begin
   if (TSocketAPI.GetError(ASocket) <> 0) then
   begin
@@ -283,10 +288,7 @@ procedure TIocpLoop.RequestSendComplete(ASocket: THandle;
   APerIoData: PPerIoData);
 begin
   if Assigned(APerIoData.Callback) then
-  begin
-    APerIoData.Callback(True);
-    APerIoData.Callback := nil;
-  end;
+    APerIoData.Callback(ASocket, True);
 end;
 
 procedure TIocpLoop.StartLoop;
@@ -334,12 +336,12 @@ begin
 end;
 
 function TIocpLoop.Connect(const AHost: string; APort: Word;
-  const ACallback: TProc<Boolean>): Integer;
+  const ACallback: TProc<THandle, Boolean>): Integer;
   procedure _Failed1;
   begin
     TriggerConnectFailed(INVALID_HANDLE_VALUE);
     if Assigned(ACallback) then
-      ACallback(False);
+      ACallback(INVALID_HANDLE_VALUE, False);
   end;
 
   function _Connect(ASocket: THandle; Addr: PRawAddrInfo): Boolean;
@@ -348,7 +350,7 @@ function TIocpLoop.Connect(const AHost: string; APort: Word;
       TSocketAPI.CloseSocket(ASocket);
       TriggerConnectFailed(ASocket);
       if Assigned(ACallback) then
-        ACallback(False);
+        ACallback(ASocket, False);
     end;
   var
     LSockAddr: TRawSockAddrIn;
@@ -437,7 +439,7 @@ begin
 end;
 
 function TIocpLoop.Listen(const AHost: string; APort: Word;
-  const ACallback: TProc<Boolean>): Integer;
+  const ACallback: TProc<THandle, Boolean>): Integer;
 var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
@@ -450,13 +452,13 @@ var
       TSocketAPI.CloseSocket(LSocket);
 
     if Assigned(ACallback) then
-      ACallback(False);
+      ACallback(LSocket, False);
   end;
 
   procedure _Success;
   begin
     if Assigned(ACallback) then
-      ACallback(True);
+      ACallback(LSocket, True);
 
     TriggerListened(LSocket);
   end;
@@ -538,7 +540,7 @@ begin
 end;
 
 function TIocpLoop.Send(ASocket: THandle; const ABuf; ALen: Integer;
-  const ACallback: TProc<Boolean>): Integer;
+  const ACallback: TProc<THandle, Boolean>): Integer;
 var
   LPerIoData: PPerIoData;
   LBytes, LFlags: Cardinal;
@@ -560,8 +562,8 @@ begin
   if (WSASend(ASocket, @LPerIoData.Buffer.DataBuf, 1, LBytes, LFlags, PWSAOverlapped(LPerIoData), nil) < 0)
     and (WSAGetLastError <> WSA_IO_PENDING) then
   begin
-    if Assigned(LPerIoData.Callback) then
-      LPerIoData.Callback(False);
+    if Assigned(ACallback) then
+      ACallback(ASocket, False);
 
     // 出错多半是 WSAENOBUFS, 也就是投递的 WSASend 过多, 来不及发送
     // 导致非页面内存资源全部被锁定, 要避免这种情况必须上层发送逻辑
@@ -610,7 +612,7 @@ begin
           begin
             TriggerConnectFailed(LSocket);
             if Assigned(LPerIoData.Callback) then
-              LPerIoData.Callback(False);
+              TProc<THandle, Boolean>(LPerIoData.Callback)(LSocket, False);
           end;
 
         ioReadZero:
@@ -620,10 +622,7 @@ begin
         ioSend:
           begin
             if Assigned(LPerIoData.Callback) then
-            begin
-              LPerIoData.Callback(False);
-              LPerIoData.Callback := nil;
-            end;
+              TProc<Boolean>(LPerIoData.Callback)(False);
 
             if (TSocketAPI.CloseSocket(LSocket) = 0) then
               TriggerDisconnected(LSocket);

@@ -52,14 +52,14 @@ type
     TPerIoData = record
       Action: TEpollAction;
       Socket: THandle;
-      Callback: TProc<Boolean>;
+      Callback: TProc<THandle, Boolean>;
     end;
 
     PSendItem = ^TSendItem;
     TSendItem = record
       Data: PByte;
       Size: Integer;
-      Callback: TProc<Boolean>;
+      Callback: TProc<THandle, Boolean>;
     end;
   private
     FEpollHandle: THandle;
@@ -71,7 +71,7 @@ type
     procedure FreeIoData(P: PPerIoData);
 
     function _EpollCtl(op, fd: Integer; events: Cardinal;
-      act: TEpollAction; cb: TProc<Boolean> = nil): Boolean;
+      act: TEpollAction; cb: TProc<THandle, Boolean> = nil): Boolean;
 
     procedure _ClearSendQueue(ASocketSendQueue: TList<PSendItem>);
     procedure _ClearAllSendQueue;
@@ -83,11 +83,11 @@ type
     procedure StopLoop; override;
 
     function Listen(const AHost: string; APort: Word;
-      const ACallback: TProc<Boolean> = nil): Integer; override;
+      const ACallback: TProc<THandle, Boolean> = nil): Integer; override;
     function Connect(const AHost: string; APort: Word;
-      const ACallback: TProc<Boolean> = nil): Integer; override;
+      const ACallback: TProc<THandle, Boolean> = nil): Integer; override;
     function Send(ASocket: THandle; const ABuf; ALen: Integer;
-      const ACallback: TProc<Boolean> = nil): Integer; override;
+      const ACallback: TProc<THandle, Boolean> = nil): Integer; override;
 
     function ProcessIoEvent: Boolean; override;
   public
@@ -151,7 +151,7 @@ begin
 end;
 
 function TEpollLoop._EpollCtl(op, fd: Integer; events: Cardinal;
-  act: TEpollAction; cb: TProc<Boolean>): Boolean;
+  act: TEpollAction; cb: TProc<THandle, Boolean>): Boolean;
 var
   LEvent: TEPoll_Event;
   LPerIoData: PPerIoData;
@@ -246,15 +246,17 @@ begin
 end;
 
 function TEpollLoop.Connect(const AHost: string; APort: Word;
-  const ACallback: TProc<Boolean>): Integer;
+  const ACallback: TProc<THandle, Boolean>): Integer;
   procedure _Failed1;
   begin
     {$IFDEF DEBUG}
     __RaiseLastOSError;
     {$ENDIF}
+
     TriggerConnectFailed(INVALID_HANDLE_VALUE);
+
     if Assigned(ACallback) then
-      ACallback(False);
+      ACallback(INVALID_HANDLE_VALUE, False);
   end;
 
   function _Connect(ASocket: THandle; Addr: PRawAddrInfo): Boolean;
@@ -264,9 +266,11 @@ function TEpollLoop.Connect(const AHost: string; APort: Word;
       __RaiseLastOSError;
       {$ENDIF}
       TSocketAPI.CloseSocket(ASocket);
+
       TriggerConnectFailed(ASocket);
+
       if Assigned(ACallback) then
-        ACallback(False);
+        ACallback(ASocket, False);
     end;
   begin
     if (TSocketAPI.Connect(ASocket, Addr.ai_addr, Addr.ai_addrlen) = 0)
@@ -331,7 +335,7 @@ begin
 end;
 
 function TEpollLoop.Listen(const AHost: string; APort: Word;
-  const ACallback: TProc<Boolean>): Integer;
+  const ACallback: TProc<THandle, Boolean>): Integer;
 var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
@@ -343,15 +347,15 @@ var
       TSocketAPI.CloseSocket(LSocket);
 
     if Assigned(ACallback) then
-      ACallback(False);
+      ACallback(LSocket, False);
   end;
 
   procedure _Success;
   begin
-    if Assigned(ACallback) then
-      ACallback(True);
-
     TriggerListened(LSocket);
+
+    if Assigned(ACallback) then
+      ACallback(LSocket, True);
   end;
 
 begin
@@ -429,7 +433,7 @@ begin
 end;
 
 function TEpollLoop.Send(ASocket: THandle; const ABuf; ALen: Integer;
-  const ACallback: TProc<Boolean>): Integer;
+  const ACallback: TProc<THandle, Boolean>): Integer;
 var
   LSocketSendQueue: TList<PSendItem>;
   LSendItem: PSendItem;
@@ -444,7 +448,7 @@ var
     end;
 
     if Assigned(ACallback) then
-      ACallback(False);
+      ACallback(ASocket, False);
 
     if (TSocketAPI.CloseSocket(ASocket) = 0) then
       TriggerDisconnected(ASocket);
@@ -581,10 +585,10 @@ end;
   procedure _HandleConnect(ASocket: THandle; APerIoData: PPerIoData);
     procedure _Success;
     begin
-      if Assigned(APerIoData.Callback) then
-        APerIoData.Callback(True);
-
       TriggerConnected(ASocket, CT_CONNECT);
+
+      if Assigned(APerIoData.Callback) then
+        APerIoData.Callback(ASocket, True);
     end;
 
     procedure _Failed;
@@ -594,10 +598,10 @@ end;
       {$ENDIF}
       TSocketAPI.CloseSocket(ASocket);
 
-      if Assigned(APerIoData.Callback) then
-        APerIoData.Callback(False);
-
       TriggerConnectFailed(ASocket);
+
+      if Assigned(APerIoData.Callback) then
+        APerIoData.Callback(ASocket, False);
     end;
   begin
     // Connect失败
@@ -622,7 +626,7 @@ end;
     LSocketSendQueue: TList<PSendItem>;
     LSendItem: PSendItem;
     LSent: Integer;
-    LCallback: TProc<Boolean>;
+    LCallback: TProc<THandle, Boolean>;
 
     procedure _ReadContinue;
     begin
@@ -647,7 +651,7 @@ end;
     begin
       // 调用回调
       if Assigned(LCallback) then
-        LCallback(False);
+        LCallback(ASocket, False);
     end;
 
     procedure _Success;
@@ -665,7 +669,7 @@ end;
 
       // 调用回调
       if Assigned(LCallback) then
-        LCallback(True);
+        LCallback(ASocket, True);
     end;
 
   begin
@@ -778,7 +782,7 @@ begin
         Writeln('event:', IntToHex(LEvent.Events), ' socket:', LPerIoData.Socket, ' action:', Integer(LPerIoData.Action));
 
         if Assigned(LPerIoData.Callback) then
-          LPerIoData.Callback(False);
+          LPerIoData.Callback(LSocket, False);
 
         if (TSocketAPI.CloseSocket(LSocket) = 0) then
           TriggerDisconnected(LSocket);

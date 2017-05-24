@@ -387,7 +387,7 @@ type
     ///   当OnConnected触发时才表明连接建立, 而OnConnectFailed触发则表明连接失败
     /// </returns>
     function Connect(const AHost: string; APort: Word;
-      const ACallback: TProc<Boolean> = nil): Integer; override;
+      const ACallback: TProc<THandle, Boolean> = nil): Integer; override;
 
     /// <summary>
     ///   建立监听
@@ -422,7 +422,7 @@ type
     ///   当OnListened触发时才表明监听成功 <br />
     /// </returns>
     function Listen(const AHost: string; APort: Word;
-      const ACallback: TProc<Boolean> = nil): Integer; override;
+      const ACallback: TProc<THandle, Boolean> = nil): Integer; override;
 
     /// <summary>
     ///   强制关闭所有连接
@@ -514,7 +514,7 @@ begin
   end;
 
   FOwner.Send(FSocket, ABuffer, ACount,
-    procedure(ASuccess: Boolean)
+    procedure(ASocket: THandle; ASuccess: Boolean)
     begin
       if ASuccess then
         FOwner.TriggerSent(LConnection, LBuffer, ACount);
@@ -1006,7 +1006,7 @@ begin
 end;
 
 function TCrossSocket.Connect(const AHost: string; APort: Word;
-  const ACallback: TProc<Boolean>): Integer;
+  const ACallback: TProc<THandle, Boolean>): Integer;
 begin
   Result := inherited Connect(AHost, APort, ACallback);
 end;
@@ -1017,7 +1017,7 @@ begin
 end;
 
 function TCrossSocket.Listen(const AHost: string; APort: Word;
-  const ACallback: TProc<Boolean>): Integer;
+  const ACallback: TProc<THandle, Boolean>): Integer;
 begin
   Result := inherited Listen(AHost, APort, ACallback);
 end;
