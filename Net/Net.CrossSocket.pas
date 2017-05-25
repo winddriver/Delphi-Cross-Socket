@@ -405,6 +405,12 @@ type
     ///     <item>
     ///       '::', 监听所有IPv6地址
     ///     </item>
+    ///     <item>
+    ///       '127.0.0.1', 监听本地IPv4回环地址
+    ///     </item>
+    ///     <item>
+    ///       '::1', 监听本地IPv6回环地址
+    ///     </item>
     ///   </list>
     /// </param>
     /// <param name="APort">
@@ -420,7 +426,7 @@ type
     ///       非0, 调用失败
     ///     </item>
     ///   </list>
-    ///   当OnListened触发时才表明监听成功 <br />
+    ///   当OnListened触发时才表明监听成功
     /// </returns>
     function Listen(const AHost: string; APort: Word;
       const ACallback: TProc<THandle, Boolean> = nil): Integer; override;
@@ -835,6 +841,7 @@ begin
       (LConnection as TCrossConnection).FOwner := Self;
       (LConnection as TCrossConnection).FSocket := ASocket;
       (LConnection as TCrossConnection).FConnectType := AConnectType;
+      FillChar(LAddr, SizeOf(TRawSockAddrIn), 0);
       LAddr.AddrLen := SizeOf(LAddr.Addr6);
       if (TSocketAPI.GetPeerName(ASocket, @LAddr.Addr, LAddr.AddrLen) = 0) then
         TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen,

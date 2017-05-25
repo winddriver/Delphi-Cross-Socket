@@ -87,7 +87,7 @@ begin
   StartLoop;
 
   Listen(FAddr, FPort,
-    procedure(ASuccess: Boolean)
+    procedure(ASocket: THandle; ASuccess: Boolean)
     begin
       if not ASuccess then
         AtomicExchange(FStarted, 0);
@@ -106,15 +106,26 @@ end;
 
 procedure TCrossSslServer.TriggerListened(ASocket: THandle);
 var
+  LPort: Word;
   LAddr: TRawSockAddrIn;
   LStuff: string;
 begin
   inherited;
 
+  LPort := AtomicCmpExchange(FPort, 0, 0);
+
   // 如果是监听的随机端口
   // 则在监听成功之后将实际的端口取出来
-  if (FPort = 0) and (TSocketAPI.GetSockName(ASocket, @LAddr.Addr, LAddr.AddrLen) = 0) then
-    TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen, LStuff, FPort);
+  if (LPort = 0) then
+  begin
+    FillChar(LAddr, SizeOf(TRawSockAddrIn), 0);
+    LAddr.AddrLen := SizeOf(LAddr.Addr6);
+    if (TSocketAPI.GetSockName(ASocket, @LAddr.Addr, LAddr.AddrLen) = 0) then
+    begin
+      TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen, LStuff, LPort);
+      AtomicExchange(FPort, LPort);
+    end;
+  end;
 end;
 
 end.
