@@ -345,6 +345,11 @@ type
     function AsString(AEncoding: TEncoding = nil): string;
 
     /// <summary>
+    ///   释放流数据
+    /// </summary>
+    procedure FreeValue;
+
+    /// <summary>
     ///   名称
     /// </summary>
     property Name: string read FName;
@@ -766,7 +771,7 @@ type
 implementation
 
 uses
-  Utils.Utils;
+  Utils.Utils, Utils.DateTime;
 
 { TNameValue }
 
@@ -1208,13 +1213,18 @@ end;
 
 destructor TFormField.Destroy;
 begin
-  if Assigned(FValue) then
-    FreeAndNil(FValue);
+  FreeValue;
 
   if FAutoDeleteFile and (FFilePath <> '') and TFile.Exists(FFilePath) then
     TFile.Delete(FFilePath);
 
   inherited;
+end;
+
+procedure TFormField.FreeValue;
+begin
+  if Assigned(FValue) then
+    FreeAndNil(FValue);
 end;
 
 function TFormField.AsBytes: TBytes;

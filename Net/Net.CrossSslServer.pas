@@ -87,7 +87,7 @@ begin
   StartLoop;
 
   Listen(FAddr, FPort,
-    procedure(ASuccess: Boolean)
+    procedure(ASocket: THandle; ASuccess: Boolean)
     begin
       if not ASuccess then
         AtomicExchange(FStarted, 0);
