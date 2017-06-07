@@ -54,8 +54,8 @@
 
 ## 部分测试截图
 
-### HTTP(服务端为ubuntu 16.04 desktop)
+- **HTTP**(服务端为ubuntu 16.04 desktop)
 ![20170607110011](https://user-images.githubusercontent.com/3221597/26860614-61b750b4-4b71-11e7-8afc-74c3ebf16f7e.png)
 
-### HTTPS(服务端为ubuntu 16.04 desktop)
+- **HTTPS**(服务端为ubuntu 16.04 desktop)
 ![20170607142650](https://user-images.githubusercontent.com/3221597/26868229-d8d79f40-4b9a-11e7-927c-bfb3d7e6e55d.png)
