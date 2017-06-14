@@ -1,4 +1,4 @@
-{******************************************************************************}
+ï»¿{******************************************************************************}
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
@@ -48,7 +48,7 @@ type
     FListensCount: Integer;
     FConnectionsCount: Integer;
 
-    // ÉèÖÃÌ×½Ó×ÖĞÄÌø²ÎÊı, ÓÃÓÚ´¦ÀíÒì³£¶ÏÏß(°ÎÍøÏß, Ö÷»úÒì³£µôµçµÈÔì³ÉµÄÍøÂçÒì³£)
+    // è®¾ç½®å¥—æ¥å­—å¿ƒè·³å‚æ•°, ç”¨äºå¤„ç†å¼‚å¸¸æ–­çº¿(æ‹”ç½‘çº¿, ä¸»æœºå¼‚å¸¸æ‰ç”µç­‰é€ æˆçš„ç½‘ç»œå¼‚å¸¸)
     function SetKeepAlive(ASocket: THandle): Integer;
   protected
     function ProcessIoEvent: Boolean; virtual; abstract;
@@ -67,53 +67,53 @@ type
     procedure StopLoop; virtual; abstract;
 
     /// <summary>
-    ///   ¼àÌı¶Ë¿Ú
+    ///   ç›‘å¬ç«¯å£
     /// </summary>
     /// <param name="AHost">
-    ///   ¼àÌıµØÖ·:
+    ///   ç›‘å¬åœ°å€:
     ///   <list type="bullet">
     ///     <item>
-    ///       Òª¼àÌıIPv4ºÍIPv6ËùÓĞµØÖ·, ÇëÉèÖÃÎª¿Õ <br />
+    ///       è¦ç›‘å¬IPv4å’ŒIPv6æ‰€æœ‰åœ°å€, è¯·è®¾ç½®ä¸ºç©º <br />
     ///     </item>
     ///     <item>
-    ///       Òªµ¥¶À¼àÌıIPv4, ÇëÉèÖÃÎª '0.0.0.0' <br />
+    ///       è¦å•ç‹¬ç›‘å¬IPv4, è¯·è®¾ç½®ä¸º '0.0.0.0' <br />
     ///     </item>
     ///     <item>
-    ///       Òªµ¥¶À¼àÌıIPv6, ÇëÉèÖÃÎª '::' <br />
+    ///       è¦å•ç‹¬ç›‘å¬IPv6, è¯·è®¾ç½®ä¸º '::' <br />
     ///     </item>
     ///     <item>
-    ///       Òª¼àÌıIPv4»·Â·µØÖ·, ÇëÉèÖÃÎª '127.0.0.1' <br />
+    ///       è¦ç›‘å¬IPv4ç¯è·¯åœ°å€, è¯·è®¾ç½®ä¸º '127.0.0.1' <br />
     ///     </item>
     ///     <item>
-    ///       Òª¼àÌıIPv6»·Â·µØÖ·, ÇëÉèÖÃÎª '::1' <br />
+    ///       è¦ç›‘å¬IPv6ç¯è·¯åœ°å€, è¯·è®¾ç½®ä¸º '::1' <br />
     ///     </item>
     ///   </list>
     /// </param>
     /// <param name="APort">
-    ///   ¼àÌı¶Ë¿Ú, ÉèÖÃÎª0ÔòËæ»ú¼àÌıÒ»¸ö¿ÉÓÃµÄ¶Ë¿Ú
+    ///   ç›‘å¬ç«¯å£, è®¾ç½®ä¸º0åˆ™éšæœºç›‘å¬ä¸€ä¸ªå¯ç”¨çš„ç«¯å£
     /// </param>
     /// <returns>
     ///   <list type="bullet">
     ///     <item>
-    ///       0 ³É¹¦
+    ///       0 æˆåŠŸ
     ///     </item>
     ///     <item>
-    ///       -1 Ê§°Ü
+    ///       -1 å¤±è´¥
     ///     </item>
     ///   </list>
     /// </returns>
     function Listen(const AHost: string; APort: Word;
       const ACallback: TProc<THandle, Boolean> = nil): Integer; virtual; abstract;
 
-    // Á¬½Óµ½Ö÷»ú, ·µ»Ø0³É¹¦»òÁ¬½ÓÖĞ, -1Ê§°Ü
-    // TriggerConnected ±»´¥·¢²Å±íÊ¾Á¬½ÓÕæÕıÍê³É
-    // Á¬½ÓÊ§°Ü»á´¥·¢ TriggerConnectFailed
+    // è¿æ¥åˆ°ä¸»æœº, è¿”å›0æˆåŠŸæˆ–è¿æ¥ä¸­, -1å¤±è´¥
+    // TriggerConnected è¢«è§¦å‘æ‰è¡¨ç¤ºè¿æ¥çœŸæ­£å®Œæˆ
+    // è¿æ¥å¤±è´¥ä¼šè§¦å‘ TriggerConnectFailed
     function Connect(const AHost: string; APort: Word;
       const ACallback: TProc<THandle, Boolean> = nil): Integer; virtual; abstract;
 
-    // ·¢ËÍÊı¾İ, ·µ»Ø·¢ËÍµÄ×Ö½ÚÊı, -1Ê§°Ü
-    // ÓÉÓÚ·¢ËÍÊÇÒì²½µÄ, ËùÒÔĞèÒªµ÷ÓÃÕß±£Ö¤·¢ËÍÍê³ÉÖ®Ç°»º´æµÄÓĞĞ§ĞÔ
-    // ·¢ËÍ¿ÉÄÜ»á±»²ğ³É¶à´Îioµ÷ÓÃ, ·µ»ØÖµÖ»ÄÜ±íÃ÷Ê×´Î·¢ËÍ³É¹¦Óë·ñ
+    // å‘é€æ•°æ®, è¿”å›å‘é€çš„å­—èŠ‚æ•°, -1å¤±è´¥
+    // ç”±äºå‘é€æ˜¯å¼‚æ­¥çš„, æ‰€ä»¥éœ€è¦è°ƒç”¨è€…ä¿è¯å‘é€å®Œæˆä¹‹å‰ç¼“å­˜çš„æœ‰æ•ˆæ€§
+    // å‘é€å¯èƒ½ä¼šè¢«æ‹†æˆå¤šæ¬¡ioè°ƒç”¨, è¿”å›å€¼åªèƒ½è¡¨æ˜é¦–æ¬¡å‘é€æˆåŠŸä¸å¦
     function Send(ASocket: THandle; const ABuf; ALen: Integer;
       const ACallback: TProc<THandle, Boolean> = nil): Integer; virtual; abstract;
 
@@ -168,8 +168,8 @@ begin
   {$ENDIF MSWINDOWS}
 
   {$IFDEF POSIX}
-  // EINTR ±»ÏµÍ³ÖĞ¶Ïµ÷ÓÃÔİÊ±´ò¶Ï
-  // EAGAIN(EWOULDBLOCK) »º´æÖĞÃ»Êı¾İÁË
+  // EINTR è¢«ç³»ç»Ÿä¸­æ–­è°ƒç”¨æš‚æ—¶æ‰“æ–­
+  // EAGAIN(EWOULDBLOCK) ç¼“å­˜ä¸­æ²¡æ•°æ®äº†
   Result := (AErrCode = EINTR)
     or (AErrCode = EAGAIN)
     or (AErrCode = EWOULDBLOCK);
@@ -201,7 +201,7 @@ begin
     except
       {$IFDEF DEBUG}
       on e: Exception do
-        AppendLog('IoÏß³ÌID %d, Òì³£ %s, %s', [Self.ThreadID, e.ClassName, e.Message]);
+        AppendLog('%s Ioçº¿ç¨‹ID %d, å¼‚å¸¸ %s, %s', [FLoop.ClassName, Self.ThreadID, e.ClassName, e.Message]);
       {$ENDIF}
     end;
     {$IFDEF DEBUG}
@@ -209,7 +209,7 @@ begin
     {$ENDIF};
   end;
   {$IFDEF DEBUG}
-  AppendLog('IoÏß³ÌID %d, ±»µ÷ÓÃ %d ´Î', [Self.ThreadID, LRunCount]);
+  AppendLog('%s Ioçº¿ç¨‹ID %d, è¢«è°ƒç”¨äº† %d æ¬¡', [FLoop.ClassName, Self.ThreadID, LRunCount]);
   {$ENDIF}
 end;
 

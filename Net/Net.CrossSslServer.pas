@@ -63,7 +63,7 @@ end;
 
 function TCrossSslServer.GetActive: Boolean;
 begin
-  Result := (FStarted = 1);
+  Result := (AtomicCmpExchange(FStarted, 0, 0) = 1);
 end;
 
 procedure TCrossSslServer.SetActive(const Value: Boolean);
@@ -112,7 +112,13 @@ var
 begin
   inherited;
 
+  // Delphi Tokyo 10.2以上的版本 AtomicCmpExchange 可以操作 Word 类型的变量
+  // 更老的版本会触发异常
+  {$IF CompilerVersion >= 32.0}
   LPort := AtomicCmpExchange(FPort, 0, 0);
+  {$ELSE}
+  LPort := FPort;
+  {$ENDIF}
 
   // 如果是监听的随机端口
   // 则在监听成功之后将实际的端口取出来

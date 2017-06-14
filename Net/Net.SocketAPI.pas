@@ -173,7 +173,7 @@ type
     /// <summary>
     ///   设置Linger参数(在closesocket()调用, 但是还有数据没发送完毕时容许逗留的秒数)
     /// </summary>
-    class function SetLinger(ASocket: THandle; ALinger: Integer): Integer; static;
+    class function SetLinger(ASocket: THandle; const AOnOff: Boolean; ALinger: Integer): Integer; static;
 
     /// <summary>
     ///   设置广播SO_BROADCAST
@@ -623,19 +623,15 @@ begin
 end;
 
 class function TSocketAPI.SetLinger(ASocket: THandle;
-  ALinger: Integer): Integer;
+  const AOnOff: Boolean; ALinger: Integer): Integer;
 var
   LLinger: linger;
 begin
-  if (ALinger > 0) then
-  begin
-    LLinger.l_onoff := 1;
-    LLinger.l_linger := ALinger;
-  end else
-  begin
+  if AOnOff then
+    LLinger.l_onoff := 1
+  else
     LLinger.l_onoff := 0;
-    LLinger.l_linger := 0;
-  end;
+  LLinger.l_linger := ALinger;
   Result := SetSockOpt(ASocket, SOL_SOCKET, SO_LINGER, LLinger, SizeOf(linger));
 end;
 

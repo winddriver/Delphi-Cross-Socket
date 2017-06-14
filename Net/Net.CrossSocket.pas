@@ -112,6 +112,8 @@ type
   ['{13C2A39E-C918-49B9-BBD3-A99110F94D1B}']
     function GetOwner: TCustomCrossSocket;
     function GetSocket: THandle;
+    function GetLocalAddr: string;
+    function GetLocalPort: Word;
     function GetPeerAddr: string;
     function GetPeerPort: Word;
     function GetConnectType: TConnectType;
@@ -203,6 +205,16 @@ type
     property Socket: THandle read GetSocket;
 
     /// <summary>
+    ///   本地IP地址
+    /// </summary>
+    property LocalAddr: string read GetLocalAddr;
+
+    /// <summary>
+    ///   本地端口
+    /// </summary>
+    property LocalPort: Word read GetLocalPort;
+
+    /// <summary>
     ///   连接IP地址
     /// </summary>
     property PeerAddr: string read GetPeerAddr;
@@ -234,12 +246,14 @@ type
   private
     FOwner: TCustomCrossSocket;
     FSocket: THandle;
-    FPeerAddr: string;
-    FPeerPort: Word;
+    FLocalAddr, FPeerAddr: string;
+    FLocalPort, FPeerPort: Word;
     FConnectType: Integer;
 
     function GetOwner: TCustomCrossSocket;
     function GetSocket: THandle;
+    function GetLocalAddr: string;
+    function GetLocalPort: Word;
     function GetPeerAddr: string;
     function GetPeerPort: Word;
     function GetConnectType: TConnectType;
@@ -686,6 +700,16 @@ begin
   end;
 end;
 
+function TCrossConnection.GetLocalAddr: string;
+begin
+  Result := FLocalAddr;
+end;
+
+function TCrossConnection.GetLocalPort: Word;
+begin
+  Result := FLocalPort;
+end;
+
 function TCrossConnection.GetOwner: TCustomCrossSocket;
 begin
   Result := FOwner;
@@ -828,6 +852,7 @@ end;
 procedure TCustomCrossSocket.TriggerConnected(ASocket: THandle;
   AConnectType: Integer);
 var
+  LConnObj: TCrossConnection;
   LConnection: ICrossConnection;
   LAddr: TRawSockAddrIn;
 begin
@@ -837,17 +862,20 @@ begin
   try
     if Assigned(FConnections) then
     begin
-      LConnection := GetConnectionClass.Create;
-      (LConnection as TCrossConnection).FOwner := Self;
-      (LConnection as TCrossConnection).FSocket := ASocket;
-      (LConnection as TCrossConnection).FConnectType := AConnectType;
+      LConnObj := GetConnectionClass.Create;
+      LConnection := LConnObj;
+      LConnObj.FOwner := Self;
+      LConnObj.FSocket := ASocket;
+      LConnObj.FConnectType := AConnectType;
       FillChar(LAddr, SizeOf(TRawSockAddrIn), 0);
       LAddr.AddrLen := SizeOf(LAddr.Addr6);
       if (TSocketAPI.GetPeerName(ASocket, @LAddr.Addr, LAddr.AddrLen) = 0) then
         TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen,
-          (LConnection as TCrossConnection).FPeerAddr,
-          (LConnection as TCrossConnection).FPeerPort);
-      LConnection.Initialize;
+          LConnObj.FPeerAddr, LConnObj.FPeerPort);
+      if (TSocketAPI.GetSockName(ASocket, @LAddr.Addr, LAddr.AddrLen) = 0) then
+        TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen,
+          LConnObj.FLocalAddr, LConnObj.FLocalPort);
+      LConnObj.Initialize;
 
       FConnections.AddOrSetValue(ASocket, LConnection);
     end else
@@ -855,6 +883,28 @@ begin
   finally
     FConnectionsLocker.EndWrite;
   end;
+
+//  FConnectionsLocker.BeginWrite;
+//  try
+//    if Assigned(FConnections) then
+//    begin
+//      LConnection := GetConnectionClass.Create;
+//      (LConnection as TCrossConnection).FOwner := Self;
+//      (LConnection as TCrossConnection).FSocket := ASocket;
+//      (LConnection as TCrossConnection).FConnectType := AConnectType;
+//      FillChar(LAddr, SizeOf(TRawSockAddrIn), 0);
+//      LAddr.AddrLen := SizeOf(LAddr.Addr6);
+//      if (TSocketAPI.GetPeerName(ASocket, @LAddr.Addr, LAddr.AddrLen) = 0) then
+//        TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen,
+//          (LConnection as TCrossConnection).FPeerAddr, (LConnection as TCrossConnection).FPeerPort);
+//      (LConnection as TCrossConnection).Initialize;
+//
+//      FConnections.AddOrSetValue(ASocket, LConnection);
+//    end else
+//      LConnection := nil;
+//  finally
+//    FConnectionsLocker.EndWrite;
+//  end;
 
   if (LConnection <> nil) then
   begin

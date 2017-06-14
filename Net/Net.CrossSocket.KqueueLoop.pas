@@ -748,7 +748,7 @@ begin
   if (LRet < 0) then
   begin
     LRet := GetLastError;
-    Writeln('error:', LRet);
+//    Writeln('error:', LRet);
     // EINTR, kevent 调用被系统中断打断, 可以进行重试
     Exit(LRet = EINTR);
   end;
