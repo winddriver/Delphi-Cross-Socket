@@ -1,4 +1,4 @@
-{******************************************************************************}
+ï»¿{******************************************************************************}
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
@@ -37,7 +37,7 @@ type
     TPerIoBufUnion = record
       case Integer of
         0: (DataBuf: WSABUF);
-        // Õâ¸öBufferÖ»ÓÃÓÚAcceptEx±£´æÖÕ¶ËµØÖ·Êı¾İ£¬´óĞ¡Îª2±¶µØÖ·½á¹¹
+        // è¿™ä¸ªBufferåªç”¨äºAcceptExä¿å­˜ç»ˆç«¯åœ°å€æ•°æ®ï¼Œå¤§å°ä¸º2å€åœ°å€ç»“æ„
         1: (AcceptExBuffer: TAcceptExBuffer);
     end;
 
@@ -190,10 +190,13 @@ begin
     Exit;
   end;
 
-  if NewReadZero(APerIoData.Socket) then
-    TriggerConnected(APerIoData.Socket, CT_ACCEPT)
-  else
-    TSocketAPI.CloseSocket(APerIoData.Socket);
+  TriggerConnected(APerIoData.Socket, CT_ACCEPT);
+
+  if not NewReadZero(APerIoData.Socket) then
+  begin
+    if (TSocketAPI.CloseSocket(APerIoData.Socket) = 0) then
+      TriggerDisconnected(APerIoData.Socket);
+  end;
 end;
 
 procedure TIocpLoop.RequestConnectComplete(ASocket: THandle;
@@ -209,39 +212,51 @@ var
       APerIoData.Callback(ASocket, True);
   end;
 
-  procedure _Failed;
+  procedure _Failed1;
   begin
     {$IFDEF DEBUG}
     __RaiseLastOSError;
     {$ENDIF}
-    TSocketAPI.CloseSocket(ASocket);
 
+    TSocketAPI.CloseSocket(ASocket);
     TriggerConnectFailed(ASocket);
 
     if Assigned(APerIoData.Callback) then
       APerIoData.Callback(ASocket, False);
   end;
 
+  procedure _Failed2;
+  begin
+    {$IFDEF DEBUG}
+    __RaiseLastOSError;
+    {$ENDIF}
+
+    if (TSocketAPI.CloseSocket(ASocket) = 0) then
+      TriggerDisconnected(ASocket);
+
+    if Assigned(APerIoData.Callback) then
+      APerIoData.Callback(ASocket, False);
+  end;
 begin
   if (TSocketAPI.GetError(ASocket) <> 0) then
   begin
-    _Failed;
+    _Failed1;
     Exit;
   end;
 
-  // ²»ÉèÖÃ¸Ã²ÎÊı, »áµ¼ÖÂ getpeername µ÷ÓÃÊ§°Ü
+  // ä¸è®¾ç½®è¯¥å‚æ•°, ä¼šå¯¼è‡´ getpeername è°ƒç”¨å¤±è´¥
   LOptVal := 1;
   if (TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET,
     SO_UPDATE_CONNECT_CONTEXT, LOptVal, SizeOf(Integer)) < 0) then
   begin
-    _Failed;
+    _Failed1;
     Exit;
   end;
 
-  if NewReadZero(ASocket) then
-    _Success
-  else
-    _Failed;
+  _Success;
+
+  if not NewReadZero(ASocket) then
+    _Failed2;
 end;
 
 procedure TIocpLoop.RequestReadZeroComplete(ASocket: THandle;
@@ -253,7 +268,7 @@ begin
   begin
     LRcvd := TSocketAPI.Recv(ASocket, FRecvBuf[0], RCV_BUF_SIZE);
 
-    // ¶Ô·½Ö÷¶¯¶Ï¿ªÁ¬½Ó
+    // å¯¹æ–¹ä¸»åŠ¨æ–­å¼€è¿æ¥
     if (LRcvd = 0) then
     begin
       if (TSocketAPI.CloseSocket(ASocket) = 0) then
@@ -263,7 +278,7 @@ begin
 
     if (LRcvd < 0) then
     begin
-      // ĞèÒªÖØÊÔ
+      // éœ€è¦é‡è¯•
       if _Again(GetLastError) then Break;
 
       if (TSocketAPI.CloseSocket(ASocket) = 0) then
@@ -520,13 +535,13 @@ begin
         Exit(-1);
       end;
 
-      // ¸øÃ¿¸öIOÏß³ÌÍ¶µİÒ»¸öAcceptEx
+      // ç»™æ¯ä¸ªIOçº¿ç¨‹æŠ•é€’ä¸€ä¸ªAcceptEx
       for I := 1 to GetIoThreads do
         NewAccept(LSocket, LAddrInfo.ai_family, LAddrInfo.ai_socktype, LAddrInfo.ai_protocol);
 
       _Success;
 
-      // Èç¹û¶Ë¿Ú´«Èë0£¬ÈÃËùÓĞµØÖ·Í³Ò»ÓÃÊ×¸ö·ÖÅäµ½µÄ¶Ë¿Ú
+      // å¦‚æœç«¯å£ä¼ å…¥0ï¼Œè®©æ‰€æœ‰åœ°å€ç»Ÿä¸€ç”¨é¦–ä¸ªåˆ†é…åˆ°çš„ç«¯å£
       if (APort = 0) and (LAddrInfo.ai_next <> nil) then
         LAddrInfo.ai_next.ai_addr.sin_port := LAddrInfo.ai_addr.sin_port;
 
@@ -554,22 +569,22 @@ begin
 
   LFlags := 0;
   LBytes := 0;
-  // WSASend ²»»á³öÏÖ²¿·Ö·¢ËÍµÄÇé¿ö, ÒªÃ´È«²¿Ê§°Ü, ÒªÃ´È«²¿³É¹¦
-  // ËùÒÔ²»ĞèÒªÏñ kqueue »ò epoll ÖĞµ÷ÓÃ send ÄÇÑùµ÷ÓÃÍêÖ®ºó»¹µÃ¼ì²éÊµ¼Ê·¢ËÍÁË¶àÉÙ
-  // Î¨Ò»ĞèÒª×¢ÒâµÄÊÇ: WSASend »á½«´ı·¢ËÍµÄÊı¾İËø¶¨µ½·ÇÒ³ÃæÄÚ´æ, ·ÇÒ³ÃæÄÚ´æ×ÊÔ´
-  // ÊÇ·Ç³£½ôÕÅµÄ, ËùÒÔ²»ÒªÎŞ½ÚÖÆµÄµ÷ÓÃ WSASend, ×îºÃÍ¨¹ı»Øµ÷·¢ËÍÍêÒ»ÅúÊı¾İÔÙ¼Ì
-  // Ğø·¢ËÍÏÂÒ»Åú
+  // WSASend ä¸ä¼šå‡ºç°éƒ¨åˆ†å‘é€çš„æƒ…å†µ, è¦ä¹ˆå…¨éƒ¨å¤±è´¥, è¦ä¹ˆå…¨éƒ¨æˆåŠŸ
+  // æ‰€ä»¥ä¸éœ€è¦åƒ kqueue æˆ– epoll ä¸­è°ƒç”¨ send é‚£æ ·è°ƒç”¨å®Œä¹‹åè¿˜å¾—æ£€æŸ¥å®é™…å‘é€äº†å¤šå°‘
+  // å”¯ä¸€éœ€è¦æ³¨æ„çš„æ˜¯: WSASend ä¼šå°†å¾…å‘é€çš„æ•°æ®é”å®šåˆ°éé¡µé¢å†…å­˜, éé¡µé¢å†…å­˜èµ„æº
+  // æ˜¯éå¸¸ç´§å¼ çš„, æ‰€ä»¥ä¸è¦æ— èŠ‚åˆ¶çš„è°ƒç”¨ WSASend, æœ€å¥½é€šè¿‡å›è°ƒå‘é€å®Œä¸€æ‰¹æ•°æ®å†ç»§
+  // ç»­å‘é€ä¸‹ä¸€æ‰¹
   if (WSASend(ASocket, @LPerIoData.Buffer.DataBuf, 1, LBytes, LFlags, PWSAOverlapped(LPerIoData), nil) < 0)
     and (WSAGetLastError <> WSA_IO_PENDING) then
   begin
     if Assigned(ACallback) then
       ACallback(ASocket, False);
 
-    // ³ö´í¶à°ëÊÇ WSAENOBUFS, Ò²¾ÍÊÇÍ¶µİµÄ WSASend ¹ı¶à, À´²»¼°·¢ËÍ
-    // µ¼ÖÂ·ÇÒ³ÃæÄÚ´æ×ÊÔ´È«²¿±»Ëø¶¨, Òª±ÜÃâÕâÖÖÇé¿ö±ØĞëÉÏ²ã·¢ËÍÂß¼­
-    // ±£Ö¤²»ÄÜÎŞ½ÚÖÆµÄµ÷ÓÃSend·¢ËÍ´óÁ¿Êı¾İ, ×îºÃ·¢ËÍÍêÒ»¸öÔÙ¼ÌĞøÏÂ
-    // Ò»¸ö, ±¾º¯ÊıÌá¹©ÁË·¢ËÍ½á¹ûµÄ»Øµ÷º¯Êı, ÔÚ»Øµ÷º¯Êı±¨¸æ·¢ËÍ³É¹¦
-    // Ö®ºó¾Í¿ÉÒÔ¼ÌĞøÏÂÒ»¿éÊı¾İ·¢ËÍÁË
+    // å‡ºé”™å¤šåŠæ˜¯ WSAENOBUFS, ä¹Ÿå°±æ˜¯æŠ•é€’çš„ WSASend è¿‡å¤š, æ¥ä¸åŠå‘é€
+    // å¯¼è‡´éé¡µé¢å†…å­˜èµ„æºå…¨éƒ¨è¢«é”å®š, è¦é¿å…è¿™ç§æƒ…å†µå¿…é¡»ä¸Šå±‚å‘é€é€»è¾‘
+    // ä¿è¯ä¸èƒ½æ— èŠ‚åˆ¶çš„è°ƒç”¨Sendå‘é€å¤§é‡æ•°æ®, æœ€å¥½å‘é€å®Œä¸€ä¸ªå†ç»§ç»­ä¸‹
+    // ä¸€ä¸ª, æœ¬å‡½æ•°æä¾›äº†å‘é€ç»“æœçš„å›è°ƒå‡½æ•°, åœ¨å›è°ƒå‡½æ•°æŠ¥å‘Šå‘é€æˆåŠŸ
+    // ä¹‹åå°±å¯ä»¥ç»§ç»­ä¸‹ä¸€å—æ•°æ®å‘é€äº†
     FreeIoData(LPerIoData);
     if (TSocketAPI.CloseSocket(ASocket) = 0) then
       TriggerDisconnected(ASocket);
@@ -587,8 +602,8 @@ var
 begin
   if not GetQueuedCompletionStatus(FIocpHandle, LBytes, ULONG_PTR(LSocket), POverlapped(LPerIoData), INFINITE) then
   begin
-    // ³ö´íÁË, ²¢ÇÒÍê³ÉÊı¾İÒ²¶¼ÊÇ¿ÕµÄ,
-    // ÕâÖÖÇé¿ö¼´±ãÖØÊÔ, Ó¦¸ÃÒ²»á¼ÌĞø³ö´í, ×îºÃÁ¢¼´ÖÕÖ¹IOÏß³Ì
+    // å‡ºé”™äº†, å¹¶ä¸”å®Œæˆæ•°æ®ä¹Ÿéƒ½æ˜¯ç©ºçš„,
+    // è¿™ç§æƒ…å†µå³ä¾¿é‡è¯•, åº”è¯¥ä¹Ÿä¼šç»§ç»­å‡ºé”™, æœ€å¥½ç«‹å³ç»ˆæ­¢IOçº¿ç¨‹
     if (LSocket = 0) or (LPerIoData = nil) then
     begin
       {$IFDEF DEBUG}
@@ -600,19 +615,19 @@ begin
     try
       case LPerIoData.Action of
         ioAccept:
-          // WSA_OPERATION_ABORTED, 995, ÓÉÓÚÏß³ÌÍË³ö»òÓ¦ÓÃ³ÌĞòÇëÇó£¬ÒÑÖĞÖ¹ I/O ²Ù×÷¡£
-          // WSAENOTSOCK, 10038, ÔÚÒ»¸ö·ÇÌ×½Ó×ÖÉÏ³¢ÊÔÁËÒ»¸ö²Ù×÷¡£
-          // ÔÚÖ÷¶¯¹Ø±Õ¼àÌıµÄsocketÊ±»á³öÏÖ¸Ã´íÎó, ÕâÊ±ºòÖ»ĞèÒª¼òµ¥µÄ¹Øµô
-          // AcceptEx¶ÔÓ¦µÄ¿Í»§¶Ësocket¼´¿É
+          // WSA_OPERATION_ABORTED, 995, ç”±äºçº¿ç¨‹é€€å‡ºæˆ–åº”ç”¨ç¨‹åºè¯·æ±‚ï¼Œå·²ä¸­æ­¢ I/O æ“ä½œã€‚
+          // WSAENOTSOCK, 10038, åœ¨ä¸€ä¸ªéå¥—æ¥å­—ä¸Šå°è¯•äº†ä¸€ä¸ªæ“ä½œã€‚
+          // åœ¨ä¸»åŠ¨å…³é—­ç›‘å¬çš„socketæ—¶ä¼šå‡ºç°è¯¥é”™è¯¯, è¿™æ—¶å€™åªéœ€è¦ç®€å•çš„å…³æ‰
+          // AcceptExå¯¹åº”çš„å®¢æˆ·ç«¯socketå³å¯
           TSocketAPI.CloseSocket(LPerIoData.Socket);
 
         ioConnect:
-          // ERROR_CONNECTION_REFUSED, 1225, Ô¶³Ì¼ÆËã»ú¾Ü¾øÍøÂçÁ¬½Ó¡£
+          // ERROR_CONNECTION_REFUSED, 1225, è¿œç¨‹è®¡ç®—æœºæ‹’ç»ç½‘ç»œè¿æ¥ã€‚
           if (TSocketAPI.CloseSocket(LSocket) = 0) then
           begin
             TriggerConnectFailed(LSocket);
             if Assigned(LPerIoData.Callback) then
-              TProc<THandle, Boolean>(LPerIoData.Callback)(LSocket, False);
+              LPerIoData.Callback(LSocket, False);
           end;
 
         ioReadZero:
@@ -622,7 +637,7 @@ begin
         ioSend:
           begin
             if Assigned(LPerIoData.Callback) then
-              TProc<Boolean>(LPerIoData.Callback)(False);
+              LPerIoData.Callback(LSocket, False);
 
             if (TSocketAPI.CloseSocket(LSocket) = 0) then
               TriggerDisconnected(LSocket);
@@ -632,15 +647,15 @@ begin
       FreeIoData(LPerIoData);
     end;
 
-    // ³ö´íÁË, µ«ÊÇÍê³ÉÊı¾İ²»ÊÇ¿ÕµÄ, ĞèÒªÖØÊÔ
+    // å‡ºé”™äº†, ä½†æ˜¯å®Œæˆæ•°æ®ä¸æ˜¯ç©ºçš„, éœ€è¦é‡è¯•
     Exit(True);
   end;
 
-  // Ö÷¶¯µ÷ÓÃÁË StopLoop
+  // ä¸»åŠ¨è°ƒç”¨äº† StopLoop
   if (LBytes = 0) and (ULONG_PTR(LPerIoData) = SHUTDOWN_FLAG) then Exit(False);
 
-  // ÓÉÓÚÎ´ÖªÔ­ÒòÎ´»ñÈ¡µ½Íê³ÉÊı¾İ, µ«ÊÇ·µ»ØµÄ´íÎó´úÂëÓÖÊÇÕı³£
-  // ÕâÖÖÇé¿öĞèÒª½øĞĞÖØÊÔ(·µ»ØTrueÖ®ºóIOÏß³Ì»áÔÙ´Îµ÷ÓÃProcessIoEvent)
+  // ç”±äºæœªçŸ¥åŸå› æœªè·å–åˆ°å®Œæˆæ•°æ®, ä½†æ˜¯è¿”å›çš„é”™è¯¯ä»£ç åˆæ˜¯æ­£å¸¸
+  // è¿™ç§æƒ…å†µéœ€è¦è¿›è¡Œé‡è¯•(è¿”å›Trueä¹‹åIOçº¿ç¨‹ä¼šå†æ¬¡è°ƒç”¨ProcessIoEvent)
   if (LSocket = 0) or (LPerIoData = nil) then Exit(True);
 
   try

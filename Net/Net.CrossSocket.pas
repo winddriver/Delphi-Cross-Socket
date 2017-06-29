@@ -281,6 +281,8 @@ type
 
     property Owner: TCustomCrossSocket read GetOwner;
     property Socket: THandle read GetSocket;
+    property LocalAddr: string read GetLocalAddr;
+    property LocalPort: Word read GetLocalPort;
     property PeerAddr: string read GetPeerAddr;
     property PeerPort: Word read GetPeerPort;
     property ConnectType: TConnectType read GetConnectType;
@@ -390,7 +392,7 @@ type
     ///   回调函数
     /// </param>
     /// <returns>
-    ///   返回值只能表明Connect调用是否成功
+    ///   返回值只能表明 connect 调用是否成功
     ///   <list type="bullet">
     ///     <item>
     ///       0, 调用成功
@@ -399,7 +401,7 @@ type
     ///       非0, 调用失败
     ///     </item>
     ///   </list>
-    ///   当OnConnected触发时才表明连接建立, 而OnConnectFailed触发则表明连接失败
+    ///   当回调被触发时才表明连接建立或连接失败
     /// </returns>
     function Connect(const AHost: string; APort: Word;
       const ACallback: TProc<THandle, Boolean> = nil): Integer; override;
@@ -430,8 +432,11 @@ type
     /// <param name="APort">
     ///   端口
     /// </param>
+    /// <param name="ACallback">
+    ///   回调函数
+    /// </param>
     /// <returns>
-    ///   返回值只能表明bind是否调用成功
+    ///   返回值只能表明 bind 是否调用成功
     ///   <list type="bullet">
     ///     <item>
     ///       0, 调用成功
@@ -440,7 +445,7 @@ type
     ///       非0, 调用失败
     ///     </item>
     ///   </list>
-    ///   当OnListened触发时才表明监听成功
+    ///   当回调被触发时才表明监听成功或失败
     /// </returns>
     function Listen(const AHost: string; APort: Word;
       const ACallback: TProc<THandle, Boolean> = nil): Integer; override;
@@ -488,7 +493,7 @@ type
 implementation
 
 uses
-  System.Math;
+  System.Math, Utils.Logger;
 
 { TCrossConnection }
 
@@ -525,7 +530,6 @@ var
   LBuffer: Pointer;
 begin
   LConnection := Self as ICrossConnection;
-  LBuffer := @ABuffer;
 
   if (FSocket = INVALID_HANDLE_VALUE) then
   begin
@@ -534,6 +538,7 @@ begin
     Exit;
   end;
 
+  LBuffer := @ABuffer;
   FOwner.Send(FSocket, ABuffer, ACount,
     procedure(ASocket: THandle; ASuccess: Boolean)
     begin
@@ -883,28 +888,6 @@ begin
   finally
     FConnectionsLocker.EndWrite;
   end;
-
-//  FConnectionsLocker.BeginWrite;
-//  try
-//    if Assigned(FConnections) then
-//    begin
-//      LConnection := GetConnectionClass.Create;
-//      (LConnection as TCrossConnection).FOwner := Self;
-//      (LConnection as TCrossConnection).FSocket := ASocket;
-//      (LConnection as TCrossConnection).FConnectType := AConnectType;
-//      FillChar(LAddr, SizeOf(TRawSockAddrIn), 0);
-//      LAddr.AddrLen := SizeOf(LAddr.Addr6);
-//      if (TSocketAPI.GetPeerName(ASocket, @LAddr.Addr, LAddr.AddrLen) = 0) then
-//        TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen,
-//          (LConnection as TCrossConnection).FPeerAddr, (LConnection as TCrossConnection).FPeerPort);
-//      (LConnection as TCrossConnection).Initialize;
-//
-//      FConnections.AddOrSetValue(ASocket, LConnection);
-//    end else
-//      LConnection := nil;
-//  finally
-//    FConnectionsLocker.EndWrite;
-//  end;
 
   if (LConnection <> nil) then
   begin
