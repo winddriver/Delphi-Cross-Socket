@@ -801,14 +801,32 @@ type
     /// <param name="AStatusCode">
     ///   状态码
     /// </param>
+    /// <param name="ACallback">
+    ///   回调函数
+    /// </param>
+    /// <remarks>
+    ///   该方法根据状态码生成默认的body数据
+    /// </remarks>
+    procedure SendStatus(AStatusCode: Integer;
+      ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
+
+    /// <summary>
+    ///   发送状态码
+    /// </summary>
+    /// <param name="AStatusCode">
+    ///   状态码
+    /// </param>
     /// <param name="ADescription">
     ///   描述信息
     /// </param>
     /// <param name="ACallback">
     ///   回调函数
     /// </param>
-    procedure SendStatus(AStatusCode: Integer; const ADescription: string = '';
-      ACallback: TProc<ICrossConnection, Boolean> = nil);
+    /// <remarks>
+    ///   描述信息即是body数据, 如果设置为空, 则body也为空
+    /// </remarks>
+    procedure SendStatus(AStatusCode: Integer; const ADescription: string;
+      ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
 
     /// <summary>
     ///   发送重定向Url命令
@@ -934,8 +952,10 @@ type
 
     procedure SendFile(const AFileName: string; ACallback: TProc<ICrossConnection, Boolean> = nil);
     procedure Download(const AFileName: string; ACallback: TProc<ICrossConnection, Boolean> = nil);
-    procedure SendStatus(AStatusCode: Integer; const ADescription: string = '';
-      ACallback: TProc<ICrossConnection, Boolean> = nil);
+    procedure SendStatus(AStatusCode: Integer;
+      ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
+    procedure SendStatus(AStatusCode: Integer; const ADescription: string;
+      ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
     procedure Redirect(const AUrl: string; ACallback: TProc<ICrossConnection, Boolean> = nil);
     procedure Attachment(const AFileName: string);
     {$endregion}
@@ -946,8 +966,13 @@ type
 
   ICrossHttpRouter = interface
   ['{2B095450-6A5D-450F-8DCD-6911526C733F}']
+    function GetMethod: string;
+    function GetPath: string;
     function IsMatch(ARequest: ICrossHttpRequest): Boolean;
     procedure Execute(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean);
+
+    property Method: string read GetMethod;
+    property Path: string read GetPath;
   end;
 
   TCrossHttpRouterProc = reference to procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse);
@@ -969,6 +994,9 @@ type
     function MakeMethodPattern(const AMethod: string): string;
     function MakePathPattern(const APath: string; var AKeys: TArray<string>): string;
     procedure RemakePattern;
+
+    function GetMethod: string;
+    function GetPath: string;
   public
     constructor Create(const AMethod, APath: string;
       ARouterProc: TCrossHttpRouterProc;
@@ -980,6 +1008,8 @@ type
     function IsMatch(ARequest: ICrossHttpRequest): Boolean;
     procedure Execute(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean);
   end;
+
+  TCrossHttpRouters = TList<ICrossHttpRouter>;
 
   TCrossHttpConnEvent = procedure(Sender: TObject; AConnection: ICrossConnection) of object;
   TCrossHttpRequestEvent = procedure(Sender: TObject; ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean) of object;
@@ -1054,8 +1084,6 @@ type
   ///   end);</code>
   /// </example>
   TCrossHttpServer = class({$IFDEF __CROSS_SSL__}TCrossSslServer{$ELSE}TCrossServer{$ENDIF})
-  private type
-    TCrossHttpRouters = TList<ICrossHttpRouter>;
   private const
     HTTP_METHOD_COUNT = 16;
     HTTP_METHODS: array [0..HTTP_METHOD_COUNT-1] of string = (
@@ -1676,6 +1704,12 @@ type
     /// </param>
     procedure SetSessions(const ASessions: ISessions);
 
+    function LockRouters: TCrossHttpRouters;
+    procedure UnlockRouters;
+
+    function LockMiddlewares: TCrossHttpRouters;
+    procedure UnlockMiddlewares;
+
     /// <summary>
     ///   上传文件保存路径
     /// </summary>
@@ -2020,6 +2054,16 @@ begin
   begin
     FRouterMethod2(ARequest, AResponse, AHandled);
   end;
+end;
+
+function TCrossHttpRouter.GetMethod: string;
+begin
+  Result := FMethod;
+end;
+
+function TCrossHttpRouter.GetPath: string;
+begin
+  Result := FPath;
 end;
 
 { TCrossHttpServer }
@@ -2739,6 +2783,18 @@ begin
     FOnPostDataEnd(Self, AConnection);
 end;
 
+function TCrossHttpServer.LockMiddlewares: TCrossHttpRouters;
+begin
+  Result := FMiddlewares;
+  FMiddlewaresLock.BeginWrite;
+end;
+
+function TCrossHttpServer.LockRouters: TCrossHttpRouters;
+begin
+  Result := FRouters;
+  FRoutersLock.BeginWrite;
+end;
+
 procedure TCrossHttpServer.LogicReceived(AConnection: ICrossConnection;
   ABuf: Pointer; ALen: Integer);
 begin
@@ -2773,6 +2829,16 @@ function TCrossHttpServer.Use(
   AMiddlewareMethod: TCrossHttpRouterMethod): TCrossHttpServer;
 begin
   Result := Use('*', '*', AMiddlewareMethod);
+end;
+
+procedure TCrossHttpServer.UnlockMiddlewares;
+begin
+  FMiddlewaresLock.EndWrite;
+end;
+
+procedure TCrossHttpServer.UnlockRouters;
+begin
+  FRoutersLock.EndWrite;
 end;
 
 function TCrossHttpServer.Use(
@@ -3408,6 +3474,11 @@ begin
     Exit;
   end;
 
+  if (GetContentType = '') then
+    SetContentType(TCrossHttpUtils.GetFileMIMEType(AFileName));
+
+  FHeader['Accept-Ranges'] := 'bytes';
+
   try
     // 根据请求头中的时间戳决定是否需要发送文件数据
     // 当请求头中的时间戳与文件时间一致时, 浏览器会自动从本地加载文件数据
@@ -3416,6 +3487,7 @@ begin
     LLastModified := TFile.GetLastWriteTime(AFileName);
     if (LRequest.IfModifiedSince > 0) and (LRequest.IfModifiedSince >= (LLastModified - (1 / SecsPerDay))) then
     begin
+      // 304不要带任何body数据, 否则部分浏览器会报告无效的RESPONSE
       SendStatus(304, '', ACallback);
       Exit;
     end;
@@ -3429,9 +3501,6 @@ begin
       Exit;
     end;
   end;
-
-  if (GetContentType = '') then
-    SetContentType(TCrossHttpUtils.GetFileMIMEType(AFileName));
 
   // 在响应头中加入文件时间戳
   // 浏览器会根据该时间戳决定是否从本地缓存中直接加载数据
@@ -3453,10 +3522,7 @@ var
   LDescription: string;
 begin
   FStatusCode := AStatusCode;
-  if (ADescription = '') then
-    LDescription := TCrossHttpUtils.GetHttpStatusText(FStatusCode)
-  else
-    LDescription := ADescription;
+  LDescription := ADescription;
 
   Send(LDescription, ACallback);
 end;
@@ -3737,6 +3803,17 @@ begin
     SetContentType('text/html; charset=utf-8');
 
   SendNoCompress(LBody, ACallback);
+end;
+
+procedure TCrossHttpResponse.SendStatus(AStatusCode: Integer;
+  ACallback: TProc<ICrossConnection, Boolean>);
+var
+  LDescription: string;
+begin
+  FStatusCode := AStatusCode;
+  LDescription := TCrossHttpUtils.GetHttpStatusText(FStatusCode);
+
+  Send(LDescription, ACallback);
 end;
 
 procedure TCrossHttpResponse.SendZCompress(
