@@ -29,7 +29,7 @@ type
     /// <param name="ALocalDir">
     ///   本地目录
     /// </param>
-    class function &Static(const ALocalDir, AFileParamName: string): TCrossHttpRouterProc; static;
+    class function &Static(const ALocalDir, AFileParamName: string): TCrossHttpRouterProc2; static;
 
     /// <summary>
     ///   文件列表路由
@@ -40,7 +40,7 @@ type
     /// <param name="ALocalDir">
     ///   本地目录
     /// </param>
-    class function Dir(const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc; static;
+    class function Dir(const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc2; static;
   end;
 
 implementation
@@ -51,17 +51,18 @@ uses
 { TNetCrossRouter }
 
 class function TNetCrossRouter.Static(
-  const ALocalDir, AFileParamName: string): TCrossHttpRouterProc;
+  const ALocalDir, AFileParamName: string): TCrossHttpRouterProc2;
 begin
   Result :=
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
       LFile: string;
     begin
+      AHandled := True;
       LFile := TPath.Combine(ALocalDir, ARequest.Params[AFileParamName]);
       if (LFile = '') then
       begin
-        AResponse.SendStatus(404);
+        AHandled := False;
         Exit;
       end;
       LFile := TPath.GetFullPath(LFile);
@@ -325,26 +326,29 @@ end;
 {$endregion}
 
 class function TNetCrossRouter.Dir(
-  const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc;
+  const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc2;
 begin
   Result :=
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
       LFile: string;
     begin
+      AHandled := True;
+
       LFile := TPath.Combine(ALocalDir, ARequest.Params[ADirParamName]);
       if (LFile = '') then
       begin
-        AResponse.SendStatus(404);
+        AHandled := False;
         Exit;
       end;
+
       LFile := TPath.GetFullPath(LFile);
       if (TDirectory.Exists(LFile)) then
         AResponse.Send(BuildDirList(LFile, ARequest.Path, APath))
       else if TFile.Exists(LFile) then
         AResponse.SendFile(LFile)
       else
-        AResponse.SendStatus(404);
+        AHandled := False;
     end;
 end;
 

@@ -88,9 +88,22 @@ begin
 
   Listen(FAddr, FPort,
     procedure(ASocket: THandle; ASuccess: Boolean)
+    var
+      LAddr: TRawSockAddrIn;
+      LStuff: string;
     begin
       if not ASuccess then
         AtomicExchange(FStarted, 0);
+
+      // 如果是监听的随机端口
+      // 则在监听成功之后将实际的端口取出来
+      if (FPort = 0) then
+      begin
+        FillChar(LAddr, SizeOf(TRawSockAddrIn), 0);
+        LAddr.AddrLen := SizeOf(LAddr.Addr6);
+        if (TSocketAPI.GetSockName(ASocket, @LAddr.Addr, LAddr.AddrLen) = 0) then
+          TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen, LStuff, FPort);
+      end;
 
       if Assigned(ACallback) then
         ACallback(ASuccess);

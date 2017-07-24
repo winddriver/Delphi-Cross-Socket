@@ -1,4 +1,4 @@
-{******************************************************************************}
+ï»¿{******************************************************************************}
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
@@ -17,39 +17,39 @@ uses
   BSD.kqueue, Net.SocketAPI, Net.CrossSocket.EventLoop;
 
 type
-  // KQUEUE Óë EPOLL ¶ÓÁĞµÄ²îÒì
-  //    KQUEUEµÄ¶ÓÁĞÖĞ, Ò»¸öSocket¾ä±ú¿ÉÒÔÓĞ¶àÌõ¼ÇÂ¼, Ã¿¸öÊÂ¼şÒ»Ìõ,
-  //    ÕâÒ»µãºÍ EPOLL ²»Ò»Ñù, EPOLLÖĞÃ¿¸öSocket¾ä±úÖ»»áÓĞÒ»Ìõ¼ÇÂ¼
-  //    Òª¼à²â¶à¸öÊÂ¼şÊ±, Ö»ĞèÒª½«¶à¸öÊÂ¼ş×öÎ»ÔËËã¼ÓÔÚÒ»Æğµ÷ÓÃ epoll_ctl ¼´¿É
+  // KQUEUE ä¸ EPOLL é˜Ÿåˆ—çš„å·®å¼‚
+  //    KQUEUEçš„é˜Ÿåˆ—ä¸­, ä¸€ä¸ªSocketå¥æŸ„å¯ä»¥æœ‰å¤šæ¡è®°å½•, æ¯ä¸ªäº‹ä»¶ä¸€æ¡,
+  //    è¿™ä¸€ç‚¹å’Œ EPOLL ä¸ä¸€æ ·, EPOLLä¸­æ¯ä¸ªSocketå¥æŸ„åªä¼šæœ‰ä¸€æ¡è®°å½•
+  //    è¦ç›‘æµ‹å¤šä¸ªäº‹ä»¶æ—¶, åªéœ€è¦å°†å¤šä¸ªäº‹ä»¶åšä½è¿ç®—åŠ åœ¨ä¸€èµ·è°ƒç”¨ epoll_ctl å³å¯
   //
-  // EV_DISPATCH ºÍ EV_CLEAR ÊÇÁî kqueue Ö§³ÖÏß³Ì³ØµÄ¹Ø¼ü
-  //    ¸Ã²ÎÊı×éºÏ¿ÉÒÔÁîÊÂ¼ş´¥·¢ºó¾ÍÁ¢¼´±»½ûÓÃ, ±ÜÃâÈÃÍ¬Ò»¸öSocketµÄÍ¬Ò»¸öÊÂ¼ş
-  //    Í¬Ê±±»¶à¸ö¹¤×÷Ïß³Ì´¥·¢
+  // EV_DISPATCH å’Œ EV_CLEAR æ˜¯ä»¤ kqueue æ”¯æŒçº¿ç¨‹æ± çš„å…³é”®
+  //    è¯¥å‚æ•°ç»„åˆå¯ä»¥ä»¤äº‹ä»¶è§¦å‘åå°±ç«‹å³è¢«ç¦ç”¨, é¿å…è®©åŒä¸€ä¸ªSocketçš„åŒä¸€ä¸ªäº‹ä»¶
+  //    åŒæ—¶è¢«å¤šä¸ªå·¥ä½œçº¿ç¨‹è§¦å‘
   //
   // EVFILT_READ
-  //    ÓÃÓÚ¼à²â½ÓÊÕ»º³åÇøÊÇ·ñ¿É¶ÁÁË
-  //    ¶ÔÓÚ¼àÌıSocketÀ´Ëµ,±íÊ¾ÓĞĞÂµÄÁ¬½Óµ½À´
-  //    ¶ÔÓÚÒÑÁ¬½ÓµÄSocketÀ´Ëµ,±íÊ¾ÓĞÊı¾İµ½´ï½ÓÊÕ»º³åÇø
-  //    ÎªÁËÖ§³ÖÏß³Ì³Ø, ±ØĞë´øÉÏ²ÎÊı EV_CLEAR or EV_DISPATCH
-  //    ¸Ã²ÎÊı×éºÏ±íÊ¾, ¸ÃÊÂ¼şÒ»µ©´¥·¢Á¢¼´Çå³ı¸ÃÊÂ¼şµÄ×´Ì¬²¢½ûÓÃËü
-  //    ´¦ÀíÍêÁ¬½Ó»òÕß¶ÁÈ¡Êı¾İÖ®ºóÔÙÍ¶µİÒ»´Î EVFILT_READ, ´øÉÏ²ÎÊı
-  //    EV_ENABLE or EV_CLEAR or EV_DISPATCH, ÈÃÊÂ¼ş¼ÌĞø¼à²â
+  //    ç”¨äºç›‘æµ‹æ¥æ”¶ç¼“å†²åŒºæ˜¯å¦å¯è¯»äº†
+  //    å¯¹äºç›‘å¬Socketæ¥è¯´,è¡¨ç¤ºæœ‰æ–°çš„è¿æ¥åˆ°æ¥
+  //    å¯¹äºå·²è¿æ¥çš„Socketæ¥è¯´,è¡¨ç¤ºæœ‰æ•°æ®åˆ°è¾¾æ¥æ”¶ç¼“å†²åŒº
+  //    ä¸ºäº†æ”¯æŒçº¿ç¨‹æ± , å¿…é¡»å¸¦ä¸Šå‚æ•° EV_CLEAR or EV_DISPATCH
+  //    è¯¥å‚æ•°ç»„åˆè¡¨ç¤º, è¯¥äº‹ä»¶ä¸€æ—¦è§¦å‘ç«‹å³æ¸…é™¤è¯¥äº‹ä»¶çš„çŠ¶æ€å¹¶ç¦ç”¨å®ƒ
+  //    å¤„ç†å®Œè¿æ¥æˆ–è€…è¯»å–æ•°æ®ä¹‹åå†æŠ•é€’ä¸€æ¬¡ EVFILT_READ, å¸¦ä¸Šå‚æ•°
+  //    EV_ENABLE or EV_CLEAR or EV_DISPATCH, è®©äº‹ä»¶ç»§ç»­ç›‘æµ‹
   //
   // EVFILT_WRITE
-  //    ÓÃÓÚ¼à²â·¢ËÍ»º³åÇøÊÇ·ñ¿ÉĞ´ÁË
-  //    ¶ÔÓÚConnectÖĞµÄSocket,Í¶µİEV_ENABLE,µÈµ½ÊÂ¼ş´¥·¢Ê±±íÊ¾Á¬½ÓÒÑ½¨Á¢
-  //    ¶ÔÓÚÒÑÁ¬½ÓµÄSocket,ÔÚSendÖ®ºóÁ¢¼´Í¶µİEVFILT_WRITE,µÈµ½ÊÂ¼ş´¥·¢Ê±±íÊ¾·¢ËÍÍê³É
-  //    ¶ÔÓÚEVFILT_WRITE¶¼Ó¦¸Ã´øÉÏEV_ONESHOT²ÎÊı,ÈÃ¸ÃÊÂ¼şÖ»»á±»´¥·¢Ò»´Î
-  //    ·ñÔò,Ö»Òª·¢ËÍ»º³åÇøÊÇ¿ÕµÄ,¸ÃÊÂ¼ş¾Í»áÒ»Ö±´¥·¢,Õâ²¢Ã»ÓĞÊ²Ã´ÒâÒå
-  //    ÎÒÃÇÖ»ĞèÒªÓÃEVFILT_WRITEÈ¥¼à²âÁ¬½Ó»òÕß·¢ËÍÊÇ·ñ³É¹¦
+  //    ç”¨äºç›‘æµ‹å‘é€ç¼“å†²åŒºæ˜¯å¦å¯å†™äº†
+  //    å¯¹äºConnectä¸­çš„Socket,æŠ•é€’EV_ENABLE,ç­‰åˆ°äº‹ä»¶è§¦å‘æ—¶è¡¨ç¤ºè¿æ¥å·²å»ºç«‹
+  //    å¯¹äºå·²è¿æ¥çš„Socket,åœ¨Sendä¹‹åç«‹å³æŠ•é€’EVFILT_WRITE,ç­‰åˆ°äº‹ä»¶è§¦å‘æ—¶è¡¨ç¤ºå‘é€å®Œæˆ
+  //    å¯¹äºEVFILT_WRITEéƒ½åº”è¯¥å¸¦ä¸ŠEV_ONESHOTå‚æ•°,è®©è¯¥äº‹ä»¶åªä¼šè¢«è§¦å‘ä¸€æ¬¡
+  //    å¦åˆ™,åªè¦å‘é€ç¼“å†²åŒºæ˜¯ç©ºçš„,è¯¥äº‹ä»¶å°±ä¼šä¸€ç›´è§¦å‘,è¿™å¹¶æ²¡æœ‰ä»€ä¹ˆæ„ä¹‰
+  //    æˆ‘ä»¬åªéœ€è¦ç”¨EVFILT_WRITEå»ç›‘æµ‹è¿æ¥æˆ–è€…å‘é€æ˜¯å¦æˆåŠŸ
   //
-  // KQUEUE ·¢ËÍÊı¾İ
-  //    ×îºÃµÄ×ö·¨ÊÇ½«Êµ¼Ê·¢ËÍÊı¾İµÄ¶¯×÷·Åµ½ EVFILT_WRITE ´¥·¢Ê±½øĞĞ, ¸Ã
-  //    ÊÂ¼ş´¥·¢±íÃ÷ Socket ·¢ËÍ»º´æÓĞ¿ÕÏĞ¿Õ¼äÁË¡£IOCP¿ÉÒÔÖ±½Ó½«´ı·¢ËÍµÄÊı¾İ¼°
-  //    »Øµ÷Í¬Ê±ÈÓ¸ø WSASend, ·¢ËÍÍê³ÉºóÈ¥µ÷ÓÃ»Øµ÷¼´¿É; KQUEUE »úÖÆ²»Ò»Ñù, ÔÚ KQUEUE
-  //    ÖĞÃ»ÓĞÀàËÆ WSASend µÄº¯Êı, Ö»ÄÜ×ÔĞĞÎ¬»¤·¢ËÍÊı¾İ¼°»Øµ÷µÄ¶ÓÁĞ
-  //    EPOLLÒªÖ§³Ö¶àÏß³Ì²¢·¢·¢ËÍÊı¾İ±ØĞë´´½¨·¢ËÍ¶ÓÁĞ, ·ñÔòÍ¬Ò»¸ö Socket µÄ²¢·¢·¢ËÍ
-  //    ¼«ÓĞ¿ÉÄÜÓĞÒ»²¿·Ö»á±»ÆäËü·¢ËÍ¸²¸Çµô
+  // KQUEUE å‘é€æ•°æ®
+  //    æœ€å¥½çš„åšæ³•æ˜¯å°†å®é™…å‘é€æ•°æ®çš„åŠ¨ä½œæ”¾åˆ° EVFILT_WRITE è§¦å‘æ—¶è¿›è¡Œ, è¯¥
+  //    äº‹ä»¶è§¦å‘è¡¨æ˜ Socket å‘é€ç¼“å­˜æœ‰ç©ºé—²ç©ºé—´äº†ã€‚IOCPå¯ä»¥ç›´æ¥å°†å¾…å‘é€çš„æ•°æ®åŠ
+  //    å›è°ƒåŒæ—¶æ‰”ç»™ WSASend, å‘é€å®Œæˆåå»è°ƒç”¨å›è°ƒå³å¯; KQUEUE æœºåˆ¶ä¸ä¸€æ ·, åœ¨ KQUEUE
+  //    ä¸­æ²¡æœ‰ç±»ä¼¼ WSASend çš„å‡½æ•°, åªèƒ½è‡ªè¡Œç»´æŠ¤å‘é€æ•°æ®åŠå›è°ƒçš„é˜Ÿåˆ—
+  //    EPOLLè¦æ”¯æŒå¤šçº¿ç¨‹å¹¶å‘å‘é€æ•°æ®å¿…é¡»åˆ›å»ºå‘é€é˜Ÿåˆ—, å¦åˆ™åŒä¸€ä¸ª Socket çš„å¹¶å‘å‘é€
+  //    ææœ‰å¯èƒ½æœ‰ä¸€éƒ¨åˆ†ä¼šè¢«å…¶å®ƒå‘é€è¦†ç›–æ‰
   TKqueueLoop = class(TAbstractEventLoop)
   private const
     MAX_EVENT_COUNT = 64;
@@ -224,7 +224,7 @@ procedure TKqueueLoop.TriggerConnected(ASocket: THandle; AConnectType: Integer);
 var
   LSocketSendQueue: TList<PSendItem>;
 begin
-  // »ñÈ¡Socket·¢ËÍ¶ÓÁĞ
+  // è·å–Socketå‘é€é˜Ÿåˆ—
   System.TMonitor.Enter(FSendQueue);
   try
     if not FSendQueue.TryGetValue(ASocket, LSocketSendQueue) then
@@ -241,12 +241,12 @@ procedure TKqueueLoop.TriggerDisconnected(ASocket: THandle);
 var
   LSocketSendQueue: TList<PSendItem>;
 begin
-  // ÒÆ³ıSocket·¢ËÍ¶ÓÁĞ
+  // ç§»é™¤Socketå‘é€é˜Ÿåˆ—
   System.TMonitor.Enter(FSendQueue);
   try
     if FSendQueue.TryGetValue(ASocket, LSocketSendQueue) then
     begin
-      // Çå³ıµ±Ç°SocketµÄËùÓĞ·¢ËÍ¶ÓÁĞ
+      // æ¸…é™¤å½“å‰Socketçš„æ‰€æœ‰å‘é€é˜Ÿåˆ—
       _ClearSendQueue(LSocketSendQueue);
       FSendQueue.Remove(ASocket);
     end;
@@ -286,8 +286,8 @@ function TKqueueLoop.Connect(const AHost: string; APort: Word;
     if (TSocketAPI.Connect(ASocket, Addr.ai_addr, Addr.ai_addrlen) = 0)
       or (GetLastError = EINPROGRESS) then
     begin
-      // EVFILT_WRITE Ö»ÓÃ×÷ÅĞ¶Ï Connect ³É¹¦Óë·ñ
-      // ËùÒÔÉèÖÃ EV_ONESHOT ±êÖ¾, ÁîÆä´¥·¢ºóÁ¢¼´×Ô¶¯´Ó kqueue ¶ÓÁĞÖĞÉ¾³ı
+      // EVFILT_WRITE åªç”¨ä½œåˆ¤æ–­ Connect æˆåŠŸä¸å¦
+      // æ‰€ä»¥è®¾ç½® EV_ONESHOT æ ‡å¿—, ä»¤å…¶è§¦å‘åç«‹å³è‡ªåŠ¨ä» kqueue é˜Ÿåˆ—ä¸­åˆ é™¤
       if not _KqueueCtl(EV_ADD or EV_ONESHOT, ASocket, EVFILT_WRITE, kqConnect, ACallback) then
       begin
         _Failed2;
@@ -419,8 +419,8 @@ begin
         Exit(-1);
       end;
 
-      // ¼àÌı³É¹¦Ö®ºó, ¿ªÊ¼¼àÊÓ¶ÁÊÂ¼ş
-      // ¼àÌıSocketµÄ¶ÁÊÂ¼ş´¥·¢±íÊ¾ÓĞĞÂÁ¬½Óµ½´ï
+      // ç›‘å¬æˆåŠŸä¹‹å, å¼€å§‹ç›‘è§†è¯»äº‹ä»¶
+      // ç›‘å¬Socketçš„è¯»äº‹ä»¶è§¦å‘è¡¨ç¤ºæœ‰æ–°è¿æ¥åˆ°è¾¾
       if not _KqueueCtl(EV_ADD or EV_CLEAR or EV_DISPATCH, LSocket, EVFILT_READ, kqAccept, nil) then
       begin
         {$IFDEF DEBUG}
@@ -432,7 +432,7 @@ begin
 
       _Success;
 
-      // Èç¹û¶Ë¿Ú´«Èë0£¬ÈÃËùÓĞµØÖ·Í³Ò»ÓÃÊ×¸ö·ÖÅäµ½µÄ¶Ë¿Ú
+      // å¦‚æœç«¯å£ä¼ å…¥0ï¼Œè®©æ‰€æœ‰åœ°å€ç»Ÿä¸€ç”¨é¦–ä¸ªåˆ†é…åˆ°çš„ç«¯å£
       if (APort = 0) and (LAddrInfo.ai_next <> nil) then
         Psockaddr_in(LAddrInfo.ai_next.ai_addr).sin_port := Psockaddr_in(LAddrInfo.ai_addr).sin_port;
 
@@ -468,7 +468,7 @@ var
   end;
 
 begin
-  // »ñÈ¡Socket·¢ËÍ¶ÓÁĞ
+  // è·å–Socketå‘é€é˜Ÿåˆ—
   System.TMonitor.Enter(FSendQueue);
   try
     if not FSendQueue.TryGetValue(ASocket, LSocketSendQueue) then
@@ -480,7 +480,7 @@ begin
     System.TMonitor.Exit(FSendQueue);
   end;
 
-  // ½«Òª·¢ËÍµÄÊı¾İ¼°»Øµ÷·ÅÈëSocket·¢ËÍ¶ÓÁĞÖĞ
+  // å°†è¦å‘é€çš„æ•°æ®åŠå›è°ƒæ”¾å…¥Socketå‘é€é˜Ÿåˆ—ä¸­
   LSendItem := System.New(PSendItem);
   LSendItem.Data := @ABuf;
   LSendItem.Size := ALen;
@@ -492,8 +492,8 @@ begin
     System.TMonitor.Exit(LSocketSendQueue);
   end;
 
-  // ¼àÊÓ EVFILT_WRITE, µ±¸ÃÊÂ¼ş´¥·¢Ê±±íÃ÷Íø¿¨·¢ËÍ»º´æÓĞ¿ÕÏĞ¿Õ¼äÁË
-  // µ½¸ÃÊÂ¼ş´úÂëÖĞÖ´ĞĞÊµ¼ÊµÄ·¢ËÍ¶¯×÷
+  // ç›‘è§† EVFILT_WRITE, å½“è¯¥äº‹ä»¶è§¦å‘æ—¶è¡¨æ˜ç½‘å¡å‘é€ç¼“å­˜æœ‰ç©ºé—²ç©ºé—´äº†
+  // åˆ°è¯¥äº‹ä»¶ä»£ç ä¸­æ‰§è¡Œå®é™…çš„å‘é€åŠ¨ä½œ
   if not _KqueueCtl(EV_ADD or EV_ONESHOT, ASocket, EVFILT_WRITE, kqWrite) then
   begin
     _Failed;
@@ -513,9 +513,9 @@ end;
     begin
       LRet := TSocketAPI.Accept(ASocket, nil, nil);
 
-      // AcceptÊ§°Ü
-      // EAGAIN ĞèÒªÖØÊÔ
-      // EMFILE ½ø³ÌµÄÎÄ¼ş¾ä±úÒÑ¾­ÓÃÍêÁË
+      // Acceptå¤±è´¥
+      // EAGAIN éœ€è¦é‡è¯•
+      // EMFILE è¿›ç¨‹çš„æ–‡ä»¶å¥æŸ„å·²ç»ç”¨å®Œäº†
       if (LRet <= 0) then
       begin
 //        LRet := GetLastError;
@@ -529,20 +529,21 @@ end;
       SetKeepAlive(LSocket);
       SetNoSigPipe(LSocket);
 
-      // Á¬½Ó½¨Á¢ºó¼àÊÓĞÂSocketµÄ¶ÁÊÂ¼ş
+      TriggerConnected(LSocket, CT_ACCEPT);
+
+      // è¿æ¥å»ºç«‹åç›‘è§†æ–°Socketçš„è¯»äº‹ä»¶
       if not _KqueueCtl(EV_ADD or EV_CLEAR or EV_DISPATCH, LSocket, EVFILT_READ, kqRead) then
       begin
         {$IFDEF DEBUG}
         __RaiseLastOSError;
         {$ENDIF}
         TSocketAPI.CloseSocket(LSocket);
+        TriggerDisconnected(LSocket);
         Continue;
       end;
+    end;
 
-      TriggerConnected(LSocket, CT_ACCEPT);
-    end;
-
-    // ÖØĞÂ¼¤»î EVFILT_READ, ÒÔ¼ÌĞø½ÓÊÕĞÂÁ¬½Ó
+    // é‡æ–°æ¿€æ´» EVFILT_READ, ä»¥ç»§ç»­æ¥æ”¶æ–°è¿æ¥
     if not _KqueueCtl(EV_ENABLE or EV_CLEAR or EV_DISPATCH, ASocket, EVFILT_READ, kqAccept) then
     begin
       {$IFDEF DEBUG}
@@ -556,7 +557,7 @@ end;
   var
     LRcvd: Integer;
   begin
-    // ¶Ô·½Ö÷¶¯¶Ï¿ªÁ¬½Ó
+    // å¯¹æ–¹ä¸»åŠ¨æ–­å¼€è¿æ¥
     if (ACount <= 0) then
     begin
       if (TSocketAPI.CloseSocket(ASocket) = 0) then
@@ -568,7 +569,7 @@ end;
     begin
       LRcvd := TSocketAPI.Recv(ASocket, FRecvBuf[0], RCV_BUF_SIZE);
 
-      // ¶Ô·½Ö÷¶¯¶Ï¿ªÁ¬½Ó
+      // å¯¹æ–¹ä¸»åŠ¨æ–­å¼€è¿æ¥
       if (LRcvd = 0) then
       begin
         if (TSocketAPI.CloseSocket(ASocket) = 0) then
@@ -578,7 +579,7 @@ end;
 
       if (LRcvd < 0) then
       begin
-        // ĞèÒªÖØÊÔ
+        // éœ€è¦é‡è¯•
         if _Again(GetLastError) then Break;
 
         if (TSocketAPI.CloseSocket(ASocket) = 0) then
@@ -594,7 +595,7 @@ end;
       Dec(ACount, LRcvd);
     end;
 
-    // ÖØĞÂ¼¤»î EVFILT_READ, ÒÔ¼ÌĞø½ÓÊÕĞÂÊı¾İ
+    // é‡æ–°æ¿€æ´» EVFILT_READ, ä»¥ç»§ç»­æ¥æ”¶æ–°æ•°æ®
     if not _KqueueCtl(EV_ENABLE or EV_CLEAR or EV_DISPATCH, ASocket, EVFILT_READ, kqRead, nil) then
     begin
       if (TSocketAPI.CloseSocket(ASocket) = 0) then
@@ -611,32 +612,45 @@ end;
         APerIoData.Callback(ASocket, True);
     end;
 
-    procedure _Failed;
+    procedure _Failed1;
     begin
       {$IFDEF DEBUG}
       __RaiseLastOSError;
       {$ENDIF}
-      TSocketAPI.CloseSocket(ASocket);
 
+      TSocketAPI.CloseSocket(ASocket);
       TriggerConnectFailed(ASocket);
 
       if Assigned(APerIoData.Callback) then
         APerIoData.Callback(ASocket, False);
     end;
+
+    procedure _Failed2;
+    begin
+      {$IFDEF DEBUG}
+      __RaiseLastOSError;
+      {$ENDIF}
+
+      TSocketAPI.CloseSocket(ASocket);
+      TriggerDisconnected(ASocket);
+
+      if Assigned(APerIoData.Callback) then
+        APerIoData.Callback(ASocket, False);
+    end;
   begin
-    // ConnectÊ§°Ü
+    // Connectå¤±è´¥
     if (TSocketAPI.GetError(ASocket) <> 0) then
     begin
-      _Failed;
+      _Failed1;
       Exit;
     end;
 
     _Success;
 
-    // Á¬½Ó³É¹¦, Ôö¼Ó¶ÁÊÂ¼ş
+    // è¿æ¥æˆåŠŸ, å¢åŠ è¯»äº‹ä»¶
     if not _KqueueCtl(EV_ADD or EV_CLEAR or EV_DISPATCH, ASocket, EVFILT_READ, kqRead, nil) then
     begin
-      _Failed;
+      _Failed2;
       Exit;
     end;
   end;
@@ -653,7 +667,7 @@ end;
       Result := _KqueueCtl(EV_ADD or EV_ONESHOT, ASocket, EVFILT_WRITE, kqWrite);
       if not Result then
       begin
-        // ¹Ø±ÕSocket
+        // å…³é—­Socket
         if (TSocketAPI.CloseSocket(ASocket) = 0) then
           TriggerDisconnected(ASocket);
       end;
@@ -661,23 +675,23 @@ end;
 
     procedure _Failed;
     begin
-      // µ÷ÓÃ»Øµ÷
+      // è°ƒç”¨å›è°ƒ
       if Assigned(LCallback) then
         LCallback(ASocket, False);
     end;
 
     procedure _Success;
     begin
-      // ·¢ËÍ³É¹¦, ÒÆ³ıÒÑ·¢ËÍ³É¹¦µÄÊı¾İ
+      // å‘é€æˆåŠŸ, ç§»é™¤å·²å‘é€æˆåŠŸçš„æ•°æ®
       System.Dispose(LSendItem);
       if (LSocketSendQueue.Count > 0) then
         LSocketSendQueue.Delete(0);
 
-      // Èç¹û¶ÓÁĞÖĞ»¹ÓĞÊı¾İ, ¼ÌĞø·¢ËÍ
+      // å¦‚æœé˜Ÿåˆ—ä¸­è¿˜æœ‰æ•°æ®, ç»§ç»­å‘é€
       if (LSocketSendQueue.Count > 0) then
         _WriteContinue;
 
-      // µ÷ÓÃ»Øµ÷
+      // è°ƒç”¨å›è°ƒ
       if Assigned(LCallback) then
         LCallback(ASocket, True);
     end;
@@ -685,7 +699,7 @@ end;
   begin
     LCallback := nil;
 
-    // »ñÈ¡Socket·¢ËÍ¶ÓÁĞ
+    // è·å–Socketå‘é€é˜Ÿåˆ—
     if (FSendQueue = nil) then Exit;
     System.TMonitor.Enter(FSendQueue);
     try
@@ -695,7 +709,7 @@ end;
       System.TMonitor.Exit(FSendQueue);
     end;
 
-    // »ñÈ¡Socket·¢ËÍ¶ÓÁĞÖĞµÄµÚÒ»ÌõÊı¾İ
+    // è·å–Socketå‘é€é˜Ÿåˆ—ä¸­çš„ç¬¬ä¸€æ¡æ•°æ®
     if (LSocketSendQueue = nil) then Exit;
     System.TMonitor.Enter(LSocketSendQueue);
     try
@@ -705,23 +719,23 @@ end;
       LSendItem := LSocketSendQueue.Items[0];
       LCallback := LSendItem.Callback;
 
-      // È«²¿·¢ËÍÍê³É
+      // å…¨éƒ¨å‘é€å®Œæˆ
       if (LSendItem.Size <= 0) then
       begin
         _Success;
         Exit;
       end;
 
-      // ·¢ËÍÊı¾İ
+      // å‘é€æ•°æ®
       LSent := TSocketAPI.Send(ASocket, LSendItem.Data^, LSendItem.Size);
 
-      // ·¢ËÍ³É¹¦
+      // å‘é€æˆåŠŸ
       if (LSent > 0) then
       begin
         Inc(LSendItem.Data, LSent);
         Dec(LSendItem.Size, LSent);
       end else
-      // Á¬½Ó¶Ï¿ª»ò·¢ËÍ´íÎó
+      // è¿æ¥æ–­å¼€æˆ–å‘é€é”™è¯¯
       if (LSent = 0) or not _Again(GetLastError) then
       begin
         if (TSocketAPI.CloseSocket(ASocket) = 0) then
@@ -730,8 +744,8 @@ end;
         Exit;
       end;
 
-      // ¼ÌĞø¼àÌı EVFILT_WRITE ÊÂ¼ş
-      // EVFILT_WRITE ´¥·¢ºó¼ÌĞø·¢ËÍ
+      // ç»§ç»­ç›‘å¬ EVFILT_WRITE äº‹ä»¶
+      // EVFILT_WRITE è§¦å‘åç»§ç»­å‘é€
       if not _WriteContinue then
         _Failed;
     finally
@@ -749,7 +763,7 @@ begin
   begin
     LRet := GetLastError;
 //    Writeln('error:', LRet);
-    // EINTR, kevent µ÷ÓÃ±»ÏµÍ³ÖĞ¶Ï´ò¶Ï, ¿ÉÒÔ½øĞĞÖØÊÔ
+    // EINTR, kevent è°ƒç”¨è¢«ç³»ç»Ÿä¸­æ–­æ‰“æ–­, å¯ä»¥è¿›è¡Œé‡è¯•
     Exit(LRet = EINTR);
   end;
 
@@ -763,7 +777,7 @@ begin
     try
       LSocket := LPerIoData.Socket;
 
-      // Òì³£ÊÂ¼ş
+      // å¼‚å¸¸äº‹ä»¶
       if (LEvent.Flags and EV_ERROR <> 0) then
       begin
         Writeln('event:', IntToHex(LEvent.Filter), ' socket:', LPerIoData.Socket, ' flags:', IntToHex(LEvent.Flags), ' action:', Integer(LPerIoData.Action));
@@ -777,26 +791,26 @@ begin
         Continue;
       end;
 
-      // Êı¾İ¿É¶Á
+      // æ•°æ®å¯è¯»
       if (LEvent.Filter = EVFILT_READ) then
       begin
         case LPerIoData.Action of
-          // ÓĞĞÂµÄ¿Í»§¶ËÁ¬½Ó
+          // æœ‰æ–°çš„å®¢æˆ·ç«¯è¿æ¥
           kqAccept: _HandleAccept(LSocket, LPerIoData);
         else
-          // ÊÕµ½ĞÂÊı¾İ
+          // æ”¶åˆ°æ–°æ•°æ®
           _HandleRead(LSocket, LEvent.Data, LPerIoData);
         end;
       end;
 
-      // Êı¾İ¿ÉĞ´
+      // æ•°æ®å¯å†™
       if (LEvent.Filter = EVFILT_WRITE) then
       begin
         case LPerIoData.Action of
-          // Á¬½Ó³É¹¦
+          // è¿æ¥æˆåŠŸ
           kqConnect: _HandleConnect(LSocket, LPerIoData);
         else
-          // ¿ÉÒÔ·¢ËÍÊı¾İ
+          // å¯ä»¥å‘é€æ•°æ®
           _HandleWrite(LSocket, LPerIoData);
         end;
       end;

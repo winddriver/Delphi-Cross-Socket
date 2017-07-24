@@ -1,4 +1,4 @@
-{******************************************************************************}
+ï»¿{******************************************************************************}
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
@@ -9,12 +9,12 @@
 {******************************************************************************}
 unit Net.CrossSocket.EpollLoop;
 
-// Ubuntu×ÀÃæ°æÏÂËÆºõÓĞÄÚ´æĞ¹Â©, µ«ÊÇ×·²é²»µ½µ½µ×ÊÇÄÄ²¿·Ö´úÂëÔì³ÉµÄ
-// ÉõÖÁÎŞ·¨È·¶¨ÊÇdelphiÄÚÖÃµÄrtl¿â»¹ÊÇÎÒËùĞ´µÄ´úÂëÒıÆğµÄ
-// Í¨¹ı LeakCheck ¿âÄÜ´ÖÂÔ¿´³öÒıÆğÄÚ´æĞ¹Â©µÄÊÇÒ»¸ö AnsiString ±äÁ¿
-// ²¢²»ÄÜ¶¨Î»µ½¾ßÌåµÄ´úÂë
-// µ«ÊÇÎÒ×Ô¼ºµÄ´úÂëÀï¸ù±¾Ã»ÓĞÈÎºÎµØ·½¶¨Òå»òÕßÊ¹ÓÃ¹ıÀàËÆµÄ±äÁ¿
-// ÆäËüLinux·¢ĞĞ°æ±¾ÉĞÎ´²âÊÔ
+// Ubuntuæ¡Œé¢ç‰ˆä¸‹ä¼¼ä¹æœ‰å†…å­˜æ³„æ¼, ä½†æ˜¯è¿½æŸ¥ä¸åˆ°åˆ°åº•æ˜¯å“ªéƒ¨åˆ†ä»£ç é€ æˆçš„
+// ç”šè‡³æ— æ³•ç¡®å®šæ˜¯delphiå†…ç½®çš„rtlåº“è¿˜æ˜¯æˆ‘æ‰€å†™çš„ä»£ç å¼•èµ·çš„
+// é€šè¿‡ LeakCheck åº“èƒ½ç²—ç•¥çœ‹å‡ºå¼•èµ·å†…å­˜æ³„æ¼çš„æ˜¯ä¸€ä¸ª AnsiString å˜é‡
+// å¹¶ä¸èƒ½å®šä½åˆ°å…·ä½“çš„ä»£ç 
+// ä½†æ˜¯æˆ‘è‡ªå·±çš„ä»£ç é‡Œæ ¹æœ¬æ²¡æœ‰ä»»ä½•åœ°æ–¹å®šä¹‰æˆ–è€…ä½¿ç”¨è¿‡ç±»ä¼¼çš„å˜é‡
+// å…¶å®ƒLinuxå‘è¡Œç‰ˆæœ¬å°šæœªæµ‹è¯•
 
 interface
 
@@ -24,24 +24,24 @@ uses
   Linux.epoll, Net.SocketAPI, Net.CrossSocket.EventLoop;
 
 type
-  // KQUEUE Óë EPOLL ¶ÓÁĞµÄ²îÒì
-  //    KQUEUEµÄ¶ÓÁĞÖĞ, Ò»¸öSocket¾ä±ú¿ÉÒÔÓĞ¶àÌõ¼ÇÂ¼, Ã¿¸öÊÂ¼şÒ»Ìõ,
-  //    ÕâÒ»µãºÍ EPOLL ²»Ò»Ñù, EPOLLÖĞÃ¿¸öSocket¾ä±úÖ»»áÓĞÒ»Ìõ¼ÇÂ¼
-  //    Òª¼à²â¶à¸öÊÂ¼şÊ±, Ö»ĞèÒª½«¶à¸öÊÂ¼ş×öÎ»ÔËËã¼ÓÔÚÒ»Æğµ÷ÓÃ epoll_ctl ¼´¿É
+  // KQUEUE ä¸ EPOLL é˜Ÿåˆ—çš„å·®å¼‚
+  //    KQUEUEçš„é˜Ÿåˆ—ä¸­, ä¸€ä¸ªSocketå¥æŸ„å¯ä»¥æœ‰å¤šæ¡è®°å½•, æ¯ä¸ªäº‹ä»¶ä¸€æ¡,
+  //    è¿™ä¸€ç‚¹å’Œ EPOLL ä¸ä¸€æ ·, EPOLLä¸­æ¯ä¸ªSocketå¥æŸ„åªä¼šæœ‰ä¸€æ¡è®°å½•
+  //    è¦ç›‘æµ‹å¤šä¸ªäº‹ä»¶æ—¶, åªéœ€è¦å°†å¤šä¸ªäº‹ä»¶åšä½è¿ç®—åŠ åœ¨ä¸€èµ·è°ƒç”¨ epoll_ctl å³å¯
   //
-  // EPOLLONESHOT ÊÇÁî epoll Ö§³ÖÏß³Ì³ØµÄ¹Ø¼ü
-  //    ¸Ã²ÎÊı¿ÉÒÔÁîÊÂ¼ş´¥·¢ºó¾ÍÁ¢¼´±»½ûÓÃ, ±ÜÃâÈÃÍ¬Ò»¸öSocketµÄÍ¬Ò»¸öÊÂ¼ş
-  //    Í¬Ê±±»¶à¸ö¹¤×÷Ïß³Ì´¥·¢, ÓÉÓÚ epoll ÖĞÃ¿¸ö socket Ö»ÓĞÒ»Ìõ¼ÇÂ¼, ËùÒÔ
-  //    Ò»¶¨Òª×¢Òâ´øÉÏ EPOLLONESHOT ²ÎÊıµÄ epoll_ctl, ÔÚ epoll_wait Ö®ºóÒ»¶¨ÒªÔÙ´Î
-  //    µ÷ÓÃ epoll_ctl Ôö¼ÓÒª¼àÊÓµÄÊÂ¼ş
+  // EPOLLONESHOT æ˜¯ä»¤ epoll æ”¯æŒçº¿ç¨‹æ± çš„å…³é”®
+  //    è¯¥å‚æ•°å¯ä»¥ä»¤äº‹ä»¶è§¦å‘åå°±ç«‹å³è¢«ç¦ç”¨, é¿å…è®©åŒä¸€ä¸ªSocketçš„åŒä¸€ä¸ªäº‹ä»¶
+  //    åŒæ—¶è¢«å¤šä¸ªå·¥ä½œçº¿ç¨‹è§¦å‘, ç”±äº epoll ä¸­æ¯ä¸ª socket åªæœ‰ä¸€æ¡è®°å½•, æ‰€ä»¥
+  //    ä¸€å®šè¦æ³¨æ„å¸¦ä¸Š EPOLLONESHOT å‚æ•°çš„ epoll_ctl, åœ¨ epoll_wait ä¹‹åä¸€å®šè¦å†æ¬¡
+  //    è°ƒç”¨ epoll_ctl å¢åŠ è¦ç›‘è§†çš„äº‹ä»¶
   //
-  // EPOLL ·¢ËÍÊı¾İ
-  //    ×îºÃµÄ×ö·¨ÊÇ½«Êµ¼Ê·¢ËÍÊı¾İµÄ¶¯×÷·Åµ½ EPOLLOUT ´¥·¢Ê±½øĞĞ, ¸Ã
-  //    ÊÂ¼ş´¥·¢±íÃ÷ Socket ·¢ËÍ»º´æÓĞ¿ÕÏĞ¿Õ¼äÁË¡£IOCP ¿ÉÒÔÖ±½Ó½«´ı·¢ËÍµÄÊı¾İ¼°
-  //    »Øµ÷Í¬Ê±ÈÓ¸ø WSASend, ·¢ËÍÍê³ÉºóÈ¥µ÷ÓÃ»Øµ÷¼´¿É; EPOLL »úÖÆ²»Ò»Ñù, ÔÚ EPOLL
-  //    ÖĞÃ»ÓĞÀàËÆ WSASend µÄº¯Êı, Ö»ÄÜ×ÔĞĞÎ¬»¤·¢ËÍÊı¾İ¼°»Øµ÷µÄ¶ÓÁĞ
-  //    EPOLLÒªÖ§³Ö¶àÏß³Ì²¢·¢·¢ËÍÊı¾İ±ØĞë´´½¨·¢ËÍ¶ÓÁĞ, ·ñÔòÍ¬Ò»¸ö Socket µÄ²¢·¢·¢ËÍ
-  //    ¼«ÓĞ¿ÉÄÜÓĞÒ»²¿·Ö»á±»ÆäËü·¢ËÍ¸²¸Çµô
+  // EPOLL å‘é€æ•°æ®
+  //    æœ€å¥½çš„åšæ³•æ˜¯å°†å®é™…å‘é€æ•°æ®çš„åŠ¨ä½œæ”¾åˆ° EPOLLOUT è§¦å‘æ—¶è¿›è¡Œ, è¯¥
+  //    äº‹ä»¶è§¦å‘è¡¨æ˜ Socket å‘é€ç¼“å­˜æœ‰ç©ºé—²ç©ºé—´äº†ã€‚IOCP å¯ä»¥ç›´æ¥å°†å¾…å‘é€çš„æ•°æ®åŠ
+  //    å›è°ƒåŒæ—¶æ‰”ç»™ WSASend, å‘é€å®Œæˆåå»è°ƒç”¨å›è°ƒå³å¯; EPOLL æœºåˆ¶ä¸ä¸€æ ·, åœ¨ EPOLL
+  //    ä¸­æ²¡æœ‰ç±»ä¼¼ WSASend çš„å‡½æ•°, åªèƒ½è‡ªè¡Œç»´æŠ¤å‘é€æ•°æ®åŠå›è°ƒçš„é˜Ÿåˆ—
+  //    EPOLLè¦æ”¯æŒå¤šçº¿ç¨‹å¹¶å‘å‘é€æ•°æ®å¿…é¡»åˆ›å»ºå‘é€é˜Ÿåˆ—, å¦åˆ™åŒä¸€ä¸ª Socket çš„å¹¶å‘å‘é€
+  //    ææœ‰å¯èƒ½æœ‰ä¸€éƒ¨åˆ†ä¼šè¢«å…¶å®ƒå‘é€è¦†ç›–æ‰
   TEpollLoop = class(TAbstractEventLoop)
   private const
     MAX_EVENT_COUNT = 64;
@@ -179,8 +179,8 @@ begin
   if (FIoThreads <> nil) then Exit;
 
   // epoll_create(size)
-  // Õâ¸ö size Ö»Òª´«µİ´óÓÚ0µÄÈÎºÎÖµ¶¼¿ÉÒÔ
-  // ²¢²»ÊÇËµ¶ÓÁĞµÄ´óĞ¡»áÊÜÏŞÓÚ¸ÃÖµ
+  // è¿™ä¸ª size åªè¦ä¼ é€’å¤§äº0çš„ä»»ä½•å€¼éƒ½å¯ä»¥
+  // å¹¶ä¸æ˜¯è¯´é˜Ÿåˆ—çš„å¤§å°ä¼šå—é™äºè¯¥å€¼
   // http://man7.org/linux/man-pages/man2/epoll_create.2.html
   FEpollHandle := epoll_create(MAX_EVENT_COUNT);
   SetLength(FIoThreads, GetIoThreads);
@@ -214,7 +214,7 @@ procedure TEpollLoop.TriggerConnected(ASocket: THandle; AConnectType: Integer);
 var
   LSocketSendQueue: TList<PSendItem>;
 begin
-  // »ñÈ¡Socket·¢ËÍ¶ÓÁĞ
+  // è·å–Socketå‘é€é˜Ÿåˆ—
   System.TMonitor.Enter(FSendQueue);
   try
     if not FSendQueue.TryGetValue(ASocket, LSocketSendQueue) then
@@ -231,12 +231,12 @@ procedure TEpollLoop.TriggerDisconnected(ASocket: THandle);
 var
   LSocketSendQueue: TList<PSendItem>;
 begin
-  // ÒÆ³ıSocket·¢ËÍ¶ÓÁĞ
+  // ç§»é™¤Socketå‘é€é˜Ÿåˆ—
   System.TMonitor.Enter(FSendQueue);
   try
     if FSendQueue.TryGetValue(ASocket, LSocketSendQueue) then
     begin
-      // Çå³ıµ±Ç°SocketµÄËùÓĞ·¢ËÍ¶ÓÁĞ
+      // æ¸…é™¤å½“å‰Socketçš„æ‰€æœ‰å‘é€é˜Ÿåˆ—
       _ClearSendQueue(LSocketSendQueue);
       FSendQueue.Remove(ASocket);
     end;
@@ -276,7 +276,7 @@ function TEpollLoop.Connect(const AHost: string; APort: Word;
     if (TSocketAPI.Connect(ASocket, Addr.ai_addr, Addr.ai_addrlen) = 0)
       or (GetLastError = EINPROGRESS) then
     begin
-      // EPOLLOUT Ö»ÓÃ×÷ÅĞ¶Ï Connect ³É¹¦Óë·ñ
+      // EPOLLOUT åªç”¨ä½œåˆ¤æ–­ Connect æˆåŠŸä¸å¦
       if not _EpollCtl(EPOLL_CTL_ADD, ASocket, EPOLLOUT or EPOLLONESHOT or EPOLLET, epConnect, ACallback) then
       begin
         _Failed2;
@@ -406,8 +406,8 @@ begin
         Exit(-1);
       end;
 
-      // ¼àÌıÌ×½Ó×ÖµÄ¶ÁÊÂ¼ş
-      // ¶ÁÊÂ¼şµ½´ï±íÃ÷ÓĞĞÂÁ¬½Ó
+      // ç›‘å¬å¥—æ¥å­—çš„è¯»äº‹ä»¶
+      // è¯»äº‹ä»¶åˆ°è¾¾è¡¨æ˜æœ‰æ–°è¿æ¥
       if not _EpollCtl(EPOLL_CTL_ADD, LSocket, EPOLLIN or EPOLLONESHOT or EPOLLET, epAccept) then
       begin
         {$IFDEF DEBUG}
@@ -419,7 +419,7 @@ begin
 
       _Success;
 
-      // Èç¹û¶Ë¿Ú´«Èë0£¬ÈÃËùÓĞµØÖ·Í³Ò»ÓÃÊ×¸ö·ÖÅäµ½µÄ¶Ë¿Ú
+      // å¦‚æœç«¯å£ä¼ å…¥0ï¼Œè®©æ‰€æœ‰åœ°å€ç»Ÿä¸€ç”¨é¦–ä¸ªåˆ†é…åˆ°çš„ç«¯å£
       if (APort = 0) and (LAddrInfo.ai_next <> nil) then
         Psockaddr_in(LAddrInfo.ai_next.ai_addr).sin_port := Psockaddr_in(LAddrInfo.ai_addr).sin_port;
 
@@ -455,7 +455,7 @@ var
   end;
 
 begin
-  // »ñÈ¡Socket·¢ËÍ¶ÓÁĞ
+  // è·å–Socketå‘é€é˜Ÿåˆ—
   System.TMonitor.Enter(FSendQueue);
   try
     if not FSendQueue.TryGetValue(ASocket, LSocketSendQueue) then
@@ -467,7 +467,7 @@ begin
     System.TMonitor.Exit(FSendQueue);
   end;
 
-  // ½«Òª·¢ËÍµÄÊı¾İ¼°»Øµ÷·ÅÈëSocket·¢ËÍ¶ÓÁĞÖĞ
+  // å°†è¦å‘é€çš„æ•°æ®åŠå›è°ƒæ”¾å…¥Socketå‘é€é˜Ÿåˆ—ä¸­
   LSendItem := System.New(PSendItem);
   LSendItem.Data := @ABuf;
   LSendItem.Size := ALen;
@@ -479,8 +479,8 @@ begin
     System.TMonitor.Exit(LSocketSendQueue);
   end;
 
-  // ¼àÊÓ EPOLLOUT, µ±¸ÃÊÂ¼ş´¥·¢Ê±±íÃ÷Íø¿¨·¢ËÍ»º´æÓĞ¿ÕÏĞ¿Õ¼äÁË
-  // µ½¸ÃÊÂ¼ş´úÂëÖĞÖ´ĞĞÊµ¼ÊµÄ·¢ËÍ¶¯×÷
+  // ç›‘è§† EPOLLOUT, å½“è¯¥äº‹ä»¶è§¦å‘æ—¶è¡¨æ˜ç½‘å¡å‘é€ç¼“å­˜æœ‰ç©ºé—²ç©ºé—´äº†
+  // åˆ°è¯¥äº‹ä»¶ä»£ç ä¸­æ‰§è¡Œå®é™…çš„å‘é€åŠ¨ä½œ
   if not _EpollCtl(EPOLL_CTL_MOD, ASocket, EPOLLOUT or EPOLLONESHOT or EPOLLET, epWrite) then
   begin
     _Failed;
@@ -500,9 +500,9 @@ end;
     begin
       LRet := TSocketAPI.Accept(ASocket, nil, nil);
 
-      // AcceptÊ§°Ü
-      // EAGAIN ĞèÒªÖØÊÔ
-      // EMFILE ½ø³ÌµÄÎÄ¼ş¾ä±úÒÑ¾­ÓÃÍêÁË
+      // Acceptå¤±è´¥
+      // EAGAIN éœ€è¦é‡è¯•
+      // EMFILE è¿›ç¨‹çš„æ–‡ä»¶å¥æŸ„å·²ç»ç”¨å®Œäº†
       if (LRet <= 0) then
       begin
 //        LRet := GetLastError;
@@ -515,20 +515,21 @@ end;
       TSocketAPI.SetReUseAddr(LSocket, True);
       SetKeepAlive(LSocket);
 
-      // Á¬½Ó½¨Á¢ºó¼àÊÓĞÂSocketµÄ¶ÁÊÂ¼ş
+      TriggerConnected(LSocket, CT_ACCEPT);
+
+      // è¿æ¥å»ºç«‹åç›‘è§†æ–°Socketçš„è¯»äº‹ä»¶
       if not _EpollCtl(EPOLL_CTL_ADD, LSocket, EPOLLIN or EPOLLONESHOT or EPOLLET, epRead) then
       begin
         {$IFDEF DEBUG}
         __RaiseLastOSError;
         {$ENDIF}
-        TSocketAPI.CloseSocket(LSocket);
+        if (TSocketAPI.CloseSocket(LSocket) = 0) then
+          TriggerDisconnected(LSocket);
         Continue;
       end;
-
-      TriggerConnected(LSocket, CT_ACCEPT);
-    end;
+    end;
 
-    // ÖØĞÂ¼¤»î EPOLLIN, ÒÔ¼ÌĞø½ÓÊÕĞÂÁ¬½Ó
+    // é‡æ–°æ¿€æ´» EPOLLIN, ä»¥ç»§ç»­æ¥æ”¶æ–°è¿æ¥
     if not _EpollCtl(EPOLL_CTL_MOD, ASocket, EPOLLIN or EPOLLONESHOT or EPOLLET, epAccept) then
     begin
       {$IFDEF DEBUG}
@@ -546,7 +547,7 @@ end;
     begin
       LRcvd := TSocketAPI.Recv(ASocket, FRecvBuf[0], RCV_BUF_SIZE, MSG_NOSIGNAL);
 
-      // ¶Ô·½Ö÷¶¯¶Ï¿ªÁ¬½Ó
+      // å¯¹æ–¹ä¸»åŠ¨æ–­å¼€è¿æ¥
       if (LRcvd = 0) then
       begin
         if (TSocketAPI.CloseSocket(ASocket) = 0) then
@@ -556,7 +557,7 @@ end;
 
       if (LRcvd < 0) then
       begin
-        // ĞèÒªÖØÊÔ
+        // éœ€è¦é‡è¯•
         if _Again(GetLastError) then Break;
 
         if (TSocketAPI.CloseSocket(ASocket) = 0) then
@@ -570,11 +571,11 @@ end;
       if (LRcvd < RCV_BUF_SIZE) then Break;
     end;
 
-    // ÖØĞÂ¼¤»î EPOLLIN ºÍ EPOLLOUT, ÒÔ¼ÌĞø½ÓÊÕ»ò·¢ËÍĞÂÊı¾İ
-    // ÕâÀï±ØĞëÍ¬Ê±¼àÊÓ EPOLLIN ºÍ EPOLLOUT, ÒòÎªÔÚ TriggerReceived ÖĞÈç¹ûÖ´ĞĞÁË
-    // ·¢ËÍÊı¾İµÄ²Ù×÷, ÕıºÃ¸Ã²Ù×÷»¹Ã»À´µÃ¼°´¥·¢ epoll_wait, ÄÇÃ´µ½ÕâÀïÈç¹ûÖ»¼àÊÓ
-    // EPOLLIN, ¾Í»áµ¼ÖÂ´ı·¢ËÍµÄÊı¾İÎŞ·¨±»·¢ËÍ
-    // Ö»ÓĞÔÚ _HandleRead ÖĞÓĞ±ØÒªÕâÑù×ö
+    // é‡æ–°æ¿€æ´» EPOLLIN å’Œ EPOLLOUT, ä»¥ç»§ç»­æ¥æ”¶æˆ–å‘é€æ–°æ•°æ®
+    // è¿™é‡Œå¿…é¡»åŒæ—¶ç›‘è§† EPOLLIN å’Œ EPOLLOUT, å› ä¸ºåœ¨ TriggerReceived ä¸­å¦‚æœæ‰§è¡Œäº†
+    // å‘é€æ•°æ®çš„æ“ä½œ, æ­£å¥½è¯¥æ“ä½œè¿˜æ²¡æ¥å¾—åŠè§¦å‘ epoll_wait, é‚£ä¹ˆåˆ°è¿™é‡Œå¦‚æœåªç›‘è§†
+    // EPOLLIN, å°±ä¼šå¯¼è‡´å¾…å‘é€çš„æ•°æ®æ— æ³•è¢«å‘é€
+    // åªæœ‰åœ¨ _HandleRead ä¸­æœ‰å¿…è¦è¿™æ ·åš
     if not _EpollCtl(EPOLL_CTL_MOD, ASocket, EPOLLIN or EPOLLOUT or EPOLLONESHOT or EPOLLET, epRead) then
     begin
       if (TSocketAPI.CloseSocket(ASocket) = 0) then
@@ -591,32 +592,45 @@ end;
         APerIoData.Callback(ASocket, True);
     end;
 
-    procedure _Failed;
+    procedure _Failed1;
     begin
       {$IFDEF DEBUG}
       __RaiseLastOSError;
       {$ENDIF}
-      TSocketAPI.CloseSocket(ASocket);
 
+      TSocketAPI.CloseSocket(ASocket);
       TriggerConnectFailed(ASocket);
 
       if Assigned(APerIoData.Callback) then
         APerIoData.Callback(ASocket, False);
     end;
+
+    procedure _Failed2;
+    begin
+      {$IFDEF DEBUG}
+      __RaiseLastOSError;
+      {$ENDIF}
+
+      if (TSocketAPI.CloseSocket(ASocket) = 0) then
+        TriggerDisconnected(ASocket);
+
+      if Assigned(APerIoData.Callback) then
+        APerIoData.Callback(ASocket, False);
+    end;
   begin
-    // ConnectÊ§°Ü
+    // Connectå¤±è´¥
     if (TSocketAPI.GetError(ASocket) <> 0) then
     begin
-      _Failed;
+      _Failed1;
       Exit;
     end;
 
     _Success;
 
-    // Á¬½Ó³É¹¦, ¼àÌı¶ÁÊÂ¼ş
+    // è¿æ¥æˆåŠŸ, ç›‘å¬è¯»äº‹ä»¶
     if not _EpollCtl(EPOLL_CTL_MOD, ASocket, EPOLLIN or EPOLLONESHOT or EPOLLET, epRead) then
     begin
-      _Failed;
+      _Failed2;
       Exit;
     end;
   end;
@@ -649,25 +663,25 @@ end;
 
     procedure _Failed;
     begin
-      // µ÷ÓÃ»Øµ÷
+      // è°ƒç”¨å›è°ƒ
       if Assigned(LCallback) then
         LCallback(ASocket, False);
     end;
 
     procedure _Success;
     begin
-      // ·¢ËÍ³É¹¦, ÒÆ³ıÒÑ·¢ËÍ³É¹¦µÄÊı¾İ
+      // å‘é€æˆåŠŸ, ç§»é™¤å·²å‘é€æˆåŠŸçš„æ•°æ®
       System.Dispose(LSendItem);
       if (LSocketSendQueue.Count > 0) then
         LSocketSendQueue.Delete(0);
 
-      // Èç¹û¶ÓÁĞÖĞ»¹ÓĞÊı¾İ, ¼ÌĞø·¢ËÍ
+      // å¦‚æœé˜Ÿåˆ—ä¸­è¿˜æœ‰æ•°æ®, ç»§ç»­å‘é€
       if (LSocketSendQueue.Count > 0) then
         _WriteContinue
       else
         _ReadContinue;
 
-      // µ÷ÓÃ»Øµ÷
+      // è°ƒç”¨å›è°ƒ
       if Assigned(LCallback) then
         LCallback(ASocket, True);
     end;
@@ -681,12 +695,12 @@ end;
       Exit;
     end;
 
-    // »ñÈ¡Socket·¢ËÍ¶ÓÁĞ
+    // è·å–Socketå‘é€é˜Ÿåˆ—
     System.TMonitor.Enter(FSendQueue);
     try
       if not FSendQueue.TryGetValue(ASocket, LSocketSendQueue) then
       begin
-        // ¼ÌĞø¼àÌı¶ÁÊÂ¼ş
+        // ç»§ç»­ç›‘å¬è¯»äº‹ä»¶
         _ReadContinue;
         Exit;
       end;
@@ -700,12 +714,12 @@ end;
       Exit;
     end;
 
-    // »ñÈ¡Socket·¢ËÍ¶ÓÁĞÖĞµÄµÚÒ»ÌõÊı¾İ
+    // è·å–Socketå‘é€é˜Ÿåˆ—ä¸­çš„ç¬¬ä¸€æ¡æ•°æ®
     System.TMonitor.Enter(LSocketSendQueue);
     try
       if (LSocketSendQueue.Count <= 0) then
       begin
-        // ¼ÌĞø¼àÌı¶ÁÊÂ¼ş
+        // ç»§ç»­ç›‘å¬è¯»äº‹ä»¶
         _ReadContinue;
         Exit;
       end;
@@ -713,23 +727,23 @@ end;
       LSendItem := LSocketSendQueue.Items[0];
       LCallback := LSendItem.Callback;
 
-      // È«²¿·¢ËÍÍê³É
+      // å…¨éƒ¨å‘é€å®Œæˆ
       if (LSendItem.Size <= 0) then
       begin
         _Success;
         Exit;
       end;
 
-      // ·¢ËÍÊı¾İ
+      // å‘é€æ•°æ®
       LSent := TSocketAPI.Send(ASocket, LSendItem.Data^, LSendItem.Size, MSG_NOSIGNAL);
 
-      // ·¢ËÍ³É¹¦
+      // å‘é€æˆåŠŸ
       if (LSent > 0) then
       begin
         Inc(LSendItem.Data, LSent);
         Dec(LSendItem.Size, LSent);
       end else
-      // Á¬½Ó¶Ï¿ª»ò·¢ËÍ´íÎó
+      // è¿æ¥æ–­å¼€æˆ–å‘é€é”™è¯¯
       if (LSent = 0) or not _Again(GetLastError) then
       begin
         if (TSocketAPI.CloseSocket(ASocket) = 0) then
@@ -738,8 +752,8 @@ end;
         Exit;
       end;
 
-      // ¼ÌĞø¼àÌı EPOLLOUT ÊÂ¼ş
-      // EPOLLOUT ´¥·¢ºó¼ÌĞø·¢ËÍ
+      // ç»§ç»­ç›‘å¬ EPOLLOUT äº‹ä»¶
+      // EPOLLOUT è§¦å‘åç»§ç»­å‘é€
       if not _WriteContinue then
         _Failed;
     finally
@@ -752,13 +766,13 @@ end;
   LSocket: THandle;
   LPerIoData: PPerIoData;
 begin
-  // Èç¹û²»Ö¸¶¨³¬Ê±Ê±¼ä, ¼´Ê¹ÔÚÆäËüÏß³Ì½« epoll ¾ä±ú¹Ø±Õ, epoll_wait Ò²²»»á·µ»Ø
+  // å¦‚æœä¸æŒ‡å®šè¶…æ—¶æ—¶é—´, å³ä½¿åœ¨å…¶å®ƒçº¿ç¨‹å°† epoll å¥æŸ„å…³é—­, epoll_wait ä¹Ÿä¸ä¼šè¿”å›
   LRet := epoll_wait(FEpollHandle, @FEventList[0], MAX_EVENT_COUNT, 100);
   if (LRet < 0) then
   begin
     LRet := GetLastError;
 //    Writeln('error:', LRet);
-    // EINTR, epoll_wait µ÷ÓÃ±»ÏµÍ³ÖĞ¶Ï´ò¶Ï, ¿ÉÒÔ½øĞĞÖØÊÔ
+    // EINTR, epoll_wait è°ƒç”¨è¢«ç³»ç»Ÿä¸­æ–­æ‰“æ–­, å¯ä»¥è¿›è¡Œé‡è¯•
     Exit(LRet = EINTR);
   end;
 
@@ -767,49 +781,50 @@ begin
     LEvent := FEventList[I];
     LPerIoData := LEvent.Data.ptr;
 
-    if (LPerIoData = nil) then
+    // å¼‚å¸¸äº‹ä»¶
+    if (LEvent.Events and EPOLLERR <> 0) or (LPerIoData = nil) then
     begin
-      Writeln('LPerIoData is nil');
+//      Writeln('EPOLLERR, event:', IntToHex(LEvent.Events), ' data:', LEvent.Data.u64);
+
+      if (LPerIoData <> nil) and ((LEvent.Events and EPOLLIN <> 0) or (LEvent.Events and EPOLLOUT <> 0)) then
+      begin
+        try
+          if Assigned(LPerIoData.Callback) then
+            LPerIoData.Callback(LSocket, False);
+
+          if (TSocketAPI.CloseSocket(LSocket) = 0) then
+            TriggerDisconnected(LSocket);
+        finally
+          FreeIoData(LPerIoData);
+        end;
+      end;
+
       Continue;
     end;
 
     try
       LSocket := LPerIoData.Socket;
 
-      // Òì³£ÊÂ¼ş
-      if (LEvent.Events and EPOLLERR <> 0) then
-      begin
-        Writeln('event:', IntToHex(LEvent.Events), ' socket:', LPerIoData.Socket, ' action:', Integer(LPerIoData.Action));
-
-        if Assigned(LPerIoData.Callback) then
-          LPerIoData.Callback(LSocket, False);
-
-        if (TSocketAPI.CloseSocket(LSocket) = 0) then
-          TriggerDisconnected(LSocket);
-
-        Continue;
-      end;
-
-      // Êı¾İ¿É¶Á
+      // æ•°æ®å¯è¯»
       if (LEvent.Events and EPOLLIN <> 0) then
       begin
         case LPerIoData.Action of
-          // ÓĞĞÂµÄ¿Í»§¶ËÁ¬½Ó
+          // æœ‰æ–°çš„å®¢æˆ·ç«¯è¿æ¥
           epAccept: _HandleAccept(LSocket, LPerIoData);
         else
-          // ÊÕµ½ĞÂÊı¾İ
+          // æ”¶åˆ°æ–°æ•°æ®
           _HandleRead(LSocket, LPerIoData);
         end;
       end;
 
-      // Êı¾İ¿ÉĞ´
+      // æ•°æ®å¯å†™
       if (LEvent.Events and EPOLLOUT <> 0) then
       begin
         case LPerIoData.Action of
-          // Á¬½Ó³É¹¦
+          // è¿æ¥æˆåŠŸ
           epConnect: _HandleConnect(LSocket, LPerIoData);
         else
-          // ¿ÉÒÔ·¢ËÍÊı¾İ
+          // å¯ä»¥å‘é€æ•°æ®
           _HandleWrite(LSocket, LPerIoData);
         end;
       end;

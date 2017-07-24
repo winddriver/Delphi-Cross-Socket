@@ -39,7 +39,7 @@ type
   TEPoll_Data =  Epoll_Data;
   PEPoll_Data = ^Epoll_Data;
 
-  EPoll_Event = packed record
+  EPoll_Event = {$IFDEF CPUX64}packed{$ENDIF} record
     Events: Cardinal;
     Data  : TEpoll_Data;
   end;

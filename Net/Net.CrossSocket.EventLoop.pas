@@ -67,53 +67,106 @@ type
     procedure StopLoop; virtual; abstract;
 
     /// <summary>
-    ///   监听端口
+    ///   建立监听
     /// </summary>
     /// <param name="AHost">
-    ///   监听地址:
+    ///   地址
     ///   <list type="bullet">
     ///     <item>
-    ///       要监听IPv4和IPv6所有地址, 请设置为空 <br />
+    ///       '', 监听所有IPv4及IPv6地址
     ///     </item>
     ///     <item>
-    ///       要单独监听IPv4, 请设置为 '0.0.0.0' <br />
+    ///       '0.0.0.0', 监听所有IPv4地址
     ///     </item>
     ///     <item>
-    ///       要单独监听IPv6, 请设置为 '::' <br />
+    ///       '::', 监听所有IPv6地址
     ///     </item>
     ///     <item>
-    ///       要监听IPv4环路地址, 请设置为 '127.0.0.1' <br />
+    ///       '127.0.0.1', 监听本地IPv4回环地址
     ///     </item>
     ///     <item>
-    ///       要监听IPv6环路地址, 请设置为 '::1' <br />
+    ///       '::1', 监听本地IPv6回环地址
     ///     </item>
     ///   </list>
     /// </param>
     /// <param name="APort">
-    ///   监听端口, 设置为0则随机监听一个可用的端口
+    ///   端口
+    /// </param>
+    /// <param name="ACallback">
+    ///   回调函数
     /// </param>
     /// <returns>
+    ///   返回值只能表明 bind 是否调用成功
     ///   <list type="bullet">
     ///     <item>
-    ///       0 成功
+    ///       0, 调用成功
     ///     </item>
     ///     <item>
-    ///       -1 失败
+    ///       非0, 调用失败
     ///     </item>
     ///   </list>
+    ///   当回调被触发时才表明监听成功或失败
     /// </returns>
     function Listen(const AHost: string; APort: Word;
       const ACallback: TProc<THandle, Boolean> = nil): Integer; virtual; abstract;
 
-    // 连接到主机, 返回0成功或连接中, -1失败
-    // TriggerConnected 被触发才表示连接真正完成
-    // 连接失败会触发 TriggerConnectFailed
+    /// <summary>
+    ///   连接到服务器
+    /// </summary>
+    /// <param name="AHost">
+    ///   地址
+    /// </param>
+    /// <param name="APort">
+    ///   端口
+    /// </param>
+    /// <param name="ACallback">
+    ///   回调函数
+    /// </param>
+    /// <returns>
+    ///   返回值只能表明 connect 调用是否成功
+    ///   <list type="bullet">
+    ///     <item>
+    ///       0, 调用成功
+    ///     </item>
+    ///     <item>
+    ///       非0, 调用失败
+    ///     </item>
+    ///   </list>
+    ///   当回调被触发时才表明连接建立或连接失败
+    /// </returns>
     function Connect(const AHost: string; APort: Word;
       const ACallback: TProc<THandle, Boolean> = nil): Integer; virtual; abstract;
 
     // 发送数据, 返回发送的字节数, -1失败
     // 由于发送是异步的, 所以需要调用者保证发送完成之前缓存的有效性
     // 发送可能会被拆成多次io调用, 返回值只能表明首次发送成功与否
+    /// <summary>
+    ///   向指定套接字发送数据
+    /// </summary>
+    /// <param name="ASocket">
+    ///   套接字
+    /// </param>
+    /// <param name="ABuf">
+    ///   待发送数据
+    /// </param>
+    /// <param name="ALen">
+    ///   数据尺寸
+    /// </param>
+    /// <param name="ACallback">
+    ///   回调函数
+    /// </param>
+    /// <returns>
+    ///   返回值只能表明 send 是否调用成功
+    ///   <list type="bullet">
+    ///     <item>
+    ///       0, 调用成功
+    ///     </item>
+    ///     <item>
+    ///       非0, 调用失败
+    ///     </item>
+    ///   </list>
+    ///   当回调被触发时才表明发送成功或失败
+    /// </returns>
     function Send(ASocket: THandle; const ABuf; ALen: Integer;
       const ACallback: TProc<THandle, Boolean> = nil): Integer; virtual; abstract;
 

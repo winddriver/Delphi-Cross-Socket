@@ -59,7 +59,7 @@ type
     ///   <see href="https://zh.wikipedia.org/wiki/%E8%B7%A8%E4%BE%86%E6%BA%90%E8%B3%87%E6%BA%90%E5%85%B1%E4%BA%AB">
     ///   维基百科: 跨来源资源共享</see>
     /// </remarks>
-    class function CORS: TCrossHttpRouterProc; static;
+    class function CORS: TCrossHttpRouterProc2; static;
 
     /// <summary>
     ///   HTTP严格传输安全
@@ -68,7 +68,7 @@ type
     ///   <see href="https://zh.wikipedia.org/wiki/HTTP%E4%B8%A5%E6%A0%BC%E4%BC%A0%E8%BE%93%E5%AE%89%E5%85%A8">
     ///   维基百科: HTTP严格传输安全</see>
     /// </remarks>
-    class function HSTS: TCrossHttpRouterProc; static;
+    class function HSTS: TCrossHttpRouterProc2; static;
   end;
 
 implementation
@@ -198,22 +198,24 @@ begin
     end;
 end;
 
-class function TNetCrossMiddleware.CORS: TCrossHttpRouterProc;
+class function TNetCrossMiddleware.CORS: TCrossHttpRouterProc2;
 begin
   Result :=
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
     begin
+      AHandled := False;
       AResponse.Header['Access-Control-Allow-Origin'] := '*';
       AResponse.Header['Access-Control-Allow-Methods'] := '*';
       AResponse.Header['Access-Control-Allow-Headers'] := '*';
     end;
 end;
 
-class function TNetCrossMiddleware.HSTS: TCrossHttpRouterProc;
+class function TNetCrossMiddleware.HSTS: TCrossHttpRouterProc2;
 begin
   Result :=
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
     begin
+      AHandled := False;
       AResponse.Header['Strict-Transport-Security'] := 'max-age=31536000; includeSubDomains';
     end;
 end;
