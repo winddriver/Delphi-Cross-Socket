@@ -5,7 +5,7 @@
     </ProjectExtensions>
     <PropertyGroup>
         <DeviceId Condition="'$(Platform)'=='Android'"/>
-        <DeviceId Condition="'$(Platform)'=='iOSDevice32'"/>
+        <DeviceId Condition="'$(Platform)'=='iOSDevice32'">501889ee832e0ea5c4ae4121661549727436ab27</DeviceId>
         <DeviceId Condition="'$(Platform)'=='iOSDevice64'">501889ee832e0ea5c4ae4121661549727436ab27</DeviceId>
         <DeviceId Condition="'$(Platform)'=='iOSSimulator'">iPhone5</DeviceId>
     </PropertyGroup>
@@ -126,6 +126,15 @@
             <RemoteName>Logo150x150.png</RemoteName>
             <DeployClass>UWP_DelphiLogo150</DeployClass>
             <Operation>0</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
+        </DeployFile>
+        <DeployFile Include="OSX32\Debug\CrossHttpConsole.rsm" Condition="'$(Config)'=='Debug'">
+            <RemoteDir>CrossHttpConsole.app\Contents\MacOS\</RemoteDir>
+            <RemoteName>CrossHttpConsole.rsm</RemoteName>
+            <DeployClass>DebugSymbols</DeployClass>
+            <Operation>1</Operation>
             <LocalCommand/>
             <RemoteCommand/>
             <Overwrite>True</Overwrite>

@@ -16,7 +16,7 @@ unit Net.CrossSslSocket;
   3. 接收数据: 用 BIO_write 写入收到的数据, 用 SSL_read 读取解密后的数据
 
   OpenSSL 的 SSL 对象不是线程安全的!!!!!!!!!!!!!!!!!
-  即便初始化 OpenSSL 时设置了那几个线程相关的回调也也一样,
+  即便初始化 OpenSSL 时设置了那几个线程相关的回调也一样,
   一定要保证同一时间不能有两个或以上的线程访问到同一个 SSL 对象
   或者与其绑定的 BIO 对象
 
@@ -30,29 +30,13 @@ unit Net.CrossSslSocket;
 interface
 
 uses
-  System.SysUtils, System.Classes,
-  Net.CrossSocket, Net.OpenSSL;
+  System.SysUtils,
+  System.Classes,
+  Net.CrossSocket.Base,
+  Net.CrossSocket,
+  Net.OpenSSL;
 
 type
-  TCrossSslConnection = class(TCrossConnection)
-  private
-    FSsl: PSSL;
-    FBIOIn, FBIOOut: PBIO;
-    FSslLock: TObject;
-
-    procedure SslLock;
-    procedure SslUnlock;
-
-    function SslHandshake: Integer;
-    procedure WriteBioToSocket(const ACallback: TProc<ICrossConnection, Boolean> = nil);
-  protected
-    procedure Initialize; override;
-    procedure Finalize; override;
-
-    procedure DirectSend(const ABuffer; ACount: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); override;
-  end;
-
   /// <summary>
   ///   <para>
   ///     加密方法
@@ -143,24 +127,9 @@ type
   ///       Connect / Listen
   ///     </item>
   ///   </list>
-  ///   若要继承该类, 请重载 LogicXXX, 而不是 TriggerXXX
   /// </remarks>
-  TCrossSslSocket = class(TCrossSocket)
-  private const
-    SSL_BUF_SIZE = 32768;
-  private class threadvar
-    FSslInBuf: array [0..SSL_BUF_SIZE-1] of Byte;
-  private
-    FSslCtx: PSSL_CTX;
-  protected
-    procedure TriggerConnected(AConnection: ICrossConnection); override;
-    procedure TriggerReceived(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer); override;
-
-    function GetConnectionClass: TCrossConnectionClass; override;
-  public
-    constructor Create(AIoThreads: Integer); override;
-    destructor Destroy; override;
-
+  ICrossSslSocket = interface(ICrossSocket)
+  ['{A4765486-A0F1-4EFD-BC39-FA16AED21A6A}']
     /// <summary>
     ///   OpenSSL 库版本号
     /// </summary>
@@ -234,11 +203,98 @@ type
     procedure SetPrivateKeyFile(const APKeyFile: string);
   end;
 
+  TCrossSslConnection = class(TCrossConnection)
+  private
+    FSsl: PSSL;
+    FBIOIn, FBIOOut: PBIO;
+    FSslLock: TObject;
+
+    procedure _SslLock; inline;
+    procedure _SslUnlock; inline;
+
+    function _SslHandshake: Boolean;
+    procedure _WriteBioToSocket(const ACallback: TProc<ICrossConnection, Boolean> = nil);
+  protected
+    procedure DirectSend(ABuffer: Pointer; ACount: Integer;
+      const ACallback: TProc<ICrossConnection, Boolean> = nil); override;
+  public
+    constructor Create(AOwner: ICrossSocket; AClientSocket: THandle;
+      AConnectType: TConnectType); override;
+    destructor Destroy; override;
+  end;
+
+  /// <remarks>
+  ///   若要继承该类, 请重载 LogicXXX, 而不是 TriggerXXX
+  /// </remarks>
+  TCrossSslSocket = class(TCrossSocket, ICrossSslSocket)
+  private const
+    SSL_BUF_SIZE = 32768;
+  private class threadvar
+    FSslInBuf: array [0..SSL_BUF_SIZE-1] of Byte;
+  private
+    FSslCtx: PSSL_CTX;
+  protected
+    procedure TriggerConnected(AConnection: ICrossConnection); override;
+    procedure TriggerReceived(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer); override;
+
+    function CreateConnection(AOwner: ICrossSocket; AClientSocket: THandle;
+      AConnectType: TConnectType): ICrossConnection; override;
+  public
+    constructor Create(AIoThreads: Integer); override;
+    destructor Destroy; override;
+
+    function SSLVersion: Longword;
+
+    procedure InitSslCtx(ASslMethod: TSslMethod);
+    procedure FreeSslCtx;
+
+    procedure SetCertificate(ACertBuf: Pointer; ACertBufSize: Integer); overload;
+    procedure SetCertificate(const ACertStr: string); overload;
+    procedure SetCertificateFile(const ACertFile: string);
+
+    procedure SetPrivateKey(APKeyBuf: Pointer; APKeyBufSize: Integer); overload;
+    procedure SetPrivateKey(const APKeyStr: string); overload;
+    procedure SetPrivateKeyFile(const APKeyFile: string);
+  end;
+
 implementation
 
 { TCrossSslConnection }
 
-procedure TCrossSslConnection.WriteBioToSocket(
+constructor TCrossSslConnection.Create(AOwner: ICrossSocket;
+  AClientSocket: THandle; AConnectType: TConnectType);
+begin
+  inherited;
+
+  FSslLock := TObject.Create;
+
+  FSsl := SSL_new(TCrossSslSocket(Owner).FSslCtx);
+  FBIOIn := BIO_new(BIO_s_mem());
+  FBIOOut := BIO_new(BIO_s_mem());
+  SSL_set_bio(FSsl, FBIOIn, FBIOOut);
+
+  if (ConnectType = ctAccept) then
+    SSL_set_accept_state(FSsl)   // 服务端连接
+  else
+    SSL_set_connect_state(FSsl); // 客户端连接
+end;
+
+destructor TCrossSslConnection.Destroy;
+begin
+  _SslLock;
+  try
+    if (SSL_shutdown(FSsl) = 0) then
+      SSL_shutdown(FSsl);
+    SSL_free(FSsl);
+  finally
+    _SslUnlock;
+  end;
+  FreeAndNil(FSslLock);
+
+  inherited;
+end;
+
+procedure TCrossSslConnection._WriteBioToSocket(
   const ACallback: TProc<ICrossConnection, Boolean>);
 var
   LConnection: ICrossConnection;
@@ -247,34 +303,40 @@ var
 
   procedure _Success;
   begin
-    FreeAndNil(LBuffer);
+    if (LBuffer <> nil) then
+      FreeAndNil(LBuffer);
     if Assigned(ACallback) then
       ACallback(LConnection, True);
   end;
 
   procedure _Failed;
   begin
-    FreeAndNil(LBuffer);
-    LConnection.Disconnect;
+    if (LBuffer <> nil) then
+      FreeAndNil(LBuffer);
+    LConnection.Close;
     if Assigned(ACallback) then
       ACallback(LConnection, False);
   end;
 
 begin
   LConnection := Self;
-  LBuffer := TBytesStream.Create(nil);
+  LBuffer := nil;
 
   {$region '将BIO中已加密的数据全部读到缓存中'}
   // 从BIO中读取数据这一段必须全读出来再发送
   // 因为SSL对象本身并不是线程安全的, 如果读取数据的同时, 另一个线程尝试操作SSL对象
   // 就会引起异常, 所以这里将读取数据和发送数据分成两部分, 将数据全读出来之后
   // 再调用异步发送, 方便在外层包裹加锁
-  while True do
+  ret := BIO_pending(FBIOOut);
+  if (ret <= 0) then
   begin
-    // 检查 BIO 中是否有数据
-    ret := BIO_pending(FBIOOut);
-    if (ret = 0) then Break;
+    _Success;
+    Exit;
+  end;
 
+  LBuffer := TBytesStream.Create(nil);
+  while (ret > 0) do
+  begin
     LBuffer.Size := LBuffer.Size + ret;
 
     // 读取加密后的数据
@@ -289,6 +351,9 @@ begin
     if (ret <= 0) then Break;
 
     LBuffer.Position := LBuffer.Position + ret;
+
+    // 检查 BIO 中是否有数据
+    ret := BIO_pending(FBIOOut);
   end;
 
   if (LBuffer.Memory = nil) or (LBuffer.Size <= 0) then
@@ -299,7 +364,7 @@ begin
   {$endregion}
 
   {$region '发送缓存中已加密的数据'}
-  inherited DirectSend(LBuffer.Memory^, LBuffer.Size,
+  inherited DirectSend(LBuffer.Memory, LBuffer.Size,
     procedure(AConnection: ICrossConnection; ASuccess: Boolean)
     begin
       FreeAndNil(LBuffer);
@@ -309,7 +374,7 @@ begin
   {$endregion}
 end;
 
-procedure TCrossSslConnection.DirectSend(const ABuffer; ACount: Integer;
+procedure TCrossSslConnection.DirectSend(ABuffer: Pointer; ACount: Integer;
   const ACallback: TProc<ICrossConnection, Boolean>);
 var
   LConnection: ICrossConnection;
@@ -329,86 +394,63 @@ begin
   // 除非调用 SSL_CTX_set_mode 设置了 SSL_MODE_ENABLE_PARTIAL_WRITE 参数
   // 才会出现部分写入成功即返回的情况。这里并没有设置该参数，所以无需做
   // 部分数据的处理，只需要一次 SSL_Write 调用即可。
-  SslLock;
+  _SslLock;
   try
-    ret := SSL_write(FSsl, @ABuffer, ACount);
-    error := SSL_get_error(FSsl, ret);
-    if ssl_is_fatal_error(error) then
+    ret := SSL_write(FSsl, ABuffer, ACount);
+    if (ret > 0) then
+      _WriteBioToSocket(ACallback)
+    else
     begin
-      _Failed;
-      Exit;
+      error := SSL_get_error(FSsl, ret);
+      case error of
+        SSL_ERROR_WANT_READ:;
+        SSL_ERROR_WANT_WRITE: _WriteBioToSocket;
+      else
+        _Failed;
+      end;
     end;
-
-    WriteBioToSocket(ACallback);
   finally
-    SslUnlock;
+    _SslUnlock;
   end;
 end;
 
-procedure TCrossSslConnection.Initialize;
-begin
-  FSslLock := TObject.Create;
-
-  FSsl := SSL_new(TCrossSslSocket(Owner).FSslCtx);
-  FBIOIn := BIO_new(BIO_s_mem());
-  FBIOOut := BIO_new(BIO_s_mem());
-  SSL_set_bio(FSsl, FBIOIn, FBIOOut);
-
-  if (ConnectType = ctAccept) then
-    SSL_set_accept_state(FSsl)   // 服务端连接
-  else
-    SSL_set_connect_state(FSsl); // 客户端连接
-
-  SslHandshake;
-end;
-
-procedure TCrossSslConnection.Finalize;
-begin
-  SslLock;
-
-  if (SSL_shutdown(FSsl) = 0) then
-    SSL_shutdown(FSsl);
-  SSL_free(FSsl);
-
-  SslUnlock;
-
-  FreeAndNil(FSslLock);
-end;
-
-procedure TCrossSslConnection.SslLock;
+procedure TCrossSslConnection._SslLock;
 begin
   TMonitor.Enter(FSslLock);
 end;
 
-procedure TCrossSslConnection.SslUnlock;
+procedure TCrossSslConnection._SslUnlock;
 begin
   TMonitor.Exit(FSslLock);
 end;
 
-function TCrossSslConnection.SslHandshake: Integer;
+function TCrossSslConnection._SslHandshake: Boolean;
 var
   ret, error: Integer;
 begin
-  SslLock;
+  Result := False;
+
+  _SslLock;
   try
     // 开始握手
-    if (ConnectType = ctAccept) then
-      ret := SSL_accept(FSsl)
-    else
-      ret := SSL_connect(FSsl);
-
-    Result := ret;
+    ret := SSL_do_handshake(FSsl);
+    if (ret = 1) then
+    begin
+      _WriteBioToSocket;
+      Exit(True);
+    end;
 
     error := SSL_get_error(FSsl, ret);
     if ssl_is_fatal_error(error) then
     begin
-      Disconnect;
-      Exit;
-    end;
-
-    WriteBioToSocket;
+      {$IFDEF DEBUG}
+      _Log('SSL_do_handshake error %s', [ssl_error_message(error)]);
+      {$ENDIF}
+      Close;
+    end else
+      _WriteBioToSocket;
   finally
-    SslUnlock;
+    _SslUnlock;
   end;
 end;
 
@@ -427,6 +469,12 @@ begin
 
   FreeSslCtx;
   TSSLTools.UnloadSSL;
+end;
+
+function TCrossSslSocket.CreateConnection(AOwner: ICrossSocket;
+  AClientSocket: THandle; AConnectType: TConnectType): ICrossConnection;
+begin
+  Result := TCrossSslConnection.Create(AOwner, AClientSocket, AConnectType);
 end;
 
 procedure TCrossSslSocket.InitSslCtx(ASslMethod: TSslMethod);
@@ -528,11 +576,6 @@ begin
   TSSLTools.FreeCTX(FSslCtx);
 end;
 
-function TCrossSslSocket.GetConnectionClass: TCrossConnectionClass;
-begin
-  Result := TCrossSslConnection;
-end;
-
 procedure TCrossSslSocket.SetCertificate(ACertBuf: Pointer;
   ACertBufSize: Integer);
 begin
@@ -566,14 +609,9 @@ begin
 end;
 
 procedure TCrossSslSocket.TriggerConnected(AConnection: ICrossConnection);
-var
-  LConnection: TCrossSslConnection;
 begin
-  LConnection := AConnection as TCrossSslConnection;
-
-  // 已完成握手才视为连接真正建立
-  if (LConnection.SslHandshake = 1) then
-    inherited TriggerConnected(AConnection);
+  // 网络连接已建立, 等待握手
+  AConnection.ConnectStatus := csHandshaking;
 end;
 
 procedure TCrossSslSocket.TriggerReceived(AConnection: ICrossConnection;
@@ -583,7 +621,7 @@ var
   ret, error: Integer;
 begin
   LConnection := AConnection as TCrossSslConnection;
-  LConnection.SslLock;
+  LConnection._SslLock;
   try
     // 将收到的加密数据写入 BIO, 让 OpenSSL 对其解密
     while True do
@@ -593,7 +631,7 @@ begin
 
       if not BIO_should_retry(LConnection.FBIOIn) then
       begin
-        LConnection.Disconnect;
+        LConnection.Close;
         Exit;
       end;
     end;
@@ -602,8 +640,12 @@ begin
     if not SSL_is_init_finished(LConnection.FSsl) then
     begin
       // 已完成握手才视为连接真正建立
-      if (LConnection.SslHandshake = 1) then
+      if LConnection._SslHandshake
+        and (LConnection.ConnectStatus = csHandshaking) then
+      begin
+        LConnection.ConnectStatus := csConnected;
         inherited TriggerConnected(AConnection);
+      end;
       Exit;
     end;
 
@@ -611,21 +653,34 @@ begin
     while True do
     begin
       // 貌似每次读出来的数据都不会超过 16K
-      ret := SSL_read(LConnection.FSsl, @TCrossSslSocket.FSslInBuf[0], TCrossSslSocket.SSL_BUF_SIZE);
-      error := SSL_get_error(LConnection.FSsl, ret);
-      if ssl_is_fatal_error(error) then
-      begin
-        LConnection.Disconnect;
-        Exit;
-      end;
-
-      if (ret <= 0) then Break;
+      ret := SSL_read(LConnection.FSsl, @FSslInBuf[0], SSL_BUF_SIZE);
 
       // 读取到解密数据了, 调用父类接收数据的方法
-      inherited TriggerReceived(AConnection, @TCrossSslSocket.FSslInBuf[0], ret);
+      if (ret > 0) then
+        inherited TriggerReceived(AConnection, @FSslInBuf[0], ret)
+      else
+      begin
+        error := SSL_get_error(LConnection.FSsl, ret);
+        if ssl_is_fatal_error(error) then
+        begin
+          {$IFDEF DEBUG}
+          _Log('SSL_read error %s', [ssl_error_message(error)]);
+          {$ENDIF}
+          LConnection.Close;
+        end;
+
+//        case error of
+//          SSL_ERROR_WANT_READ:;
+//          SSL_ERROR_WANT_WRITE: LConnection._WriteBioToSocket;
+//        else
+//          LConnection.Close;
+//        end;
+
+        Exit;
+      end;
     end;
   finally
-    LConnection.SslUnlock;
+    LConnection._SslUnlock;
   end;
 end;
 

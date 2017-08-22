@@ -12,7 +12,8 @@ unit Utils.Logger;
 interface
 
 uses
-  System.Classes, System.SysUtils, System.IOUtils, Utils.Utils;
+  System.Classes, System.SysUtils, System.IOUtils, System.Diagnostics,
+  System.Generics.Collections, Utils.Utils, Utils.DateTime;
 
 type
   TLogType = (ltNormal, ltWarning, ltError, ltException);
@@ -22,46 +23,82 @@ const
   LogTypeStr: array [TLogType] of string = ('', 'WAR', 'ERR', 'EXP');
 
 type
-  TLogger = class
+  ILogger = interface
+  ['{D9AE7F7B-95DE-4840-98FA-A49A4368D658}']
+    function GetFilters: TLogTypeSets;
+    procedure SetFilters(const Value: TLogTypeSets);
+
+    function GetLogDir: string;
+    function GetLogFileName(ALogType: TLogType; ADate: TDateTime): string;
+
+    procedure AppendLog(const ALog: string; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
+    procedure AppendLog(const ALog: string; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
+    procedure AppendLog(const Fmt: string; const Args: array of const; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
+    procedure AppendLog(const Fmt: string; const Args: array of const; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
+
+    property Filters: TLogTypeSets read GetFilters write SetFilters;
+  end;
+
+  TLogItem = record
+    Time: TDateTime;
+    Text: string;
+  end;
+
+  TLogBuffer = TList<TLogItem>;
+
+  TLogger = class(TInterfacedObject, ILogger)
+  private const
+    FLUSH_INTERVAL = 200;
   private
-    FFileLocker: array [TLogType] of TObject;
     FFilters: TLogTypeSets;
 
-    class var FLogger: TLogger;
+    class var FLogger: ILogger;
     class constructor Create;
     class destructor Destroy;
 
+    function GetFilters: TLogTypeSets;
     procedure SetFilters(const Value: TLogTypeSets);
+  private
+    FBuffer: array [TLogType] of TLogBuffer;
+    FBufferLock: array [TLogType] of TObject;
+    FShutdown, FQuit: Boolean;
+
+    procedure _Lock(const ALogType: TLogType); inline;
+    procedure _Unlock(const ALogType: TLogType); inline;
+    procedure _WriteLogFile(const ALogType: TLogType);
+    procedure _WriteAllLogFiles; inline;
+    procedure _CreateWriteThread;
+    procedure _Shutdown; inline;
   protected
-    procedure AppendStrToLogFile(const S: string; ALogType: TLogType);
+    procedure _AppendLogToBuffer(const S: string; ALogType: TLogType);
   public
     constructor Create; virtual;
     destructor Destroy; override;
 
     function GetLogDir: string;
-    function GetLogFileName(ALogType: TLogType; Date: TDateTime): string;
+    function GetLogFileName(ALogType: TLogType; ADate: TDateTime): string;
 
-    procedure AppendLog(const Log: string; const TimeFormat: string; ALogType: TLogType = ltNormal; CRLF: string = ''); overload;
-    procedure AppendLog(const Log: string; ALogType: TLogType = ltNormal; CRLF: string = ''); overload;
-    procedure AppendLog(const Fmt: string; const Args: array of const; const TimeFormat: string; ALogType: TLogType = ltNormal; CRLF: string = ''); overload;
-    procedure AppendLog(const Fmt: string; const Args: array of const; ALogType: TLogType = ltNormal; CRLF: string = ''); overload;
+    procedure AppendLog(const ALog: string; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
+    procedure AppendLog(const ALog: string; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
+    procedure AppendLog(const Fmt: string; const Args: array of const; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
+    procedure AppendLog(const Fmt: string; const Args: array of const; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
 
-    property Filters: TLogTypeSets read FFilters write SetFilters;
+    property Filters: TLogTypeSets read GetFilters write SetFilters;
 
-    class property Logger: TLogger read FLogger;
+    class property Logger: ILogger read FLogger;
   end;
 
-procedure AppendLog(const Log: string; const TimeFormat: string; ALogType: TLogType = ltNormal; CRLF: string = ';'); overload;
-procedure AppendLog(const Log: string; ALogType: TLogType = ltNormal; CRLF: string = ';'); overload;
-procedure AppendLog(const Fmt: string; const Args: array of const; const TimeFormat: string; ALogType: TLogType = ltNormal; CRLF: string = ';'); overload;
-procedure AppendLog(const Fmt: string; const Args: array of const; ALogType: TLogType = ltNormal; CRLF: string = ';'); overload;
+procedure AppendLog(const ALog: string; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ';'); overload;
+procedure AppendLog(const ALog: string; ALogType: TLogType = ltNormal; const CRLF: string = ';'); overload;
+procedure AppendLog(const Fmt: string; const Args: array of const; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ';'); overload;
+procedure AppendLog(const Fmt: string; const Args: array of const; ALogType: TLogType = ltNormal; const CRLF: string = ';'); overload;
 
-function Logger: TLogger;
+function Logger: ILogger;
 
 var
-  // 日志目录
+  // 默认日志目录
   // 留空由程序自动设定
-  LogDir: string = '';
+  DefaultLogDir: string = '';
 
 implementation
 
@@ -72,39 +109,47 @@ end;
 
 class destructor TLogger.Destroy;
 begin
-  FreeAndNil(FLogger);
 end;
 
 constructor TLogger.Create;
 var
-  i: TLogType;
+  I: TLogType;
 begin
   FFilters := [ltNormal, ltWarning, ltError, ltException];
 
-  for i := Low(TLogType) to High(TLogType) do
+  for I := Low(TLogType) to High(TLogType) do
   begin
-    FFileLocker[i] := TObject.Create;
+    FBuffer[I] := TLogBuffer.Create;
+    FBufferLock[I] := TObject.Create;
   end;
+
+  _CreateWriteThread;
 end;
 
 destructor TLogger.Destroy;
 var
-  i: TLogType;
+  I: TLogType;
 begin
-  for i := Low(TLogType) to High(TLogType) do
+  _Shutdown;
+
+  for I := Low(TLogType) to High(TLogType) do
   begin
-    TMonitor.Enter(FFileLocker[i]);
-    TMonitor.Exit(FFileLocker[i]);
-    FFileLocker[i].Free;
+    FreeAndNil(FBuffer[I]);
+    FreeAndNil(FBufferLock[I]);
   end;
 
   inherited Destroy;
 end;
 
+function TLogger.GetFilters: TLogTypeSets;
+begin
+  Result := FFilters;
+end;
+
 function TLogger.GetLogDir: string;
 begin
-  if (LogDir <> '') then
-    Result := LogDir
+  if (DefaultLogDir <> '') then
+    Result := DefaultLogDir
   else
     Result :=
       {$IFDEF MSWINDOWS}
@@ -115,12 +160,12 @@ begin
       TUtils.AppName + '.log' + PathDelim;
 end;
 
-function TLogger.GetLogFileName(ALogType: TLogType; Date: TDateTime): string;
+function TLogger.GetLogFileName(ALogType: TLogType; ADate: TDateTime): string;
 begin
   Result := LogTypeStr[ALogType];
   if (Result <> '') then
     Result := Result + '-';
-  Result := Result + TUtils.DateTimeToStr(Date, 'YYYY-MM-DD') + '.log';
+  Result := Result + TUtils.DateTimeToStr(ADate, 'YYYY-MM-DD') + '.log';
 end;
 
 procedure TLogger.SetFilters(const Value: TLogTypeSets);
@@ -128,87 +173,188 @@ begin
   FFilters := Value;
 end;
 
-procedure TLogger.AppendLog(const Log: string; const TimeFormat: string; ALogType: TLogType; CRLF: string);
-var
-  LogText: string;
+procedure TLogger._CreateWriteThread;
 begin
-  if not (ALogType in FFilters) then Exit;
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      LWatch: TStopwatch;
+    begin
+      LWatch := TStopwatch.StartNew;
+      while not FShutdown do
+      begin
+        if (LWatch.ElapsedTicks > FLUSH_INTERVAL) then
+        begin
+          _WriteAllLogFiles;
 
-  if (CRLF <> '') then
-    LogText := StringReplace(Log, sLineBreak, CRLF, [rfReplaceAll])
-  else
-    LogText := Log;
-  LogText := TUtils.DateTimeToStr(Now, TimeFormat) + ' ' + LogText + sLineBreak;
-
-  AppendStrToLogFile(LogText, ALogType);
+          LWatch.Reset;
+          LWatch.Start;
+        end;
+        Sleep(10);
+      end;
+      FQuit := True;
+    end).Start;
 end;
 
-procedure TLogger.AppendLog(const Log: string; ALogType: TLogType; CRLF: string);
+procedure TLogger._Lock(const ALogType: TLogType);
 begin
-  AppendLog(Log, 'HH:NN:SS:ZZZ', ALogType, CRLF);
+  System.TMonitor.Enter(FBufferLock[ALogType]);
 end;
 
-procedure TLogger.AppendLog(const Fmt: string; const Args: array of const; const TimeFormat: string; ALogType: TLogType; CRLF: string);
+procedure TLogger._Shutdown;
 begin
-  AppendLog(TUtils.ThreadFormat(Fmt, Args), TimeFormat, ALogType, CRLF);
+  FShutdown := True;
+  while not FQuit do
+    Sleep(1);
 end;
 
-procedure TLogger.AppendLog(const Fmt: string; const Args: array of const; ALogType: TLogType; CRLF: string);
+procedure TLogger._Unlock(const ALogType: TLogType);
 begin
-  AppendLog(TUtils.ThreadFormat(Fmt, Args), ALogType, CRLF);
+  System.TMonitor.Exit(FBufferLock[ALogType]);
 end;
 
-procedure TLogger.AppendStrToLogFile(const S: string; ALogType: TLogType);
+procedure TLogger._WriteLogFile(const ALogType: TLogType);
 var
   LLogDir, LLogFile: string;
-  LStream: TFileStream;
-  LBytes: TBytes;
-begin
-  LLogDir := GetLogDir;
-  LLogFile := LLogDir + GetLogFileName(ALogType, Now);
+  LLastTime: TDateTime;
+  I: Integer;
+  LLogItem: TLogItem;
+  LBuffer: TBytesStream;
 
-  TMonitor.Enter(FFileLocker[ALogType]);
-  try
-    // 当没有权限写入日志文件时会触发异常
-    // 这里屏蔽该异常, 以免记录日志反而影响正常的程序流程
+  procedure _WriteLogToBuffer(const ALogItem: TLogItem);
+  var
+    LBytes: TBytes;
+  begin
+    LBytes := TEncoding.UTF8.GetBytes(ALogItem.Text);
+    LBuffer.Seek(0, TSeekOrigin.soEnd);
+    LBuffer.Write(LBytes, Length(LBytes));
+  end;
+
+  procedure _WriteBufferToFile(const ALogFile: string);
+  var
+    LStream: TFileStream;
+    LBytes: TBytes;
+  begin
     try
-      ForceDirectories(LLogDir);
-      LStream := TFile.Open(LLogFile, TFileMode.fmOpenOrCreate, TFileAccess.faReadWrite, TFileShare.fsRead);
+      LStream := TFile.Open(ALogFile, TFileMode.fmOpenOrCreate, TFileAccess.faReadWrite, TFileShare.fsRead);
       try
         LStream.Seek(0, TSeekOrigin.soEnd);
-        LBytes := TEncoding.UTF8.GetBytes(S);
+        LBytes := LBuffer.Bytes;
+        SetLength(LBytes, LBuffer.Size);
         LStream.Write(LBytes, Length(LBytes));
       finally
         FreeAndNil(LStream);
       end;
     except
     end;
+  end;
+begin
+  _Lock(ALogType);
+  try
+    if (FBuffer[ALogType].Count <= 0) then Exit;
+
+    LLastTime := 0;
+    LLogDir := GetLogDir;
+    ForceDirectories(LLogDir);
+
+    LBuffer := TBytesStream.Create(nil);
+    try
+      for I := 0 to FBuffer[ALogType].Count - 1 do
+      begin
+        LLogItem := FBuffer[ALogType].Items[I];
+        _WriteLogToBuffer(LLogItem);
+
+        if not LLogItem.Time.IsSameDay(LLastTime)
+          or (I >= FBuffer[ALogType].Count - 1) then
+        begin
+          LLastTime := LLogItem.Time;
+          LLogFile := LLogDir + GetLogFileName(ALogType, LLogItem.Time);
+          _WriteBufferToFile(LLogFile);
+          LBuffer.Clear;
+        end;
+      end;
+      FBuffer[ALogType].Clear;
+    finally
+      FreeAndNil(LBuffer);
+    end;
   finally
-    TMonitor.Exit(FFileLocker[ALogType]);
+    _Unlock(ALogType);
   end;
 end;
 
-procedure AppendLog(const Log: string; const TimeFormat: string; ALogType: TLogType = ltNormal; CRLF: string = ';');
+procedure TLogger._WriteAllLogFiles;
+var
+  I: TLogType;
 begin
-  Logger.AppendLog(Log, TimeFormat, ALogType, CRLF);
+  for I := Low(TLogType) to High(TLogType) do
+    _WriteLogFile(I);
 end;
 
-procedure AppendLog(const Log: string; ALogType: TLogType = ltNormal; CRLF: string = ';');
+procedure TLogger.AppendLog(const ALog: string; const ATimeFormat: string; ALogType: TLogType; const CRLF: string);
+var
+  LText: string;
 begin
-  Logger.AppendLog(Log, ALogType, CRLF);
+  if not (ALogType in FFilters) then Exit;
+
+  if (CRLF <> '') then
+    LText := StringReplace(ALog, sLineBreak, CRLF, [rfReplaceAll])
+  else
+    LText := ALog;
+  LText := TUtils.DateTimeToStr(Now, ATimeFormat) + ' ' + LText + sLineBreak;
+
+  _AppendLogToBuffer(LText, ALogType);
 end;
 
-procedure AppendLog(const Fmt: string; const Args: array of const; const TimeFormat: string; ALogType: TLogType = ltNormal; CRLF: string = ';');
+procedure TLogger.AppendLog(const ALog: string; ALogType: TLogType; const CRLF: string);
 begin
-  Logger.AppendLog(Fmt, Args, TimeFormat, ALogType, CRLF);
+  AppendLog(ALog, 'HH:NN:SS:ZZZ', ALogType, CRLF);
 end;
 
-procedure AppendLog(const Fmt: string; const Args: array of const; ALogType: TLogType = ltNormal; CRLF: string = ';');
+procedure TLogger.AppendLog(const Fmt: string; const Args: array of const; const ATimeFormat: string; ALogType: TLogType; const CRLF: string);
+begin
+  AppendLog(TUtils.ThreadFormat(Fmt, Args), ATimeFormat, ALogType, CRLF);
+end;
+
+procedure TLogger.AppendLog(const Fmt: string; const Args: array of const; ALogType: TLogType; const CRLF: string);
+begin
+  AppendLog(TUtils.ThreadFormat(Fmt, Args), ALogType, CRLF);
+end;
+
+procedure TLogger._AppendLogToBuffer(const S: string; ALogType: TLogType);
+var
+  LLogItem: TLogItem;
+begin
+  _Lock(ALogType);
+  try
+    LLogItem.Time := Now;
+    LLogItem.Text := S;
+    FBuffer[ALogType].Add(LLogItem);
+  finally
+    _Unlock(ALogType);
+  end;
+end;
+
+procedure AppendLog(const ALog: string; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ';');
+begin
+  Logger.AppendLog(ALog, ATimeFormat, ALogType, CRLF);
+end;
+
+procedure AppendLog(const ALog: string; ALogType: TLogType = ltNormal; const CRLF: string = ';');
+begin
+  Logger.AppendLog(ALog, ALogType, CRLF);
+end;
+
+procedure AppendLog(const Fmt: string; const Args: array of const; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ';');
+begin
+  Logger.AppendLog(Fmt, Args, ATimeFormat, ALogType, CRLF);
+end;
+
+procedure AppendLog(const Fmt: string; const Args: array of const; ALogType: TLogType = ltNormal; const CRLF: string = ';');
 begin
   Logger.AppendLog(Fmt, Args, ALogType, CRLF);
 end;
 
-function Logger: TLogger;
+function Logger: ILogger;
 begin
   Result := TLogger.FLogger;
 end;

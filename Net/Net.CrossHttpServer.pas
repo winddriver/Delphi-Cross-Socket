@@ -17,22 +17,36 @@ unit Net.CrossHttpServer;
 interface
 
 uses
-  System.Classes, System.SysUtils, System.StrUtils, System.SyncObjs, System.Math,
-  System.IOUtils, System.Generics.Collections, System.RegularExpressions,
-  System.Masks, System.NetEncoding, System.RegularExpressionsCore,
-  System.RegularExpressionsConsts, System.ZLib,
-  Net.SocketAPI, Net.CrossSocket, Net.CrossServer,
-  {$IFDEF __CROSS_SSL__}Net.OpenSSL, Net.CrossSslSocket, Net.CrossSslServer,{$ENDIF}
-  Net.CrossHttpParams, Net.CrossHttpUtils, Utils.Logger;
+  System.Classes,
+  System.SysUtils,
+  System.StrUtils,
+  System.Math,
+  System.IOUtils,
+  System.Generics.Collections,
+  System.RegularExpressions,
+  System.NetEncoding,
+  System.RegularExpressionsCore,
+  System.RegularExpressionsConsts,
+  System.ZLib,
+  Net.SocketAPI,
+  Net.CrossSocket.Base,
+  Net.CrossSocket,
+  Net.CrossServer,
+  {$IFDEF __CROSS_SSL__}
+  Net.OpenSSL,
+  Net.CrossSslSocket,
+  Net.CrossSslServer,
+  {$ENDIF}
+  Net.CrossHttpParams,
+  Net.CrossHttpUtils,
+  Utils.Logger;
 
 const
   CROSS_HTTP_SERVER_NAME = 'CrossHttpServer/2.0';
   MIN_COMPRESS_SIZE = 512;
 
 type
-  TBodyType = (btNone, btUrlEncoded, btMultiPart, btBinary);
-
-  TCrossHttpServer = class;
+  ICrossHttpServer = interface;
   ICrossHttpRequest = interface;
   ICrossHttpResponse = interface;
 
@@ -43,7 +57,7 @@ type
   ['{72E9AC44-958C-4C6F-8769-02EA5EC3E9A8}']
     function GetRequest: ICrossHttpRequest;
     function GetResponse: ICrossHttpResponse;
-    function GetServer: TCrossHttpServer;
+    function GetServer: ICrossHttpServer;
 
     /// <summary>
     ///   请求对象
@@ -58,24 +72,13 @@ type
     /// <summary>
     ///   Server对象
     /// </summary>
-    property Server: TCrossHttpServer read GetServer;
+    property Server: ICrossHttpServer read GetServer;
   end;
 
-  TCrossHttpConnection = class({$IFDEF __CROSS_SSL__}TCrossSslConnection{$ELSE}TCrossConnection{$ENDIF}, ICrossHttpConnection)
-  private
-    FRequest: ICrossHttpRequest;
-    FResponse: ICrossHttpResponse;
-
-    function GetRequest: ICrossHttpRequest;
-    function GetResponse: ICrossHttpResponse;
-    function GetServer: TCrossHttpServer;
-  public
-    constructor Create; override;
-
-    property Request: ICrossHttpRequest read GetRequest;
-    property Response: ICrossHttpResponse read GetResponse;
-    property Server: TCrossHttpServer read GetServer;
-  end;
+  /// <summary>
+  ///   请求体类型
+  /// </summary>
+  TBodyType = (btNone, btUrlEncoded, btMultiPart, btBinary);
 
   /// <summary>
   ///   HTTP请求接口
@@ -203,7 +206,7 @@ type
     property Version: string read GetVersion;
 
     /// <summary>
-    ///   完整的请求头
+    ///   HTTP请求头
     /// </summary>
     property Header: THttpHeader read GetHeader;
 
@@ -358,131 +361,9 @@ type
     property ContentType: string read GetContentType;
   end;
 
-  TCrossHttpRequest = class(TInterfacedObject, ICrossHttpRequest)
-  private
-    function GetConnection: ICrossHttpConnection;
-    function GetRawRequestText: string;
-    function GetRawPathAndParams: string;
-    function GetMethod: string;
-    function GetPath: string;
-    function GetVersion: string;
-    function GetHeader: THttpHeader;
-    function GetCookies: TRequestCookies;
-    function GetSession: ISession;
-    function GetParams: THttpUrlParams;
-    function GetQuery: THttpUrlParams;
-    function GetBody: TObject;
-    function GetBodyType: TBodyType;
-    function GetKeepAlive: Boolean;
-    function GetAccept: string;
-    function GetAcceptEncoding: string;
-    function GetAcceptLanguage: string;
-    function GetReferer: string;
-    function GetUserAgent: string;
-    function GetIfModifiedSince: TDateTime;
-    function GetAuthorization: string;
-    function GetXForwardedFor: string;
-    function GetContentLength: Int64;
-    function GetHostName: string;
-    function GetHostPort: Word;
-    function GetContentType: string;
-  private type
-    TCrossHttpParseState = (psHeader, psPostData, psChunkSize, psChunkData, psChunkEnd, psDone);
-  private
-    FParseState: TCrossHttpParseState;
-    CR, LF: Integer;
-    FChunkSizeStream: TBytesStream;
-    FChunkSize, FChunkLeftSize: Integer;
-
-    FRawRequest: TBytesStream;
-    FRawRequestText: string;
-    FMethod, FPath, FVersion: string;
-    FRawPath, FRawParamsText, FRawPathAndParams: string;
-    FHttpVerNum: Integer;
-    FKeepAlive: Boolean;
-    FAccept: string;
-    FReferer: string;
-    FAcceptLanguage: string;
-    FAcceptEncoding: string;
-    FUserAgent: string;
-    FIfModifiedSince: TDateTime;
-    FAuthorization: string;
-    FXForwardedFor: string;
-    FContentLength: Int64;
-    FHostName: string;
-    FHostPort: Word;
-
-    FPostDataSize: Integer;
-
-    FRequestCmdLine: string;
-    FContentType: string;
-    FRequestBoundary: string;
-    FTransferEncoding: string;
-    FContentEncoding: string;
-    FRequestCookies: string;
-    FRequestHost: string;
-    FRequestConnection: string;
-
-    function GetIsChunked: Boolean;
-    function GetIsMultiPartFormData: Boolean;
-    function GetIsUrlEncodedFormData: Boolean;
-  protected
-    function ParseRequestData: Boolean; virtual;
-  private
-    // Request 是 Connection 的子对象, 它的生命周期跟随 Connection
-    // 这里使用弱引用, 不增加 Connection 的引用计数, 避免循环引用造成接口对象无法自动释放
-    [weak]FConnection: ICrossHttpConnection;
-    FHeader: THttpHeader;
-    FCookies: TRequestCookies;
-    FSession: ISession;
-    FParams: THttpUrlParams;
-    FQuery: THttpUrlParams;
-    FBody: TObject;
-    FBodyType: TBodyType;
-  public
-    constructor Create(AConnection: ICrossHttpConnection);
-    destructor Destroy; override;
-
-    procedure Reset;
-
-    property Connection: ICrossHttpConnection read GetConnection;
-    property RawRequestText: string read GetRawRequestText;
-    property RawPathAndParams: string read GetRawPathAndParams;
-    property Method: string read GetMethod;
-    property Path: string read GetPath;
-    property Version: string read GetVersion;
-    property Header: THttpHeader read GetHeader;
-    property Cookies: TRequestCookies read GetCookies;
-    property Params: THttpUrlParams read GetParams;
-    property Query: THttpUrlParams read GetQuery;
-    property Body: TObject read GetBody;
-    property BodyType: TBodyType read GetBodyType;
-    property KeepAlive: Boolean read GetKeepAlive;
-    property Accept: string read GetAccept;
-    property AcceptEncoding: string read GetAcceptEncoding;
-    property AcceptLanguage: string read GetAcceptLanguage;
-    property Referer: string read GetReferer;
-    property UserAgent: string read GetUserAgent;
-    property IfModifiedSince: TDateTime read GetIfModifiedSince;
-    property Authorization: string read GetAuthorization;
-    property XForwardedFor: string read GetXForwardedFor;
-    property ContentLength: Int64 read GetContentLength;
-    property HostName: string read GetHostName;
-    property HostPort: Word read GetHostPort;
-    property ContentType: string read GetContentType;
-
-    property RequestCmdLine: string read FRequestCmdLine;
-
-    property RequestBoundary: string read FRequestBoundary;
-    property TransferEncoding: string read FTransferEncoding;
-    property ContentEncoding: string read FContentEncoding;
-    property RequestConnection: string read FRequestConnection;
-    property IsChunked: Boolean read GetIsChunked;
-    property IsMultiPartFormData: Boolean read GetIsMultiPartFormData;
-    property IsUrlEncodedFormData: Boolean read GetIsUrlEncodedFormData;
-    property PostDataSize: Integer read FPostDataSize;
-  end;
-
+  /// <summary>
+  ///   压缩类型
+  /// </summary>
   TCompressType = (ctGZip, ctDeflate);
 
   /// <summary>
@@ -873,7 +754,7 @@ type
     property Location: string read GetLocation write SetLocation;
 
     /// <summary>
-    ///   HTTP头
+    ///   HTTP响应头
     /// </summary>
     property Header: THttpHeader read GetHeader;
 
@@ -886,6 +767,942 @@ type
     ///   是否已经发送数据
     /// </summary>
     property Sent: Boolean read GetSent;
+  end;
+
+  /// <summary>
+  ///   路由接口
+  /// </summary>
+  ICrossHttpRouter = interface
+  ['{2B095450-6A5D-450F-8DCD-6911526C733F}']
+    function GetMethod: string;
+    function GetPath: string;
+    function IsMatch(ARequest: ICrossHttpRequest): Boolean;
+    procedure Execute(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean);
+
+    property Method: string read GetMethod;
+    property Path: string read GetPath;
+  end;
+  TCrossHttpRouters = TList<ICrossHttpRouter>;
+
+  TCrossHttpRouterProc = reference to procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse);
+  TCrossHttpRouterMethod = procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse) of object;
+  TCrossHttpRouterProc2 = reference to procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean);
+  TCrossHttpRouterMethod2 = procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean) of object;
+
+  TCrossHttpConnEvent = procedure(Sender: TObject; AConnection: ICrossHttpConnection) of object;
+  TCrossHttpRequestEvent = procedure(Sender: TObject; ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean) of object;
+  TCrossHttpRequestExceptionEvent = procedure(Sender: TObject; ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; AException: Exception) of object;
+  TCrossHttpDataEvent = procedure(Sender: TObject; AClient: ICrossHttpConnection; ABuf: Pointer; ALen: Integer) of object;
+
+  /// <summary>
+  ///   <para>
+  ///     跨平台HTTP服务器接口
+  ///   </para>
+  ///   <para>
+  ///     路由定义方式:
+  ///   </para>
+  ///   <para>
+  ///     Route(AMehod, APath, ARouter)
+  ///   </para>
+  ///   <para>
+  ///     Get(APath, ARouter)
+  ///   </para>
+  ///   <para>
+  ///     Put(APath, ARouter)
+  ///   </para>
+  ///   <para>
+  ///     Post(APath, ARouter) <br />
+  ///   </para>
+  ///   <para>
+  ///     Delete(APath, ARouter) <br />
+  ///   </para>
+  ///   <para>
+  ///     All(APath, ARouter) <br />
+  ///   </para>
+  ///   <para>
+  ///     其中AMehod和APath都支持正则表达式, ARouter可以是一个对象方法也可以是匿名函数 <br />
+  ///   </para>
+  /// </summary>
+  /// <remarks>
+  ///   <para>
+  ///     这里偷了下懒, 没将HTTP和HTTPS分开实现两个不同的接口, 需要通过编译开关选择使用HTTP还是HTTP
+  ///   </para>
+  ///   <para>
+  ///     通过接口引用计数保证连接的有效性，所以可以在路由函数中调用线程池来处理业务逻辑，而不用担心处理过程中连接对象被释放
+  ///   </para>
+  ///   <para>
+  ///     每个请求的响应流程大致为：
+  ///   </para>
+  ///   <list type="number">
+  ///     <item>
+  ///       执行匹配的中间件;
+  ///     </item>
+  ///     <item>
+  ///       执行匹配的路由
+  ///     </item>
+  ///   </list>
+  /// </remarks>
+  /// <example>
+  ///   <code lang="Delphi">// 在线程池中处理业务逻辑
+  /// FCrossHttpServer.Route('GET', '/runtask/:name',
+  ///   procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+  ///   begin
+  ///     System.Threading.TTask.Run(
+  ///       procedure
+  ///       begin
+  ///         CallTask(ARequest.Params['name']);
+  ///       end);
+  ///   end);
+  /// // 正则表达式
+  /// FCrossHttpServer.Route('GET', '/query/:count(\d+)',
+  ///   procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+  ///   begin
+  ///     System.Threading.TTask.Run(
+  ///       procedure
+  ///       begin
+  ///         CallQuery(ARequest.Params['count'].ToInteger);
+  ///       end);
+  ///   end);</code>
+  /// </example>
+  ICrossHttpServer = interface({$IFDEF __CROSS_SSL__}ICrossSslServer{$ELSE}ICrossServer{$ENDIF})
+  ['{224D16AA-317C-435E-9C2E-92868E578DB3}']
+    function GetStoragePath: string;
+    function GetAutoDeleteFiles: Boolean;
+    function GetMaxHeaderSize: Integer;
+    function GetMaxPostDataSize: Integer;
+    function GetCompressible: Boolean;
+    function GetMinCompressSize: Integer;
+    function GetSessions: ISessions;
+    function GetSessionIDCookieName: string;
+    function GetOnRequest: TCrossHttpRequestEvent;
+    function GetOnRequestException: TCrossHttpRequestExceptionEvent;
+    function GetOnPostDataBegin: TCrossHttpConnEvent;
+    function GetOnPostData: TCrossHttpDataEvent;
+    function GetOnPostDataEnd: TCrossHttpConnEvent;
+
+    procedure SetStoragePath(const Value: string);
+    procedure SetAutoDeleteFiles(const Value: Boolean);
+    procedure SetMaxHeaderSize(const Value: Integer);
+    procedure SetMaxPostDataSize(const Value: Integer);
+    procedure SetCompressible(const Value: Boolean);
+    procedure SetMinCompressSize(const Value: Integer);
+    procedure SetSessions(const Value: ISessions);
+    procedure SetSessionIDCookieName(const Value: string);
+    procedure SetOnRequest(const Value: TCrossHttpRequestEvent);
+    procedure SetOnRequestException(const Value: TCrossHttpRequestExceptionEvent);
+    procedure SetOnPostDataBegin(const Value: TCrossHttpConnEvent);
+    procedure SetOnPostData(const Value: TCrossHttpDataEvent);
+    procedure SetOnPostDataEnd(const Value: TCrossHttpConnEvent);
+
+    /// <summary>
+    ///   注册中间件
+    /// </summary>
+    /// <param name="AMethod">
+    ///   请求方式
+    /// </param>
+    /// <param name="APath">
+    ///   请求路径
+    /// </param>
+    /// <param name="AMiddlewareProc">
+    ///   中间件处理匿名函数, 执行完处理函数之后还会继续执行后续匹配的中间件及路由
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       中间件严格按照注册时的顺序被调用
+    ///     </item>
+    ///     <item>
+    ///       中间件先于路由执行
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Use(const AMethod, APath: string;
+      AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册中间件
+    /// </summary>
+    /// <param name="AMethod">
+    ///   请求方式
+    /// </param>
+    /// <param name="APath">
+    ///   请求路径
+    /// </param>
+    /// <param name="AMiddlewareProc2">
+    ///   中间件处理匿名函数, 执行完处理函数之后, 如果AHandled=False则会继续执行后续匹配的中间件及路由,
+    ///   否则后续匹配的中间件及路由不会被执行
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       中间件严格按照注册时的顺序被调用
+    ///     </item>
+    ///     <item>
+    ///       中间件先于路由执行
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Use(const AMethod, APath: string;
+      AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册中间件
+    /// </summary>
+    /// <param name="AMethod">
+    ///   请求方式
+    /// </param>
+    /// <param name="APath">
+    ///   请求路径
+    /// </param>
+    /// <param name="AMiddlewareMethod">
+    ///   中间件处理匿名方法, 执行完处理方法之后还会继续执行后续匹配的中间件及路由
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       中间件严格按照注册时的顺序被调用
+    ///     </item>
+    ///     <item>
+    ///       中间件先于路由执行
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Use(const AMethod, APath: string;
+      AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册中间件
+    /// </summary>
+    /// <param name="AMethod">
+    ///   请求方式
+    /// </param>
+    /// <param name="APath">
+    ///   请求路径
+    /// </param>
+    /// <param name="AMiddlewareMethod2">
+    ///   中间件处理匿名方法, 执行完处理方法之后, 如果AHandled=False则会继续执行后续匹配的中间件及路由,
+    ///   否则后续匹配的中间件及路由不会被执行
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       中间件严格按照注册时的顺序被调用
+    ///     </item>
+    ///     <item>
+    ///       中间件先于路由执行
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Use(const AMethod, APath: string;
+      AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册中间件
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径
+    /// </param>
+    /// <param name="AMiddlewareProc">
+    ///   中间件处理匿名函数, 执行完处理函数之后还会继续执行后续匹配的中间件及路由
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       中间件严格按照注册时的顺序被调用
+    ///     </item>
+    ///     <item>
+    ///       中间件先于路由执行
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Use(const APath: string;
+      AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册中间件
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径
+    /// </param>
+    /// <param name="AMiddlewareProc2">
+    ///   中间件处理匿名函数, 执行完处理函数之后, 如果AHandled=False则会继续执行后续匹配的中间件及路由,
+    ///   否则后续匹配的中间件及路由不会被执行
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       中间件严格按照注册时的顺序被调用
+    ///     </item>
+    ///     <item>
+    ///       中间件先于路由执行
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Use(const APath: string;
+      AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册中间件
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径
+    /// </param>
+    /// <param name="AMiddlewareMethod">
+    ///   中间件处理匿名方法, 执行完处理方法之后还会继续执行后续匹配的中间件及路由
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       中间件严格按照注册时的顺序被调用
+    ///     </item>
+    ///     <item>
+    ///       中间件先于路由执行
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Use(const APath: string;
+      AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册中间件
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径
+    /// </param>
+    /// <param name="AMiddlewareMethod2">
+    ///   中间件处理匿名方法, 执行完处理方法之后, 如果AHandled=False则会继续执行后续匹配的中间件及路由,
+    ///   否则后续匹配的中间件及路由不会被执行
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       中间件严格按照注册时的顺序被调用
+    ///     </item>
+    ///     <item>
+    ///       中间件先于路由执行
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Use(const APath: string;
+      AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册中间件
+    /// </summary>
+    /// <param name="AMiddlewareProc">
+    ///   中间件处理匿名函数, 执行完处理函数之后还会继续执行后续匹配的中间件及路由
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       中间件严格按照注册时的顺序被调用
+    ///     </item>
+    ///     <item>
+    ///       中间件先于路由执行
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Use(AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Use(AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册中间件
+    /// </summary>
+    /// <param name="AMiddlewareMethod">
+    ///   中间件处理方法, 执行完处理方法之后还会继续执行后续匹配的中间件及路由
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       中间件严格按照注册时的顺序被调用
+    ///     </item>
+    ///     <item>
+    ///       中间件先于路由执行
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Use(AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Use(AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册路由(请求处理函数)
+    /// </summary>
+    /// <param name="AMethod">
+    ///   请求方式, GET/POST/PUT/DELETE等, 支持正则表达式, * 表示处理全部请求方式
+    /// </param>
+    /// <param name="APath">
+    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
+    ///   /path/:param1/:param2(\d+)|/path/:param <br />
+    /// </param>
+    /// <param name="ARouterProc">
+    ///   路由处理匿名函数
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
+    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
+    ///     </item>
+    ///     <item>
+    ///       路由中的正则表达式用法与node.js express相同
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Route(const AMethod, APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册路由(请求处理函数)
+    /// </summary>
+    /// <param name="AMethod">
+    ///   请求方式, GET/POST/PUT/DELETE等, 支持正则表达式, * 表示处理全部请求方式
+    /// </param>
+    /// <param name="APath">
+    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
+    ///   /path/:param1/:param2(\d+)|/path/:param
+    /// </param>
+    /// <param name="ARouterMethod">
+    ///   路由处理方法
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
+    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
+    ///     </item>
+    ///     <item>
+    ///       路由中的正则表达式用法与node.js express相同
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Route(const AMethod, APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册GET路由(请求处理函数)
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
+    ///   /path/:param1/:param2(\d+)|/path/:param <br />
+    /// </param>
+    /// <param name="ARouterProc">
+    ///   路由处理匿名函数
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
+    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
+    ///     </item>
+    ///     <item>
+    ///       路由中的正则表达式用法与node.js express相同
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Get(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Get(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册GET路由(请求处理函数)
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
+    ///   /path/:param1/:param2(\d+)|/path/:param <br />
+    /// </param>
+    /// <param name="ARouterMethod">
+    ///   路由处理方法
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
+    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
+    ///     </item>
+    ///     <item>
+    ///       路由中的正则表达式用法与node.js express相同
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Get(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Get(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册PUT路由(请求处理函数)
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
+    ///   /path/:param1/:param2(\d+)|/path/:param <br />
+    /// </param>
+    /// <param name="ARouterProc">
+    ///   路由处理匿名函数
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
+    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
+    ///     </item>
+    ///     <item>
+    ///       路由中的正则表达式用法与node.js express相同
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Put(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Put(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册PUT路由(请求处理函数)
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
+    ///   /path/:param1/:param2(\d+)|/path/:param <br />
+    /// </param>
+    /// <param name="ARouterMethod">
+    ///   路由处理方法
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
+    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
+    ///     </item>
+    ///     <item>
+    ///       路由中的正则表达式用法与node.js express相同
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Put(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Put(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册POST路由(请求处理函数)
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
+    ///   /path/:param1/:param2(\d+)|/path/:param
+    /// </param>
+    /// <param name="ARouterProc">
+    ///   路由处理匿名函数
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
+    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
+    ///     </item>
+    ///     <item>
+    ///       路由中的正则表达式用法与node.js express相同
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Post(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Post(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册POST路由(请求处理函数)
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
+    ///   /path/:param1/:param2(\d+)|/path/:param <br />
+    /// </param>
+    /// <param name="ARouterMethod">
+    ///   路由处理方法
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
+    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
+    ///     </item>
+    ///     <item>
+    ///       路由中的正则表达式用法与node.js express相同
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Post(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Post(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册DELETE路由(请求处理函数)
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
+    ///   /path/:param1/:param2(\d+)|/path/:param <br />
+    /// </param>
+    /// <param name="ARouterProc">
+    ///   路由处理匿名函数
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
+    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
+    ///     </item>
+    ///     <item>
+    ///       路由中的正则表达式用法与node.js express相同
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Delete(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Delete(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册DELETE路由(请求处理函数)
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
+    ///   /path/:param1/:param2(\d+)|/path/:param
+    /// </param>
+    /// <param name="ARouterMethod">
+    ///   路由处理方法
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
+    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
+    ///     </item>
+    ///     <item>
+    ///       路由中的正则表达式用法与node.js express相同
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function Delete(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Delete(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册全部请求方式路由(请求处理函数)
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
+    ///   /path/:param1/:param2(\d+)|/path/:param
+    /// </param>
+    /// <param name="ARouterProc">
+    ///   路由处理匿名函数
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
+    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
+    ///     </item>
+    ///     <item>
+    ///       路由中的正则表达式用法与node.js express相同
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function All(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function All(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册全部请求方式路由(请求处理函数)
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
+    ///   /path/:param1/:param2(\d+)|/path/:param
+    /// </param>
+    /// <param name="ARouterMethod">
+    ///   路由处理方法
+    /// </param>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
+    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
+    ///     </item>
+    ///     <item>
+    ///       路由中的正则表达式用法与node.js express相同
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    function All(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function All(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+
+    /// <summary>
+    ///   注册静态文件路由
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径
+    /// </param>
+    /// <param name="ALocalStaticDir">
+    ///   静态文件目录, 该目录及子目录下的文件都将作为静态文件返回
+    /// </param>
+    function &Static(const APath, ALocalStaticDir: string): ICrossHttpServer;
+
+    /// <summary>
+    ///   注册文件列表路由
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径
+    /// </param>
+    /// <param name="ALocalDir">
+    ///   本地文件目录
+    /// </param>
+    function Dir(const APath, ALocalDir: string): ICrossHttpServer;
+
+    /// <summary>
+    ///   删除指定路由
+    /// </summary>
+    function RemoveRouter(const AMethod, APath: string): ICrossHttpServer;
+
+    /// <summary>
+    ///   清除所有路由
+    /// </summary>
+    function ClearRouter: ICrossHttpServer;
+
+    /// <summary>
+    ///   锁定并返回路由列表
+    /// </summary>
+    function LockRouters: TCrossHttpRouters;
+
+    /// <summary>
+    ///   解锁路由列表
+    /// </summary>
+    procedure UnlockRouters;
+
+    /// <summary>
+    ///   锁定并返回中间件列表
+    /// </summary>
+    function LockMiddlewares: TCrossHttpRouters;
+
+    /// <summary>
+    ///   解锁中间件列表
+    /// </summary>
+    procedure UnlockMiddlewares;
+
+    /// <summary>
+    ///   上传文件保存路径
+    /// </summary>
+    /// <remarks>
+    ///   用于保存multipart/form-data上传的文件
+    /// </remarks>
+    property StoragePath: string read GetStoragePath write SetStoragePath;
+
+    /// <summary>
+    /// 对象释放时自动删除上传的文件
+    /// </summary>
+    property AutoDeleteFiles: Boolean read GetAutoDeleteFiles write SetAutoDeleteFiles;
+
+    /// <summary>
+    ///   最大允许HEADER的数据尺寸
+    ///   <list type="bullet">
+    ///     <item>
+    ///       &gt; 0, 限制HEADER尺寸
+    ///     </item>
+    ///     <item>
+    ///       &lt;= 0, 不限制
+    ///     </item>
+    ///   </list>
+    /// </summary>
+    property MaxHeaderSize: Integer read GetMaxHeaderSize write SetMaxHeaderSize;
+
+    /// <summary>
+    ///   最大允许POST的数据尺寸
+    ///   <list type="bullet">
+    ///     <item>
+    ///       &gt; 0, 限制上传数据尺寸
+    ///     </item>
+    ///     <item>
+    ///       &lt;= 0, 不限制
+    ///     </item>
+    ///   </list>
+    /// </summary>
+    property MaxPostDataSize: Integer read GetMaxPostDataSize write SetMaxPostDataSize;
+
+    /// <summary>
+    ///   是否开启压缩
+    /// </summary>
+    /// <remarks>
+    ///   开启压缩后, 发往客户端的数据将会进行压缩处理
+    /// </remarks>
+    property Compressible: Boolean read GetCompressible write SetCompressible;
+
+    /// <summary>
+    ///   最小允许压缩的数据尺寸
+    /// </summary>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item>
+    ///       如果设置值大于0, 则只有Body数据尺寸大于等于该值才会进行压缩
+    ///     </item>
+    ///     <item>
+    ///       如果设置值小于等于0, 则无视Body数据尺寸, 始终进行压缩
+    ///     </item>
+    ///     <item>
+    ///       由于数据是分块压缩发送, 所以数据无论多大都不会占用更多的资源, 也就不需要限制最大压缩尺寸了
+    ///     </item>
+    ///     <item>
+    ///       目前支持的压缩方式: gzip, deflate
+    ///     </item>
+    ///   </list>
+    /// </remarks>
+    property MinCompressSize: Integer read GetMinCompressSize write SetMinCompressSize;
+
+    /// <summary>
+    ///   Sessions接口对象
+    /// </summary>
+    /// <remarks>
+    ///   通过它管理所有Session, 如果不设置则Session功能将不会被启用
+    /// </remarks>
+    property Sessions: ISessions read GetSessions write SetSessions;
+
+    /// <summary>
+    ///   <para>
+    ///     SessionID在Cookie中存储的名称
+    ///   </para>
+    /// </summary>
+    /// <remarks>
+    ///   如果设置为空, 则Session功能将不会被启用
+    /// </remarks>
+    property SessionIDCookieName: string read GetSessionIDCookieName write SetSessionIDCookieName;
+
+    property OnRequest: TCrossHttpRequestEvent read GetOnRequest write SetOnRequest;
+    property OnRequestException: TCrossHttpRequestExceptionEvent read GetOnRequestException write SetOnRequestException;
+    property OnPostDataBegin: TCrossHttpConnEvent read GetOnPostDataBegin write SetOnPostDataBegin;
+    property OnPostData: TCrossHttpDataEvent read GetOnPostData write SetOnPostData;
+    property OnPostDataEnd: TCrossHttpConnEvent read GetOnPostDataEnd write SetOnPostDataEnd;
+  end;
+
+  TCrossHttpConnection = class({$IFDEF __CROSS_SSL__}TCrossSslConnection{$ELSE}TCrossConnection{$ENDIF}, ICrossHttpConnection)
+  private
+    FRequest: ICrossHttpRequest;
+    FResponse: ICrossHttpResponse;
+
+    function GetRequest: ICrossHttpRequest;
+    function GetResponse: ICrossHttpResponse;
+    function GetServer: ICrossHttpServer;
+  public
+    constructor Create(AOwner: ICrossSocket; AClientSocket: THandle;
+      AConnectType: TConnectType); override;
+
+    property Request: ICrossHttpRequest read GetRequest;
+    property Response: ICrossHttpResponse read GetResponse;
+    property Server: ICrossHttpServer read GetServer;
+  end;
+
+  TCrossHttpRequest = class(TInterfacedObject, ICrossHttpRequest)
+  private
+    function GetConnection: ICrossHttpConnection;
+    function GetRawRequestText: string;
+    function GetRawPathAndParams: string;
+    function GetMethod: string;
+    function GetPath: string;
+    function GetVersion: string;
+    function GetHeader: THttpHeader;
+    function GetCookies: TRequestCookies;
+    function GetSession: ISession;
+    function GetParams: THttpUrlParams;
+    function GetQuery: THttpUrlParams;
+    function GetBody: TObject;
+    function GetBodyType: TBodyType;
+    function GetKeepAlive: Boolean;
+    function GetAccept: string;
+    function GetAcceptEncoding: string;
+    function GetAcceptLanguage: string;
+    function GetReferer: string;
+    function GetUserAgent: string;
+    function GetIfModifiedSince: TDateTime;
+    function GetAuthorization: string;
+    function GetXForwardedFor: string;
+    function GetContentLength: Int64;
+    function GetHostName: string;
+    function GetHostPort: Word;
+    function GetContentType: string;
+  private type
+    TCrossHttpParseState = (psHeader, psPostData, psChunkSize, psChunkData, psChunkEnd, psDone);
+  private
+    FParseState: TCrossHttpParseState;
+    CR, LF: Integer;
+    FChunkSizeStream: TBytesStream;
+    FChunkSize, FChunkLeftSize: Integer;
+
+    FRawRequest: TBytesStream;
+    FRawRequestText: string;
+    FMethod, FPath, FVersion: string;
+    FRawPath, FRawParamsText, FRawPathAndParams: string;
+    FHttpVerNum: Integer;
+    FKeepAlive: Boolean;
+    FAccept: string;
+    FReferer: string;
+    FAcceptLanguage: string;
+    FAcceptEncoding: string;
+    FUserAgent: string;
+    FIfModifiedSince: TDateTime;
+    FAuthorization: string;
+    FXForwardedFor: string;
+    FContentLength: Int64;
+    FHostName: string;
+    FHostPort: Word;
+
+    FPostDataSize: Integer;
+
+    FRequestCmdLine: string;
+    FContentType: string;
+    FRequestBoundary: string;
+    FTransferEncoding: string;
+    FContentEncoding: string;
+    FRequestCookies: string;
+    FRequestHost: string;
+    FRequestConnection: string;
+
+    function GetIsChunked: Boolean;
+    function GetIsMultiPartFormData: Boolean;
+    function GetIsUrlEncodedFormData: Boolean;
+  protected
+    function ParseRequestData: Boolean; virtual;
+  private
+    // Request 是 Connection 的子对象, 它的生命周期跟随 Connection
+    // 这里使用弱引用, 不增加 Connection 的引用计数, 避免循环引用造成接口对象无法自动释放
+    [weak]FConnection: ICrossHttpConnection;
+    FHeader: THttpHeader;
+    FCookies: TRequestCookies;
+    FSession: ISession;
+    FParams: THttpUrlParams;
+    FQuery: THttpUrlParams;
+    FBody: TObject;
+    FBodyType: TBodyType;
+  public
+    constructor Create(AConnection: ICrossHttpConnection);
+    destructor Destroy; override;
+
+    procedure Reset;
+
+    property Connection: ICrossHttpConnection read GetConnection;
+    property RawRequestText: string read GetRawRequestText;
+    property RawPathAndParams: string read GetRawPathAndParams;
+    property Method: string read GetMethod;
+    property Path: string read GetPath;
+    property Version: string read GetVersion;
+    property Header: THttpHeader read GetHeader;
+    property Cookies: TRequestCookies read GetCookies;
+    property Params: THttpUrlParams read GetParams;
+    property Query: THttpUrlParams read GetQuery;
+    property Body: TObject read GetBody;
+    property BodyType: TBodyType read GetBodyType;
+    property KeepAlive: Boolean read GetKeepAlive;
+    property Accept: string read GetAccept;
+    property AcceptEncoding: string read GetAcceptEncoding;
+    property AcceptLanguage: string read GetAcceptLanguage;
+    property Referer: string read GetReferer;
+    property UserAgent: string read GetUserAgent;
+    property IfModifiedSince: TDateTime read GetIfModifiedSince;
+    property Authorization: string read GetAuthorization;
+    property XForwardedFor: string read GetXForwardedFor;
+    property ContentLength: Int64 read GetContentLength;
+    property HostName: string read GetHostName;
+    property HostPort: Word read GetHostPort;
+    property ContentType: string read GetContentType;
+
+    property RequestCmdLine: string read FRequestCmdLine;
+
+    property RequestBoundary: string read FRequestBoundary;
+    property TransferEncoding: string read FTransferEncoding;
+    property ContentEncoding: string read FContentEncoding;
+    property RequestConnection: string read FRequestConnection;
+    property IsChunked: Boolean read GetIsChunked;
+    property IsMultiPartFormData: Boolean read GetIsMultiPartFormData;
+    property IsUrlEncodedFormData: Boolean read GetIsUrlEncodedFormData;
+    property PostDataSize: Integer read FPostDataSize;
   end;
 
   TCrossHttpResponse = class(TInterfacedObject, ICrossHttpResponse)
@@ -964,21 +1781,6 @@ type
     destructor Destroy; override;
   end;
 
-  ICrossHttpRouter = interface
-  ['{2B095450-6A5D-450F-8DCD-6911526C733F}']
-    function GetMethod: string;
-    function GetPath: string;
-    function IsMatch(ARequest: ICrossHttpRequest): Boolean;
-    procedure Execute(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean);
-
-    property Method: string read GetMethod;
-    property Path: string read GetPath;
-  end;
-
-  TCrossHttpRouterProc = reference to procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse);
-  TCrossHttpRouterMethod = procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse) of object;
-  TCrossHttpRouterProc2 = reference to procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean);
-  TCrossHttpRouterMethod2 = procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean) of object;
   TCrossHttpRouter = class(TInterfacedObject, ICrossHttpRouter)
   private
     FMethod, FPath: string;
@@ -1009,81 +1811,7 @@ type
     procedure Execute(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean);
   end;
 
-  TCrossHttpRouters = TList<ICrossHttpRouter>;
-
-  TCrossHttpConnEvent = procedure(Sender: TObject; AConnection: ICrossConnection) of object;
-  TCrossHttpRequestEvent = procedure(Sender: TObject; ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean) of object;
-  TCrossHttpRequestExceptionEvent = procedure(Sender: TObject; ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; AException: Exception) of object;
-  TCrossHttpDataEvent = procedure(Sender: TObject; AClient: ICrossHttpConnection; ABuf: Pointer; ALen: Integer) of object;
-
-  /// <summary>
-  ///   <para>
-  ///     跨平台 Http Server
-  ///   </para>
-  ///   <para>
-  ///     路由定义方式:
-  ///   </para>
-  ///   <para>
-  ///     Route(AMehod, APath, ARouter)
-  ///   </para>
-  ///   <para>
-  ///     Get(APath, ARouter)
-  ///   </para>
-  ///   <para>
-  ///     Put(APath, ARouter)
-  ///   </para>
-  ///   <para>
-  ///     Post(APath, ARouter) <br />
-  ///   </para>
-  ///   <para>
-  ///     Delete(APath, ARouter) <br />
-  ///   </para>
-  ///   <para>
-  ///     All(APath, ARouter) <br />
-  ///   </para>
-  ///   <para>
-  ///     其中AMehod和APath都支持正则表达式, ARouter可以是一个对象方法也可以是匿名函数 <br />
-  ///   </para>
-  /// </summary>
-  /// <remarks>
-  ///   <para>
-  ///     通过接口引用计数保证连接的有效性，所以可以在路由函数中调用线程池来处理业务逻辑，而不用担心处理过程中连接对象被释放
-  ///   </para>
-  ///   <para>
-  ///     每个请求的响应流程大致为：
-  ///   </para>
-  ///   <list type="number">
-  ///     <item>
-  ///       执行匹配的中间件;
-  ///     </item>
-  ///     <item>
-  ///       执行匹配的路由
-  ///     </item>
-  ///   </list>
-  /// </remarks>
-  /// <example>
-  ///   <code lang="Delphi">// 在线程池中处理业务逻辑
-  /// FCrossHttpServer.Route('GET', '/runtask/:name',
-  ///   procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
-  ///   begin
-  ///     System.Threading.TTask.Run(
-  ///       procedure
-  ///       begin
-  ///         CallTask(ARequest.Params['name']);
-  ///       end);
-  ///   end);
-  /// // 正则表达式
-  /// FCrossHttpServer.Route('GET', '/query/:count(\d+)',
-  ///   procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
-  ///   begin
-  ///     System.Threading.TTask.Run(
-  ///       procedure
-  ///       begin
-  ///         CallQuery(ARequest.Params['count'].ToInteger);
-  ///       end);
-  ///   end);</code>
-  /// </example>
-  TCrossHttpServer = class({$IFDEF __CROSS_SSL__}TCrossSslServer{$ELSE}TCrossServer{$ENDIF})
+  TCrossHttpServer = class({$IFDEF __CROSS_SSL__}TCrossSslServer{$ELSE}TCrossServer{$ENDIF}, ICrossHttpServer)
   private const
     HTTP_METHOD_COUNT = 16;
     HTTP_METHODS: array [0..HTTP_METHOD_COUNT-1] of string = (
@@ -1113,7 +1841,7 @@ type
     FCompressible: Boolean;
 
     function IsValidHttpRequest(ABuf: Pointer; ALen: Integer): Boolean;
-    procedure ParseRecvData(AConnection: ICrossHttpConnection; ABuf: Pointer; ALen: Integer);
+    procedure ParseRecvData(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer);
 
     function RegisterRouter(const AMethod, APath: string;
       ARouterProc: TCrossHttpRouterProc;
@@ -1125,8 +1853,38 @@ type
       AMiddlewareMethod: TCrossHttpRouterMethod;
       AMiddlewareProc2: TCrossHttpRouterProc2;
       AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+  private
+    function GetStoragePath: string;
+    function GetAutoDeleteFiles: Boolean;
+    function GetMaxHeaderSize: Integer;
+    function GetMaxPostDataSize: Integer;
+    function GetCompressible: Boolean;
+    function GetMinCompressSize: Integer;
+    function GetSessions: ISessions;
+    function GetSessionIDCookieName: string;
+    function GetOnRequest: TCrossHttpRequestEvent;
+    function GetOnRequestException: TCrossHttpRequestExceptionEvent;
+    function GetOnPostDataBegin: TCrossHttpConnEvent;
+    function GetOnPostData: TCrossHttpDataEvent;
+    function GetOnPostDataEnd: TCrossHttpConnEvent;
+
+    procedure SetStoragePath(const Value: string);
+    procedure SetAutoDeleteFiles(const Value: Boolean);
+    procedure SetMaxHeaderSize(const Value: Integer);
+    procedure SetMaxPostDataSize(const Value: Integer);
+    procedure SetCompressible(const Value: Boolean);
+    procedure SetMinCompressSize(const Value: Integer);
+    procedure SetSessions(const Value: ISessions);
+    procedure SetSessionIDCookieName(const Value: string);
+    procedure SetOnRequest(const Value: TCrossHttpRequestEvent);
+    procedure SetOnRequestException(const Value: TCrossHttpRequestExceptionEvent);
+    procedure SetOnPostDataBegin(const Value: TCrossHttpConnEvent);
+    procedure SetOnPostData(const Value: TCrossHttpDataEvent);
+    procedure SetOnPostDataEnd(const Value: TCrossHttpConnEvent);
   protected
-    function GetConnectionClass: TCrossConnectionClass; override;
+    function CreateConnection(AOwner: ICrossSocket; AClientSocket: THandle;
+      AConnectType: TConnectType): ICrossConnection; override;
+
     procedure LogicReceived(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer); override;
   protected
     procedure TriggerPostDataBegin(AConnection: ICrossHttpConnection); virtual;
@@ -1140,569 +1898,70 @@ type
     constructor Create(AIoThreads: Integer); override;
     destructor Destroy; override;
 
-    /// <summary>
-    ///   注册中间件
-    /// </summary>
-    /// <param name="AMethod">
-    ///   请求方式
-    /// </param>
-    /// <param name="APath">
-    ///   请求路径
-    /// </param>
-    /// <param name="AMiddlewareProc">
-    ///   中间件处理匿名函数, 执行完处理函数之后还会继续执行后续匹配的中间件及路由
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       中间件严格按照注册时的顺序被调用
-    ///     </item>
-    ///     <item>
-    ///       中间件先于路由执行
-    ///     </item>
-    ///   </list>
-    /// </remarks>
     function Use(const AMethod, APath: string;
-      AMiddlewareProc: TCrossHttpRouterProc): TCrossHttpServer; overload;
+      AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册中间件
-    /// </summary>
-    /// <param name="AMethod">
-    ///   请求方式
-    /// </param>
-    /// <param name="APath">
-    ///   请求路径
-    /// </param>
-    /// <param name="AMiddlewareProc2">
-    ///   中间件处理匿名函数, 执行完处理函数之后, 如果AHandled=False则会继续执行后续匹配的中间件及路由,
-    ///   否则后续匹配的中间件及路由不会被执行
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       中间件严格按照注册时的顺序被调用
-    ///     </item>
-    ///     <item>
-    ///       中间件先于路由执行
-    ///     </item>
-    ///   </list>
-    /// </remarks>
     function Use(const AMethod, APath: string;
-      AMiddlewareProc2: TCrossHttpRouterProc2): TCrossHttpServer; overload;
+      AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册中间件
-    /// </summary>
-    /// <param name="AMethod">
-    ///   请求方式
-    /// </param>
-    /// <param name="APath">
-    ///   请求路径
-    /// </param>
-    /// <param name="AMiddlewareMethod">
-    ///   中间件处理匿名方法, 执行完处理方法之后还会继续执行后续匹配的中间件及路由
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       中间件严格按照注册时的顺序被调用
-    ///     </item>
-    ///     <item>
-    ///       中间件先于路由执行
-    ///     </item>
-    ///   </list>
-    /// </remarks>
     function Use(const AMethod, APath: string;
-      AMiddlewareMethod: TCrossHttpRouterMethod): TCrossHttpServer; overload;
+      AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册中间件
-    /// </summary>
-    /// <param name="AMethod">
-    ///   请求方式
-    /// </param>
-    /// <param name="APath">
-    ///   请求路径
-    /// </param>
-    /// <param name="AMiddlewareMethod2">
-    ///   中间件处理匿名方法, 执行完处理方法之后, 如果AHandled=False则会继续执行后续匹配的中间件及路由,
-    ///   否则后续匹配的中间件及路由不会被执行
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       中间件严格按照注册时的顺序被调用
-    ///     </item>
-    ///     <item>
-    ///       中间件先于路由执行
-    ///     </item>
-    ///   </list>
-    /// </remarks>
     function Use(const AMethod, APath: string;
-      AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer; overload;
+      AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册中间件
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径
-    /// </param>
-    /// <param name="AMiddlewareProc">
-    ///   中间件处理匿名函数, 执行完处理函数之后还会继续执行后续匹配的中间件及路由
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       中间件严格按照注册时的顺序被调用
-    ///     </item>
-    ///     <item>
-    ///       中间件先于路由执行
-    ///     </item>
-    ///   </list>
-    /// </remarks>
     function Use(const APath: string;
-      AMiddlewareProc: TCrossHttpRouterProc): TCrossHttpServer; overload;
+      AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册中间件
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径
-    /// </param>
-    /// <param name="AMiddlewareProc2">
-    ///   中间件处理匿名函数, 执行完处理函数之后, 如果AHandled=False则会继续执行后续匹配的中间件及路由,
-    ///   否则后续匹配的中间件及路由不会被执行
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       中间件严格按照注册时的顺序被调用
-    ///     </item>
-    ///     <item>
-    ///       中间件先于路由执行
-    ///     </item>
-    ///   </list>
-    /// </remarks>
     function Use(const APath: string;
-      AMiddlewareProc2: TCrossHttpRouterProc2): TCrossHttpServer; overload;
+      AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册中间件
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径
-    /// </param>
-    /// <param name="AMiddlewareMethod">
-    ///   中间件处理匿名方法, 执行完处理方法之后还会继续执行后续匹配的中间件及路由
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       中间件严格按照注册时的顺序被调用
-    ///     </item>
-    ///     <item>
-    ///       中间件先于路由执行
-    ///     </item>
-    ///   </list>
-    /// </remarks>
     function Use(const APath: string;
-      AMiddlewareMethod: TCrossHttpRouterMethod): TCrossHttpServer; overload;
+      AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册中间件
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径
-    /// </param>
-    /// <param name="AMiddlewareMethod2">
-    ///   中间件处理匿名方法, 执行完处理方法之后, 如果AHandled=False则会继续执行后续匹配的中间件及路由,
-    ///   否则后续匹配的中间件及路由不会被执行
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       中间件严格按照注册时的顺序被调用
-    ///     </item>
-    ///     <item>
-    ///       中间件先于路由执行
-    ///     </item>
-    ///   </list>
-    /// </remarks>
     function Use(const APath: string;
-      AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer; overload;
+      AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册中间件
-    /// </summary>
-    /// <param name="AMiddlewareProc">
-    ///   中间件处理匿名函数, 执行完处理函数之后还会继续执行后续匹配的中间件及路由
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       中间件严格按照注册时的顺序被调用
-    ///     </item>
-    ///     <item>
-    ///       中间件先于路由执行
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function Use(AMiddlewareProc: TCrossHttpRouterProc): TCrossHttpServer; overload;
-    function Use(AMiddlewareProc2: TCrossHttpRouterProc2): TCrossHttpServer; overload;
+    function Use(AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Use(AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Use(AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Use(AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册中间件
-    /// </summary>
-    /// <param name="AMiddlewareMethod">
-    ///   中间件处理方法, 执行完处理方法之后还会继续执行后续匹配的中间件及路由
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       中间件严格按照注册时的顺序被调用
-    ///     </item>
-    ///     <item>
-    ///       中间件先于路由执行
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function Use(AMiddlewareMethod: TCrossHttpRouterMethod): TCrossHttpServer; overload;
-    function Use(AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer; overload;
+    function Route(const AMethod, APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册路由(请求处理函数)
-    /// </summary>
-    /// <param name="AMethod">
-    ///   请求方式, GET/POST/PUT/DELETE等, 支持正则表达式, * 表示处理全部请求方式
-    /// </param>
-    /// <param name="APath">
-    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
-    ///   /path/:param1/:param2(\d+)|/path/:param <br />
-    /// </param>
-    /// <param name="ARouterProc">
-    ///   路由处理匿名函数
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
-    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
-    ///     </item>
-    ///     <item>
-    ///       路由中的正则表达式用法与node.js express相同
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function Route(const AMethod, APath: string; ARouterProc: TCrossHttpRouterProc): TCrossHttpServer; overload;
-    function Route(const AMethod, APath: string; ARouterProc2: TCrossHttpRouterProc2): TCrossHttpServer; overload;
+    function Get(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Get(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Get(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Get(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册路由(请求处理函数)
-    /// </summary>
-    /// <param name="AMethod">
-    ///   请求方式, GET/POST/PUT/DELETE等, 支持正则表达式, * 表示处理全部请求方式
-    /// </param>
-    /// <param name="APath">
-    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
-    ///   /path/:param1/:param2(\d+)|/path/:param
-    /// </param>
-    /// <param name="ARouterMethod">
-    ///   路由处理方法
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
-    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
-    ///     </item>
-    ///     <item>
-    ///       路由中的正则表达式用法与node.js express相同
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function Route(const AMethod, APath: string; ARouterMethod: TCrossHttpRouterMethod): TCrossHttpServer; overload;
-    function Route(const AMethod, APath: string; ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer; overload;
+    function Put(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Put(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Put(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Put(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册GET路由(请求处理函数)
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
-    ///   /path/:param1/:param2(\d+)|/path/:param <br />
-    /// </param>
-    /// <param name="ARouterProc">
-    ///   路由处理匿名函数
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
-    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
-    ///     </item>
-    ///     <item>
-    ///       路由中的正则表达式用法与node.js express相同
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function Get(const APath: string; ARouterProc: TCrossHttpRouterProc): TCrossHttpServer; overload;
-    function Get(const APath: string; ARouterProc2: TCrossHttpRouterProc2): TCrossHttpServer; overload;
+    function Post(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Post(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Post(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Post(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册GET路由(请求处理函数)
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
-    ///   /path/:param1/:param2(\d+)|/path/:param <br />
-    /// </param>
-    /// <param name="ARouterMethod">
-    ///   路由处理方法
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
-    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
-    ///     </item>
-    ///     <item>
-    ///       路由中的正则表达式用法与node.js express相同
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function Get(const APath: string; ARouterMethod: TCrossHttpRouterMethod): TCrossHttpServer; overload;
-    function Get(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer; overload;
+    function Delete(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Delete(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Delete(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Delete(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册PUT路由(请求处理函数)
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
-    ///   /path/:param1/:param2(\d+)|/path/:param <br />
-    /// </param>
-    /// <param name="ARouterProc">
-    ///   路由处理匿名函数
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
-    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
-    ///     </item>
-    ///     <item>
-    ///       路由中的正则表达式用法与node.js express相同
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function Put(const APath: string; ARouterProc: TCrossHttpRouterProc): TCrossHttpServer; overload;
-    function Put(const APath: string; ARouterProc2: TCrossHttpRouterProc2): TCrossHttpServer; overload;
+    function All(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function All(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function All(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function All(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    /// <summary>
-    ///   注册PUT路由(请求处理函数)
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
-    ///   /path/:param1/:param2(\d+)|/path/:param <br />
-    /// </param>
-    /// <param name="ARouterMethod">
-    ///   路由处理方法
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
-    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
-    ///     </item>
-    ///     <item>
-    ///       路由中的正则表达式用法与node.js express相同
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function Put(const APath: string; ARouterMethod: TCrossHttpRouterMethod): TCrossHttpServer; overload;
-    function Put(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer; overload;
+    function &Static(const APath, ALocalStaticDir: string): ICrossHttpServer;
+    function Dir(const APath, ALocalDir: string): ICrossHttpServer;
 
-    /// <summary>
-    ///   注册POST路由(请求处理函数)
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
-    ///   /path/:param1/:param2(\d+)|/path/:param
-    /// </param>
-    /// <param name="ARouterProc">
-    ///   路由处理匿名函数
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
-    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
-    ///     </item>
-    ///     <item>
-    ///       路由中的正则表达式用法与node.js express相同
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function Post(const APath: string; ARouterProc: TCrossHttpRouterProc): TCrossHttpServer; overload;
-    function Post(const APath: string; ARouterProc2: TCrossHttpRouterProc2): TCrossHttpServer; overload;
-
-    /// <summary>
-    ///   注册POST路由(请求处理函数)
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
-    ///   /path/:param1/:param2(\d+)|/path/:param <br />
-    /// </param>
-    /// <param name="ARouterMethod">
-    ///   路由处理方法
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
-    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
-    ///     </item>
-    ///     <item>
-    ///       路由中的正则表达式用法与node.js express相同
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function Post(const APath: string; ARouterMethod: TCrossHttpRouterMethod): TCrossHttpServer; overload;
-    function Post(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer; overload;
-
-    /// <summary>
-    ///   注册DELETE路由(请求处理函数)
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
-    ///   /path/:param1/:param2(\d+)|/path/:param <br />
-    /// </param>
-    /// <param name="ARouterProc">
-    ///   路由处理匿名函数
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
-    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
-    ///     </item>
-    ///     <item>
-    ///       路由中的正则表达式用法与node.js express相同
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function Delete(const APath: string; ARouterProc: TCrossHttpRouterProc): TCrossHttpServer; overload;
-    function Delete(const APath: string; ARouterProc2: TCrossHttpRouterProc2): TCrossHttpServer; overload;
-
-    /// <summary>
-    ///   注册DELETE路由(请求处理函数)
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
-    ///   /path/:param1/:param2(\d+)|/path/:param
-    /// </param>
-    /// <param name="ARouterMethod">
-    ///   路由处理方法
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
-    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
-    ///     </item>
-    ///     <item>
-    ///       路由中的正则表达式用法与node.js express相同
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function Delete(const APath: string; ARouterMethod: TCrossHttpRouterMethod): TCrossHttpServer; overload;
-    function Delete(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer; overload;
-
-    /// <summary>
-    ///   注册全部请求方式路由(请求处理函数)
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
-    ///   /path/:param1/:param2(\d+)|/path/:param
-    /// </param>
-    /// <param name="ARouterProc">
-    ///   路由处理匿名函数
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
-    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
-    ///     </item>
-    ///     <item>
-    ///       路由中的正则表达式用法与node.js express相同
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function All(const APath: string; ARouterProc: TCrossHttpRouterProc): TCrossHttpServer; overload;
-    function All(const APath: string; ARouterProc2: TCrossHttpRouterProc2): TCrossHttpServer; overload;
-
-    /// <summary>
-    ///   注册全部请求方式路由(请求处理函数)
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径, 支持正则表达式, * 表示处理全部请求路径,<br />例如:
-    ///   /path/:param1/:param2(\d+)|/path/:param
-    /// </param>
-    /// <param name="ARouterMethod">
-    ///   路由处理方法
-    /// </param>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       路由严格按照注册时的顺序被调用, 所以如果在注册了AMethod=*,
-    ///       APath=*的路由之后，再注册的其它路由将不会被调用. 所以强烈建议把 "* 路由" 放到最后注册.
-    ///     </item>
-    ///     <item>
-    ///       路由中的正则表达式用法与node.js express相同
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    function All(const APath: string; ARouterMethod: TCrossHttpRouterMethod): TCrossHttpServer; overload;
-    function All(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer; overload;
-
-    /// <summary>
-    ///   注册静态文件路由
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径
-    /// </param>
-    /// <param name="ALocalStaticDir">
-    ///   静态文件目录, 该目录及子目录下的文件都将作为静态文件返回
-    /// </param>
-    function &Static(const APath, ALocalStaticDir: string): TCrossHttpServer;
-
-    /// <summary>
-    ///   注册文件列表路由
-    /// </summary>
-    /// <param name="APath">
-    ///   请求路径
-    /// </param>
-    /// <param name="ALocalDir">
-    ///   本地文件目录
-    /// </param>
-    function Dir(const APath, ALocalDir: string): TCrossHttpServer;
-
-    /// <summary>
-    ///   删除指定路由
-    /// </summary>
-    function RemoveRouter(const AMethod, APath: string): TCrossHttpServer;
-
-    /// <summary>
-    ///   清除所有路由
-    /// </summary>
-    function ClearRouter: TCrossHttpServer;
-
-    /// <summary>
-    ///   设置Sessions管理接口对象
-    /// </summary>
-    /// <param name="ASessions">
-    ///   Sessions接口对象
-    /// </param>
-    procedure SetSessions(const ASessions: ISessions);
+    function RemoveRouter(const AMethod, APath: string): ICrossHttpServer;
+    function ClearRouter: ICrossHttpServer;
 
     function LockRouters: TCrossHttpRouters;
     procedure UnlockRouters;
@@ -1710,103 +1969,20 @@ type
     function LockMiddlewares: TCrossHttpRouters;
     procedure UnlockMiddlewares;
 
-    /// <summary>
-    ///   上传文件保存路径
-    /// </summary>
-    /// <remarks>
-    ///   用于保存multipart/form-data上传的文件
-    /// </remarks>
-    property StoragePath: string read FStoragePath write FStoragePath;
+    property StoragePath: string read GetStoragePath write SetStoragePath;
+    property AutoDeleteFiles: Boolean read GetAutoDeleteFiles write SetAutoDeleteFiles;
+    property MaxHeaderSize: Integer read GetMaxHeaderSize write SetMaxHeaderSize;
+    property MaxPostDataSize: Integer read GetMaxPostDataSize write SetMaxPostDataSize;
+    property Compressible: Boolean read GetCompressible write SetCompressible;
+    property MinCompressSize: Integer read GetMinCompressSize write SetMinCompressSize;
+    property Sessions: ISessions read GetSessions write SetSessions;
+    property SessionIDCookieName: string read GetSessionIDCookieName write SetSessionIDCookieName;
 
-    /// <summary>
-    /// 对象释放时自动删除上传的文件
-    /// </summary>
-    property AutoDeleteFiles: Boolean read FAutoDeleteFiles write FAutoDeleteFiles;
-
-    /// <summary>
-    ///   最大允许HEADER的数据尺寸
-    ///   <list type="bullet">
-    ///     <item>
-    ///       &gt; 0, 限制HEADER尺寸
-    ///     </item>
-    ///     <item>
-    ///       &lt;= 0, 不限制
-    ///     </item>
-    ///   </list>
-    /// </summary>
-    property MaxHeaderSize: Integer read FMaxHeaderSize write FMaxHeaderSize;
-
-    /// <summary>
-    ///   最大允许POST的数据尺寸
-    ///   <list type="bullet">
-    ///     <item>
-    ///       &gt; 0, 限制上传数据尺寸
-    ///     </item>
-    ///     <item>
-    ///       &lt;= 0, 不限制
-    ///     </item>
-    ///   </list>
-    /// </summary>
-    property MaxPostDataSize: Integer read FMaxPostDataSize write FMaxPostDataSize;
-
-    /// <summary>
-    ///   是否开启压缩
-    /// </summary>
-    /// <remarks>
-    ///   开启压缩后, 发往客户端的数据将会进行压缩处理
-    /// </remarks>
-    property Compressible: Boolean read FCompressible write FCompressible;
-
-    /// <summary>
-    ///   最小允许压缩的数据尺寸
-    /// </summary>
-    /// <remarks>
-    ///   <list type="bullet">
-    ///     <item>
-    ///       如果设置值大于0, 则只有Body数据尺寸大于等于该值才会进行压缩
-    ///     </item>
-    ///     <item>
-    ///       如果设置值小于等于0, 则无视Body数据尺寸, 始终进行压缩
-    ///     </item>
-    ///     <item>
-    ///       由于数据是分块压缩发送, 所以数据无论多大都不会占用更多的资源, 也就不需要限制最大压缩尺寸了
-    ///     </item>
-    ///     <item>
-    ///       目前支持的压缩方式: gzip, deflate
-    ///     </item>
-    ///   </list>
-    /// </remarks>
-    property MinCompressSize: Integer read FMinCompressSize write FMinCompressSize;
-
-    /// <summary>
-    ///   Sessions接口对象
-    /// </summary>
-    /// <remarks>
-    ///   通过它管理所有Session, 如果不设置则Session功能将不会被启用
-    /// </remarks>
-    property Sessions: ISessions read FSessions write FSessions;
-
-    /// <summary>
-    ///   <para>
-    ///     SessionID在Cookie中存储的名称
-    ///   </para>
-    /// </summary>
-    /// <remarks>
-    ///   如果设置为空, 则Session功能将不会被启用
-    /// </remarks>
-    property SessionIDCookieName: string read FSessionIDCookieName write FSessionIDCookieName;
-
-    property OnRequest: TCrossHttpRequestEvent read FOnRequest write FOnRequest;
-    property OnRequestException: TCrossHttpRequestExceptionEvent read FOnRequestException write FOnRequestException;
-    property OnPostDataBegin: TCrossHttpConnEvent read FOnPostDataBegin write FOnPostDataBegin;
-    property OnPostData: TCrossHttpDataEvent read FOnPostData write FOnPostData;
-    property OnPostDataEnd: TCrossHttpConnEvent read FOnPostDataEnd write FOnPostDataEnd;
-
-    property ConnectionsCount;
-    property OnListened;
-    property OnListenEnd;
-    property OnConnected;
-    property OnDisconnected;
+    property OnRequest: TCrossHttpRequestEvent read GetOnRequest write SetOnRequest;
+    property OnRequestException: TCrossHttpRequestExceptionEvent read GetOnRequestException write SetOnRequestException;
+    property OnPostDataBegin: TCrossHttpConnEvent read GetOnPostDataBegin write SetOnPostDataBegin;
+    property OnPostData: TCrossHttpDataEvent read GetOnPostData write SetOnPostData;
+    property OnPostDataEnd: TCrossHttpConnEvent read GetOnPostDataEnd write SetOnPostDataEnd;
   end;
 
 implementation
@@ -1820,12 +1996,17 @@ uses
 
 { TCrossHttpConnection }
 
-constructor TCrossHttpConnection.Create;
+constructor TCrossHttpConnection.Create(AOwner: ICrossSocket;
+  AClientSocket: THandle; AConnectType: TConnectType);
+var
+  LConnection: ICrossHttpConnection;
 begin
-  inherited Create;
+  inherited;
 
-  FRequest := TCrossHttpRequest.Create(Self);
-  FResponse := TCrossHttpResponse.Create(Self);
+  LConnection := Self;
+
+  FRequest := TCrossHttpRequest.Create(LConnection);
+  FResponse := TCrossHttpResponse.Create(LConnection);
 end;
 
 function TCrossHttpConnection.GetRequest: ICrossHttpRequest;
@@ -1838,9 +2019,9 @@ begin
   Result := FResponse;
 end;
 
-function TCrossHttpConnection.GetServer: TCrossHttpServer;
+function TCrossHttpConnection.GetServer: ICrossHttpServer;
 begin
-  Result := Owner as TCrossHttpServer;
+  Result := Owner as ICrossHttpServer;
 end;
 
 { TCrossHttpRouter }
@@ -2069,25 +2250,25 @@ end;
 { TCrossHttpServer }
 
 function TCrossHttpServer.All(const APath: string;
-  ARouterProc: TCrossHttpRouterProc): TCrossHttpServer;
+  ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Route('*', APath, ARouterProc);
 end;
 
 function TCrossHttpServer.All(const APath: string;
-  ARouterProc2: TCrossHttpRouterProc2): TCrossHttpServer;
+  ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Route('*', APath, ARouterProc2);
 end;
 
 function TCrossHttpServer.All(const APath: string;
-  ARouterMethod: TCrossHttpRouterMethod): TCrossHttpServer;
+  ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Route('*', APath, ARouterMethod);
 end;
 
 function TCrossHttpServer.All(const APath: string;
-  ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Route('*', APath, ARouterMethod2);
 end;
@@ -2114,10 +2295,12 @@ begin
   FMinCompressSize := MIN_COMPRESS_SIZE;
   FStoragePath := TPath.Combine(TUtils.AppPath, 'temp') + TPath.DirectorySeparatorChar;
   FSessionIDCookieName := SESSIONID_COOKIE_NAME;
+end;
 
-  {$IFDEF __CROSS_SSL__}
-  InitSslCtx(SSLv23_server);
-  {$ENDIF}
+function TCrossHttpServer.CreateConnection(AOwner: ICrossSocket;
+  AClientSocket: THandle; AConnectType: TConnectType): ICrossConnection;
+begin
+  Result := TCrossHttpConnection.Create(AOwner, AClientSocket, AConnectType);
 end;
 
 destructor TCrossHttpServer.Destroy;
@@ -2137,7 +2320,7 @@ begin
   inherited Destroy;
 end;
 
-function TCrossHttpServer.Dir(const APath, ALocalDir: string): TCrossHttpServer;
+function TCrossHttpServer.Dir(const APath, ALocalDir: string): ICrossHttpServer;
 var
   LReqPath: string;
 begin
@@ -2149,25 +2332,25 @@ begin
 end;
 
 function TCrossHttpServer.Delete(const APath: string;
-  ARouterProc: TCrossHttpRouterProc): TCrossHttpServer;
+  ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Route('DELETE', APath, ARouterProc);
 end;
 
 function TCrossHttpServer.Delete(const APath: string;
-  ARouterProc2: TCrossHttpRouterProc2): TCrossHttpServer;
+  ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Route('DELETE', APath, ARouterProc2);
 end;
 
 function TCrossHttpServer.Delete(const APath: string;
-  ARouterMethod: TCrossHttpRouterMethod): TCrossHttpServer;
+  ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Route('DELETE', APath, ARouterMethod);
 end;
 
 function TCrossHttpServer.Delete(const APath: string;
-  ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Route('DELETE', APath, ARouterMethod2);
 end;
@@ -2278,41 +2461,162 @@ begin
 end;
 
 function TCrossHttpServer.Get(const APath: string;
-  ARouterProc: TCrossHttpRouterProc): TCrossHttpServer;
+  ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Route('GET', APath, ARouterProc);
 end;
 
 function TCrossHttpServer.Get(const APath: string;
-  ARouterMethod: TCrossHttpRouterMethod): TCrossHttpServer;
+  ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
+begin
+  Result := Route('GET', APath, ARouterProc2);
+end;
+
+function TCrossHttpServer.Get(const APath: string;
+  ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Route('GET', APath, ARouterMethod);
 end;
 
 function TCrossHttpServer.Get(const APath: string;
-  ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Route('GET', APath, ARouterMethod2);
 end;
 
-function TCrossHttpServer.Get(const APath: string;
-  ARouterProc2: TCrossHttpRouterProc2): TCrossHttpServer;
+function TCrossHttpServer.GetAutoDeleteFiles: Boolean;
 begin
-  Result := Route('GET', APath, ARouterProc2);
+  Result := FAutoDeleteFiles;
 end;
 
-function TCrossHttpServer.GetConnectionClass: TCrossConnectionClass;
+function TCrossHttpServer.GetCompressible: Boolean;
 begin
-  Result := TCrossHttpConnection;
+  Result := FCompressible;
 end;
 
-procedure TCrossHttpServer.SetSessions(const ASessions: ISessions);
+function TCrossHttpServer.GetMaxHeaderSize: Integer;
 begin
-  FSessions := ASessions;
+  Result := FMaxHeaderSize;
+end;
+
+function TCrossHttpServer.GetMaxPostDataSize: Integer;
+begin
+  Result := FMaxPostDataSize;
+end;
+
+function TCrossHttpServer.GetMinCompressSize: Integer;
+begin
+  Result := FMinCompressSize;
+end;
+
+function TCrossHttpServer.GetOnPostData: TCrossHttpDataEvent;
+begin
+  Result := FOnPostData;
+end;
+
+function TCrossHttpServer.GetOnPostDataBegin: TCrossHttpConnEvent;
+begin
+  Result := FOnPostDataBegin;
+end;
+
+function TCrossHttpServer.GetOnPostDataEnd: TCrossHttpConnEvent;
+begin
+  Result := FOnPostDataEnd;
+end;
+
+function TCrossHttpServer.GetOnRequest: TCrossHttpRequestEvent;
+begin
+  Result := FOnRequest;
+end;
+
+function TCrossHttpServer.GetOnRequestException: TCrossHttpRequestExceptionEvent;
+begin
+  Result := FOnRequestException;
+end;
+
+function TCrossHttpServer.GetSessionIDCookieName: string;
+begin
+  Result := FSessionIDCookieName;
+end;
+
+function TCrossHttpServer.GetSessions: ISessions;
+begin
+  Result := FSessions;
+end;
+
+function TCrossHttpServer.GetStoragePath: string;
+begin
+  Result := FStoragePath;
+end;
+
+procedure TCrossHttpServer.SetAutoDeleteFiles(const Value: Boolean);
+begin
+  FAutoDeleteFiles := Value;
+end;
+
+procedure TCrossHttpServer.SetCompressible(const Value: Boolean);
+begin
+  FCompressible := Value;
+end;
+
+procedure TCrossHttpServer.SetMaxHeaderSize(const Value: Integer);
+begin
+  FMaxHeaderSize := Value;
+end;
+
+procedure TCrossHttpServer.SetMaxPostDataSize(const Value: Integer);
+begin
+  FMaxPostDataSize := Value;
+end;
+
+procedure TCrossHttpServer.SetMinCompressSize(const Value: Integer);
+begin
+  FMinCompressSize := Value;
+end;
+
+procedure TCrossHttpServer.SetOnPostData(const Value: TCrossHttpDataEvent);
+begin
+  FOnPostData := Value;
+end;
+
+procedure TCrossHttpServer.SetOnPostDataBegin(const Value: TCrossHttpConnEvent);
+begin
+  FOnPostDataBegin := Value;
+end;
+
+procedure TCrossHttpServer.SetOnPostDataEnd(const Value: TCrossHttpConnEvent);
+begin
+  FOnPostDataEnd := Value;
+end;
+
+procedure TCrossHttpServer.SetOnRequest(const Value: TCrossHttpRequestEvent);
+begin
+  FOnRequest := Value;
+end;
+
+procedure TCrossHttpServer.SetOnRequestException(
+  const Value: TCrossHttpRequestExceptionEvent);
+begin
+  FOnRequestException := Value;
+end;
+
+procedure TCrossHttpServer.SetSessionIDCookieName(const Value: string);
+begin
+  FSessionIDCookieName := Value;
+end;
+
+procedure TCrossHttpServer.SetSessions(const Value: ISessions);
+begin
+  FSessions := Value;
+end;
+
+procedure TCrossHttpServer.SetStoragePath(const Value: string);
+begin
+  FStoragePath := Value;
 end;
 
 function TCrossHttpServer.Static(const APath,
-  ALocalStaticDir: string): TCrossHttpServer;
+  ALocalStaticDir: string): ICrossHttpServer;
 var
   LReqPath: string;
 begin
@@ -2338,23 +2642,25 @@ begin
   Result := False;
 end;
 
-procedure TCrossHttpServer.ParseRecvData(AConnection: ICrossHttpConnection;
+procedure TCrossHttpServer.ParseRecvData(AConnection: ICrossConnection;
   ABuf: Pointer; ALen: Integer);
-
-  procedure _Error(AStatusCode: Integer; const AErrMsg: string);
-  begin
-    AConnection.Response.SendStatus(AStatusCode, AErrMsg);
-  end;
-
 var
+  LHttpConnection: ICrossHttpConnection;
   LRequest: TCrossHttpRequest;
   LResponse: TCrossHttpResponse;
   pch: PByte;
   LChunkSize: Integer;
   LLineStr: string;
+
+  procedure _Error(AStatusCode: Integer; const AErrMsg: string);
+  begin
+    LHttpConnection.Response.SendStatus(AStatusCode, AErrMsg);
+  end;
+
 begin
-  LRequest := AConnection.Request as TCrossHttpRequest;
-  LResponse := AConnection.Response as TCrossHttpResponse;
+  LHttpConnection := AConnection as ICrossHttpConnection;
+  LRequest := LHttpConnection.Request as TCrossHttpRequest;
+  LResponse := LHttpConnection.Response as TCrossHttpResponse;
 
   // 在这里解析客户端浏览器发送过来的请求数据
   if (LRequest.FParseState = psDone) then
@@ -2430,7 +2736,7 @@ begin
               end else
                 LRequest.FParseState := psPostData;
 
-              TriggerPostDataBegin(AConnection);
+              TriggerPostDataBegin(LHttpConnection);
             end else
             begin
               LRequest.FBodyType := btNone;
@@ -2450,7 +2756,7 @@ begin
             _Error(400, 'Post data too large.');
             Exit;
           end;
-          TriggerPostData(AConnection, pch, LChunkSize);
+          TriggerPostData(LHttpConnection, pch, LChunkSize);
 
           Inc(LRequest.FPostDataSize, LChunkSize);
           Inc(pch, LChunkSize);
@@ -2459,7 +2765,7 @@ begin
           if (LRequest.FPostDataSize >= LRequest.ContentLength) then
           begin
             LRequest.FParseState := psDone;
-            TriggerPostDataEnd(AConnection);
+            TriggerPostDataEnd(LHttpConnection);
             Break;
           end;
         end;
@@ -2499,7 +2805,7 @@ begin
               _Error(400, 'Post data too large.');
               Exit;
             end;
-            TriggerPostData(AConnection, pch, LChunkSize);
+            TriggerPostData(LHttpConnection, pch, LChunkSize);
 
             Inc(LRequest.FPostDataSize, LChunkSize);
             Dec(LRequest.FChunkLeftSize, LChunkSize);
@@ -2541,7 +2847,7 @@ begin
             begin
               LRequest.FParseState := psDone;
               FreeAndNil(LRequest.FChunkSizeStream);
-              TriggerPostDataEnd(AConnection);
+              TriggerPostDataEnd(LHttpConnection);
               Break;
             end;
           end;
@@ -2551,57 +2857,57 @@ begin
 
   // 处理请求
   if (LRequest.FParseState = psDone) then
-    DoOnRequest(AConnection);
+    DoOnRequest(LHttpConnection);
 
   // 处理粘包
   if (ALen > 0) then
-    ParseRecvData(AConnection, pch, ALen);
+    ParseRecvData(LHttpConnection, pch, ALen);
 end;
 
 function TCrossHttpServer.Post(const APath: string;
-  ARouterProc: TCrossHttpRouterProc): TCrossHttpServer;
+  ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Route('POST', APath, ARouterProc);
 end;
 
 function TCrossHttpServer.Post(const APath: string;
-  ARouterProc2: TCrossHttpRouterProc2): TCrossHttpServer;
+  ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Route('POST', APath, ARouterProc2);
 end;
 
 function TCrossHttpServer.Post(const APath: string;
-  ARouterMethod: TCrossHttpRouterMethod): TCrossHttpServer;
+  ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Route('POST', APath, ARouterMethod);
 end;
 
 function TCrossHttpServer.Post(const APath: string;
-  ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Route('POST', APath, ARouterMethod2);
 end;
 
 function TCrossHttpServer.Put(const APath: string;
-  ARouterMethod: TCrossHttpRouterMethod): TCrossHttpServer;
+  ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Route('PUT', APath, ARouterMethod);
 end;
 
 function TCrossHttpServer.Put(const APath: string;
-  ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Route('PUT', APath, ARouterMethod2);
 end;
 
 function TCrossHttpServer.Put(const APath: string;
-  ARouterProc: TCrossHttpRouterProc): TCrossHttpServer;
+  ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Route('PUT', APath, ARouterProc);
 end;
 
 function TCrossHttpServer.Put(const APath: string;
-  ARouterProc2: TCrossHttpRouterProc2): TCrossHttpServer;
+  ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Route('PUT', APath, ARouterProc2);
 end;
@@ -2645,30 +2951,30 @@ begin
 end;
 
 function TCrossHttpServer.Route(const AMethod, APath: string;
-  ARouterProc: TCrossHttpRouterProc): TCrossHttpServer;
+  ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := RegisterRouter(AMethod, APath, ARouterProc, nil, nil, nil);
 end;
 
 function TCrossHttpServer.Route(const AMethod, APath: string;
-  ARouterProc2: TCrossHttpRouterProc2): TCrossHttpServer;
+  ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := RegisterRouter(AMethod, APath, nil, nil, ARouterProc2, nil);
 end;
 
 function TCrossHttpServer.Route(const AMethod, APath: string;
-  ARouterMethod: TCrossHttpRouterMethod): TCrossHttpServer;
+  ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := RegisterRouter(AMethod, APath, nil, ARouterMethod, nil, nil);
 end;
 
 function TCrossHttpServer.Route(const AMethod, APath: string;
-  ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := RegisterRouter(AMethod, APath, nil, nil, nil, ARouterMethod2);
 end;
 
-function TCrossHttpServer.RemoveRouter(const AMethod, APath: string): TCrossHttpServer;
+function TCrossHttpServer.RemoveRouter(const AMethod, APath: string): ICrossHttpServer;
 var
   I: Integer;
 begin
@@ -2683,7 +2989,7 @@ begin
   Result := Self;
 end;
 
-function TCrossHttpServer.ClearRouter: TCrossHttpServer;
+function TCrossHttpServer.ClearRouter: ICrossHttpServer;
 begin
   FRoutersLock.BeginWrite;
   try
@@ -2802,31 +3108,31 @@ begin
 end;
 
 function TCrossHttpServer.Use(const AMethod, APath: string;
-  AMiddlewareMethod: TCrossHttpRouterMethod): TCrossHttpServer;
+  AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := RegisterMiddleware(AMethod, APath, nil, AMiddlewareMethod, nil, nil);
 end;
 
 function TCrossHttpServer.Use(const AMethod, APath: string;
-  AMiddlewareProc: TCrossHttpRouterProc): TCrossHttpServer;
+  AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := RegisterMiddleware(AMethod, APath, AMiddlewareProc, nil, nil, nil);
 end;
 
 function TCrossHttpServer.Use(const APath: string;
-  AMiddlewareMethod: TCrossHttpRouterMethod): TCrossHttpServer;
+  AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Use('*', APath, AMiddlewareMethod);
 end;
 
 function TCrossHttpServer.Use(const APath: string;
-  AMiddlewareProc: TCrossHttpRouterProc): TCrossHttpServer;
+  AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Use('*', APath, AMiddlewareProc);
 end;
 
 function TCrossHttpServer.Use(
-  AMiddlewareMethod: TCrossHttpRouterMethod): TCrossHttpServer;
+  AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Use('*', '*', AMiddlewareMethod);
 end;
@@ -2842,43 +3148,43 @@ begin
 end;
 
 function TCrossHttpServer.Use(
-  AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+  AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Use('*', '*', AMiddlewareMethod2);
 end;
 
 function TCrossHttpServer.Use(
-  AMiddlewareProc2: TCrossHttpRouterProc2): TCrossHttpServer;
+  AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Use('*', '*', AMiddlewareProc2);
 end;
 
 function TCrossHttpServer.Use(const AMethod, APath: string;
-  AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+  AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := RegisterMiddleware(AMethod, APath, nil, nil, nil, AMiddlewareMethod2);
 end;
 
 function TCrossHttpServer.Use(const AMethod, APath: string;
-  AMiddlewareProc2: TCrossHttpRouterProc2): TCrossHttpServer;
+  AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := RegisterMiddleware(AMethod, APath, nil, nil, AMiddlewareProc2, nil);
 end;
 
 function TCrossHttpServer.Use(const APath: string;
-  AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+  AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Use('*', APath, AMiddlewareMethod2);
 end;
 
 function TCrossHttpServer.Use(const APath: string;
-  AMiddlewareProc2: TCrossHttpRouterProc2): TCrossHttpServer;
+  AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Use('*', APath, AMiddlewareProc2);
 end;
 
 function TCrossHttpServer.Use(
-  AMiddlewareProc: TCrossHttpRouterProc): TCrossHttpServer;
+  AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Use('*', '*', AMiddlewareProc);
 end;
@@ -3545,7 +3851,7 @@ end;
 function TCrossHttpResponse._CheckCompress(ABodySize: Integer): Boolean;
 var
   LContType: string;
-  LServer: TCrossHttpServer;
+  LServer: ICrossHttpServer;
 begin
   LContType := GetContentType;
   LServer := FConnection.Server;

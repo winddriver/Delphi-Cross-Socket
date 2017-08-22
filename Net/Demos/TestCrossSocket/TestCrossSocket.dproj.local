@@ -4,6 +4,6 @@
 	<MobileDevice>6O5717A21412-Android</MobileDevice>
 	<ActiveMobileDevice>
 		<POSX iOSSimulator="iPhone5"/>
-		<NoProfile Android="Android6.0"/>
+		<NoProfile Android="6O5717A21412"/>
 	</ActiveMobileDevice>
 </BorlandProject>

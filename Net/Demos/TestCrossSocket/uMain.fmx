@@ -47,7 +47,6 @@ object fmMain: TfmMain
       Touch.InteractiveGestures = [LongTap, DoubleTap]
       TabOrder = 12
       Cursor = crIBeam
-      Min = 1000.000000000000000000
       Max = 65533.000000000000000000
       Value = 8888.000000000000000000
       Position.X = 102.000000000000000000
@@ -231,6 +230,7 @@ object fmMain: TfmMain
       Text = 'labelConns'
     end
     object labelRcvData: TLabel
+      HitTest = True
       Position.X = 12.000000000000000000
       Position.Y = 71.000000000000000000
       Size.Width = 180.000000000000000000
@@ -238,8 +238,11 @@ object fmMain: TfmMain
       Size.PlatformDefault = False
       TextSettings.WordWrap = False
       Text = 'labelRcvData'
+      ParentShowHint = False
+      ShowHint = True
     end
     object labelSndData: TLabel
+      HitTest = True
       Position.X = 12.000000000000000000
       Position.Y = 160.000000000000000000
       Size.Width = 180.000000000000000000
@@ -247,6 +250,8 @@ object fmMain: TfmMain
       Size.PlatformDefault = False
       TextSettings.WordWrap = False
       Text = 'labelSndData'
+      ParentShowHint = False
+      ShowHint = True
     end
     object labelSndSpeed: TLabel
       Position.X = 12.000000000000000000

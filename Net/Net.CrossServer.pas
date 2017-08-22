@@ -12,56 +12,70 @@ unit Net.CrossServer;
 interface
 
 uses
-  System.SysUtils, Net.SocketAPI, Net.CrossSocket;
+  System.SysUtils,
+  Net.SocketAPI,
+  Net.CrossSocket.Base,
+  Net.CrossSocket;
 
 type
-  TCrossServer = class(TCustomCrossSocket)
+  ICrossServer = interface(ICrossSocket)
+  ['{78865955-48EE-4354-9B03-389025839B67}']
+    function GetAddr: string;
+    function GetPort: Word;
+    function GetActive: Boolean;
+
+    procedure SetAddr(const Value: string);
+    procedure SetPort(const Value: Word);
+    procedure SetActive(const Value: Boolean);
+
+    procedure Start(const ACallback: TProc<Boolean> = nil);
+    procedure Stop;
+
+    property Addr: string read GetAddr write SetAddr;
+    property Port: Word read GetPort write SetPort;
+
+    property Active: Boolean read GetActive write SetActive;
+  end;
+
+  TCrossServer = class(TCrossSocket, ICrossServer)
   private
     FPort: Word;
     FAddr: string;
     FStarted: Integer;
 
+    function GetAddr: string;
+    function GetPort: Word;
     function GetActive: Boolean;
+
+    procedure SetAddr(const Value: string);
+    procedure SetPort(const Value: Word);
     procedure SetActive(const Value: Boolean);
   public
-    procedure CloseAllConnections; override;
-    procedure DisconnectAll; override;
-
     procedure Start(const ACallback: TProc<Boolean> = nil);
     procedure Stop;
 
-    property Addr: string read FAddr write FAddr;
-    property Port: Word read FPort write FPort;
-
+    property Addr: string read GetAddr write SetAddr;
+    property Port: Word read GetPort write SetPort;
     property Active: Boolean read GetActive write SetActive;
-    property ConnectionsCount;
-
-    property OnGetConnectionClass;
-    property OnListened;
-    property OnListenEnd;
-    property OnConnected;
-    property OnDisconnected;
-    property OnReceived;
-    property OnSent;
   end;
 
 implementation
 
 { TCrossServer }
 
-procedure TCrossServer.CloseAllConnections;
-begin
-  inherited;
-end;
-
-procedure TCrossServer.DisconnectAll;
-begin
-  inherited;
-end;
-
 function TCrossServer.GetActive: Boolean;
 begin
   Result := (AtomicCmpExchange(FStarted, 0, 0) = 1);
+end;
+
+function TCrossServer.GetAddr: string;
+begin
+  Result := FAddr;
+end;
+
+function TCrossServer.GetPort: Word;
+begin
+  Result := FPort;
 end;
 
 procedure TCrossServer.SetActive(const Value: Boolean);
@@ -70,6 +84,16 @@ begin
     Start
   else
     Stop;
+end;
+
+procedure TCrossServer.SetAddr(const Value: string);
+begin
+  FAddr := Value;
+end;
+
+procedure TCrossServer.SetPort(const Value: Word);
+begin
+  FPort := Value;
 end;
 
 procedure TCrossServer.Start(const ACallback: TProc<Boolean>);
@@ -85,10 +109,7 @@ begin
   StartLoop;
 
   Listen(FAddr, FPort,
-    procedure(ASocket: THandle; ASuccess: Boolean)
-    var
-      LAddr: TRawSockAddrIn;
-      LStuff: string;
+    procedure(AListen: ICrossListen; ASuccess: Boolean)
     begin
       if not ASuccess then
         AtomicExchange(FStarted, 0);
@@ -96,12 +117,7 @@ begin
       // 如果是监听的随机端口
       // 则在监听成功之后将实际的端口取出来
       if (FPort = 0) then
-      begin
-        FillChar(LAddr, SizeOf(TRawSockAddrIn), 0);
-        LAddr.AddrLen := SizeOf(LAddr.Addr6);
-        if (TSocketAPI.GetSockName(ASocket, @LAddr.Addr, LAddr.AddrLen) = 0) then
-          TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen, LStuff, FPort);
-      end;
+        FPort := AListen.LocalPort;
 
       if Assigned(ACallback) then
         ACallback(ASuccess);

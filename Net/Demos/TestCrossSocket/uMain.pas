@@ -9,14 +9,14 @@ uses
   System.Variants, System.ZLib, FMX.StdCtrls,
   FMX.Types, FMX.Controls, FMX.Forms, FMX.Graphics, FMX.Dialogs,
   FMX.Controls.Presentation, FMX.Edit, FMX.EditBox, FMX.SpinBox,
-  System.Diagnostics, FMX.Objects, Net.CrossSocket,
+  System.Diagnostics, FMX.Objects,
   {$IFDEF __SSL__}
   Net.CrossSslSocket,
   {$IFDEF POSIX}
   Net.CrossSslDemoCert,
   {$ENDIF}
   {$ENDIF}
-  Net.SocketAPI;
+  Net.SocketAPI, Net.CrossSocket.Base, Net.CrossSocket;
 
 type
   TfmMain = class(TForm)
@@ -65,7 +65,7 @@ type
     procedure Button3Click(Sender: TObject);
   private
     FOrgCaption: string;
-    FSocket: {$IFDEF __SSL__}TCrossSslSocket{$ELSE}TCrossSocket{$ENDIF};
+    FSocket: {$IFDEF __SSL__}ICrossSslSocket{$ELSE}ICrossSocket{$ENDIF};
     FTesting: Boolean;
     FSentBytes, FRcvdBytes, FLastSent, FLastRcvd, FSendCount, FRcvdCount: Int64;
     FRunWatch, FSendWatch, FRecvWatch: TStopwatch;
@@ -136,7 +136,20 @@ procedure TfmMain.btnListenClick(Sender: TObject);
 begin
   if (btnListen.Tag = 0) then
   begin
-    FSocket.Listen('0.0.0.0', Trunc(edtListenPort.Value));
+    FSocket.Listen('0.0.0.0', Trunc(edtListenPort.Value),
+      procedure(AListen: ICrossListen; ASuccess: Boolean)
+      begin
+        {$IFDEF DEBUG}
+        TThread.Queue(nil,
+          procedure
+          begin
+            if ASuccess then
+              ShowMessage('listen ok')
+            else
+              ShowMessage('listen error');
+          end);
+        {$ENDIF}
+      end);
     btnListen.Tag := 1;
     btnListen.Text := '停止';
     Self.Caption := Format('%s (%d)',
@@ -156,7 +169,20 @@ var
   I: Integer;
 begin
   for I := 1 to Trunc(edtConnCount.Value) do
-    FSocket.Connect(edtConnHost.Text, Trunc(edtConnPort.Value));
+    FSocket.Connect(edtConnHost.Text, Trunc(edtConnPort.Value),
+      procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+      begin
+//        {$IFDEF DEBUG}
+//        TThread.Queue(nil,
+//          procedure
+//          begin
+//            if ASuccess then
+//              ShowMessage('connect ok')
+//            else
+//              ShowMessage('connect error');
+//          end);
+//        {$ENDIF}
+      end);
 end;
 
 procedure TfmMain.Button2Click(Sender: TObject);
@@ -182,7 +208,7 @@ begin
     LConns[0].SendStream(LStream,
       procedure(AConnection: ICrossConnection; ASuccess: Boolean)
       begin
-        TThread.Synchronize(nil,
+        TThread.Queue(nil,
           procedure
           begin
             if ASuccess then
@@ -199,7 +225,7 @@ end;
 procedure TfmMain.Button3Click(Sender: TObject);
 begin
   FSocket.Connect(edtConnHost.Text, Trunc(edtConnPort.Value),
-    procedure(ASocket: THandle; ASuccess: Boolean)
+    procedure(AConnection: ICrossConnection; ASuccess: Boolean)
     begin
       TThread.Synchronize(nil,
         procedure
@@ -308,7 +334,9 @@ end;
 procedure TfmMain.FormDestroy(Sender: TObject);
 begin
   FTestProc := nil;
-  FreeAndNil(FSocket);
+
+  FSocket.StopLoop;
+  FSocket := nil;
 end;
 
 function TfmMain.GetBuffer: TBytes;
@@ -337,7 +365,7 @@ begin
 end;
 
 procedure TfmMain.OnReceived(Sender: TObject; AConnection: ICrossConnection;
-ABuf: Pointer; ALen: Integer);
+  ABuf: Pointer; ALen: Integer);
 begin
   AtomicIncrement(FRcvdCount);
   AtomicIncrement(FRcvdBytes, ALen);
@@ -356,6 +384,7 @@ begin
   labelConns.Text := Format('活动连接：%d', [FSocket.ConnectionsCount]);
 
   labelRcvData.Text := Format('接收数据：%s', [BytesToStr(FRcvdBytes)]);
+  labelRcvData.Hint := FRcvdBytes.ToString;
   if (FRcvdBytes > FLastRcvd) and (FRecvWatch.ElapsedTicks > 0) then
     labelRcvSpeed.Text := Format('接收速度：%s/s',
       [BytesToStr((FRcvdBytes - FLastRcvd) / FRecvWatch.Elapsed.TotalSeconds)])
@@ -364,6 +393,7 @@ begin
   labelRcvCount.Text := Format('接收次数：%d', [FRcvdCount]);
 
   labelSndData.Text := Format('发送数据：%s', [BytesToStr(FSentBytes)]);
+  labelSndData.Hint := FSentBytes.ToString;
   if (FSentBytes > FLastSent) and (FSendWatch.ElapsedTicks > 0) then
     labelSndSpeed.Text := Format('发送速度：%s/s',
       [BytesToStr((FSentBytes - FLastSent) / FSendWatch.Elapsed.TotalSeconds)])

@@ -1,4 +1,4 @@
-unit uDM;
+锘縰nit uDM;
 
 interface
 
@@ -10,7 +10,7 @@ uses
   {$ENDIF}
   {$ENDIF}
   System.SysUtils, System.Classes, System.Generics.Collections,
-  Net.CrossSocket, Net.CrossHttpServer, Net.CrossHttpMiddleware;
+  Net.CrossSocket.Base, Net.CrossSocket, Net.CrossHttpServer, Net.CrossHttpMiddleware;
 
 type
   IProgress = interface
@@ -70,10 +70,11 @@ type
     procedure DataModuleCreate(Sender: TObject);
     procedure DataModuleDestroy(Sender: TObject);
   private
-    FHttpServer: TCrossHttpServer;
-    FConnCount: Integer;
+    FHttpServer: ICrossHttpServer;
+    FShutdown: Boolean;
 
     procedure _CreateRouter;
+    procedure _CreateWatchThread;
 
     procedure _OnConnected(Sender: TObject; AConnection: ICrossConnection);
     procedure _OnDisconnected(Sender: TObject; AConnection: ICrossConnection);
@@ -81,7 +82,7 @@ type
     procedure Start;
     procedure Stop;
 
-    property HttpServer: TCrossHttpServer read FHttpServer;
+    property HttpServer: ICrossHttpServer read FHttpServer;
   end;
 
 var
@@ -197,8 +198,6 @@ end;
 
 procedure TDM.DataModuleCreate(Sender: TObject);
 begin
-  FConnCount := 0;
-
   FHttpServer := TCrossHttpServer.Create(0);
   {$IFDEF __CROSS_SSL__}
   {$IFDEF POSIX}
@@ -209,7 +208,7 @@ begin
   FHttpServer.SetPrivateKeyFile('server.key');
   {$ENDIF}
   {$ENDIF}
-  FHttpServer.Addr := '0.0.0.0'; // IPv4
+  FHttpServer.Addr := IPv4_ALL; // IPv4
   FHttpServer.Port := AppCfg.ListenPort;
   FHttpServer.Compressible := False;
 
@@ -217,11 +216,12 @@ begin
   FHttpServer.OnDisconnected := _OnDisconnected;
 
   _CreateRouter;
+  _CreateWatchThread;
 end;
 
 procedure TDM.DataModuleDestroy(Sender: TObject);
 begin
-  FreeAndNil(FHttpServer);
+  FHttpServer := nil;
 end;
 
 procedure TDM.Start;
@@ -232,6 +232,8 @@ end;
 procedure TDM.Stop;
 begin
   FHttpServer.Stop;
+  FShutdown := True;
+  Sleep(150);
 end;
 
 procedure TDM._CreateRouter;
@@ -240,41 +242,46 @@ var
 begin
 //  FHttpServer.Sessions := TSessions.Create;
 
-  FHttpServer
-  .Use('/login', TNetCrossMiddleware.AuthenticateDigest(
-    procedure(ARequest: ICrossHttpRequest; const AUserName: string; var ACorrectPassword: string)
-    begin
-      if (AUserName = 'root') then
-        ACorrectPassword := 'root';
-    end,
-    '/login'))
-  .Get('/login',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
-    begin
-      AResponse.Send('Login Success!');
-    end)
-  .Use('/hello', TNetCrossMiddleware.AuthenticateBasic(
-    procedure(ARequest: ICrossHttpRequest; const AUserName: string; var ACorrectPassword: string)
-    begin
-      if (AUserName = 'root') then
-        ACorrectPassword := 'root';
-    end,
-    '/hello'))
-  .Get('/hello',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
-    begin
-      AHandled := False;
-      AResponse.Send('Hello World111');
-    end)
-  .Get('/hello',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
-    begin
-      AHandled := False;
-      AResponse.Send('Hello World222');
-    end)
+//  FHttpServer
+//  .Use('/login', TNetCrossMiddleware.AuthenticateDigest(
+//    procedure(ARequest: ICrossHttpRequest; const AUserName: string; var ACorrectPassword: string)
+//    begin
+//      if (AUserName = 'root') then
+//        ACorrectPassword := 'root';
+//    end,
+//    '/login'))
+//  .Get('/login',
+//    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
+//    begin
+//      AResponse.Send('Login Success!');
+//    end)
+//  .Use('/hello', TNetCrossMiddleware.AuthenticateBasic(
+//    procedure(ARequest: ICrossHttpRequest; const AUserName: string; var ACorrectPassword: string)
+//    begin
+//      if (AUserName = 'root') then
+//        ACorrectPassword := 'root';
+//    end,
+//    '/hello'))
+//  .Get('/hello',
+//    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
+//    begin
+//      AHandled := False;
+//      AResponse.Send('Hello World111');
+//    end)
+//  .Get('/hello',
+//    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
+//    begin
+//      AHandled := False;
+//      AResponse.Send('Hello World222');
+//    end)
   ;
 
   FHttpServer
+  .Get('/null',
+    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    begin
+      AResponse.Send('');
+    end)
   .Get('/hello',
     procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
     begin
@@ -299,7 +306,7 @@ begin
       if (LProg <> nil) then
         AResponse.Json(LProg.ToString)
       else
-        AResponse.Send('非法id');
+        AResponse.Send('闈炴硶id');
     end)
   .Delete('/progress/:id(\d+)',
     procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
@@ -309,9 +316,9 @@ begin
       LProgID := ARequest.Params['id'].ToInt64;
 
       if TProgress.Remove(LProgID) then
-        AResponse.Send('删除任务进度成功')
+        AResponse.Send('鍒犻櫎浠诲姟杩涘害鎴愬姛')
       else
-        AResponse.Send('非法id');
+        AResponse.Send('闈炴硶id');
     end)
   .Get('task',
     procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
@@ -341,11 +348,6 @@ begin
           LWatch.Stop;
         end);
     end)
-  .Get('/code',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
-    begin
-      AResponse.SendStatus(600, '无法获取对象池中的对象(HttpRequestDB)');
-    end)
     ;
 
   for I := 0 to AppCfg.DirMaps.Count - 1 do
@@ -356,14 +358,35 @@ begin
   end;
 end;
 
+procedure TDM._CreateWatchThread;
+begin
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      LLastConCount, LCurConCount: Integer;
+    begin
+      LLastConCount := 0;
+      while not FShutdown do
+      begin
+        LCurConCount := FHttpServer.ConnectionsCount;
+        if (LCurConCount <> LLastConCount) then
+        begin
+          LLastConCount := LCurConCount;
+          Writeln('conn count:', LCurConCount);
+        end;
+        Sleep(100);
+      end;
+    end).Start;
+end;
+
 procedure TDM._OnConnected(Sender: TObject; AConnection: ICrossConnection);
 begin
-  Writeln('conn count:', AtomicIncrement(FConnCount));
+//  if (FHttpServer.ConnectionsCount > 100) then
+//    AConnection.Close;
 end;
 
 procedure TDM._OnDisconnected(Sender: TObject; AConnection: ICrossConnection);
 begin
-  Writeln('conn count:', AtomicDecrement(FConnCount));
 end;
 
 end.

@@ -15,7 +15,7 @@ uses
   System.RegularExpressions, System.RegularExpressionsCore;
 
 type
-  TMatchEvaluatorProc = reference to function(const Match: TMatch): string;
+  TMatchEvaluatorProc = reference to function(const AMatch: TMatch): string;
 
   IScopeEvaluator = interface
     function GetMatchEvaluator: TMatchEvaluator;
