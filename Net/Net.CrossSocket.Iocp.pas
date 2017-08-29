@@ -626,7 +626,11 @@ begin
           and (LPerIoData.CrossData is TIocpConnection) then
           LPerIoData.Callback(LPerIoData.CrossData as ICrossConnection, False);
       end else
+      begin
         TSocketAPI.CloseSocket(LPerIoData.Socket);
+        if Assigned(LPerIoData.Callback) then
+          LPerIoData.Callback(nil, False);
+      end;
     finally
       _FreeIoData(LPerIoData);
     end;
