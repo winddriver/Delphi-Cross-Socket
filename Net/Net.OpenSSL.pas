@@ -183,6 +183,11 @@ const
   SSL_CTRL_SET_SPLIT_SEND_FRAGMENT            = 125;
   SSL_CTRL_SET_MAX_PIPELINES                  = 126;
 
+  SSL_MODE_ENABLE_PARTIAL_WRITE       = $00000001;
+  SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER = $00000002;
+  SSL_MODE_AUTO_RETRY                 = $00000004;
+  SSL_MODE_NO_AUTO_CHAIN              = $00000008;
+
   SSL_OP_MICROSOFT_SESS_ID_BUG                = $00000001;
   SSL_OP_NETSCAPE_CHALLENGE_BUG               = $00000002;
   SSL_OP_NETSCAPE_REUSE_CIPHER_CHANGE_BUG     = $00000008;
@@ -593,6 +598,10 @@ function SSL_set_tmp_ecdh(ssl: PSSL; ecdh: MarshaledAString): Integer; inline;
 
 function SSL_CTX_set_options(ctx: PSSL_CTX; Op: Integer): Integer; inline;
 function SSL_CTX_get_options(ctx: PSSL_CTX): Integer; inline;
+function SSL_CTX_set_mode(ctx: PSSL_CTX; op: Integer): Integer; inline;
+function SSL_CTX_clear_mode(ctx: PSSL_CTX; op: Integer): Integer; inline;
+function SSL_CTX_get_mode(ctx: PSSL_CTX): Integer; inline;
+
 function SSL_set_options(ssl: PSSL; Op: Integer): Integer; inline;
 function SSL_get_options(ssl: PSSL): Integer; inline;
 function SSL_clear_options(ssl: PSSL; Op: Integer): Integer; inline;
@@ -696,6 +705,21 @@ end;
 function SSL_CTX_get_options(ctx: PSSL_CTX): Integer;
 begin
   Result := SSL_CTX_ctrl(ctx, SSL_CTRL_OPTIONS, 0, nil);
+end;
+
+function SSL_CTX_set_mode(ctx: PSSL_CTX; op: Integer): Integer;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_MODE, op, nil);
+end;
+
+function SSL_CTX_clear_mode(ctx: PSSL_CTX; op: Integer): Integer;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_CLEAR_MODE, op, nil);
+end;
+
+function SSL_CTX_get_mode(ctx: PSSL_CTX): Integer;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_MODE, 0, nil);
 end;
 
 function SSL_set_options(ssl: PSSL; Op: Integer): Integer;

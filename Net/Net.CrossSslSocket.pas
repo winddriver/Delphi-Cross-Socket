@@ -402,6 +402,7 @@ begin
     else
     begin
       error := SSL_get_error(FSsl, ret);
+      _Log('SSL_write error %d %s', [error, ssl_error_message(error)]);
       case error of
         SSL_ERROR_WANT_READ:;
         SSL_ERROR_WANT_WRITE: _WriteBioToSocket;
@@ -516,6 +517,8 @@ begin
 
   SSL_CTX_set_verify(FSslCtx, SSL_VERIFY_NONE, nil);
 
+//  SSL_CTX_set_mode(FSslCtx, SSL_MODE_AUTO_RETRY);
+
   {$region '采用新型加密套件进行加密'}
   SSL_CTX_set_options(FSslCtx,
     // 不使用已经不安全的 SSLv2 和 SSv3
@@ -609,9 +612,25 @@ begin
 end;
 
 procedure TCrossSslSocket.TriggerConnected(AConnection: ICrossConnection);
+var
+  LConnection: TCrossSslConnection;
 begin
-  // 网络连接已建立, 等待握手
-  AConnection.ConnectStatus := csHandshaking;
+  LConnection := AConnection as TCrossSslConnection;
+
+  LConnection._SslLock;
+  try
+    // 网络连接已建立, 等待握手
+    LConnection.ConnectStatus := csHandshaking;
+
+    // 已完成握手才视为连接真正建立
+    if LConnection._SslHandshake then
+    begin
+      LConnection.ConnectStatus := csConnected;
+      inherited TriggerConnected(AConnection);
+    end;
+  finally
+    LConnection._SslUnlock;
+  end;
 end;
 
 procedure TCrossSslSocket.TriggerReceived(AConnection: ICrossConnection;
@@ -619,6 +638,7 @@ procedure TCrossSslSocket.TriggerReceived(AConnection: ICrossConnection;
 var
   LConnection: TCrossSslConnection;
   ret, error: Integer;
+  LBuffer: TBytesStream;
 begin
   LConnection := AConnection as TCrossSslConnection;
   LConnection._SslLock;
@@ -627,6 +647,7 @@ begin
     while True do
     begin
       ret := BIO_write(LConnection.FBIOIn, ABuf, ALen);
+//      _Log('recv %d, bio_write %d', [ALen, ret]);
       if (ret > 0) then Break;
 
       if not BIO_should_retry(LConnection.FBIOIn) then
@@ -649,36 +670,69 @@ begin
       Exit;
     end;
 
-    // 读取解密后的数据
-    while True do
-    begin
-      // 貌似每次读出来的数据都不会超过 16K
-      ret := SSL_read(LConnection.FSsl, @FSslInBuf[0], SSL_BUF_SIZE);
-
-      // 读取到解密数据了, 调用父类接收数据的方法
-      if (ret > 0) then
-        inherited TriggerReceived(AConnection, @FSslInBuf[0], ret)
-      else
+    LBuffer := TBytesStream.Create(nil);
+    try
+      while True do
       begin
-        error := SSL_get_error(LConnection.FSsl, ret);
-        if ssl_is_fatal_error(error) then
+        // 貌似每次读出来的数据都不会超过 16K
+        ret := SSL_read(LConnection.FSsl, @FSslInBuf[0], SSL_BUF_SIZE);
+        if (ret > 0) then
+          LBuffer.Write(FSslInBuf[0], ret)
+        else
         begin
-          {$IFDEF DEBUG}
-          _Log('SSL_read error %s', [ssl_error_message(error)]);
-          {$ENDIF}
-          LConnection.Close;
-        end;
+          error := SSL_get_error(LConnection.FSsl, ret);
+//          _Log('SSL_read error %d %s', [error, ssl_error_message(error)]);
 
-//        case error of
-//          SSL_ERROR_WANT_READ:;
-//          SSL_ERROR_WANT_WRITE: LConnection._WriteBioToSocket;
-//        else
+          if ssl_is_fatal_error(error) then
+          begin
+            {$IFDEF DEBUG}
+            _Log('SSL_read error %d %s', [error, ssl_error_message(error)]);
+            {$ENDIF}
+            LConnection.Close;
+          end;
+          Break;
+        end;
+      end;
+
+      inherited TriggerReceived(AConnection, LBuffer.Memory, LBuffer.Size);
+    finally
+      FreeAndNil(LBuffer);
+    end;
+
+//    // 读取解密后的数据
+//    while True do
+//    begin
+//      // 貌似每次读出来的数据都不会超过 16K
+//      ret := SSL_read(LConnection.FSsl, @FSslInBuf[0], SSL_BUF_SIZE);
+//
+//      // 读取到解密数据了, 调用父类接收数据的方法
+//      if (ret > 0) then
+//        inherited TriggerReceived(AConnection, @FSslInBuf[0], ret)
+//      else
+//      begin
+//        error := SSL_get_error(LConnection.FSsl, ret);
+//        if ssl_is_fatal_error(error) then
+//        begin
+//          {$IFDEF DEBUG}
+//          _Log('SSL_read error %d %s', [error, ssl_error_message(error)]);
+//          {$ENDIF}
 //          LConnection.Close;
 //        end;
+//
+////        case error of
+////          SSL_ERROR_WANT_READ:;
+////          SSL_ERROR_WANT_WRITE: LConnection._WriteBioToSocket;
+////        else
+////          {$IFDEF DEBUG}
+////          _Log('SSL_read error %d %s', [error, ssl_error_message(error)]);
+////          {$ENDIF}
+////          LConnection.Close;
+////        end;
+//
+//        Exit;
+//      end;
+//    end;
 
-        Exit;
-      end;
-    end;
   finally
     LConnection._SslUnlock;
   end;

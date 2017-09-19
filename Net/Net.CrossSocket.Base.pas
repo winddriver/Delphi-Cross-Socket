@@ -867,7 +867,7 @@ begin
     {$ENDIF};
   end;
   {$IFDEF DEBUG}
-  _Log('%s Io线程ID %d, 被调用了 %d 次', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, LRunCount]);
+//  _Log('%s Io线程ID %d, 被调用了 %d 次', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, LRunCount]);
   {$ENDIF}
 end;
 
