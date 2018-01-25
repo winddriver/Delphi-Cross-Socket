@@ -501,6 +501,9 @@ begin
   LAddrInfo := TSocketAPI.GetAddrInfo(AHost, APort, LHints);
   if (LAddrInfo = nil) then
   begin
+    {$IFDEF DEBUG}
+    _LogLastOsError;
+    {$ENDIF}
     _Failed;
     Exit;
   end;
@@ -526,6 +529,9 @@ begin
       if (TSocketAPI.Bind(LListenSocket, LAddrInfo.ai_addr, LAddrInfo.ai_addrlen) < 0)
         or (TSocketAPI.Listen(LListenSocket) < 0) then
       begin
+        {$IFDEF DEBUG}
+        _LogLastOsError;
+        {$ENDIF}
         _Failed;
         Exit;
       end;
@@ -621,10 +627,16 @@ begin
       // ERROR_CONNECTION_REFUSED, 1225, 远程计算机拒绝网络连接。
       if (LPerIoData.CrossData <> nil) then
       begin
-        LPerIoData.CrossData.Close;
-        if Assigned(LPerIoData.Callback)
-          and (LPerIoData.CrossData is TIocpConnection) then
-          LPerIoData.Callback(LPerIoData.CrossData as ICrossConnection, False);
+        // AcceptEx虽然成功, 但是Socket句柄耗尽了, 再次投递AcceptEx
+        if (LPerIoData.Action = ioAccept) then
+          _NewAccept(LPerIoData.CrossData as ICrossListen)
+        else
+        begin
+          LPerIoData.CrossData.Close;
+          if Assigned(LPerIoData.Callback)
+            and (LPerIoData.CrossData is TIocpConnection) then
+            LPerIoData.Callback(LPerIoData.CrossData as ICrossConnection, False);
+        end;
       end else
       begin
         TSocketAPI.CloseSocket(LPerIoData.Socket);
