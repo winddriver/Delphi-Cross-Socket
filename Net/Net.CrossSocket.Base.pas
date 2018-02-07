@@ -9,6 +9,11 @@
 {******************************************************************************}
 unit Net.CrossSocket.Base;
 
+// 是否将大块数据分成小块发送(仅IOCP下有效)
+// 注意: 开启该开关的情况下, 同一个连接不要在一次发送尚未结束时开始另一次发送
+//       否则会导致两块数据被分成小块后出现交错
+{.$DEFINE __LITTLE_PIECE__}
+
 interface
 
 uses
@@ -830,7 +835,6 @@ begin
   LError := GetLastError;
   _Log('System Error.  Code: %0:d(%0:.4x), %1:s',
     [LError, SysErrorMessage(LError)]);
-//  RaiseLastOSError(LError);
   {$ENDIF}
 end;
 
@@ -1139,13 +1143,13 @@ end;
 
 procedure TAbstractCrossSocket.TriggerListenEnd(AListen: ICrossListen);
 begin
-  System.TMonitor.Enter(FListensLock);
+  _LockListens;
   try
     if not FListens.ContainsKey(AListen.UID) then Exit;
     FListens.Remove(AListen.UID);
     FListensCount := FListens.Count;
   finally
-    System.TMonitor.Exit(FListensLock);
+    _UnlockListens;
   end;
 
   if Assigned(FOnListenEnd) then
@@ -1418,7 +1422,7 @@ end;
 
 procedure TAbstractCrossConnection.SendBuf(ABuffer: Pointer; ACount: Integer;
   const ACallback: TProc<ICrossConnection, Boolean>);
-{$IFDEF POSIX}
+{$IF defined(POSIX) or not defined(__LITTLE_PIECE__)}
 begin
   DirectSend(ABuffer, ACount, ACallback);
 end;
