@@ -515,6 +515,8 @@ procedure ERR_error_string_n(err: Cardinal; buf: MarshaledAString; len: size_t);
   external LIBEAY_DLL name _PU + 'ERR_error_string_n'{$IFDEF MSWINDOWS} delayed{$ENDIF};
 function ERR_get_error: Cardinal; cdecl;
   external LIBEAY_DLL name _PU + 'ERR_get_error'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+procedure ERR_clear_error; cdecl;
+  external LIBEAY_DLL name _PU + 'ERR_clear_error'{$IFDEF MSWINDOWS} delayed{$ENDIF};
 
 procedure EVP_cleanup; cdecl;
   external LIBEAY_DLL name _PU + 'EVP_cleanup'{$IFDEF MSWINDOWS} delayed{$ENDIF};
@@ -893,6 +895,7 @@ begin
   {$ELSE}
   ERR_remove_thread_state(nil);
   {$ENDIF}
+  ERR_clear_error();
   ERR_free_strings();
   EVP_cleanup();
 
