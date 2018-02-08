@@ -68,7 +68,7 @@ type
     property Millisecond: Word read GetMillisecond write SetMillisecond;
 
     function ToString(const AFormatStr: string = ''): string; inline;
-    function ToMilliseconds: Int64;
+    function ToMilliseconds: Int64; inline;
 
     function StartOfYear: TDateTime; inline;
     function EndOfYear: TDateTime; inline;
@@ -472,8 +472,7 @@ var
   LTimeStamp: TTimeStamp;
 begin
   LTimeStamp := DateTimeToTimeStamp(Self);
-  Result := LTimeStamp.Date;
-  Result := (Result * MSecsPerDay) + LTimeStamp.Time;
+  Result := (Int64(LTimeStamp.Date) * MSecsPerDay) + LTimeStamp.Time;
 end;
 
 function TDateTimeHelper.ToString(const AFormatStr: string): string;

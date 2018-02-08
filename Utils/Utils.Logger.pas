@@ -36,6 +36,8 @@ type
     procedure AppendLog(const Fmt: string; const Args: array of const; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
     procedure AppendLog(const Fmt: string; const Args: array of const; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
 
+    procedure Flush;
+
     property Filters: TLogTypeSets read GetFilters write SetFilters;
   end;
 
@@ -82,6 +84,8 @@ type
     procedure AppendLog(const ALog: string; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
     procedure AppendLog(const Fmt: string; const Args: array of const; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
     procedure AppendLog(const Fmt: string; const Args: array of const; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
+
+    procedure Flush;
 
     property Filters: TLogTypeSets read GetFilters write SetFilters;
 
@@ -130,6 +134,8 @@ destructor TLogger.Destroy;
 var
   I: TLogType;
 begin
+  Flush;
+
   _Shutdown;
 
   for I := Low(TLogType) to High(TLogType) do
@@ -139,6 +145,11 @@ begin
   end;
 
   inherited Destroy;
+end;
+
+procedure TLogger.Flush;
+begin
+  _WriteAllLogFiles;
 end;
 
 function TLogger.GetFilters: TLogTypeSets;
@@ -185,13 +196,16 @@ begin
       begin
         if (LWatch.ElapsedTicks > FLUSH_INTERVAL) then
         begin
-          _WriteAllLogFiles;
+          Flush;
 
           LWatch.Reset;
           LWatch.Start;
         end;
         Sleep(10);
       end;
+
+      Flush;
+
       FQuit := True;
     end).Start;
 end;
