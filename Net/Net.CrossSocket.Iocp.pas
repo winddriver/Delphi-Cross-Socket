@@ -31,6 +31,7 @@ type
   private const
     SHUTDOWN_FLAG = ULONG_PTR(-1);
     SO_UPDATE_CONNECT_CONTEXT = $7010;
+    IPV6_V6ONLY = 27;
   private type
     TAddrUnion = record
       case Integer of
@@ -470,6 +471,7 @@ var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
   LListenSocket: THandle;
+  LIPv6Only: Integer;
   LListen: ICrossListen;
   I: Integer;
 
@@ -489,7 +491,6 @@ var
     if Assigned(ACallback) then
       ACallback(LListen, True);
   end;
-
 begin
   LListen := nil;
   FillChar(LHints, SizeOf(TRawAddrInfo), 0);
@@ -525,6 +526,12 @@ begin
 
       TSocketAPI.SetNonBlock(LListenSocket, True);
       TSocketAPI.SetReUseAddr(LListenSocket, True);
+
+      if (LAddrInfo.ai_family = AF_INET6) then
+      begin
+        LIPv6Only := 1;
+        TSocketAPI.SetSockOpt(LListenSocket, IPPROTO_IPV6, IPV6_V6ONLY, LIPv6Only, SizeOf(LIPv6Only));
+      end;
 
       if (TSocketAPI.Bind(LListenSocket, LAddrInfo.ai_addr, LAddrInfo.ai_addrlen) < 0)
         or (TSocketAPI.Listen(LListenSocket) < 0) then
