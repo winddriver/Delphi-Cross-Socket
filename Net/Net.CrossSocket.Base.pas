@@ -99,6 +99,9 @@ type
     function GetLocalAddr: string;
     function GetLocalPort: Word;
     function GetIsClosed: Boolean;
+    function GetUserData: Pointer;
+
+    procedure SetUserData(const AValue: Pointer);
 
     /// <summary>
     ///   更新套接字地址信息
@@ -142,6 +145,11 @@ type
     ///   是否已关闭
     /// </summary>
     property IsClosed: Boolean read GetIsClosed;
+
+    /// <summary>
+    ///   用户数据(可以用于存储用户自定义的数据结构)
+    /// </summary>
+    property UserData: Pointer read GetUserData write SetUserData;
   end;
   TCrossDatas = TDictionary<UInt64, ICrossData>;
 
@@ -560,6 +568,7 @@ type
     FSocket: THandle;
     FLocalAddr: string;
     FLocalPort: Word;
+    FUserData: Pointer;
   protected
     function GetOwner: ICrossSocket;
     function GetUIDTag: Byte; virtual;
@@ -568,6 +577,9 @@ type
     function GetLocalAddr: string;
     function GetLocalPort: Word;
     function GetIsClosed: Boolean; virtual; abstract;
+    function GetUserData: Pointer;
+
+    procedure SetUserData(const AValue: Pointer);
   public
     constructor Create(AOwner: ICrossSocket; ASocket: THandle); virtual;
     destructor Destroy; override;
@@ -581,6 +593,7 @@ type
     property LocalAddr: string read GetLocalAddr;
     property LocalPort: Word read GetLocalPort;
     property IsClosed: Boolean read GetIsClosed;
+    property UserData: Pointer read GetUserData write SetUserData;
   end;
 
   TAbstractCrossListen = class(TCrossData, ICrossListen)
@@ -1262,6 +1275,16 @@ end;
 function TCrossData.GetUIDTag: Byte;
 begin
   Result := UID_RAW;
+end;
+
+function TCrossData.GetUserData: Pointer;
+begin
+  Result := FUserData;
+end;
+
+procedure TCrossData.SetUserData(const AValue: Pointer);
+begin
+  FUserData := AValue;
 end;
 
 procedure TCrossData.UpdateAddr;
