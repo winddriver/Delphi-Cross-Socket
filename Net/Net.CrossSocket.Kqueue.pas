@@ -215,21 +215,22 @@ begin
 
   if _ReadEnabled then
   begin
-    EV_SET(@LEvents[N], Socket, EVFILT_READ,
-      EV_ADD or EV_ONESHOT or EV_CLEAR or EV_DISPATCH, 0, 0, Pointer(LCrossData));
-    Inc(N);
-  end;
+    EV_SET(@LEvents[N], Socket, EVFILT_READ,
+      EV_ADD or EV_ONESHOT or EV_CLEAR or EV_DISPATCH, 0, 0, Pointer(LCrossData));
+
+    Inc(N);
+  end;
 
   if (N <= 0) then Exit(False);
 
-  Result := (kevent(LOwner.FKqueueHandle, @LEvents, N, nil, 0, nil) >= 0);
+  Result := (kevent(LOwner.FKqueueHandle, @LEvents, N, nil, 0, nil) >= 0);
 
-  {$IFDEF DEBUG}
-  if not Result then
-    _Log('listen %d kevent error %d', [Socket, GetLastError]);
-  {$ENDIF}
-end;
-
+  {$IFDEF DEBUG}
+  if not Result then
+    _Log('listen %d kevent error %d', [Socket, GetLastError]);
+  {$ENDIF}
+end;
+
 { TSendQueue }
 
 procedure TSendQueue.Notify(const Value: PSendItem;
@@ -347,37 +348,42 @@ begin
 
   if _ReadEnabled then
   begin
-    Self._AddRef;
-    EV_SET(@LEvents[N], Socket, EVFILT_READ,
-      EV_ADD or EV_ONESHOT or EV_CLEAR or EV_DISPATCH, 0, 0, Pointer(LCrossData));
-    Inc(N);
-  end;
+    Self._AddRef;
+
+    EV_SET(@LEvents[N], Socket, EVFILT_READ,
+      EV_ADD or EV_ONESHOT or EV_CLEAR or EV_DISPATCH, 0, 0, Pointer(LCrossData));
+
+    Inc(N);
+  end;
 
   if _WriteEnabled then
-  begin
-    Self._AddRef;
-    EV_SET(@LEvents[N], Socket, EVFILT_WRITE,
-      EV_ADD or EV_ONESHOT or EV_CLEAR or EV_DISPATCH, 0, 0, Pointer(LCrossData));
-    Inc(N);
-  end;
+  begin
+    Self._AddRef;
+
+    EV_SET(@LEvents[N], Socket, EVFILT_WRITE,
+      EV_ADD or EV_ONESHOT or EV_CLEAR or EV_DISPATCH, 0, 0, Pointer(LCrossData));
+
+    Inc(N);
+  end;
 
   if (N <= 0) then Exit(False);
 
-  Result := (kevent(LOwner.FKqueueHandle, @LEvents, N, nil, 0, nil) >= 0);
+  Result := (kevent(LOwner.FKqueueHandle, @LEvents, N, nil, 0, nil) >= 0);
 
-  if not Result then
-  begin
-    {$IFDEF DEBUG}
-    _Log('connection %d kevent error %d', [Socket, GetLastError]);
-    {$ENDIF}
-    while (N > 0) do
-    begin
-      Self._Release;
-      Dec(N);
-    end;
-  end;
-end;
-
+  if not Result then
+  begin
+    {$IFDEF DEBUG}
+    _Log('connection %d kevent error %d', [Socket, GetLastError]);
+    {$ENDIF}
+
+    while (N > 0) do
+    begin
+      Self._Release;
+      Dec(N);
+    end;
+  end;
+end;
+
 function TKqueueConnection._WriteEnabled: Boolean;
 begin
   Result := (ieWrite in FIoEvents);
@@ -461,22 +467,23 @@ begin
     LKqConnection._Lock;
     try
       LSuccess := LKqConnection._UpdateIoEvent([ieRead]);
-    finally
-      LKqConnection._Unlock;
-    end;
-
+    finally
+      LKqConnection._Unlock;
+    end;
+
     if LSuccess then
       TriggerConnected(LConnection)
-    else
-      TriggerDisconnected(LConnection);
-  end;
-
+    else
+      TriggerDisconnected(LConnection);
+  end;
+
   // 继续接收新连接
   LKqListen := LListen as TKqueueListen;
   LKqListen._Lock;
   LKqListen._UpdateIoEvent([ieRead]);
-  LKqListen._Unlock;
-end;
+
+  LKqListen._Unlock;
+end;
 
 procedure TKqueueCrossSocket._HandleConnect(AConnection: ICrossConnection);
 var
@@ -498,7 +505,8 @@ begin
   end;
 
   LKqConnection := LConnection as TKqueueConnection;
-  LKqConnection._Lock;
+
+  LKqConnection._Lock;
   try
     LConnectCallback := LKqConnection.FConnectCallback;
     LKqConnection.FConnectCallback := nil;
@@ -635,18 +643,16 @@ begin
     LKqConnection._Unlock;
   end;
 end;
-
+
+
 procedure TKqueueCrossSocket._OpenIdleHandle;
 begin
   FIdleHandle := FileOpen('/dev/null', fmOpenRead);
 end;
 
 procedure TKqueueCrossSocket._SetNoSigPipe(ASocket: THandle);
-var
-  LOptVal: Integer;
 begin
-  LOptVal := 1;
-  TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, SO_NOSIGPIPE, LOptVal, SizeOf(Integer));
+  TSocketAPI.SetSockOpt<Integer>(ASocket, SOL_SOCKET, SO_NOSIGPIPE, 1);
 end;
 
 procedure TKqueueCrossSocket.StartLoop;
@@ -829,6 +835,9 @@ begin
       TSocketAPI.SetNonBlock(LListenSocket, True);
       TSocketAPI.SetReUseAddr(LListenSocket, True);
 
+      if (LAddrInfo.ai_family = AF_INET6) then
+        TSocketAPI.SetSockOpt<Integer>(LListenSocket, IPPROTO_IPV6, IPV6_V6ONLY, 1);
+
       if (TSocketAPI.Bind(LListenSocket, LAddrInfo.ai_addr, LAddrInfo.ai_addrlen) < 0)
         or (TSocketAPI.Listen(LListenSocket) < 0) then
       begin
@@ -847,13 +856,14 @@ begin
         LSuccess := LKqListen._UpdateIoEvent([ieRead]);
       finally
         LKqListen._Unlock;
-      end;
+      end;
 
       if not LSuccess then
       begin
-        _Failed;
-        Exit;
-      end;
+        _Failed;
+
+        Exit;
+      end;
 
       // 监听成功
       TriggerListened(LListen);
@@ -885,8 +895,9 @@ begin
   LSendItem.Size := ALen;
   LSendItem.Callback := ACallback;
 
-  LKqConnection := AConnection as TKqueueConnection;
-  LKqConnection._Lock;
+  LKqConnection := AConnection as TKqueueConnection;
+
+  LKqConnection._Lock;
   try
     // 将数据放入队列
     LKqConnection.FSendQueue.Add(LSendItem);

@@ -127,13 +127,25 @@ type
     ///   获取套接字参数
     /// </summary>
     class function GetSockOpt(ASocket: THandle; ALevel, AOptionName: Integer;
-       var AOptionValue; var AOptionLen: Integer): Integer; static;
+       var AOptionValue; var AOptionLen: Integer): Integer; overload; static;
+
+    /// <summary>
+    ///   获取套接字参数
+    /// </summary>
+    class function GetSockOpt<T>(ASocket: THandle; ALevel, AOptionName: Integer;
+       var AOptionValue: T): Integer; overload; static;
 
     /// <summary>
     ///   设置套接字参数
     /// </summary>
     class function SetSockOpt(ASocket: THandle; ALevel, AOptionName: Integer;
-      const AOptionValue; AOptionLen: Integer): Integer; static;
+      const AOptionValue; AOptionLen: Integer): Integer; overload; static;
+
+    /// <summary>
+    ///   设置套接字参数
+    /// </summary>
+    class function SetSockOpt<T>(ASocket: THandle; ALevel, AOptionName: Integer;
+      const AOptionValue: T): Integer; overload; static;
 
     /// <summary>
     ///   检查套接字错误码
@@ -521,6 +533,14 @@ begin
   {$ENDIF}
 end;
 
+class function TSocketAPI.GetSockOpt<T>(ASocket: THandle; ALevel,
+  AOptionName: Integer; var AOptionValue: T): Integer;
+var
+  LOptionLen: Integer;
+begin
+  Result := GetSockOpt(ASocket, ALevel, AOptionName, AOptionValue, LOptionLen);
+end;
+
 class function TSocketAPI.IsValidSocket(ASocket: THandle): Boolean;
 begin
   Result := (ASocket <> INVALID_HANDLE_VALUE);
@@ -702,6 +722,12 @@ begin
   {$ELSE}
   Result := Net.Winsock2.setsockopt(ASocket, ALevel, AOptionName, PAnsiChar(@AOptionValue), AOptionLen);
   {$ENDIF}
+end;
+
+class function TSocketAPI.SetSockOpt<T>(ASocket: THandle; ALevel,
+  AOptionName: Integer; const AOptionValue: T): Integer;
+begin
+  Result := SetSockOpt(ASocket, ALevel, AOptionName, AOptionValue, SizeOf(T));
 end;
 
 class function TSocketAPI.SetTcpNoDelay(ASocket: THandle;

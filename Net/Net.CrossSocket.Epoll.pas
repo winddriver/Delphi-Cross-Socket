@@ -193,18 +193,18 @@ begin
   LEvent.Events := EPOLLET or EPOLLONESHOT;
   LEvent.Data.u64 := Self.UID;
 
-  if _ReadEnabled then
-    LEvent.Events := LEvent.Events or EPOLLIN;
+  if _ReadEnabled then
+    LEvent.Events := LEvent.Events or EPOLLIN;
 
-  Result := (epoll_ctl(LOwner.FEpollHandle, FOpCode, Socket, @LEvent) >= 0);
-  FOpCode := EPOLL_CTL_MOD;
+  Result := (epoll_ctl(LOwner.FEpollHandle, FOpCode, Socket, @LEvent) >= 0);
+  FOpCode := EPOLL_CTL_MOD;
 
-  {$IFDEF DEBUG}
-  if not Result then
-    _Log('listen %d epoll_ctl error %d', [UID, GetLastError]);
-  {$ENDIF}
-end;
-
+  {$IFDEF DEBUG}
+  if not Result then
+    _Log('listen %d epoll_ctl error %d', [UID, GetLastError]);
+  {$ENDIF}
+end;
+
 { TSendQueue }
 
 procedure TSendQueue.Notify(const Value: PSendItem;
@@ -302,22 +302,23 @@ begin
   LEvent.Events := EPOLLET or EPOLLONESHOT;
   LEvent.Data.u64 := Self.UID;
 
-  if _ReadEnabled then
-    LEvent.Events := LEvent.Events or EPOLLIN;
+  if _ReadEnabled then
+    LEvent.Events := LEvent.Events or EPOLLIN;
 
-  if _WriteEnabled then
-    LEvent.Events := LEvent.Events or EPOLLOUT;
+  if _WriteEnabled then
+    LEvent.Events := LEvent.Events or EPOLLOUT;
 
-  Result := (epoll_ctl(LOwner.FEpollHandle, FOpCode, Socket, @LEvent) >= 0);
-  FOpCode := EPOLL_CTL_MOD;
+  Result := (epoll_ctl(LOwner.FEpollHandle, FOpCode, Socket, @LEvent) >= 0);
+  FOpCode := EPOLL_CTL_MOD;
 
-  {$IFDEF DEBUG}
-  if not Result then
-    _Log('connection %.16x epoll_ctl socket=%d events=0x%.8x error %d',
-      [UID, LEvent.Events, Socket, GetLastError]);
-  {$ENDIF}
-end;
-
+  {$IFDEF DEBUG}
+  if not Result then
+    _Log('connection %.16x epoll_ctl socket=%d events=0x%.8x error %d',
+      [UID, LEvent.Events, Socket, GetLastError]);
+  {$ENDIF}
+end;
+
+
 function TEpollConnection._WriteEnabled: Boolean;
 begin
   Result := (ieWrite in FIoEvents);
@@ -399,10 +400,10 @@ begin
     LEpConnection._Lock;
     try
       LSuccess := LEpConnection._UpdateIoEvent([ieRead]);
-    finally
-      LEpConnection._Unlock;
-    end;
-
+    finally
+      LEpConnection._Unlock;
+    end;
+
     if LSuccess then
       TriggerConnected(LConnection)
     else
@@ -429,7 +430,8 @@ begin
   end;
 
   LEpConnection := LConnection as TEpollConnection;
-  LEpConnection._Lock;
+
+  LEpConnection._Lock;
   try
     LConnectCallback := LEpConnection.FConnectCallback;
     LEpConnection.FConnectCallback := nil;
@@ -547,7 +549,8 @@ begin
     LEpConnection._Unlock;
   end;
 end;
-
+
+
 procedure TEpollCrossSocket._OpenIdleHandle;
 begin
   FIdleHandle := FileOpen('/dev/null', fmOpenRead);
@@ -736,6 +739,9 @@ begin
       TSocketAPI.SetNonBlock(LListenSocket, True);
       TSocketAPI.SetReUseAddr(LListenSocket, True);
 
+      if (LAddrInfo.ai_family = AF_INET6) then
+        TSocketAPI.SetSockOpt<Integer>(LListenSocket, IPPROTO_IPV6, IPV6_V6ONLY, 1);
+
       if (TSocketAPI.Bind(LListenSocket, LAddrInfo.ai_addr, LAddrInfo.ai_addrlen) < 0)
         or (TSocketAPI.Listen(LListenSocket) < 0) then
       begin
@@ -754,13 +760,14 @@ begin
         LSuccess := LEpListen._UpdateIoEvent([ieRead]);
       finally
         LEpListen._Unlock;
-      end;
+      end;
 
       if not LSuccess then
       begin
-        _Failed;
-        Exit;
-      end;
+        _Failed;
+
+        Exit;
+      end;
 
       // 监听成功
       TriggerListened(LListen);
@@ -792,8 +799,9 @@ begin
   LSendItem.Size := ALen;
   LSendItem.Callback := ACallback;
 
-  LEpConnection := AConnection as TEpollConnection;
-  LEpConnection._Lock;
+  LEpConnection := AConnection as TEpollConnection;
+
+  LEpConnection._Lock;
   try
     // 将数据放入队列
     LEpConnection.FSendQueue.Add(LSendItem);
@@ -885,8 +893,10 @@ begin
       LEpListen := LListen as TEpollListen;
       LEpListen._Lock;
       LEpListen._UpdateIoEvent([ieRead]);
-      LEpListen._Unlock;
-    end else
+
+      LEpListen._Unlock;
+
+    end else
     if (LConnection <> nil) then
     begin
       // epoll的读写事件同一时间可能两个同时触发
