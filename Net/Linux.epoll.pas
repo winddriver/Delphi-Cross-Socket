@@ -62,11 +62,6 @@ function epoll_wait(epfd: Integer; events: pepoll_event; maxevents, timeout: Int
   external libc name _PU + 'epoll_wait';
   {$EXTERNALSYM epoll_wait}
 
-{ wait for an I/O event on an epoll file descriptor }
-function epoll_pwait(epfd: Integer; events: pepoll_event; maxevents, timeout: Integer; sigmask: Psigset_t): Integer; cdecl;
-  external libc name _PU + 'epoll_pwait';
-  {$EXTERNALSYM epoll_pwait}
-
 implementation
 
 end.
