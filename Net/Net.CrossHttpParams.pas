@@ -1572,7 +1572,8 @@ begin
           if (I >= ALen - 1) or (FBoundaryIndex >= Length(FBoundaryBytes)) then
           begin
             // 将内存块数据存入Field中
-            FCurrentPartField.FValue.Write(P[FPartDataBegin], I - FPartDataBegin - FBoundaryIndex + 1);
+            if (FPartDataBegin >= 0) then
+              FCurrentPartField.FValue.Write(P[FPartDataBegin], I - FPartDataBegin - FBoundaryIndex + 1);
 
             // 已解析出一个完整的数据块
             if (FBoundaryIndex >= Length(FBoundaryBytes)) then
@@ -1583,7 +1584,7 @@ begin
             end else
             // 已解析到本内存块结尾, 但是发现了部分有点像Boundary的数据
             // 将其保存起来
-            if (FBoundaryIndex > 0) then
+            if (FPrevIndex = 0) and (FBoundaryIndex > 0) then
             begin
               FPrevIndex := FBoundaryIndex;
               Move(P[I - FBoundaryIndex + 1], FLookbehind[0], FBoundaryIndex);
