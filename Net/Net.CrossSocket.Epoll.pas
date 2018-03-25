@@ -895,7 +895,6 @@ begin
       LEpListen._UpdateIoEvent([ieRead]);
 
       LEpListen._Unlock;
-
     end else
     if (LConnection <> nil) then
     begin
