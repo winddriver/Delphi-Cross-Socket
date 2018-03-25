@@ -1082,6 +1082,34 @@ const
   {$ENDREGION}
 
 type
+  TMediaType = class
+  public const
+    DELIM_PARAMS = ';';
+    CHARSET_NAME = 'charset';
+    CHARSET_UTF8 = 'utf-8';
+    CHARSET_UTF8_DEF = CHARSET_NAME + '=' +  CHARSET_UTF8;
+
+    TEXT_PLAIN = 'text/plain';
+    TEXT_PLAIN_UTF8 = TEXT_PLAIN + DELIM_PARAMS + CHARSET_UTF8_DEF;
+
+    TEXT_XML = 'text/xml';
+    TEXT_XML_UTF8 = TEXT_XML + DELIM_PARAMS + CHARSET_UTF8_DEF;
+
+    TEXT_HTML = 'text/html';
+    TEXT_HTML_UTF8 = TEXT_HTML + DELIM_PARAMS + CHARSET_UTF8_DEF;
+
+    APPLICATION_JSON = 'application/json';
+    APPLICATION_JSON_UTF8 = APPLICATION_JSON + DELIM_PARAMS + CHARSET_UTF8_DEF;
+
+    APPLICATION_XML = 'application/xml';
+    APPLICATION_XML_UTF8 = APPLICATION_XML + DELIM_PARAMS + CHARSET_UTF8_DEF;
+
+    APPLICATION_OCTET_STREAM = 'application/octet-stream';
+    APPLICATION_FORM_URLENCODED_TYPE = 'application/x-www-form-urlencoded';
+    MULTIPART_FORM_DATA = 'multipart/form-data';
+    WILDCARD = '*/*';
+  end;
+
   TCrossHttpUtils = class
   private const
     RFC1123_StrWeekDay: string = 'MonTueWedThuFriSatSun';
@@ -1091,6 +1119,7 @@ type
     class function GetFileMIMEType(const AFileName: string): string; static;
     class function RFC1123_DateToStr(const ADate: TDateTime): string; static;
     class function RFC1123_StrToDate(const ADateStr: string): TDateTime; static;
+    class function CombinePath(const APath1, APath2: string): string; static;
   end;
 
 implementation
@@ -1106,6 +1135,23 @@ begin
   Result := AStatusCode.ToString;
 end;
 
+class function TCrossHttpUtils.CombinePath(const APath1,
+  APath2: string): string;
+var
+  LPath1Ends, LPath2Starts: string;
+begin
+  LPath1Ends := APath1.Substring(APath1.Length - 1, 1);
+  LPath2Starts := APath2.Substring(0, 1);
+  if (LPath1Ends = '/') and (LPath2Starts = '/') then
+    Result := APath1 + APath2.Substring(1)
+  else if (LPath1Ends = '/') and (LPath2Starts <> '/') then
+    Result := APath1 + APath2
+  else if (LPath1Ends <> '/') and (LPath2Starts = '/') then
+    Result := APath1 + APath2
+  else
+    Result := APath1 + '/' + APath2;
+end;
+
 class function TCrossHttpUtils.GetFileMIMEType(const AFileName: string): string;
 var
   I: Integer;
@@ -1115,7 +1161,7 @@ begin
   for I := 0 to High(MIME_TYPES) do
     if (CompareText(MIME_TYPES[I].Key, LExt) = 0) then
       Exit(MIME_TYPES[I].Value);
-  Result := 'application/octet-stream';
+  Result := TMediaType.APPLICATION_OCTET_STREAM;
 end;
 
 class function TCrossHttpUtils.RFC1123_DateToStr(const ADate: TDateTime): string;
