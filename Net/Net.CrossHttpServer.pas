@@ -3929,6 +3929,8 @@ begin
   if (GetContentType = '') then
     SetContentType(TCrossHttpUtils.GetFileMIMEType(AFileName));
 
+  FHeader['Accept-Ranges'] := 'bytes';
+
   try
     // 根据请求头中的时间戳决定是否需要发送文件数据
     // 当请求头中的时间戳与文件时间一致时, 浏览器会自动从本地加载文件数据
@@ -3992,7 +3994,6 @@ begin
     LOffset := LRangeBegin;
     LCount := LRangeEnd - LRangeBegin + 1;
 
-    FHeader['Accept-Ranges'] := 'bytes';
     FHeader['Content-Ranges'] := Format('bytes %d-%d/%d',
       [LRangeBegin, LRangeEnd, LStream.Size]);
 
@@ -4361,7 +4362,10 @@ var
   LOutSize: Integer;
   LBuffer: TBytes;
 begin
+  // 返回压缩方式
   FHeader['Content-Encoding'] := CONTENT_ENCODING[ACompressType];
+
+  // 明确告知缓存服务器按照 Accept-Encoding 字段的内容, 分别缓存不同的版本
   FHeader['Vary'] := 'Accept-Encoding';
 
   SetLength(LBuffer, SND_BUF_SIZE);
