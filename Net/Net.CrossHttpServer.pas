@@ -4002,7 +4002,7 @@ begin
   end else
   begin
     LOffset := 0;
-    LCount := LStream.Size - 1;
+    LCount := LStream.Size;
   end;
 
   Send(LStream, LOffset, LCount,
