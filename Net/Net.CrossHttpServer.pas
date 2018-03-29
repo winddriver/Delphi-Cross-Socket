@@ -3844,7 +3844,7 @@ var
   LIsFirstChunk: Boolean;
   LChunkState: TChunkState;
   LChunkData: Pointer;
-  LChunkSize: Integer;
+  LChunkSize: NativeInt;
 begin
   LIsFirstChunk := True;
   LChunkState := csHead;
@@ -4128,7 +4128,7 @@ begin
     procedure(AConnection: ICrossConnection; ASuccess: Boolean)
     var
       LData: Pointer;
-      LCount: Integer;
+      LCount: NativeInt;
     begin
       if not ASuccess then
       begin
@@ -4423,7 +4423,7 @@ begin
     function(AData: PPointer; ACount: PNativeInt): Boolean
     var
       LChunkData: Pointer;
-      LChunkSize: Integer;
+      LChunkSize: NativeInt;
     begin
       repeat
         // 当 deflate(LZStream, Z_FINISH) 被调用后
