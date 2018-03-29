@@ -774,23 +774,8 @@ type
     /// <param name="AStatusCode">
     ///   状态码
     /// </param>
-    /// <param name="ACallback">
-    ///   回调函数
-    /// </param>
-    /// <remarks>
-    ///   该方法根据状态码生成默认的body数据
-    /// </remarks>
-    procedure SendStatus(AStatusCode: Integer;
-      ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
-
-    /// <summary>
-    ///   发送状态码
-    /// </summary>
-    /// <param name="AStatusCode">
-    ///   状态码
-    /// </param>
     /// <param name="ADescription">
-    ///   描述信息
+    ///   描述信息(body)
     /// </param>
     /// <param name="ACallback">
     ///   回调函数
@@ -799,6 +784,21 @@ type
     ///   描述信息即是body数据, 如果设置为空, 则body也为空
     /// </remarks>
     procedure SendStatus(AStatusCode: Integer; const ADescription: string;
+      ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
+
+    /// <summary>
+    ///   发送状态码
+    /// </summary>
+    /// <param name="AStatusCode">
+    ///   状态码
+    /// </param>
+    /// <param name="ACallback">
+    ///   回调函数
+    /// </param>
+    /// <remarks>
+    ///   该方法根据状态码生成默认的body数据
+    /// </remarks>
+    procedure SendStatus(AStatusCode: Integer;
       ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
 
     /// <summary>
@@ -1840,7 +1840,9 @@ type
     procedure _Send(AHeaderSource, ABodySource: TFunc<PPointer, PNativeInt, Boolean>; ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
     {$endregion}
 
-    function _CheckCompress(const ABodySize: Int64): Boolean;
+    function _CheckCompress(const ABodySize: Int64; var ACompressType: TCompressType): Boolean;
+    procedure _AdjustOffsetCount(const ABodySize: NativeInt; var AOffset, ACount: NativeInt); overload;
+    procedure _AdjustOffsetCount(const ABodySize: Int64; var AOffset, ACount: Int64); overload;
 
     {$region '压缩发送'}
     procedure SendZCompress(const AChunkSource: TFunc<PPointer, PNativeInt, Boolean>; ACompressType: TCompressType; ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
@@ -1874,9 +1876,9 @@ type
 
     procedure SendFile(const AFileName: string; ACallback: TProc<ICrossConnection, Boolean> = nil);
     procedure Download(const AFileName: string; ACallback: TProc<ICrossConnection, Boolean> = nil);
-    procedure SendStatus(AStatusCode: Integer;
-      ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
     procedure SendStatus(AStatusCode: Integer; const ADescription: string;
+      ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
+    procedure SendStatus(AStatusCode: Integer;
       ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
     procedure Redirect(const AUrl: string; ACallback: TProc<ICrossConnection, Boolean> = nil);
     procedure Attachment(const AFileName: string);
@@ -3717,26 +3719,12 @@ end;
 procedure TCrossHttpResponse.Send(const ABody; ACount: NativeInt;
   ACallback: TProc<ICrossConnection, Boolean>);
 var
-  LRequestAcceptEncoding: string;
+  LCompressType: TCompressType;
 begin
-  if _CheckCompress(ACount) then
-  begin
-    LRequestAcceptEncoding := GetRequest.AcceptEncoding;
-
-    if (Pos('gzip', LRequestAcceptEncoding) > 0) then
-    begin
-      SendZCompress(ABody, ACount, ctGZip, ACallback);
-      Exit;
-    end;
-
-    if (Pos('deflate', LRequestAcceptEncoding) > 0) then
-    begin
-      SendZCompress(ABody, ACount, ctDeflate, ACallback);
-      Exit;
-    end;
-  end;
-
-  SendNoCompress(ABody, ACount, ACallback);
+  if _CheckCompress(ACount, LCompressType) then
+    SendZCompress(ABody, ACount, LCompressType, ACallback)
+  else
+    SendNoCompress(ABody, ACount, ACallback);
 end;
 
 procedure TCrossHttpResponse.Send(const ABody: TBytes; AOffset, ACount: NativeInt;
@@ -3748,21 +3736,9 @@ begin
   // 增加其引用计数
   LBody := ABody;
 
-  // 偏移为正数, 从头部开始计算偏移
-  if (AOffset >= 0) then
-    LOffset := AOffset
-  else
-  // 偏移为负数, 从尾部开始计算偏移
-    LOffset := Length(ABody) + AOffset;
-
-  // ACount<=0表示需要处理所有数据
-  if (ACount > 0) then
-    LCount := ACount
-  else
-    LCount := Length(ABody);
-
-  if (Length(ABody) - LOffset < LCount) then
-    LCount := Length(ABody) - LOffset;
+  LOffset := AOffset;
+  LCount := ACount;
+  _AdjustOffsetCount(Length(ABody), LOffset, LCount);
 
   Send(LBody[LOffset], LCount,
     // CALLBACK
@@ -3785,26 +3761,12 @@ end;
 procedure TCrossHttpResponse.Send(const ABody: TStream; const AOffset,
   ACount: Int64; ACallback: TProc<ICrossConnection, Boolean>);
 var
-  LRequestAcceptEncoding: string;
+  LCompressType: TCompressType;
 begin
-  if _CheckCompress(ABody.Size) then
-  begin
-    LRequestAcceptEncoding := GetRequest.AcceptEncoding;
-
-    if (Pos('gzip', LRequestAcceptEncoding) > 0) then
-    begin
-      SendZCompress(ABody, AOffset, ACount, ctGZip, ACallback);
-      Exit;
-    end;
-
-    if (Pos('deflate', LRequestAcceptEncoding) > 0) then
-    begin
-      SendZCompress(ABody, AOffset, ACount, ctDeflate, ACallback);
-      Exit;
-    end;
-  end;
-
-  SendNoCompress(ABody, AOffset, ACount, ACallback);
+  if _CheckCompress(ABody.Size, LCompressType) then
+    SendZCompress(ABody, AOffset, ACount, LCompressType, ACallback)
+  else
+    SendNoCompress(ABody, AOffset, ACount, ACallback);
 end;
 
 procedure TCrossHttpResponse.Send(const ABody: TStream; ACallback: TProc<ICrossConnection, Boolean>);
@@ -3940,14 +3902,12 @@ begin
   if not TFile.Exists(AFileName) then
   begin
     FHeader.Remove('Content-Disposition');
-    SendStatus(404, Format('找不到文件 %s', [AFileName]), ACallback);
+    SendStatus(404, ACallback);
     Exit;
   end;
 
   if (GetContentType = '') then
     SetContentType(TCrossHttpUtils.GetFileMIMEType(AFileName));
-
-  FHeader['Accept-Ranges'] := 'bytes';
 
   try
     // 根据请求头中的时间戳决定是否需要发送文件数据
@@ -3988,6 +3948,11 @@ begin
   FHeader['Last-Modified'] := LLastModifiedStr;
   FHeader['ETag'] := LETag;
 
+  // 告诉浏览器支持分块传输
+  FHeader['Accept-Ranges'] := 'bytes';
+
+  // 收到分块取数据头
+  // Range: bytes=[x]-[y]
   LRangeStr := LRequest.Range;
   if (LRangeStr <> '')
     and ((LRequest.IfRange = '') or (LRequest.IfRange = LETag)) then
@@ -4012,7 +3977,9 @@ begin
     LOffset := LRangeBegin;
     LCount := LRangeEnd - LRangeBegin + 1;
 
-    FHeader['Content-Ranges'] := Format('bytes %d-%d/%d',
+    // 返回分块信息
+    // Content-Range: bytes [x]-[y]/file-size
+    FHeader['Content-Range'] := Format('bytes %d-%d/%d',
       [LRangeBegin, LRangeEnd, LStream.Size]);
 
     // 断点续传需要返回206状态码, 而不是200
@@ -4033,17 +4000,6 @@ begin
     end);
 end;
 
-procedure TCrossHttpResponse.SendStatus(AStatusCode: Integer;
-  const ADescription: string; ACallback: TProc<ICrossConnection, Boolean>);
-var
-  LDescription: string;
-begin
-  FStatusCode := AStatusCode;
-  LDescription := ADescription;
-
-  Send(LDescription, ACallback);
-end;
-
 procedure TCrossHttpResponse.SetContentType(const Value: string);
 begin
   FHeader['Content-Type'] := Value;
@@ -4059,22 +4015,97 @@ begin
   FStatusCode := Value;
 end;
 
-function TCrossHttpResponse._CheckCompress(const ABodySize: Int64): Boolean;
+procedure TCrossHttpResponse._AdjustOffsetCount(const ABodySize: NativeInt;
+  var AOffset, ACount: NativeInt);
+begin
+  {$region '修正 AOffset'}
+  // 偏移为正数, 从头部开始计算偏移
+  if (AOffset >= 0) then
+  begin
+    AOffset := AOffset;
+    if (AOffset >= ABodySize) then
+      AOffset := ABodySize - 1;
+  end else
+  // 偏移为负数, 从尾部开始计算偏移
+  begin
+    AOffset := ABodySize + AOffset;
+    if (AOffset < 0) then
+      AOffset := 0;
+  end;
+  {$endregion}
+
+  {$region '修正 ACount'}
+  // ACount<=0表示需要处理所有数据
+  if (ACount <= 0) then
+    ACount := ABodySize;
+
+  if (ABodySize - AOffset < ACount) then
+    ACount := ABodySize - AOffset;
+  {$endregion}
+end;
+
+procedure TCrossHttpResponse._AdjustOffsetCount(const ABodySize: Int64;
+  var AOffset, ACount: Int64);
+begin
+  {$region '修正 AOffset'}
+  // 偏移为正数, 从头部开始计算偏移
+  if (AOffset >= 0) then
+  begin
+    AOffset := AOffset;
+    if (AOffset >= ABodySize) then
+      AOffset := ABodySize - 1;
+  end else
+  // 偏移为负数, 从尾部开始计算偏移
+  begin
+    AOffset := ABodySize + AOffset;
+    if (AOffset < 0) then
+      AOffset := 0;
+  end;
+  {$endregion}
+
+  {$region '修正 ACount'}
+  // ACount<=0表示需要处理所有数据
+  if (ACount <= 0) then
+    ACount := ABodySize;
+
+  if (ABodySize - AOffset < ACount) then
+    ACount := ABodySize - AOffset;
+  {$endregion}
+end;
+
+function TCrossHttpResponse._CheckCompress(const ABodySize: Int64;
+  var ACompressType: TCompressType): Boolean;
 var
-  LContType: string;
+  LContType, LRequestAcceptEncoding: string;
   LServer: ICrossHttpServer;
 begin
   LContType := GetContentType;
   LServer := FConnection.Server;
 
-  Result := LServer.Compressible
+  if LServer.Compressible
     and (ABodySize > 0)
     and ((LServer.MinCompressSize <= 0) or (ABodySize >= LServer.MinCompressSize))
     and ((Pos('text/', LContType) > 0)
       or (Pos('application/json', LContType) > 0)
       or (Pos('javascript', LContType) > 0)
       or (Pos('xml', LContType) > 0)
-    );
+    ) then
+  begin
+    LRequestAcceptEncoding := GetRequest.AcceptEncoding;
+
+    if (Pos('gzip', LRequestAcceptEncoding) > 0) then
+    begin
+      ACompressType := ctGZip;
+      Exit(True);
+    end else
+    if (Pos('deflate', LRequestAcceptEncoding) > 0) then
+    begin
+      ACompressType := ctDeflate;
+      Exit(True);
+    end;
+  end;
+
+  Result := False;
 end;
 
 function TCrossHttpResponse._CreateHeader(const ABodySize: Int64;
@@ -4247,21 +4278,9 @@ begin
   // 增加其引用计数
   LBody := ABody;
 
-  // 偏移为正数, 从头部开始计算偏移
-  if (AOffset >= 0) then
-    LOffset := AOffset
-  else
-  // 偏移为负数, 从尾部开始计算偏移
-    LOffset := Length(ABody) + AOffset;
-
-  // ACount<=0表示需要处理所有数据
-  if (ACount > 0) then
-    LCount := ACount
-  else
-    LCount := Length(ABody);
-
-  if (Length(ABody) - LOffset < LCount) then
-    LCount := Length(ABody) - LOffset;
+  LOffset := AOffset;
+  LCount := ACount;
+  _AdjustOffsetCount(Length(ABody), LOffset, LCount);
 
   SendNoCompress(LBody[LOffset], LCount,
     // CALLBACK
@@ -4288,25 +4307,13 @@ var
   LBody: TStream;
   LHeaderBytes, LBuffer: TBytes;
 begin
-  // 偏移为正数, 从头部开始计算偏移
-  if (AOffset >= 0) then
-    LOffset := AOffset
-  else
-  // 偏移为负数, 从尾部开始计算偏移
-    LOffset := ABody.Size + AOffset;
-
-  // ACount<=0表示需要处理所有数据
-  if (ACount > 0) then
-    LCount := ACount
-  else
-    LCount := ABody.Size;
-
-  if (ABody.Size - LOffset < LCount) then
-    LCount := ABody.Size - LOffset;
+  LOffset := AOffset;
+  LCount := ACount;
+  _AdjustOffsetCount(ABody.Size, LOffset, LCount);
 
   if (ABody is TCustomMemoryStream) then
   begin
-    SendNoCompress(Pointer(NativeUInt(TCustomMemoryStream(ABody).Memory) + LOffset)^, LCount, ACallback);
+    SendNoCompress(Pointer(IntPtr(TCustomMemoryStream(ABody).Memory) + LOffset)^, LCount, ACallback);
     Exit;
   end;
 
@@ -4369,14 +4376,16 @@ begin
 end;
 
 procedure TCrossHttpResponse.SendStatus(AStatusCode: Integer;
-  ACallback: TProc<ICrossConnection, Boolean>);
-var
-  LDescription: string;
+  const ADescription: string; ACallback: TProc<ICrossConnection, Boolean>);
 begin
   FStatusCode := AStatusCode;
-  LDescription := TCrossHttpUtils.GetHttpStatusText(FStatusCode);
+  Send(ADescription, ACallback);
+end;
 
-  Send(LDescription, ACallback);
+procedure TCrossHttpResponse.SendStatus(AStatusCode: Integer;
+  ACallback: TProc<ICrossConnection, Boolean>);
+begin
+  SendStatus(AStatusCode, TCrossHttpUtils.GetHttpStatusText(AStatusCode), ACallback);
 end;
 
 procedure TCrossHttpResponse.SendZCompress(
@@ -4537,21 +4546,9 @@ begin
   // 增加其引用计数
   LBody := ABody;
 
-  // 偏移为正数, 从头部开始计算偏移
-  if (AOffset >= 0) then
-    LOffset := AOffset
-  else
-  // 偏移为负数, 从尾部开始计算偏移
-    LOffset := Length(ABody) + AOffset;
-
-  // ACount<=0表示需要处理所有数据
-  if (ACount > 0) then
-    LCount := ACount
-  else
-    LCount := Length(ABody);
-
-  if (Length(ABody) - LOffset < LCount) then
-    LCount := Length(ABody) - LOffset;
+  LOffset := AOffset;
+  LCount := ACount;
+  _AdjustOffsetCount(Length(ABody), LOffset, LCount);
 
   SendZCompress(LBody[LOffset], LCount, ACompressType,
     // CALLBACK
@@ -4579,25 +4576,13 @@ var
   LBody: TStream;
   LBuffer: TBytes;
 begin
-  // 偏移为正数, 从头部开始计算偏移
-  if (AOffset >= 0) then
-    LOffset := AOffset
-  else
-  // 偏移为负数, 从尾部开始计算偏移
-    LOffset := ABody.Size + AOffset;
-
-  // ACount<=0表示需要处理所有数据
-  if (ACount > 0) then
-    LCount := ACount
-  else
-    LCount := ABody.Size;
-
-  if (ABody.Size - LOffset < LCount) then
-    LCount := ABody.Size - LOffset;
+  LOffset := AOffset;
+  LCount := ACount;
+  _AdjustOffsetCount(ABody.Size, LOffset, LCount);
 
   if (ABody is TCustomMemoryStream) then
   begin
-    SendZCompress(Pointer(NativeUInt(TCustomMemoryStream(ABody).Memory) + LOffset)^, LCount, ACompressType, ACallback);
+    SendZCompress(Pointer(IntPtr(TCustomMemoryStream(ABody).Memory) + LOffset)^, LCount, ACompressType, ACallback);
     Exit;
   end;
 
