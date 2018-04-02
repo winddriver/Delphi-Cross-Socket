@@ -1,0 +1,49 @@
+object fmCrossWebSocketServerDemo: TfmCrossWebSocketServerDemo
+  Left = 0
+  Top = 0
+  Caption = 'CrossWebSocketServer'
+  ClientHeight = 480
+  ClientWidth = 640
+  FormFactor.Width = 320
+  FormFactor.Height = 480
+  FormFactor.Devices = [Desktop]
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  DesignerMasterStyle = 0
+  object btnStart: TButton
+    Position.X = 24.000000000000000000
+    Position.Y = 24.000000000000000000
+    TabOrder = 0
+    Text = 'Start'
+    OnClick = btnStartClick
+  end
+  object btnClose: TButton
+    Position.X = 240.000000000000000000
+    Position.Y = 24.000000000000000000
+    TabOrder = 2
+    Text = 'Close'
+    OnClick = btnCloseClick
+  end
+  object btnBroadcast: TButton
+    Position.X = 132.000000000000000000
+    Position.Y = 24.000000000000000000
+    TabOrder = 3
+    Text = 'Broadcast'
+    OnClick = btnBroadcastClick
+  end
+  object Memo1: TMemo
+    Touch.InteractiveGestures = [Pan, LongTap, DoubleTap]
+    DataDetectorTypes = []
+    StyledSettings = [Size, Style, FontColor]
+    TextSettings.Font.Family = 'Tahoma'
+    Anchors = [akLeft, akTop, akRight, akBottom]
+    Position.X = 16.000000000000000000
+    Position.Y = 72.000000000000000000
+    Size.Width = 609.000000000000000000
+    Size.Height = 393.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 4
+    Viewport.Width = 605.000000000000000000
+    Viewport.Height = 389.000000000000000000
+  end
+end

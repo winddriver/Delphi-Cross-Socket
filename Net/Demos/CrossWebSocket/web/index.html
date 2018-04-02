@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>CrossWebSocket DEMO</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <ul class="pages">
+    <li class="chat page">
+      <div class="chatArea">
+        <ul class="messages"></ul>
+      </div>
+      <input class="inputMessage" placeholder="Type here..."/>
+    </li>
+  </ul>
+
+  <script src="jquery-2.2.3.min.js"></script>
+
+  <script>
+    var ws = new WebSocket("ws://" + document.location.host + "/chat");
+    ws.onopen = function(evt) { 
+      console.log("Connection open ..."); 
+      connected = true;
+    };
+
+    ws.onmessage = function(evt) {
+      console.log( "Received Message: " + evt.data);
+      addChatMessage(evt.data);
+    };
+
+    ws.onclose = function(evt) {
+      console.log("Connection closed.");
+      connected = false;
+    };
+
+    var FADE_TIME = 150; // ms
+    var $window = $(window);
+    var $messages = $('.messages');
+    var $inputMessage = $('.inputMessage');
+    var connected = false;
+
+    function sendMessage () {
+      var message = $inputMessage.val();
+      if (message && connected) {
+        $inputMessage.val('');
+        ws.send(message);
+      }
+    }
+
+    function addChatMessage (data, options) {
+      var $messageBodyDiv = $('<span class="messageBody">')
+        .text(data);
+
+      var $messageDiv = $('<li class="message"/>')
+        .append($messageBodyDiv);
+
+      addMessageElement($messageDiv, options);
+    }
+
+    function addMessageElement (el, options) {
+      var $el = $(el);
+
+      if (!options) {
+        options = {};
+      }
+      if (typeof options.fade === 'undefined') {
+        options.fade = true;
+      }
+      if (typeof options.prepend === 'undefined') {
+        options.prepend = false;
+      }
+
+      if (options.fade) {
+        $el.hide().fadeIn(FADE_TIME);
+      }
+      if (options.prepend) {
+        $messages.prepend($el);
+      } else {
+        $messages.append($el);
+      }
+      $messages[0].scrollTop = $messages[0].scrollHeight;
+    }
+
+    $window.keydown(function (event) {
+      if (!(event.ctrlKey || event.metaKey || event.altKey)) {
+        $inputMessage.focus();
+      }
+      if (event.which === 13) {
+        sendMessage();
+      }
+    });
+  </script>
+</body>
+</html>
