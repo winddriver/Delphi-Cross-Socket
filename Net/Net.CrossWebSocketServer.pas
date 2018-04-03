@@ -693,17 +693,17 @@ begin
               Move(PCardinal(UIntPtr(FWsFrameHeader.Memory) + FWsHeaderSize - 4)^, FWsMaskKey, 4);
 
             if (FWsPayload = 126) then
-              FWsBodySize := FWsFrameHeader.Bytes[2]
-                + Word(FWsFrameHeader.Bytes[3]) shl 8
+              FWsBodySize := FWsFrameHeader.Bytes[3]
+                + Word(FWsFrameHeader.Bytes[2]) shl 8
             else if (FWsPayload = 127) then
-              FWsBodySize := FWsFrameHeader.Bytes[2]
-                + UInt64(FWsFrameHeader.Bytes[3]) shl 8
-                + UInt64(FWsFrameHeader.Bytes[4]) shl 16
-                + UInt64(FWsFrameHeader.Bytes[5]) shl 24
-                + UInt64(FWsFrameHeader.Bytes[6]) shl 32
-                + UInt64(FWsFrameHeader.Bytes[7]) shl 40
-                + UInt64(FWsFrameHeader.Bytes[8]) shl 48
-                + UInt64(FWsFrameHeader.Bytes[9]) shl 56
+              FWsBodySize := FWsFrameHeader.Bytes[9]
+                + UInt64(FWsFrameHeader.Bytes[8]) shl 8
+                + UInt64(FWsFrameHeader.Bytes[7]) shl 16
+                + UInt64(FWsFrameHeader.Bytes[6]) shl 24
+                + UInt64(FWsFrameHeader.Bytes[5]) shl 32
+                + UInt64(FWsFrameHeader.Bytes[4]) shl 40
+                + UInt64(FWsFrameHeader.Bytes[3]) shl 48
+                + UInt64(FWsFrameHeader.Bytes[2]) shl 56
                 ;
 
             // 接收完一帧
