@@ -892,8 +892,8 @@ end;
 
 procedure TAbstractCrossSocket.CloseAll;
 begin
-  CloseAllConnections;
   CloseAllListens;
+  CloseAllConnections;
 end;
 
 procedure TAbstractCrossSocket.CloseAllConnections;
