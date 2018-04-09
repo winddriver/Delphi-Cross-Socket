@@ -628,8 +628,11 @@ begin
       begin
         // AcceptEx虽然成功, 但是Socket句柄耗尽了, 再次投递AcceptEx
         if (LPerIoData.Action = ioAccept) then
-          _NewAccept(LPerIoData.CrossData as ICrossListen)
-        else
+        begin
+          // 关闭监听后会触发该错误, 这种情况不应该继续投递
+          if (GetLastError <> WSA_OPERATION_ABORTED) then
+            _NewAccept(LPerIoData.CrossData as ICrossListen);
+        end else
         begin
           LPerIoData.CrossData.Close;
           if Assigned(LPerIoData.Callback)
