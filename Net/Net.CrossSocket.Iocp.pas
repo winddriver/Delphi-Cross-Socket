@@ -67,7 +67,6 @@ type
   private
     FIocpHandle: THandle;
     FIoThreads: TArray<TIoEventThread>;
-    FIoThreadHandles: TArray<THandle>;
 
     function _NewIoData: PPerIoData; inline;
     procedure _FreeIoData(P: PPerIoData); inline;
@@ -322,12 +321,8 @@ begin
 
   FIocpHandle := CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 0);
   SetLength(FIoThreads, GetIoThreads);
-  SetLength(FIoThreadHandles, Length(FIoThreads));
   for I := 0 to Length(FIoThreads) - 1 do
-  begin
     FIoThreads[I] := TIoEventThread.Create(Self);
-    FIoThreadHandles[I] := FIoThreads[I].Handle;
-  end;
 end;
 
 procedure TIocpCrossSocket.StopLoop;
@@ -342,12 +337,15 @@ begin
 
   for I := 0 to Length(FIoThreads) - 1 do
     PostQueuedCompletionStatus(FIocpHandle, 0, 0, POverlapped(SHUTDOWN_FLAG));
-  WaitForMultipleObjects(Length(FIoThreadHandles), Pointer(FIoThreadHandles), True, INFINITE);
+
   CloseHandle(FIocpHandle);
+
   for I := 0 to Length(FIoThreads) - 1 do
+  begin
+    FIoThreads[I].WaitFor;
     FreeAndNil(FIoThreads[I]);
+  end;
   FIoThreads := nil;
-  FIoThreadHandles := nil;
 end;
 
 procedure TIocpCrossSocket.Connect(const AHost: string; APort: Word;
