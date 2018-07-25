@@ -1,4 +1,4 @@
-{******************************************************************************}
+ï»¿{******************************************************************************}
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
@@ -53,12 +53,13 @@ type
     class function BytesToHex(const ABytes: TBytes; AOffset, ACount: Integer): string; overload; static; inline;
     class function BytesToHex(const ABytes: TBytes): string; overload; static; inline;
 
+    class function GetFullFileName(const AFileName: string): string; static;
     class function GetFileSize(const AFileName: string): Int64; static;
 
     class property AppFile: string read FAppFile;
     class property AppPath: string read FAppPath;
     class property AppHome: string read FAppHome;
-    class property AppDocuments: string read FAppDocuments; // ios, android ¿ÉĞ´
+    class property AppDocuments: string read FAppDocuments; // ios, android å¯å†™
     class property AppName: string read FAppName;
   end;
 
@@ -116,6 +117,23 @@ begin
   finally
     FreeAndNil(LFileStream);
   end;
+end;
+
+class function TUtils.GetFullFileName(const AFileName: string): string;
+begin
+  if
+    {$IFDEF MSWINDOWS}
+    // Windows ä¸‹ä¸ä»¥é©±åŠ¨å™¨å·å¼€å¤´çš„æ–‡ä»¶åéƒ½è§†ä¸ºç›¸å¯¹è·¯å¾„
+    not TPath.DriveExists(AFileName)
+    {$ELSE}
+    // Posix ä¸‹ç›´æ¥è°ƒç”¨ç›¸å¯¹è·¯å¾„çš„ç°æˆå‡½æ•°åˆ¤æ–­
+    TPath.IsRelativePath(AFileName)
+    {$ENDIF}
+  then
+    // ç›¸å¯¹è·¯å¾„çš„æ–‡ä»¶åç”¨ç¨‹åºæ‰€åœ¨è·¯å¾„è¡¥å…¨
+    Result := TPath.Combine(TUtils.AppPath, AFileName)
+  else
+    Result := AFileName;
 end;
 
 class function TUtils.GetGUID: string;
@@ -200,9 +218,9 @@ begin
 end;
 
 class function TUtils.StrToDateTime(const S, Fmt: string): TDateTime;
-// Fmt¸ñÊ½×Ö·û´®£º¿Õ¸ñÇ°ÊÇÈÕÆÚ¸ñÊ½£¬¿Õ¸ñºóÊÇÊ±¼ä¸ñÊ½
-// ±ØĞëÊÇÕâÑù£ºYYYY-MM-DD HH:NN:SS»òÕßMM-DD-YYYY HH:NN:SS
-// ²»ÄÜÓÃ¿Õ¸ñ×öÊ±¼äµ¥Î»ÖĞ¼äµÄ¼ä¸ô·û
+// Fmtæ ¼å¼å­—ç¬¦ä¸²ï¼šç©ºæ ¼å‰æ˜¯æ—¥æœŸæ ¼å¼ï¼Œç©ºæ ¼åæ˜¯æ—¶é—´æ ¼å¼
+// å¿…é¡»æ˜¯è¿™æ ·ï¼šYYYY-MM-DD HH:NN:SSæˆ–è€…MM-DD-YYYY HH:NN:SS
+// ä¸èƒ½ç”¨ç©ºæ ¼åšæ—¶é—´å•ä½ä¸­é—´çš„é—´éš”ç¬¦
   function GetSeparator(const S: string): Char;
   begin
     for Result in S do
@@ -372,12 +390,12 @@ begin
     begin
       if((ASourceStr[i - 1] = ATargetStr[j - 1])) then
       begin
-        d[i][j] := d[i - 1][j - 1]; //²»ĞèÒª±à¼­²Ù×÷
+        d[i][j] := d[i - 1][j - 1]; //ä¸éœ€è¦ç¼–è¾‘æ“ä½œ
       end else
       begin
-        edIns := d[i][j - 1] + 1; //ASourceStr ²åÈë×Ö·û
-        edDel := d[i - 1][j] + 1; //ASourceStr É¾³ı×Ö·û
-        edRep := d[i - 1][j - 1] + 1; //ASourceStr Ìæ»»×Ö·û
+        edIns := d[i][j - 1] + 1; //ASourceStr æ’å…¥å­—ç¬¦
+        edDel := d[i - 1][j] + 1; //ASourceStr åˆ é™¤å­—ç¬¦
+        edRep := d[i - 1][j - 1] + 1; //ASourceStr æ›¿æ¢å­—ç¬¦
 
         d[i][j] := Min(Min(edIns, edDel), edRep);
       end;

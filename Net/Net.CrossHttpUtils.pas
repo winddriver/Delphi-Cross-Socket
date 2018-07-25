@@ -1140,6 +1140,9 @@ class function TCrossHttpUtils.CombinePath(const APath1,
 var
   LPath1Ends, LPath2Starts: string;
 begin
+  if (APath1 = '') then Exit(APath2);
+  if (APath2 = '') then Exit(APath1);
+
   LPath1Ends := APath1.Substring(APath1.Length - 1, 1);
   LPath2Starts := APath2.Substring(0, 1);
   if (LPath1Ends = '/') and (LPath2Starts = '/') then

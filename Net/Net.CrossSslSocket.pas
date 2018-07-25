@@ -517,7 +517,7 @@ begin
 
   SSL_CTX_set_verify(FSslCtx, SSL_VERIFY_NONE, nil);
 
-//  SSL_CTX_set_mode(FSslCtx, SSL_MODE_AUTO_RETRY);
+  SSL_CTX_set_mode(FSslCtx, SSL_MODE_AUTO_RETRY);
 
   {$region '采用新型加密套件进行加密'}
   SSL_CTX_set_options(FSslCtx,
