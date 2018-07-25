@@ -394,6 +394,7 @@ begin
 
     LConnection := CreateConnection(Self, LClientSocket, ctAccept);
     TriggerConnecting(LConnection);
+    TriggerConnected(LConnection);
 
     // 连接建立后监视Socket的读事件
     LEpConnection := LConnection as TEpollConnection;
@@ -404,9 +405,7 @@ begin
       LEpConnection._Unlock;
     end;
 
-    if LSuccess then
-      TriggerConnected(LConnection)
-    else
+    if not LSuccess then
       LConnection.Close;
   end;
 end;

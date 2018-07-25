@@ -644,7 +644,37 @@ type
     /// <param name="ASessionID">
     ///   Session ID
     /// </param>
-    function ExistsSession(const ASessionID: string): Boolean;
+    /// <param name="ASession">
+    ///   如果存在指定的Session， 则将实例保存到该参数中
+    /// </param>
+    function ExistsSession(const ASessionID: string; var ASession: ISession): Boolean; overload;
+
+    /// <summary>
+    ///   检查是否存在指定ID的Session
+    /// </summary>
+    /// <param name="ASessionID">
+    ///   Session ID
+    /// </param>
+    function ExistsSession(const ASessionID: string): Boolean; overload;
+
+    /// <summary>
+    ///   新增Session
+    /// </summary>
+    /// <param name="ASessionID">
+    ///   Session ID
+    /// </param>
+    /// <returns>
+    ///   Session实例
+    /// </returns>
+    function AddSession(const ASessionID: string): ISession; overload;
+
+    /// <summary>
+    ///   新增Session
+    /// </summary>
+    /// <returns>
+    ///   Session实例
+    /// </returns>
+    function AddSession: ISession; overload;
 
     /// <summary>
     ///   新增Session
@@ -655,7 +685,7 @@ type
     /// <param name="ASession">
     ///   Session实例
     /// </param>
-    procedure AddSession(const ASessionID: string; ASession: ISession);
+    procedure AddSession(const ASessionID: string; ASession: ISession); overload;
 
     /// <summary>
     ///   删除Session
@@ -723,8 +753,11 @@ type
     procedure EndRead; virtual; abstract;
 
     function NewSessionID: string; virtual; abstract;
-    function ExistsSession(const ASessionID: string): Boolean; virtual; abstract;
-    procedure AddSession(const ASessionID: string; ASession: ISession); virtual; abstract;
+    function ExistsSession(const ASessionID: string; var ASession: ISession): Boolean; overload; virtual; abstract;
+    function ExistsSession(const ASessionID: string): Boolean; overload; virtual;
+    function AddSession(const ASessionID: string): ISession; overload; virtual;
+    function AddSession: ISession; overload; virtual;
+    procedure AddSession(const ASessionID: string; ASession: ISession); overload; virtual; abstract;
     procedure RemoveSession(const ASessionID: string); virtual; abstract;
 
     property SessionClass: TSessionClass read GetSessionClass write SetSessionClass;
@@ -766,7 +799,7 @@ type
     procedure EndRead; override;
 
     function NewSessionID: string; override;
-    function ExistsSession(const ASessionID: string): Boolean; override;
+    function ExistsSession(const ASessionID: string; var ASession: ISession): Boolean; override;
     procedure AddSession(const ASessionID: string; ASession: ISession); override;
     procedure RemoveSession(const ASessionID: string); override;
 
@@ -1732,6 +1765,27 @@ begin
   FLastAccessTime := Now;
 end;
 
+{ TSessionsBase }
+
+function TSessionsBase.AddSession(const ASessionID: string): ISession;
+begin
+  Result := GetSessionClass.Create(ASessionID);
+  Result.ExpiryTime := ExpiryTime;
+  AddSession(ASessionID, Result);
+end;
+
+function TSessionsBase.AddSession: ISession;
+begin
+  Result := AddSession(NewSessionID);
+end;
+
+function TSessionsBase.ExistsSession(const ASessionID: string): Boolean;
+var
+  LStuff: ISession;
+begin
+  Result := ExistsSession(ASessionID, LStuff);
+end;
+
 { TSessions }
 
 constructor TSessions.Create(ANewGUIDFunc: TFunc<string>);
@@ -1789,9 +1843,12 @@ begin
   FLocker.EndWrite;
 end;
 
-function TSessions.ExistsSession(const ASessionID: string): Boolean;
+function TSessions.ExistsSession(const ASessionID: string;
+  var ASession: ISession): Boolean;
 begin
-  Result := FSessions.ContainsKey(ASessionID);
+  Result := FSessions.TryGetValue(ASessionID, ASession);
+  if Result then
+    ASession.LastAccessTime := Now;
 end;
 
 procedure TSessions.CreateExpiredProcThread;

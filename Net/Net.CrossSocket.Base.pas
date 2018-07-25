@@ -100,8 +100,12 @@ type
     function GetLocalPort: Word;
     function GetIsClosed: Boolean;
     function GetUserData: Pointer;
+    function GetUserObject: TObject;
+    function GetUserInterface: IInterface;
 
     procedure SetUserData(const AValue: Pointer);
+    procedure SetUserObject(const AValue: TObject);
+    procedure SetUserInterface(const AValue: IInterface);
 
     /// <summary>
     ///   更新套接字地址信息
@@ -150,6 +154,16 @@ type
     ///   用户数据(可以用于存储用户自定义的数据结构)
     /// </summary>
     property UserData: Pointer read GetUserData write SetUserData;
+
+    /// <summary>
+    ///   用户数据(可以用于存储用户自定义的数据结构)
+    /// </summary>
+    property UserObject: TObject read GetUserObject write SetUserObject;
+
+    /// <summary>
+    ///   用户数据(可以用于存储用户自定义的数据结构)
+    /// </summary>
+    property UserInterface: IInterface read GetUserInterface write SetUserInterface;
   end;
   TCrossDatas = TDictionary<UInt64, ICrossData>;
 
@@ -569,6 +583,8 @@ type
     FLocalAddr: string;
     FLocalPort: Word;
     FUserData: Pointer;
+    FUserObject: TObject;
+    FUserInterface: IInterface;
   protected
     function GetOwner: ICrossSocket;
     function GetUIDTag: Byte; virtual;
@@ -578,8 +594,12 @@ type
     function GetLocalPort: Word;
     function GetIsClosed: Boolean; virtual; abstract;
     function GetUserData: Pointer;
+    function GetUserObject: TObject;
+    function GetUserInterface: IInterface;
 
     procedure SetUserData(const AValue: Pointer);
+    procedure SetUserObject(const AValue: TObject);
+    procedure SetUserInterface(const AValue: IInterface);
   public
     constructor Create(AOwner: ICrossSocket; ASocket: THandle); virtual;
     destructor Destroy; override;
@@ -594,6 +614,8 @@ type
     property LocalPort: Word read GetLocalPort;
     property IsClosed: Boolean read GetIsClosed;
     property UserData: Pointer read GetUserData write SetUserData;
+    property UserObject: TObject read GetUserObject write SetUserObject;
+    property UserInterface: IInterface read GetUserInterface write SetUserInterface;
   end;
 
   TAbstractCrossListen = class(TCrossData, ICrossListen)
@@ -810,7 +832,7 @@ type
 
   function GetTagByUID(const AUID: UInt64): Byte;
 
-  procedure _LogLastOsError;
+  procedure _LogLastOsError(const ATag: string = '');
   procedure _Log(const S: string); overload;
   procedure _Log(const Fmt: string; const Args: array of const); overload;
 
@@ -838,16 +860,22 @@ begin
   _Log(Format(Fmt, Args));
 end;
 
-procedure _LogLastOsError;
+procedure _LogLastOsError(const ATag: string);
 {$IFDEF DEBUG}
 var
   LError: Integer;
+  LErrMsg: string;
 {$ENDIF}
 begin
   {$IFDEF DEBUG}
   LError := GetLastError;
-  _Log('System Error.  Code: %0:d(%0:.4x), %1:s',
+  if (ATag <> '') then
+    LErrMsg := ATag + ' : '
+  else
+    LErrMsg := '';
+  LErrMsg := LErrMsg + Format('System Error.  Code: %0:d(%0:.4x), %1:s',
     [LError, SysErrorMessage(LError)]);
+  _Log(LErrMsg);
   {$ENDIF}
 end;
 
@@ -884,7 +912,7 @@ begin
     {$ENDIF};
   end;
   {$IFDEF DEBUG}
-//  _Log('%s Io线程ID %d, 被调用了 %d 次', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, LRunCount]);
+  _Log('%s Io线程ID %d, 被调用了 %d 次', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, LRunCount]);
   {$ENDIF}
 end;
 
@@ -1282,9 +1310,29 @@ begin
   Result := FUserData;
 end;
 
+function TCrossData.GetUserInterface: IInterface;
+begin
+  Result := FUserInterface;
+end;
+
+function TCrossData.GetUserObject: TObject;
+begin
+  Result := FUserObject;
+end;
+
 procedure TCrossData.SetUserData(const AValue: Pointer);
 begin
   FUserData := AValue;
+end;
+
+procedure TCrossData.SetUserInterface(const AValue: IInterface);
+begin
+  FUserInterface := AValue;
+end;
+
+procedure TCrossData.SetUserObject(const AValue: TObject);
+begin
+  FUserObject := AValue;
 end;
 
 procedure TCrossData.UpdateAddr;

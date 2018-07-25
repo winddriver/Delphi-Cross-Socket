@@ -148,7 +148,6 @@ begin
       LCorrectPassword := #0;
       if (LAuthStr <> '') then
       begin
-
         LAuthParams := TDelimitParams.Create;
         try
           LAuthParams.Delimiter := ',';
