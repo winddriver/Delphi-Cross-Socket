@@ -12,6 +12,7 @@ unit Net.OpenSSL;
 {
   OpenSSL 下载:
   https://indy.fulgan.com/SSL/
+  https://github.com/leenjewel/openssl_for_ios_and_android
 
   OpenSSL iOS静态库下载:
   https://indy.fulgan.com/SSL/OpenSSLStaticLibs.7z
@@ -28,6 +29,11 @@ unit Net.OpenSSL;
 // 目前(2.4.2) 执行效率比 OpenSSL(1.0.2h) 低
 {.$DEFINE __LIBRE_SSL__}
 
+// iOS真机必须用openssl的静态库
+{$IF defined(IOS) and defined(CPUARM)}
+  {$DEFINE __SSL_STATIC__}
+{$ENDIF}
+
 interface
 
 uses
@@ -42,34 +48,38 @@ uses
 const
   SSLEAY_DLL =
     {$IFDEF MSWINDOWS}
-    {$IFDEF __LIBRE_SSL__}'libssl-39.dll'{$ELSE}'ssleay32.dll'{$ENDIF}
+      {$IFDEF __LIBRE_SSL__}
+        'libssl-39.dll'
+      {$ELSE}
+        'ssleay32.dll'
+      {$ENDIF}
     {$ENDIF}
     {$IFDEF POSIX}
-    {$IF defined(IOS)}
-    'libssl.ios/libssl.a'
-    {$ELSEIF defined(MACOS)}
-    'libssl.dylib'
-    {$ELSEIF defined(LINUX)}
-    'libssl.a'
-    {$ELSE} // ANDROID
-    'libssl.so'
-    {$ENDIF}
+      {$IFDEF __SSL_STATIC__}
+        'libssl.a'
+      {$ELSEIF defined(MACOS)}
+        'libssl.dylib'
+      {$ELSE}
+        'libssl.so'
+      {$ENDIF}
     {$ENDIF};
 
   LIBEAY_DLL =
     {$IFDEF MSWINDOWS}
-    {$IFDEF __LIBRE_SSL__}'libcrypto-38.dll'{$ELSE}'libeay32.dll'{$ENDIF}
+      {$IFDEF __LIBRE_SSL__}
+        'libcrypto-38.dll'
+      {$ELSE}
+        'libeay32.dll'
+      {$ENDIF}
     {$ENDIF}
     {$IFDEF POSIX}
-    {$IF defined(IOS)}
-    'libssl.ios/libcrypto.a'
-    {$ELSEIF defined(MACOS)}
-    'libcrypto.dylib'
-    {$ELSEIF defined(LINUX)}
-    'libcrypto.a'
-    {$ELSE} // ANDROID
-    'libcrypto.so'
-    {$ENDIF}
+      {$IFDEF __SSL_STATIC__}
+        'libcrypto.a'
+      {$ELSEIF defined(MACOS)}
+        'libcrypto.dylib'
+      {$ELSE}
+        'libcrypto.so'
+      {$ENDIF}
     {$ENDIF};
 
   {$IFDEF MSWINDOWS}
@@ -390,203 +400,215 @@ type
   pem_password_cb         = function(buf: Pointer; size: Integer; rwflag: Integer; userdata: Pointer): Integer; cdecl;
   {$ENDREGION}
 
-{$REGION 'SSL'}
+{$IFDEF __SSL_STATIC__}
+
+{$REGION 'SSL-FUNC'}
 function SSL_library_init: Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_library_init'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_library_init';
 procedure SSL_load_error_strings; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_load_error_strings'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_load_error_strings';
 
 function SSLv23_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'SSLv23_method'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSLv23_method';
 function SSLv23_client_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'SSLv23_client_method'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSLv23_client_method';
 function SSLv23_server_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'SSLv23_server_method'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSLv23_server_method';
 
 function TLSv1_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'TLSv1_method'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'TLSv1_method';
 function TLSv1_client_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'TLSv1_client_method'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'TLSv1_client_method';
 function TLSv1_server_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'TLSv1_server_method'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'TLSv1_server_method';
 
+{$IF not(defined(MACOS) and not defined(IOS))}
 function TLSv1_2_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'TLSv1_2_method'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'TLSv1_2_method';
+{$ENDIF}
 function TLSv1_2_client_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'TLSv1_2_client_method'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'TLSv1_2_client_method';
 function TLSv1_2_server_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'TLSv1_2_server_method'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'TLSv1_2_server_method';
 
 function SSL_CTX_new(meth: PSSL_METHOD): PSSL_CTX; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_new'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_CTX_new';
 procedure SSL_CTX_free(ctx: PSSL_CTX); cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_free'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_CTX_free';
 function SSL_CTX_ctrl(ctx: PSSL_CTX; Cmd: Integer; LArg: Integer; PArg: MarshaledAString): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_ctrl'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_CTX_ctrl';
 procedure SSL_CTX_set_verify(ctx: PSSL_CTX; mode: Integer; callback: TSetVerify_cb); cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_set_verify'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_CTX_set_verify';
 function SSL_CTX_set_cipher_list(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_set_cipher_list'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_CTX_set_cipher_list';
 function SSL_CTX_use_PrivateKey(ctx: PSSL_CTX; pkey: PEVP_PKEY): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_use_PrivateKey'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_CTX_use_PrivateKey';
 function SSL_CTX_use_certificate(ctx: PSSL_CTX; cert: PX509): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_use_certificate'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_CTX_use_certificate';
 function SSL_CTX_check_private_key(ctx: PSSL_CTX): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_check_private_key'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_CTX_check_private_key';
 
 function SSL_new(ctx: PSSL_CTX): PSSL; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_new'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_new';
 procedure SSL_set_bio(s: PSSL; rbio, wbio: PBIO); cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_set_bio'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_set_bio';
 function SSL_get_peer_certificate(s: PSSL): PX509; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_get_peer_certificate'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_get_peer_certificate';
 function SSL_get_error(s: PSSL; ret_code: Integer): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_get_error'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_get_error';
 
 function SSL_ctrl(S: PSSL; Cmd: Integer; LArg: Integer; PArg: Pointer): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_ctrl'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_ctrl';
 
 function SSL_shutdown(s: PSSL): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_shutdown'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_shutdown';
 procedure SSL_free(s: PSSL); cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_free'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_free';
 
 procedure SSL_set_connect_state(s: PSSL); cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_set_connect_state'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_set_connect_state';
 procedure SSL_set_accept_state(s: PSSL); cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_set_accept_state'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_set_accept_state';
 function SSL_accept(S: PSSL): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_accept'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_accept';
 function SSL_connect(S: PSSL): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_connect'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_connect';
 function SSL_do_handshake(S: PSSL): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_do_handshake'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_do_handshake';
 function SSL_read(s: PSSL; buf: Pointer; num: Integer): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_read'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_read';
 function SSL_write(s: PSSL; const buf: Pointer; num: Integer): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_write'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_write';
 function SSL_state(s: PSSL): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_state'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_state';
 function SSL_pending(s: PSSL): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_pending'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_pending';
 
 function SSL_CTX_get_cert_store(const Ctx: PSSL_CTX): PX509_STORE; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_get_cert_store'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_CTX_get_cert_store';
 function SSL_CTX_add_client_CA(C: PSSL_CTX; CaCert: PX509): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_add_client_CA'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external SSLEAY_DLL name _PU + 'SSL_CTX_add_client_CA';
 {$ENDREGION}
 
-{$REGION 'LIBEAY'}
+{$REGION 'LIBEAY-FUNC'}
 function SSLeay: Longword; cdecl;
-  external LIBEAY_DLL name _PU + 'SSLeay'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'SSLeay';
 
 function CRYPTO_set_id_callback(callback: TStatLockIDCallback): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_set_id_callback'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'CRYPTO_set_id_callback';
+
 {$IF not(defined(MACOS) and not defined(IOS))}
 // MACOS 内置的 OpenSSL 库版本较低(0.9.x)
 // CRYPTO_THREADID_set_callback 只有 OpenSSL 1.0 以上版本才有
 function CRYPTO_THREADID_set_callback(callback: TCryptoThreadIDCallback): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_THREADID_set_callback'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'CRYPTO_THREADID_set_callback';
 procedure CRYPTO_THREADID_set_numeric(id : PCRYPTO_THREADID; val: LongWord); cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_THREADID_set_numeric'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'CRYPTO_THREADID_set_numeric';
 procedure CRYPTO_THREADID_set_pointer(id : PCRYPTO_THREADID; ptr: Pointer); cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_THREADID_set_pointer'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'CRYPTO_THREADID_set_pointer';
 {$ENDIF}
+
 function CRYPTO_num_locks: Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_num_locks'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'CRYPTO_num_locks';
 procedure CRYPTO_set_locking_callback(callback: TStatLockLockCallback); cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_set_locking_callback'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'CRYPTO_set_locking_callback';
 procedure CRYPTO_set_dynlock_create_callback(callback: TDynLockCreateCallBack); cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_set_dynlock_create_callback'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'CRYPTO_set_dynlock_create_callback';
 procedure CRYPTO_set_dynlock_lock_callback(callback: TDynLockLockCallBack); cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_set_dynlock_lock_callback'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'CRYPTO_set_dynlock_lock_callback';
 procedure CRYPTO_set_dynlock_destroy_callback(callback: TDynLockDestroyCallBack); cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_set_dynlock_destroy_callback'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'CRYPTO_set_dynlock_destroy_callback';
 procedure CRYPTO_cleanup_all_ex_data; cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_cleanup_all_ex_data'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'CRYPTO_cleanup_all_ex_data';
 
 procedure ERR_remove_state(tid: Cardinal); cdecl;
-  external LIBEAY_DLL name _PU + 'ERR_remove_state'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'ERR_remove_state';
+
+{$IF not(defined(MACOS) and not defined(IOS))}
 procedure ERR_remove_thread_state(tid: PCRYPTO_THREADID); cdecl;
-  external LIBEAY_DLL name _PU + 'ERR_remove_thread_state'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'ERR_remove_thread_state';
+{$ENDIF}
+
 procedure ERR_free_strings; cdecl;
-  external LIBEAY_DLL name _PU + 'ERR_free_strings'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'ERR_free_strings';
 procedure ERR_error_string_n(err: Cardinal; buf: MarshaledAString; len: size_t); cdecl;
-  external LIBEAY_DLL name _PU + 'ERR_error_string_n'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'ERR_error_string_n';
 function ERR_get_error: Cardinal; cdecl;
-  external LIBEAY_DLL name _PU + 'ERR_get_error'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'ERR_get_error';
 procedure ERR_clear_error; cdecl;
-  external LIBEAY_DLL name _PU + 'ERR_clear_error'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'ERR_clear_error';
 
 procedure EVP_cleanup; cdecl;
-  external LIBEAY_DLL name _PU + 'EVP_cleanup'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'EVP_cleanup';
 procedure EVP_PKEY_free(pkey: PEVP_PKEY); cdecl;
-  external LIBEAY_DLL name _PU + 'EVP_PKEY_free'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'EVP_PKEY_free';
 
 function BIO_new(BioMethods: PBIO_METHOD): PBIO; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_new'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'BIO_new';
 function BIO_ctrl(bp: PBIO; cmd: Integer; larg: Longint; parg: Pointer): Longint; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_ctrl'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'BIO_ctrl';
 function BIO_new_mem_buf(buf: Pointer; len: Integer): PBIO; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_new_mem_buf'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'BIO_new_mem_buf';
 function BIO_free(b: PBIO): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_free'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'BIO_free';
 function BIO_s_mem: PBIO_METHOD; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_s_mem'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'BIO_s_mem';
 function BIO_read(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_read'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'BIO_read';
 function BIO_write(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_write'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'BIO_write';
 
 function EC_KEY_new_by_curve_name(nid: Integer): PEC_KEY; cdecl;
-  external LIBEAY_DLL name _PU + 'EC_KEY_new_by_curve_name'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'EC_KEY_new_by_curve_name';
 procedure EC_KEY_free(key: PEC_KEY); cdecl;
-  external LIBEAY_DLL name _PU + 'EC_KEY_free'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'EC_KEY_free';
 
 function X509_get_issuer_name(cert: PX509): PX509_NAME; cdecl;
-  external LIBEAY_DLL name _PU + 'X509_get_issuer_name'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'X509_get_issuer_name';
 function X509_get_subject_name(cert: PX509): PX509_NAME; cdecl;
-  external LIBEAY_DLL name _PU + 'X509_get_subject_name'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'X509_get_subject_name';
 procedure X509_free(cert: PX509); cdecl;
-  external LIBEAY_DLL name _PU + 'X509_free'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'X509_free';
 function X509_NAME_print_ex(bout: PBIO; nm: PX509_NAME; indent: Integer; flags: Cardinal): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'X509_NAME_print_ex'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'X509_NAME_print_ex';
 function X509_get_ext_d2i(x: PX509; nid: Integer; var crit, idx: Integer): Pointer; cdecl;
-  external LIBEAY_DLL name _PU + 'X509_get_ext_d2i'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'X509_get_ext_d2i';
 
 function X509_STORE_add_cert(Store: PX509_STORE; Cert: PX509): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'X509_STORE_add_cert'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'X509_STORE_add_cert';
 
 function sk_num(stack: PSTACK): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'sk_num'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'sk_num';
 function sk_pop(stack: PSTACK): Pointer; cdecl;
-  external LIBEAY_DLL name _PU + 'sk_pop'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'sk_pop';
 
 function ASN1_BIT_STRING_get_bit(a: PASN1_BIT_STRING; n: Integer): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'ASN1_BIT_STRING_get_bit'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'ASN1_BIT_STRING_get_bit';
 function OBJ_obj2nid(o: PASN1_OBJECT): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'OBJ_obj2nid'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'OBJ_obj2nid';
 function OBJ_nid2sn(n: Integer): MarshaledAString; cdecl;
-  external LIBEAY_DLL name _PU + 'OBJ_nid2sn'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'OBJ_nid2sn';
 function ASN1_STRING_data(x: PASN1_STRING): Pointer; cdecl;
-  external LIBEAY_DLL name _PU + 'ASN1_STRING_data'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'ASN1_STRING_data';
 function PEM_read_bio_X509(bp: PBIO; x: PPX509; cb: pem_password_cb; u: Pointer): PX509; cdecl;
-  external LIBEAY_DLL name _PU + 'PEM_read_bio_X509'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'PEM_read_bio_X509';
 function PEM_read_bio_X509_AUX(bp: PBIO; x: PPX509; cb: pem_password_cb; u: Pointer): PX509; cdecl;
-  external LIBEAY_DLL name _PU + 'PEM_read_bio_X509_AUX'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'PEM_read_bio_X509_AUX';
 function PEM_read_bio_PrivateKey(bp: PBIO; x: PPEVP_PKEY; cb: pem_password_cb; u: Pointer): PEVP_PKEY; cdecl;
-  external LIBEAY_DLL name _PU + 'PEM_read_bio_PrivateKey'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'PEM_read_bio_PrivateKey';
 
 procedure OPENSSL_add_all_algorithms_noconf; cdecl;
-  external LIBEAY_DLL name _PU + 'OPENSSL_add_all_algorithms_noconf'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'OPENSSL_add_all_algorithms_noconf';
 procedure OPENSSL_add_all_algorithms_conf; cdecl;
-  external LIBEAY_DLL name _PU + 'OPENSSL_add_all_algorithms_conf'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'OPENSSL_add_all_algorithms_conf';
 
 procedure OpenSSL_add_all_ciphers; cdecl;
-  external LIBEAY_DLL name _PU + 'OpenSSL_add_all_ciphers'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'OpenSSL_add_all_ciphers';
 procedure OpenSSL_add_all_digests; cdecl;
-  external LIBEAY_DLL name _PU + 'OpenSSL_add_all_digests'{$IFDEF MSWINDOWS} delayed{$ENDIF};
+  external LIBEAY_DLL name _PU + 'OpenSSL_add_all_digests';
 {$ENDREGION}
+
+{$ENDIF}
 
 function SSL_CTX_need_tmp_RSA(ctx: PSSL_CTX): Integer; inline;
 function SSL_CTX_set_tmp_rsa(ctx: PSSL_CTX; rsa: MarshaledAString): Integer; inline;
@@ -624,6 +646,10 @@ function sk_GENERAL_NAME_num(stack: PSTACK): Integer; inline;
 function sk_GENERAL_NAME_pop(stack: PSTACK): Pointer; inline;
 
 type
+  ESsl = class(Exception);
+  ESslInvalidLib = class(ESsl);
+  ESslInvalidProc = class(ESsl);
+
   {$REGION 'SSLTools'}
   TSSLTools = class
   private class var
@@ -644,6 +670,135 @@ type
     class procedure SetPrivateKeyFile(AContext: PSSL_CTX; const APKeyFile: string);
   end;
   {$ENDREGION}
+
+{$IFNDEF __SSL_STATIC__}
+
+var
+  _SslLibPath: string;
+  _SslLibHandle: THandle;
+  _CryptoLibHandle: THandle;
+
+  {$REGION 'SSL-FUNC'}
+  SSL_library_init: function: Integer; cdecl;
+  SSL_load_error_strings: procedure; cdecl;
+
+  SSLv23_method: function: PSSL_METHOD; cdecl;
+  SSLv23_client_method: function: PSSL_METHOD; cdecl;
+  SSLv23_server_method: function: PSSL_METHOD; cdecl;
+
+  TLSv1_method: function: PSSL_METHOD; cdecl;
+  TLSv1_client_method: function: PSSL_METHOD; cdecl;
+  TLSv1_server_method: function: PSSL_METHOD; cdecl;
+
+  TLSv1_2_method: function: PSSL_METHOD; cdecl;
+  TLSv1_2_client_method: function: PSSL_METHOD; cdecl;
+  TLSv1_2_server_method: function : PSSL_METHOD; cdecl;
+
+  SSL_CTX_new: function(meth: PSSL_METHOD): PSSL_CTX; cdecl;
+  SSL_CTX_free: procedure(ctx: PSSL_CTX); cdecl;
+  SSL_CTX_ctrl: function(ctx: PSSL_CTX; Cmd: Integer; LArg: Integer; PArg: MarshaledAString): Integer; cdecl;
+  SSL_CTX_set_verify: procedure(ctx: PSSL_CTX; mode: Integer; callback: TSetVerify_cb); cdecl;
+  SSL_CTX_set_cipher_list: function(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
+  SSL_CTX_use_PrivateKey: function(ctx: PSSL_CTX; pkey: PEVP_PKEY): Integer; cdecl;
+  SSL_CTX_use_certificate: function(ctx: PSSL_CTX; cert: PX509): Integer; cdecl;
+  SSL_CTX_check_private_key: function(ctx: PSSL_CTX): Integer; cdecl;
+
+  SSL_new: function(ctx: PSSL_CTX): PSSL; cdecl;
+  SSL_set_bio: procedure(s: PSSL; rbio, wbio: PBIO); cdecl;
+  SSL_get_peer_certificate: function(s: PSSL): PX509; cdecl;
+  SSL_get_error: function(s: PSSL; ret_code: Integer): Integer; cdecl;
+
+  SSL_ctrl: function(S: PSSL; Cmd: Integer; LArg: Integer; PArg: Pointer): Integer; cdecl;
+
+  SSL_shutdown: function(s: PSSL): Integer; cdecl;
+  SSL_free: procedure(s: PSSL); cdecl;
+
+  SSL_set_connect_state: procedure(s: PSSL); cdecl;
+  SSL_set_accept_state: procedure(s: PSSL); cdecl;
+  SSL_accept: function(S: PSSL): Integer; cdecl;
+  SSL_connect: function(S: PSSL): Integer; cdecl;
+  SSL_do_handshake: function(S: PSSL): Integer; cdecl;
+  SSL_read: function(s: PSSL; buf: Pointer; num: Integer): Integer; cdecl;
+  SSL_write: function(s: PSSL; const buf: Pointer; num: Integer): Integer; cdecl;
+  SSL_state: function(s: PSSL): Integer; cdecl;
+  SSL_pending: function(s: PSSL): Integer; cdecl;
+
+  SSL_CTX_get_cert_store: function(const Ctx: PSSL_CTX): PX509_STORE; cdecl;
+  SSL_CTX_add_client_CA: function(C: PSSL_CTX; CaCert: PX509): Integer; cdecl;
+  {$ENDREGION}
+
+  {$REGION 'LIBEAY-FUNC'}
+  SSLeay: function: Longword; cdecl;
+
+  CRYPTO_set_id_callback: function(callback: TStatLockIDCallback): Integer; cdecl;
+
+  {$IF not(defined(MACOS) and not defined(IOS))}
+  // MACOS 内置的 OpenSSL 库版本较低(0.9.x)
+  // CRYPTO_THREADID_set_callback 只有 OpenSSL 1.0 以上版本才有
+  CRYPTO_THREADID_set_callback: function(callback: TCryptoThreadIDCallback): Integer; cdecl;
+  CRYPTO_THREADID_set_numeric: procedure(id : PCRYPTO_THREADID; val: LongWord); cdecl;
+  CRYPTO_THREADID_set_pointer: procedure(id : PCRYPTO_THREADID; ptr: Pointer); cdecl;
+  {$ENDIF}
+
+  CRYPTO_num_locks: function: Integer; cdecl;
+  CRYPTO_set_locking_callback: procedure(callback: TStatLockLockCallback); cdecl;
+  CRYPTO_set_dynlock_create_callback: procedure(callback: TDynLockCreateCallBack); cdecl;
+  CRYPTO_set_dynlock_lock_callback: procedure(callback: TDynLockLockCallBack); cdecl;
+  CRYPTO_set_dynlock_destroy_callback: procedure(callback: TDynLockDestroyCallBack); cdecl;
+  CRYPTO_cleanup_all_ex_data: procedure; cdecl;
+
+  ERR_remove_state: procedure(tid: Cardinal); cdecl;
+
+  {$IF not(defined(MACOS) and not defined(IOS))}
+  ERR_remove_thread_state: procedure(tid: PCRYPTO_THREADID); cdecl;
+  {$ENDIF}
+
+  ERR_free_strings: procedure; cdecl;
+  ERR_error_string_n: procedure(err: Cardinal; buf: MarshaledAString; len: size_t); cdecl;
+  ERR_get_error: function: Cardinal; cdecl;
+  ERR_clear_error: procedure; cdecl;
+
+  EVP_cleanup: procedure; cdecl;
+  EVP_PKEY_free: procedure(pkey: PEVP_PKEY); cdecl;
+
+  BIO_new: function(BioMethods: PBIO_METHOD): PBIO; cdecl;
+  BIO_ctrl: function(bp: PBIO; cmd: Integer; larg: Longint; parg: Pointer): Longint; cdecl;
+  BIO_new_mem_buf: function(buf: Pointer; len: Integer): PBIO; cdecl;
+  BIO_free: function(b: PBIO): Integer; cdecl;
+  BIO_s_mem: function: PBIO_METHOD; cdecl;
+  BIO_read: function(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
+  BIO_write: function(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
+
+  EC_KEY_new_by_curve_name: function(nid: Integer): PEC_KEY; cdecl;
+  EC_KEY_free: procedure(key: PEC_KEY); cdecl;
+
+  X509_get_issuer_name: function(cert: PX509): PX509_NAME; cdecl;
+  X509_get_subject_name: function(cert: PX509): PX509_NAME; cdecl;
+  X509_free: procedure(cert: PX509); cdecl;
+  X509_NAME_print_ex: function(bout: PBIO; nm: PX509_NAME; indent: Integer; flags: Cardinal): Integer; cdecl;
+  X509_get_ext_d2i: function(x: PX509; nid: Integer; var crit, idx: Integer): Pointer; cdecl;
+
+  X509_STORE_add_cert: function(Store: PX509_STORE; Cert: PX509): Integer; cdecl;
+
+  sk_num: function(stack: PSTACK): Integer; cdecl;
+  sk_pop: function(stack: PSTACK): Pointer; cdecl;
+
+  ASN1_BIT_STRING_get_bit: function(a: PASN1_BIT_STRING; n: Integer): Integer; cdecl;
+  OBJ_obj2nid: function(o: PASN1_OBJECT): Integer; cdecl;
+  OBJ_nid2sn: function(n: Integer): MarshaledAString; cdecl;
+  ASN1_STRING_data: function(x: PASN1_STRING): Pointer; cdecl;
+  PEM_read_bio_X509: function(bp: PBIO; x: PPX509; cb: pem_password_cb; u: Pointer): PX509; cdecl;
+  PEM_read_bio_X509_AUX: function(bp: PBIO; x: PPX509; cb: pem_password_cb; u: Pointer): PX509; cdecl;
+  PEM_read_bio_PrivateKey: function(bp: PBIO; x: PPEVP_PKEY; cb: pem_password_cb; u: Pointer): PEVP_PKEY; cdecl;
+
+  OPENSSL_add_all_algorithms_noconf: procedure; cdecl;
+  OPENSSL_add_all_algorithms_conf: procedure; cdecl;
+
+  OpenSSL_add_all_ciphers: procedure; cdecl;
+  OpenSSL_add_all_digests: procedure; cdecl;
+  {$ENDREGION}
+
+{$ENDIF}
 
 implementation
 
@@ -857,6 +1012,178 @@ begin
   Dispose(L);
 end;
 
+{$IFNDEF __SSL_STATIC__}
+
+function GetSslLibPath: string;
+begin
+  if (_SslLibPath <> '') then
+    Result := IncludeTrailingPathDelimiter(_SslLibPath)
+  else
+    Result := _SslLibPath;
+end;
+
+function LoadSslLib(const ALibName: string): THandle;
+begin
+  Result := SafeLoadLibrary(GetSslLibPath + ALibName);
+  if (Result = 0) then
+    raise ESslInvalidLib.CreateFmt('无效的SSL库: %s', [ALibName]);
+end;
+
+function GetSslLibProc(const ALibHandle: THandle; const AProcName: string): Pointer;
+begin
+  Result := GetProcAddress(ALibHandle, PChar(AProcName));
+  if (Result = nil) then
+    raise ESslInvalidProc.CreateFmt('无效的SSL接口函数: %s', [AProcName]);
+end;
+
+procedure LoadSslLibs;
+begin
+  if (_SslLibHandle = 0) then
+  begin
+    _SslLibHandle := LoadSslLib(SSLEAY_DLL);
+
+    @SSL_library_init := GetSslLibProc(_SslLibHandle, 'SSL_library_init');
+    @SSL_load_error_strings := GetSslLibProc(_SslLibHandle, 'SSL_load_error_strings');
+
+    @SSLv23_method := GetSslLibProc(_SslLibHandle, 'SSLv23_method');
+    @SSLv23_client_method := GetSslLibProc(_SslLibHandle, 'SSLv23_client_method');
+    @SSLv23_server_method := GetSslLibProc(_SslLibHandle, 'SSLv23_server_method');
+
+    @TLSv1_method := GetSslLibProc(_SslLibHandle, 'TLSv1_method');
+    @TLSv1_client_method := GetSslLibProc(_SslLibHandle, 'TLSv1_client_method');
+    @TLSv1_server_method := GetSslLibProc(_SslLibHandle, 'TLSv1_server_method');
+
+    {$IF not(defined(MACOS) and not defined(IOS))}
+    @TLSv1_2_method := GetSslLibProc(_SslLibHandle, 'TLSv1_2_method');
+    @TLSv1_2_client_method := GetSslLibProc(_SslLibHandle, 'TLSv1_2_client_method');
+    @TLSv1_2_server_method := GetSslLibProc(_SslLibHandle, 'TLSv1_2_server_method');
+    {$ENDIF}
+
+    @SSL_CTX_new := GetSslLibProc(_SslLibHandle, 'SSL_CTX_new');
+    @SSL_CTX_free := GetSslLibProc(_SslLibHandle, 'SSL_CTX_free');
+    @SSL_CTX_ctrl := GetSslLibProc(_SslLibHandle, 'SSL_CTX_ctrl');
+    @SSL_CTX_set_verify := GetSslLibProc(_SslLibHandle, 'SSL_CTX_set_verify');
+    @SSL_CTX_set_cipher_list := GetSslLibProc(_SslLibHandle, 'SSL_CTX_set_cipher_list');
+    @SSL_CTX_use_PrivateKey := GetSslLibProc(_SslLibHandle, 'SSL_CTX_use_PrivateKey');
+    @SSL_CTX_use_certificate := GetSslLibProc(_SslLibHandle, 'SSL_CTX_use_certificate');
+    @SSL_CTX_check_private_key := GetSslLibProc(_SslLibHandle, 'SSL_CTX_check_private_key');
+
+    @SSL_new := GetSslLibProc(_SslLibHandle, 'SSL_new');
+    @SSL_set_bio := GetSslLibProc(_SslLibHandle, 'SSL_set_bio');
+    @SSL_get_peer_certificate := GetSslLibProc(_SslLibHandle, 'SSL_get_peer_certificate');
+    @SSL_get_error := GetSslLibProc(_SslLibHandle, 'SSL_get_error');
+
+    @SSL_ctrl := GetSslLibProc(_SslLibHandle, 'SSL_ctrl');
+
+    @SSL_shutdown := GetSslLibProc(_SslLibHandle, 'SSL_shutdown');
+    @SSL_free := GetSslLibProc(_SslLibHandle, 'SSL_free');
+
+    @SSL_set_connect_state := GetSslLibProc(_SslLibHandle, 'SSL_set_connect_state');
+    @SSL_set_accept_state := GetSslLibProc(_SslLibHandle, 'SSL_set_accept_state');
+    @SSL_accept := GetSslLibProc(_SslLibHandle, 'SSL_accept');
+    @SSL_connect := GetSslLibProc(_SslLibHandle, 'SSL_connect');
+    @SSL_do_handshake := GetSslLibProc(_SslLibHandle, 'SSL_do_handshake');
+    @SSL_read := GetSslLibProc(_SslLibHandle, 'SSL_read');
+    @SSL_write := GetSslLibProc(_SslLibHandle, 'SSL_write');
+    @SSL_state := GetSslLibProc(_SslLibHandle, 'SSL_state');
+    @SSL_pending := GetSslLibProc(_SslLibHandle, 'SSL_pending');
+
+    @SSL_CTX_get_cert_store := GetSslLibProc(_SslLibHandle, 'SSL_CTX_get_cert_store');
+    @SSL_CTX_add_client_CA := GetSslLibProc(_SslLibHandle, 'SSL_CTX_add_client_CA');
+  end;
+
+  if (_CryptoLibHandle = 0) then
+  begin
+    _CryptoLibHandle := LoadSslLib(LIBEAY_DLL);
+
+    @SSLeay := GetSslLibProc(_CryptoLibHandle, 'SSLeay');
+
+    @CRYPTO_set_id_callback := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_set_id_callback');
+
+    {$IF not(defined(MACOS) and not defined(IOS))}
+    // MACOS 内置的 OpenSSL 库版本较低(0.9.x)
+    // CRYPTO_THREADID_set_callback 只有 OpenSSL 1.0 以上版本才有
+    @CRYPTO_THREADID_set_callback := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_THREADID_set_callback');
+    @CRYPTO_THREADID_set_numeric := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_THREADID_set_numeric');
+    @CRYPTO_THREADID_set_pointer := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_THREADID_set_pointer');
+    {$ENDIF}
+
+    @CRYPTO_num_locks := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_num_locks');
+    @CRYPTO_set_locking_callback := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_set_locking_callback');
+    @CRYPTO_set_dynlock_create_callback := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_set_dynlock_create_callback');
+    @CRYPTO_set_dynlock_lock_callback := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_set_dynlock_lock_callback');
+    @CRYPTO_set_dynlock_destroy_callback := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_set_dynlock_destroy_callback');
+    @CRYPTO_cleanup_all_ex_data := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_cleanup_all_ex_data');
+
+    @ERR_remove_state := GetSslLibProc(_CryptoLibHandle, 'ERR_remove_state');
+
+    {$IF not(defined(MACOS) and not defined(IOS))}
+    @ERR_remove_thread_state := GetSslLibProc(_CryptoLibHandle, 'ERR_remove_thread_state');
+    {$ENDIF}
+
+    @ERR_free_strings := GetSslLibProc(_CryptoLibHandle, 'ERR_free_strings');
+    @ERR_error_string_n := GetSslLibProc(_CryptoLibHandle, 'ERR_error_string_n');
+    @ERR_get_error := GetSslLibProc(_CryptoLibHandle, 'ERR_get_error');
+    @ERR_clear_error := GetSslLibProc(_CryptoLibHandle, 'ERR_clear_error');
+
+    @EVP_cleanup := GetSslLibProc(_CryptoLibHandle, 'EVP_cleanup');
+    @EVP_PKEY_free := GetSslLibProc(_CryptoLibHandle, 'EVP_PKEY_free');
+
+    @BIO_new := GetSslLibProc(_CryptoLibHandle, 'BIO_new');
+    @BIO_ctrl := GetSslLibProc(_CryptoLibHandle, 'BIO_ctrl');
+    @BIO_new_mem_buf := GetSslLibProc(_CryptoLibHandle, 'BIO_new_mem_buf');
+    @BIO_free := GetSslLibProc(_CryptoLibHandle, 'BIO_free');
+    @BIO_s_mem := GetSslLibProc(_CryptoLibHandle, 'BIO_s_mem');
+    @BIO_read := GetSslLibProc(_CryptoLibHandle, 'BIO_read');
+    @BIO_write := GetSslLibProc(_CryptoLibHandle, 'BIO_write');
+
+    @EC_KEY_new_by_curve_name := GetSslLibProc(_CryptoLibHandle, 'EC_KEY_new_by_curve_name');
+    @EC_KEY_free := GetSslLibProc(_CryptoLibHandle, 'EC_KEY_free');
+
+    @X509_get_issuer_name := GetSslLibProc(_CryptoLibHandle, 'X509_get_issuer_name');
+    @X509_get_subject_name := GetSslLibProc(_CryptoLibHandle, 'X509_get_subject_name');
+    @X509_free := GetSslLibProc(_CryptoLibHandle, 'X509_free');
+    @X509_NAME_print_ex := GetSslLibProc(_CryptoLibHandle, 'X509_NAME_print_ex');
+    @X509_get_ext_d2i := GetSslLibProc(_CryptoLibHandle, 'X509_get_ext_d2i');
+
+    @X509_STORE_add_cert := GetSslLibProc(_CryptoLibHandle, 'X509_STORE_add_cert');
+
+    @sk_num := GetSslLibProc(_CryptoLibHandle, 'sk_num');
+    @sk_pop := GetSslLibProc(_CryptoLibHandle, 'sk_pop');
+
+    @ASN1_BIT_STRING_get_bit := GetSslLibProc(_CryptoLibHandle, 'ASN1_BIT_STRING_get_bit');
+    @OBJ_obj2nid := GetSslLibProc(_CryptoLibHandle, 'OBJ_obj2nid');
+    @OBJ_nid2sn := GetSslLibProc(_CryptoLibHandle, 'OBJ_nid2sn');
+    @ASN1_STRING_data := GetSslLibProc(_CryptoLibHandle, 'ASN1_STRING_data');
+    @PEM_read_bio_X509 := GetSslLibProc(_CryptoLibHandle, 'PEM_read_bio_X509');
+    @PEM_read_bio_X509_AUX := GetSslLibProc(_CryptoLibHandle, 'PEM_read_bio_X509_AUX');
+    @PEM_read_bio_PrivateKey := GetSslLibProc(_CryptoLibHandle, 'PEM_read_bio_PrivateKey');
+
+    @OPENSSL_add_all_algorithms_noconf := GetSslLibProc(_CryptoLibHandle, 'OPENSSL_add_all_algorithms_noconf');
+    @OPENSSL_add_all_algorithms_conf := GetSslLibProc(_CryptoLibHandle, 'OPENSSL_add_all_algorithms_conf');
+
+    @OpenSSL_add_all_ciphers := GetSslLibProc(_CryptoLibHandle, 'OpenSSL_add_all_ciphers');
+    @OpenSSL_add_all_digests := GetSslLibProc(_CryptoLibHandle, 'OpenSSL_add_all_digests');
+  end;
+end;
+
+procedure UnloadSslLibs;
+begin
+  if (_SslLibHandle <> 0) then
+  begin
+    FreeLibrary(_SslLibHandle);
+    _SslLibHandle := 0;
+  end;
+
+  if (_CryptoLibHandle <> 0) then
+  begin
+    FreeLibrary(_CryptoLibHandle);
+    _CryptoLibHandle := 0;
+  end;
+end;
+
+{$ENDIF}
+
 procedure SslInit;
 var
   LNumberOfLocks, I: Integer;
@@ -926,14 +1253,24 @@ end;
 
 class procedure TSSLTools.LoadSSL;
 begin
-  if (TInterlocked.Increment(FRef) = 1) then
-    SslInit;
+  if (TInterlocked.Increment(FRef) <> 1) then Exit;
+
+  {$IFNDEF __SSL_STATIC__}
+  LoadSslLibs;
+  {$ENDIF}
+
+  SslInit;
 end;
 
 class procedure TSSLTools.UnloadSSL;
 begin
-  if (TInterlocked.Decrement(FRef) = 0) then
-    SslUninit;
+  if (TInterlocked.Decrement(FRef) <> 0) then Exit;
+
+  SslUninit;
+
+  {$IFNDEF __SSL_STATIC__}
+  UnloadSslLibs;
+  {$ENDIF}
 end;
 
 class procedure TSSLTools.SetCertificate(AContext: PSSL_CTX; ACertBuf: Pointer;
@@ -945,20 +1282,20 @@ var
 begin
 	bio_cert := BIO_new_mem_buf(ACertBuf, ACertBufSize);
   if (bio_cert = nil) then
-    raise Exception.Create('分配证书缓存失败');
+    raise ESsl.Create('分配证书缓存失败');
 
 	ssl_cert := PEM_read_bio_X509_AUX(bio_cert, nil, nil, nil);
   if (ssl_cert = nil) then
-    raise Exception.Create('读取证书数据失败');
+    raise ESsl.Create('读取证书数据失败');
 
 	if (SSL_CTX_use_certificate(AContext, ssl_cert) <= 0) then
-    raise Exception.Create('使用证书失败');
+    raise ESsl.Create('使用证书失败');
 
 	X509_free(ssl_cert);
 
   store := SSL_CTX_get_cert_store(AContext);
   if (store = nil) then
-    raise Exception.Create('获取证书仓库失败');
+    raise ESsl.Create('获取证书仓库失败');
 
   // 将证书链中剩余的证书添加到仓库中
   // 有完整证书链在 ssllabs.com 评分中才能评为 A
@@ -966,10 +1303,10 @@ begin
   begin
   	ssl_cert := PEM_read_bio_X509(bio_cert, nil, nil, nil);
     if (ssl_cert = nil) then
-      raise Exception.Create('读取证书数据失败');
+      raise ESsl.Create('读取证书数据失败');
 
     if (X509_STORE_add_cert(store, ssl_cert) <= 0) then
-      raise Exception.Create('添加证书到仓库失败');
+      raise ESsl.Create('添加证书到仓库失败');
 
   	X509_free(ssl_cert);
   end;
@@ -1003,20 +1340,20 @@ var
 begin
 	bio_pkey := BIO_new_mem_buf(APKeyBuf, APKeyBufSize);
   if (bio_pkey = nil) then
-    raise Exception.Create('分配私钥缓存失败');
+    raise ESsl.Create('分配私钥缓存失败');
 
 	ssl_pkey := PEM_read_bio_PrivateKey(bio_pkey, nil, nil, nil);
   if (ssl_pkey = nil) then
-    raise Exception.Create('读取私钥数据失败');
+    raise ESsl.Create('读取私钥数据失败');
 
 	if (SSL_CTX_use_PrivateKey(AContext, ssl_pkey) <= 0) then
-    raise Exception.Create('使用私钥失败');
+    raise ESsl.Create('使用私钥失败');
 
 	EVP_PKEY_free(ssl_pkey);
 	BIO_free(bio_pkey);
 
   if (SSL_CTX_check_private_key(AContext) <= 0) then
-    raise Exception.Create('私钥与证书的公钥不匹配');
+    raise ESsl.Create('私钥与证书的公钥不匹配');
 end;
 
 class procedure TSSLTools.SetPrivateKey(AContext: PSSL_CTX;

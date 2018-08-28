@@ -694,45 +694,11 @@ begin
         end;
       end;
 
-      inherited TriggerReceived(AConnection, LBuffer.Memory, LBuffer.Size);
+      if (LBuffer.Size > 0) then
+        inherited TriggerReceived(AConnection, LBuffer.Memory, LBuffer.Size);
     finally
       FreeAndNil(LBuffer);
     end;
-
-//    // 读取解密后的数据
-//    while True do
-//    begin
-//      // 貌似每次读出来的数据都不会超过 16K
-//      ret := SSL_read(LConnection.FSsl, @FSslInBuf[0], SSL_BUF_SIZE);
-//
-//      // 读取到解密数据了, 调用父类接收数据的方法
-//      if (ret > 0) then
-//        inherited TriggerReceived(AConnection, @FSslInBuf[0], ret)
-//      else
-//      begin
-//        error := SSL_get_error(LConnection.FSsl, ret);
-//        if ssl_is_fatal_error(error) then
-//        begin
-//          {$IFDEF DEBUG}
-//          _Log('SSL_read error %d %s', [error, ssl_error_message(error)]);
-//          {$ENDIF}
-//          LConnection.Close;
-//        end;
-//
-////        case error of
-////          SSL_ERROR_WANT_READ:;
-////          SSL_ERROR_WANT_WRITE: LConnection._WriteBioToSocket;
-////        else
-////          {$IFDEF DEBUG}
-////          _Log('SSL_read error %d %s', [error, ssl_error_message(error)]);
-////          {$ENDIF}
-////          LConnection.Close;
-////        end;
-//
-//        Exit;
-//      end;
-//    end;
-
   finally
     LConnection._SslUnlock;
   end;
