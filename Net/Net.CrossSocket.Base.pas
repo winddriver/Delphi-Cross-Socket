@@ -40,6 +40,8 @@ const
   IPv6_LOCAL = '::1';
 
 type
+  ECrossSocket = class(Exception);
+
   ICrossSocket = interface;
 
   /// <summary>
@@ -912,7 +914,7 @@ begin
     {$ENDIF};
   end;
   {$IFDEF DEBUG}
-  _Log('%s Io线程ID %d, 被调用了 %d 次', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, LRunCount]);
+//  _Log('%s Io线程ID %d, 被调用了 %d 次', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, LRunCount]);
   {$ENDIF}
 end;
 
@@ -1659,8 +1661,7 @@ begin
   FillChar(LAddr, SizeOf(TRawSockAddrIn), 0);
   LAddr.AddrLen := SizeOf(LAddr.Addr6);
   if (TSocketAPI.GetPeerName(FSocket, @LAddr.Addr, LAddr.AddrLen) = 0) then
-    TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen,
-      FPeerAddr, FPeerPort);
+    TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen, FPeerAddr, FPeerPort);
   {$endregion}
 end;
 

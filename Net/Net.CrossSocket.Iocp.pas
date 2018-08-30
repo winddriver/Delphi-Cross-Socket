@@ -331,6 +331,7 @@ end;
 procedure TIocpCrossSocket.StopLoop;
 var
   I: Integer;
+  LCurrentThreadID: TThreadID;
 begin
   if (FIoThreads = nil) then Exit;
 
@@ -341,14 +342,18 @@ begin
   for I := 0 to Length(FIoThreads) - 1 do
     PostQueuedCompletionStatus(FIocpHandle, 0, 0, POverlapped(SHUTDOWN_FLAG));
 
-  CloseHandle(FIocpHandle);
-
+  LCurrentThreadID := GetCurrentThreadId;
   for I := 0 to Length(FIoThreads) - 1 do
   begin
+    if (FIoThreads[I].ThreadID = LCurrentThreadID) then
+      raise ECrossSocket.Create('不能在IO线程中执行StopLoop!');
+
     FIoThreads[I].WaitFor;
     FreeAndNil(FIoThreads[I]);
   end;
   FIoThreads := nil;
+
+  CloseHandle(FIocpHandle);
 end;
 
 procedure TIocpCrossSocket.Connect(const AHost: string; APort: Word;

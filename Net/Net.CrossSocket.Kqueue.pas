@@ -19,6 +19,7 @@ uses
   Posix.NetinetIn,
   Posix.UniStd,
   Posix.NetDB,
+  Posix.Pthread,
   Posix.Errno,
   BSD.kqueue,
   Net.SocketAPI,
@@ -118,6 +119,7 @@ type
   TKqueueCrossSocket = class(TAbstractCrossSocket)
   private const
     MAX_EVENT_COUNT = 2048;
+    SHUTDOWN_FLAG   = Pointer(-1);
   private class threadvar
     FEventList: array [0..MAX_EVENT_COUNT-1] of TKEvent;
   private
@@ -125,6 +127,12 @@ type
     FIoThreads: TArray<TIoEventThread>;
     FIdleHandle: THandle;
     FIdleLock: TObject;
+    FStopHandle: TPipeDescriptors;
+
+    // 利用 pipe 唤醒并退出IO线程
+    procedure _OpenStopHandle; inline;
+    procedure _PostStopCommand; inline;
+    procedure _CloseStopHandle; inline;
 
     procedure _OpenIdleHandle; inline;
     procedure _CloseIdleHandle; inline;
@@ -410,6 +418,12 @@ begin
   FileClose(FIdleHandle);
 end;
 
+procedure TKqueueCrossSocket._CloseStopHandle;
+begin
+  FileClose(FStopHandle.ReadDes);
+  FileClose(FStopHandle.WriteDes);
+end;
+
 procedure TKqueueCrossSocket._HandleAccept(AListen: ICrossListen);
 var
   LListen: ICrossListen;
@@ -480,7 +494,6 @@ begin
   LKqListen := LListen as TKqueueListen;
   LKqListen._Lock;
   LKqListen._UpdateIoEvent([ieRead]);
-
   LKqListen._Unlock;
 end;
 
@@ -649,6 +662,28 @@ begin
   FIdleHandle := FileOpen('/dev/null', fmOpenRead);
 end;
 
+procedure TKqueueCrossSocket._OpenStopHandle;
+var
+  LEvent: TKEvent;
+begin
+  pipe(FStopHandle);
+
+  // 这里不使用 EV_ONESHOT
+  // 这样可以保证通知退出的命令发出后, 所有IO线程都会收到
+  EV_SET(@LEvent, FStopHandle.ReadDes, EVFILT_READ,
+    EV_ADD, 0, 0, SHUTDOWN_FLAG);
+  kevent(FKqueueHandle, @LEvent, 1, nil, 0, nil);
+end;
+
+procedure TKqueueCrossSocket._PostStopCommand;
+var
+  LStuff: UInt64;
+begin
+  LStuff := 1;
+  // 往 FStopHandle.WriteDes 写入任意数据, 唤醒工作线程
+  Posix.UniStd.__write(FStopHandle.WriteDes, @LStuff, SizeOf(LStuff));
+end;
+
 procedure TKqueueCrossSocket._SetNoSigPipe(ASocket: THandle);
 begin
   TSocketAPI.SetSockOpt<Integer>(ASocket, SOL_SOCKET, SO_NOSIGPIPE, 1);
@@ -666,11 +701,14 @@ begin
   SetLength(FIoThreads, GetIoThreads);
   for I := 0 to Length(FIoThreads) - 1 do
     FIoThreads[i] := TIoEventThread.Create(Self);
+
+  _OpenStopHandle;
 end;
 
 procedure TKqueueCrossSocket.StopLoop;
 var
   I: Integer;
+  LCurrentThreadID: TThreadID;
 begin
   if (FIoThreads = nil) then Exit;
 
@@ -678,16 +716,22 @@ begin
 
   while (ListensCount > 0) or (ConnectionsCount > 0) do Sleep(1);
 
-  Posix.UniStd.__close(FKqueueHandle);
+  _PostStopCommand;
 
+  LCurrentThreadID := GetCurrentThreadId;
   for I := 0 to Length(FIoThreads) - 1 do
   begin
+    if (FIoThreads[I].ThreadID = LCurrentThreadID) then
+      raise ECrossSocket.Create('不能在IO线程中执行StopLoop!');
+
     FIoThreads[I].WaitFor;
     FreeAndNil(FIoThreads[I]);
   end;
   FIoThreads := nil;
 
+  FileClose(FKqueueHandle);
   _CloseIdleHandle;
+  _CloseStopHandle;
 end;
 
 procedure TKqueueCrossSocket.Connect(const AHost: string; APort: Word;
@@ -930,6 +974,10 @@ begin
   for I := 0 to LRet - 1 do
   begin
     LEvent := FEventList[I];
+
+    // 收到退出命令
+    if (LEvent.uData = SHUTDOWN_FLAG) then Exit(False);
+
     if (LEvent.uData = nil) then Continue;
 
     {$region '获取连接或监听对象'}

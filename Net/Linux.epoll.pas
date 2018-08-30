@@ -62,6 +62,11 @@ function epoll_wait(epfd: Integer; events: pepoll_event; maxevents, timeout: Int
   external libc name _PU + 'epoll_wait';
   {$EXTERNALSYM epoll_wait}
 
+{ create a file descriptor for event notification }
+function eventfd(initval: Cardinal; flags: Integer): Integer; cdecl;
+  external libc name _PU + 'eventfd';
+  {$EXTERNALSYM eventfd}
+
 implementation
 
 end.
