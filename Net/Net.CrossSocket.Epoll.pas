@@ -19,6 +19,7 @@ uses
   Posix.NetinetIn,
   Posix.UniStd,
   Posix.NetDB,
+  Posix.Pthread,
   Posix.Errno,
   Linux.epoll,
   Net.SocketAPI,
@@ -103,6 +104,7 @@ type
   TEpollCrossSocket = class(TAbstractCrossSocket)
   private const
     MAX_EVENT_COUNT = 2048;
+    SHUTDOWN_FLAG   = UInt64(-1);
   private class threadvar
     FEventList: array [0..MAX_EVENT_COUNT-1] of TEPoll_Event;
   private
@@ -110,6 +112,12 @@ type
     FIoThreads: TArray<TIoEventThread>;
     FIdleHandle: THandle;
     FIdleLock: TObject;
+    FStopHandle: THandle;
+
+    // 利用 eventfd 唤醒并退出IO线程
+    procedure _OpenStopHandle; inline;
+    procedure _PostStopCommand; inline;
+    procedure _CloseStopHandle; inline;
 
     procedure _OpenIdleHandle; inline;
     procedure _CloseIdleHandle; inline;
@@ -345,6 +353,11 @@ begin
   FileClose(FIdleHandle);
 end;
 
+procedure TEpollCrossSocket._CloseStopHandle;
+begin
+  FileClose(FStopHandle);
+end;
+
 procedure TEpollCrossSocket._HandleAccept(AListen: ICrossListen);
 var
   LListen: ICrossListen;
@@ -555,6 +568,27 @@ begin
   FIdleHandle := FileOpen('/dev/null', fmOpenRead);
 end;
 
+procedure TEpollCrossSocket._OpenStopHandle;
+var
+  LEvent: TEPoll_Event;
+begin
+  FStopHandle := eventfd(0, 0);
+  // 这里不使用 EPOLLET
+  // 这样可以保证通知退出的命令发出后, 所有IO线程都会收到
+  LEvent.Events := EPOLLIN;
+  LEvent.Data.u64 := SHUTDOWN_FLAG;
+  epoll_ctl(FEpollHandle, EPOLL_CTL_ADD, FStopHandle, @LEvent);
+end;
+
+procedure TEpollCrossSocket._PostStopCommand;
+var
+  LStuff: UInt64;
+begin
+  LStuff := 1;
+  // 往 FStopHandle 写入任意数据, 唤醒 epoll 工作线程
+  Posix.UniStd.__write(FStopHandle, @LStuff, SizeOf(LStuff));
+end;
+
 procedure TEpollCrossSocket.StartLoop;
 var
   I: Integer;
@@ -571,11 +605,14 @@ begin
   SetLength(FIoThreads, GetIoThreads);
   for I := 0 to Length(FIoThreads) - 1 do
     FIoThreads[I] := TIoEventThread.Create(Self);
+
+  _OpenStopHandle;
 end;
 
 procedure TEpollCrossSocket.StopLoop;
 var
   I: Integer;
+  LCurrentThreadID: TThreadID;
 begin
   if (FIoThreads = nil) then Exit;
 
@@ -583,16 +620,22 @@ begin
 
   while (FListensCount > 0) or (FConnectionsCount > 0) do Sleep(1);
 
-  Posix.UniStd.__close(FEpollHandle);
+  _PostStopCommand;
 
+  LCurrentThreadID := GetCurrentThreadId;
   for I := 0 to Length(FIoThreads) - 1 do
   begin
+    if (FIoThreads[I].ThreadID = LCurrentThreadID) then
+      raise ECrossSocket.Create('不能在IO线程中执行StopLoop!');
+
     FIoThreads[I].WaitFor;
     FreeAndNil(FIoThreads[I]);
   end;
   FIoThreads := nil;
 
+  FileClose(FEpollHandle);
   _CloseIdleHandle;
+  _CloseStopHandle;
 end;
 
 procedure TEpollCrossSocket.Connect(const AHost: string; APort: Word;
@@ -830,10 +873,8 @@ var
   LSuccess: Boolean;
   LIoEvents: TIoEvents;
 begin
-  // 如果不指定超时时间, 即使在其它线程将 epoll 句柄关闭, epoll_wait 也不会返回
-  // 超时后都没有任何IO事件发生会返回0
   // 被系统信号打断或者出错会返回-1, 具体需要根据错误代码判断
-  LRet := epoll_wait(FEpollHandle, @FEventList[0], MAX_EVENT_COUNT, 100);
+  LRet := epoll_wait(FEpollHandle, @FEventList[0], MAX_EVENT_COUNT, -1);
   if (LRet < 0) then
   begin
     LRet := GetLastError;
@@ -844,6 +885,9 @@ begin
   for I := 0 to LRet - 1 do
   begin
     LEvent := FEventList[I];
+
+    // 收到退出命令
+    if (LEvent.Data.u64 = SHUTDOWN_FLAG) then Exit(False);
 
     {$region '获取连接或监听对象'}
     LCrossUID := LEvent.Data.u64;
@@ -892,7 +936,6 @@ begin
       LEpListen := LListen as TEpollListen;
       LEpListen._Lock;
       LEpListen._UpdateIoEvent([ieRead]);
-
       LEpListen._Unlock;
     end else
     if (LConnection <> nil) then
