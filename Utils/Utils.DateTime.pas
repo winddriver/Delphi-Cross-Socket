@@ -12,7 +12,10 @@ unit Utils.DateTime;
 interface
 
 uses
-  System.SysUtils, System.DateUtils, System.Types, System.Math, System.TimeSpan;
+  System.SysUtils,
+  System.DateUtils,
+  System.Types,
+  System.Math;
 
 type
   TDateTimeHelper = record helper for TDateTime

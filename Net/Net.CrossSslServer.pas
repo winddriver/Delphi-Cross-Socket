@@ -15,6 +15,7 @@ uses
   System.SysUtils,
   Net.SocketAPI,
   Net.CrossSocket.Base,
+  Net.CrossSslSocket.Base,
   Net.CrossSslSocket;
 
 type
@@ -68,8 +69,6 @@ implementation
 constructor TCrossSslServer.Create(AIoThreads: Integer);
 begin
   inherited;
-
-  InitSslCtx(SSLv23_server);
 end;
 
 function TCrossSslServer.GetActive: Boolean;

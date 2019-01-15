@@ -5,12 +5,14 @@ interface
 uses
   {$IFDEF __CROSS_SSL__}
   Net.CrossSslSocket,
-  {$IFDEF POSIX}
   Net.CrossSslDemoCert,
   {$ENDIF}
-  {$ENDIF}
   System.SysUtils, System.Classes, System.Generics.Collections,
-  Net.CrossSocket.Base, Net.CrossSocket, Net.CrossHttpServer, Net.CrossHttpMiddleware;
+  Net.CrossSocket.Base,
+  Net.CrossSocket,
+  Net.CrossHttpServer,
+  Net.CrossHttpMiddleware,
+  Net.CrossHttpUtils;
 
 type
   IProgress = interface
@@ -200,17 +202,14 @@ procedure TDM.DataModuleCreate(Sender: TObject);
 begin
   FHttpServer := TCrossHttpServer.Create(0);
   {$IFDEF __CROSS_SSL__}
-  {$IFDEF POSIX}
   FHttpServer.SetCertificate(SSL_SERVER_CERT);
   FHttpServer.SetPrivateKey(SSL_SERVER_PKEY);
-  {$ELSE}
-  FHttpServer.SetCertificateFile('server.crt');
-  FHttpServer.SetPrivateKeyFile('server.key');
   {$ENDIF}
-  {$ENDIF}
-  FHttpServer.Addr := IPv4_ALL; // IPv4
+//  FHttpServer.Addr := IPv4_ALL; // IPv4
+//  FHttpServer.Addr := IPv6_ALL; // IPv6
+  FHttpServer.Addr := IPv4v6_ALL; // IPv4v6
   FHttpServer.Port := AppCfg.ListenPort;
-  FHttpServer.Compressible := False;
+  FHttpServer.Compressible := True;
 
   FHttpServer.OnConnected := _OnConnected;
   FHttpServer.OnDisconnected := _OnDisconnected;
@@ -277,15 +276,15 @@ begin
   ;
 
   FHttpServer
-  .Get('/null',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
-    begin
-      AResponse.Send('');
-    end)
   .Get('/hello',
     procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
     begin
       AResponse.Send('Hello World');
+    end)
+  .Get('/null',
+    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    begin
+      AResponse.Send('');
     end)
   .Get('/yeah',
     procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
@@ -346,6 +345,55 @@ begin
             LProg.Position := I;
           end;
           LWatch.Stop;
+        end);
+    end)
+  .Dir('/static', 'D:\')
+  .Dir('/g', 'G:\')
+  .Get('/file',
+    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    var
+      LStream: TStream;
+    begin
+      LStream := TFile.OpenRead('d:\2.txt');
+      AResponse.ContentType := TMediaType.TEXT_HTML;
+      AResponse.SendNoCompress(LStream,
+        StrToInt64Def(ARequest.Query['pos'], 0),
+        StrToInt64Def(ARequest.Query['count'], 0),
+        procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+        begin
+          FreeAndNil(LStream);
+        end);
+    end)
+  .Get('/stream',
+    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    var
+      LStream: TMemoryStream;
+    begin
+      LStream := TMemoryStream.Create;
+      LStream.LoadFromFile('d:\2.txt');
+      AResponse.ContentType := TMediaType.TEXT_HTML;
+      AResponse.SendZCompress(LStream,
+        StrToInt64Def(ARequest.Query['pos'], 0),
+        StrToInt64Def(ARequest.Query['count'], 0),
+        TCompressType.ctGZip,
+        procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+        begin
+          FreeAndNil(LStream);
+        end);
+    end)
+  .Get('/bytes',
+    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    var
+      LBytes: TBytes;
+    begin
+      LBytes := TFile.ReadAllBytes('d:\2.txt');
+      AResponse.ContentType := TMediaType.TEXT_HTML;
+      AResponse.SendNoCompress(LBytes,
+        StrToInt64Def(ARequest.Query['pos'], 0),
+        StrToInt64Def(ARequest.Query['count'], 0),
+        procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+        begin
+          LBytes := nil;
         end);
     end)
     ;

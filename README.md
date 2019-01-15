@@ -2,14 +2,20 @@
 
 作者: WiNDDRiVER(soulawing@gmail.com)
 
-## 重要更新(2017.08.22)
+## 更新记录
+
+#### 2019.01.15
+- 增加 mbedtls 支持
+  - mbedtls 启用方法：在工程编译选项中开启 \__CROSS_SSL\__ 和 \__MBED_TLS\__ 这两个编译开关, 并且将 MbedObj 下的目录添加到对应平台的 Library path 中
+  - 目前本框架的 mbedtls 移植尚不稳定, 请勿用于生产环境
+
+#### 2017.08.22
 - 代码重构, 做了大量修改, 详见源码
 - 增加了几个新的 interface, 用法详见 demos
   - ICrossSocket
   - ICrossSslSocket
   - ICrossServer
   - ICrossSslServer
-
 
 ## 特性
 

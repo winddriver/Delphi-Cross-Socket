@@ -34,9 +34,8 @@ uses
   Net.CrossSocket,
   Net.CrossServer,
   {$IFDEF __CROSS_SSL__}
-  Net.OpenSSL,
-  Net.CrossSslSocket,
-  Net.CrossSslServer,
+    Net.CrossSslSocket,
+    Net.CrossSslServer,
   {$ENDIF}
   Net.CrossHttpParams,
   Net.CrossHttpUtils,
@@ -51,8 +50,8 @@ type
   private
     FStatusCode: Integer;
   public
-    constructor Create(const AMessage: string; AStatusCode: Integer = 500); reintroduce; virtual;
-    constructor CreateFmt(const AMessage: string; const AArgs: array of const; AStatusCode: Integer = 500); reintroduce; virtual;
+    constructor Create(const AMessage: string; AStatusCode: Integer = 400); reintroduce; virtual;
+    constructor CreateFmt(const AMessage: string; const AArgs: array of const; AStatusCode: Integer = 400); reintroduce; virtual;
 
     property StatusCode: Integer read FStatusCode write FStatusCode;
   end;
@@ -987,6 +986,31 @@ type
     procedure SetOnPostDataEnd(const Value: TCrossHttpConnEvent);
 
     /// <summary>
+    ///   创建路由对象
+    /// </summary>
+    /// <param name="AMethod">
+    ///   请求方式
+    /// </param>
+    /// <param name="APath">
+    ///   请求路径
+    /// </param>
+    /// <param name="ARouterProc">
+    ///   路由匿名函数
+    /// </param>
+    /// <param name="ARouterMethod">
+    ///   路由方法
+    /// </param>
+    /// <param name="ARouterProc2">
+    ///   路由匿名函数
+    /// </param>
+    /// <param name="ARouterMethod2">
+    ///   路由方法
+    /// </param>
+    function CreateRouter(const AMethod, APath: string;
+      ARouterProc: TCrossHttpRouterProc; ARouterMethod: TCrossHttpRouterMethod;
+      ARouterProc2: TCrossHttpRouterProc2; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpRouter;
+
+    /// <summary>
     ///   注册中间件
     /// </summary>
     /// <param name="AMethod">
@@ -1533,6 +1557,20 @@ type
     function Dir(const APath, ALocalDir: string): ICrossHttpServer;
 
     /// <summary>
+    ///   注册含有默认首页文件的静态文件路由
+    /// </summary>
+    /// <param name="APath">
+    ///   请求路径
+    /// </param>
+    /// <param name="ALocalDir">
+    ///   含有默认首页文件的本地目录
+    /// </param>
+    /// <param name="ADefIndexFiles">
+    ///   默认的首页文件,按顺序选择,先找到哪个就使用哪个
+    /// </param>
+    function Index(const APath, ALocalDir: string; const ADefIndexFiles: TArray<string>): ICrossHttpServer;
+
+    /// <summary>
     ///   删除指定路由
     /// </summary>
     function RemoveRouter(const AMethod, APath: string): ICrossHttpServer;
@@ -1992,6 +2030,10 @@ type
     function CreateConnection(AOwner: ICrossSocket; AClientSocket: THandle;
       AConnectType: TConnectType): ICrossConnection; override;
 
+    function CreateRouter(const AMethod, APath: string;
+      ARouterProc: TCrossHttpRouterProc; ARouterMethod: TCrossHttpRouterMethod;
+      ARouterProc2: TCrossHttpRouterProc2; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpRouter; virtual;
+
     procedure LogicReceived(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer); override;
   protected
     procedure TriggerPostDataBegin(AConnection: ICrossHttpConnection); virtual;
@@ -2066,6 +2108,7 @@ type
 
     function &Static(const APath, ALocalStaticDir: string): ICrossHttpServer;
     function Dir(const APath, ALocalDir: string): ICrossHttpServer;
+    function Index(const APath, ALocalDir: string; const ADefIndexFiles: TArray<string>): ICrossHttpServer;
 
     function RemoveRouter(const AMethod, APath: string): ICrossHttpServer;
     function ClearRouter: ICrossHttpServer;
@@ -2427,6 +2470,16 @@ begin
   Result := TCrossHttpConnection.Create(AOwner, AClientSocket, AConnectType);
 end;
 
+function TCrossHttpServer.CreateRouter(const AMethod, APath: string;
+  ARouterProc: TCrossHttpRouterProc; ARouterMethod: TCrossHttpRouterMethod;
+  ARouterProc2: TCrossHttpRouterProc2;
+  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpRouter;
+begin
+  Result := TCrossHttpRouter.Create(AMethod, APath,
+    ARouterProc, ARouterMethod,
+    ARouterProc2, ARouterMethod2);
+end;
+
 destructor TCrossHttpServer.Destroy;
 begin
   Stop;
@@ -2754,6 +2807,18 @@ begin
   Result := Get(LReqPath, TNetCrossRouter.Static(ALocalStaticDir, 'file'));
 end;
 
+function TCrossHttpServer.Index(const APath, ALocalDir: string;
+  const ADefIndexFiles: TArray<string>): ICrossHttpServer;
+var
+  LReqPath: string;
+begin
+  LReqPath := APath;
+  if not LReqPath.EndsWith('/') then
+    LReqPath := LReqPath + '/';
+  LReqPath := LReqPath + ':file(*)';
+  Result := Get(LReqPath, TNetCrossRouter.Index(ALocalDir, 'file', ADefIndexFiles));
+end;
+
 function TCrossHttpServer.IsValidHttpRequest(ABuf: Pointer;
   ALen: Integer): Boolean;
 var
@@ -3045,9 +3110,9 @@ function TCrossHttpServer.RegisterMiddleware(const AMethod, APath: string;
   AMiddlewareProc2: TCrossHttpRouterProc2;
   AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
 var
-  LMiddleware: TCrossHttpRouter;
+  LMiddleware: ICrossHttpRouter;
 begin
-  LMiddleware := TCrossHttpRouter.Create(AMethod, APath,
+  LMiddleware := CreateRouter(AMethod, APath,
     AMiddlewareProc, AMiddlewareMethod,
     AMiddlewareProc2, AMiddlewareMethod2);
   FMiddlewaresLock.BeginWrite;
@@ -3065,7 +3130,7 @@ function TCrossHttpServer.RegisterRouter(const AMethod, APath: string;
 var
   LRouter: ICrossHttpRouter;
 begin
-  LRouter := TCrossHttpRouter.Create(AMethod, APath,
+  LRouter := CreateRouter(AMethod, APath,
     ARouterProc, ARouterMethod,
     ARouterProc2, ARouterMethod2);
   FRoutersLock.BeginWrite;
@@ -3108,7 +3173,7 @@ begin
   FRoutersLock.BeginWrite;
   try
     for I := FRouters.Count - 1 downto 0 do
-      if SameText(TCrossHttpRouter(FRouters[I]).FMethod, AMethod) and SameText(TCrossHttpRouter(FRouters[I]).FPath, APath) then
+      if SameText(FRouters[I].Method, AMethod) and SameText(FRouters[I].Path, APath) then
         FRouters.Delete(I);
   finally
     FRoutersLock.EndWrite;
@@ -4421,7 +4486,7 @@ begin
   LZFlush := Z_NO_FLUSH;
 
   if (deflateInit2(LZStream, Z_DEFAULT_COMPRESSION,
-    Z_DEFLATED, WINDOW_BITS[ACompressType], 8, Z_DEFAULT_STRATEGY) <>  Z_OK) then
+    Z_DEFLATED, WINDOW_BITS[ACompressType], 8, Z_DEFAULT_STRATEGY) <> Z_OK) then
   begin
     if Assigned(ACallback) then
       ACallback(FConnection, False);

@@ -13,7 +13,6 @@ interface
 
 uses
   System.SysUtils,
-  Net.SocketAPI,
   Net.CrossSocket.Base,
   Net.CrossSocket;
 

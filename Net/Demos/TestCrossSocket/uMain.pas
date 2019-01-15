@@ -11,10 +11,9 @@ uses
   FMX.Controls.Presentation, FMX.Edit, FMX.EditBox, FMX.SpinBox,
   System.Diagnostics, FMX.Objects,
   {$IFDEF __SSL__}
+  Net.CrossSslSocket.Base,
   Net.CrossSslSocket,
-  {$IFDEF POSIX}
   Net.CrossSslDemoCert,
-  {$ENDIF}
   {$ENDIF}
   Net.SocketAPI, Net.CrossSocket.Base, Net.CrossSocket;
 
@@ -309,14 +308,8 @@ begin
   FRunWatch := TStopwatch.StartNew;
 
   {$IFDEF __SSL__}
-  FSocket.InitSslCtx(SSLv23);
-  {$IFDEF POSIX}
   FSocket.SetCertificate(SSL_SERVER_CERT);
   FSocket.SetPrivateKey(SSL_SERVER_PKEY);
-  {$ELSE}
-  FSocket.SetCertificateFile('server.crt');
-  FSocket.SetPrivateKeyFile('server.key');
-  {$ENDIF}
   {$ENDIF}
 
   FTestProc :=

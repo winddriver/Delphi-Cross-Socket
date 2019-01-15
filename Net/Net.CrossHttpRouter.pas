@@ -41,6 +41,17 @@ type
     ///   本地目录
     /// </param>
     class function Dir(const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc2; static;
+
+    /// <summary>
+    ///   含有默认首页文件的静态文件路由
+    /// </summary>
+    /// <param name="ALocalDir">
+    ///   含有默认首页文件的本地目录
+    /// </param>
+    /// <param name="ADefIndexFiles">
+    ///   默认的首页文件,按顺序选择,先找到哪个就使用哪个
+    /// </param>
+    class function Index(const ALocalDir, AFileParamName: string; const ADefIndexFiles: TArray<string>): TCrossHttpRouterProc2; static;
   end;
 
 implementation
@@ -49,6 +60,58 @@ uses
   System.SysUtils, System.Classes, System.IOUtils, System.NetEncoding;
 
 { TNetCrossRouter }
+
+class function TNetCrossRouter.Index(const ALocalDir, AFileParamName: string;
+  const ADefIndexFiles: TArray<string>): TCrossHttpRouterProc2;
+var
+  LDefIndexFiles: TArray<string>;
+begin
+  if (ADefIndexFiles <> nil) then
+    LDefIndexFiles := ADefIndexFiles
+  else
+    LDefIndexFiles := [
+      'index.html',
+      'main.html',
+      'index.js',
+      'main.js',
+      'index.htm',
+      'main.htm'
+    ];
+
+  Result :=
+    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
+    var
+      LPath, LFile, LDefMainFile: string;
+    begin
+      LPath := ALocalDir;
+      LFile := ARequest.Params[AFileParamName];
+
+      if (LFile = '') then
+      begin
+        for LDefMainFile in LDefIndexFiles do
+        begin
+          LFile := TPath.Combine(LPath, LDefMainFile);
+          if TFile.Exists(LFile) then
+          begin
+            AResponse.SendFile(LFile);
+            AHandled := True;
+            Exit;
+          end;
+        end;
+      end else
+      begin
+        LFile := TPath.Combine(LPath, LFile);
+        if TFile.Exists(LFile) then
+        begin
+          AResponse.SendFile(LFile);
+          AHandled := True;
+          Exit;
+        end;
+      end;
+
+      AHandled := False;
+    end;
+end;
 
 class function TNetCrossRouter.Static(
   const ALocalDir, AFileParamName: string): TCrossHttpRouterProc2;
@@ -173,8 +236,8 @@ function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
     LPath := _NormalizePath(APath);
     LHome := _NormalizePath(AHome);
 
-    LPathArr := LPath.Split(['/', '\'], ExcludeEmpty);
-    LHomeArr := LHome.Split(['/', '\'], ExcludeEmpty);
+    LPathArr := LPath.Split(['/', '\'], TStringSplitOptions.ExcludeEmpty);
+    LHomeArr := LHome.Split(['/', '\'], TStringSplitOptions.ExcludeEmpty);
     if Length(LHomeArr) > Length(LPathArr) then Exit('');
 
     I := 0;

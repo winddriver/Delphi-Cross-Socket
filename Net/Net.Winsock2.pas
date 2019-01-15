@@ -65,7 +65,7 @@
 
   Rev 1.5    4/19/2003 02:29:26 AM  JPMugaas
   Added TransmitPackets API function call.  Note that this is only supported in
-  Windows XP or later.
+  Winapi.Windows XP or later.
 
 
   Rev 1.4    4/19/2003 12:22:58 AM  BGooijen
@@ -182,7 +182,9 @@ To deal with this, I use the FPC predefined FPC_REQUIRES_PROPER_ALIGNMENT.
 {$ENDIF}
 
 uses
-  SysUtils, Windows;
+  System.SysUtils,
+  System.AnsiStrings,
+  Winapi.Windows;
 
 type
   EIdWinsockStubError = class(Exception)
@@ -984,12 +986,12 @@ const
   {$EXTERNALSYM FD_ALL_EVENTS}
   FD_ALL_EVENTS = (1 shl FD_MAX_EVENTS) - 1;
 
-// All Windows Sockets error constants are biased by WSABASEERR from the "normal"
+// All Winapi.Windows Sockets error constants are biased by WSABASEERR from the "normal"
 
   {$EXTERNALSYM WSABASEERR}
   WSABASEERR              = 10000;
 
-// Windows Sockets definitions of regular Microsoft C error constants
+// Winapi.Windows Sockets definitions of regular Microsoft C error constants
 
   {$EXTERNALSYM WSAEINTR}
   WSAEINTR                = WSABASEERR+  4;
@@ -1004,7 +1006,7 @@ const
   {$EXTERNALSYM WSAEMFILE}
   WSAEMFILE               = WSABASEERR+ 24;
 
-// Windows Sockets definitions of regular Berkeley error constants
+// Winapi.Windows Sockets definitions of regular Berkeley error constants
 
   {$EXTERNALSYM WSAEWOULDBLOCK}
   WSAEWOULDBLOCK          = WSABASEERR+ 35;
@@ -1081,7 +1083,7 @@ const
   {$EXTERNALSYM WSAEREMOTE}
   WSAEREMOTE              = WSABASEERR+ 71;
 
-// Extended Windows Sockets error constant definitions
+// Extended Winapi.Windows Sockets error constant definitions
 
   {$EXTERNALSYM WSASYSNOTREADY}
   WSASYSNOTREADY          = WSABASEERR+ 91;
@@ -1243,8 +1245,8 @@ const
   {$EXTERNALSYM WSA_INFINITE}
   WSA_INFINITE            = INFINITE;
 
-{ Windows Sockets errors redefined as regular Berkeley error constants.
-  These are commented out in Windows NT to avoid conflicts with errno.h.
+{ Winapi.Windows Sockets errors redefined as regular Berkeley error constants.
+  These are commented out in Winapi.Windows NT to avoid conflicts with errno.h.
   Use the WSA constants instead. }
 
   {$EXTERNALSYM EWOULDBLOCK}
@@ -1851,7 +1853,7 @@ const
   {$EXTERNALSYM NS_NLA}
   NS_NLA         = 15;  //* Network Location Awareness*/ - WindowsXP
   {$EXTERNALSYM NS_BTH}
-  NS_BTH         = 16;  //* Bluetooth SDP Namespace */ - Windows Vista
+  NS_BTH         = 16;  //* Bluetooth SDP Namespace */ - Winapi.Windows Vista
 
   {$EXTERNALSYM NS_NBP}
   NS_NBP         = 20;
@@ -1863,7 +1865,7 @@ const
   {$EXTERNALSYM NS_NTDS}
   NS_NTDS        = 32;
 
-  //Windows Vista namespaces
+  //Winapi.Windows Vista namespaces
   {$EXTERNALSYM NS_EMAIL}
   NS_EMAIL      = 37;
   {$EXTERNALSYM NS_PNRPNAME}
@@ -2134,7 +2136,7 @@ const
   MSG_MCAST     =  $0800;
 
 {$IFNDEF WINCE}
-  //Windows Vista WSAPoll
+  //Winapi.Windows Vista WSAPoll
 //* Event flag definitions for WSAPoll(). */
   {$EXTERNALSYM POLLRDNORM}
   POLLRDNORM  = $0100;
@@ -2878,14 +2880,14 @@ type
     var RemoteSockaddr: PSockAddr; var RemoteSockaddrLength: Integer); stdcall;
 
   {$IFNDEF WINCE}
-  //This is defined in the Windows Mobile 6 Standard SDK Refresh
+  //This is defined in the Winapi.Windows Mobile 6 Standard SDK Refresh
   //but I'm not sure what .DLL the function is in.  I also couldn't find a WSAID
   //constant for it.
   {$EXTERNALSYM LPFN_WSARECVEX}
   LPFN_WSARECVEX = function(s: TSocket; var buf; len: Integer; var flags: Integer): Integer; stdcall;
   {$ENDIF}
 
-  //Windows Server 2003, Windows Vista
+  //Winapi.Windows Server 2003, Winapi.Windows Vista
   {$EXTERNALSYM LPFN_CONNECTEX}
   LPFN_CONNECTEX = function(const s : TSocket; const name: PSOCKADDR; const namelen: Integer; lpSendBuffer : Pointer; dwSendDataLength : DWORD; var lpdwBytesSent : DWORD; lpOverlapped : LPWSAOVERLAPPED) : BOOL; stdcall;
   {$EXTERNALSYM LPFN_DISCONNECTEX}
@@ -2894,7 +2896,7 @@ type
   LPFN_WSARECVMSG = function(const s : TSocket; lpMsg : LPWSAMSG; var lpNumberOfBytesRecvd : DWORD; AOverlapped: Pointer; lpCompletionRoutine : LPWSAOVERLAPPED_COMPLETION_ROUTINE): Integer; stdcall;
   {$EXTERNALSYM LPFN_TRANSMITPACKETS}
   LPFN_TRANSMITPACKETS = function(s: TSocket; lpPacketArray: LPTRANSMIT_PACKETS_ELEMENT; nElementCount: DWORD; nSendSize: DWORD; lpOverlapped: LPWSAOVERLAPPED; dwFlags: DWORD): BOOL; stdcall;
-  //Windows Vista, Windows Server 2008
+  //Winapi.Windows Vista, Winapi.Windows Server 2008
 {$IFNDEF WINCE}
   {$EXTERNALSYM LPFN_WSASENDMSG}
   LPFN_WSASENDMSG = function(const s : TSocket; lpMsg : LPWSAMSG; const dwFlags : DWORD; var lpNumberOfBytesSent : DWORD;  lpOverlapped : LPWSAOVERLAPPED;  lpCompletionRoutine : LPWSAOVERLAPPED_COMPLETION_ROUTINE) : Integer; stdcall;
@@ -3166,7 +3168,7 @@ var
   {$EXTERNALSYM GetAcceptExSockaddrs}
   GetAcceptExSockaddrs : LPFN_GETACCEPTEXSOCKADDRS = nil;
   {$IFNDEF WINCE}
-  //This is defined in the Windows Mobile 6 Standard SDK Refresh
+  //This is defined in the Winapi.Windows Mobile 6 Standard SDK Refresh
   //but I'm not sure what .DLL the function is in.  I also couldn't find a WSAID
   //constant for it.
   {$EXTERNALSYM WSARecvEx}
@@ -3181,7 +3183,7 @@ var
   {$EXTERNALSYM TransmitPackets}
   TransmitPackets : LPFN_TRANSMITPACKETS = nil;
   {$IFNDEF WINCE}
-  //Windows Vista, Windows Server 2008
+  //Winapi.Windows Vista, Winapi.Windows Server 2008
   {$EXTERNALSYM WSASendMsg}
   WSASendMsg: LPFN_WSASENDMSG = nil;
   {$EXTERNALSYM WSAPoll}
@@ -3328,7 +3330,7 @@ const
   SIOCGMSFILTER             = IOC_IN or ((SizeOf(u_long) and IOCPARM_MASK) shl 16) or (Ord('t') shl 8) or (127 or IOC_IN);    {Do not Localize}
 
   {$IFNDEF WINCE}
-  //Windows 2008 and Windows Vista SP1 additions
+  //Winapi.Windows 2008 and Winapi.Windows Vista SP1 additions
   {$EXTERNALSYM SIO_IDEAL_SEND_BACKLOG_QUERY}
   SIO_IDEAL_SEND_BACKLOG_QUERY = IOC_OUT or ((SizeOf(u_long) and IOCPARM_MASK) shl 16) or (Ord('t') shl 8) or 123;
   {$EXTERNALSYM SIO_IDEAL_SEND_BACKLOG_CHANGE}
@@ -3410,7 +3412,7 @@ const
   {$EXTERNALSYM IP_RECVTCLASS}
   IP_RECVTCLASS            = 40; // Receive packet traffic class.
   {$EXTERNALSYM IP_ORIGINAL_ARRIVAL_IF}
-  IP_ORIGINAL_ARRIVAL_IF   = 47; // Original Arrival Interface Index.  (Windows 7)
+  IP_ORIGINAL_ARRIVAL_IF   = 47; // Original Arrival Interface Index.  (Winapi.Windows 7)
 
 
   {$IFDEF WINCE}
@@ -4003,9 +4005,9 @@ const
   {$EXTERNALSYM AI_RETURN_PREFERRED_NAMES}
   AI_RETURN_PREFERRED_NAMES = $00010000;  // LUP_RETURN_PREFERRED_NAMES (Vista or later and applies only to NS_EMAIL namespace.)
   {$EXTERNALSYM AI_FQDN}
-  AI_FQDN                   = $00020000;  // Return the FQDN in ai_canonname  (Windows 7 or later)
+  AI_FQDN                   = $00020000;  // Return the FQDN in ai_canonname  (Winapi.Windows 7 or later)
   {$EXTERNALSYM AI_FILESERVER}
-  AI_FILESERVER             = $00040000;  // Resolving fileserver name resolution (Windows 7 or later)
+  AI_FILESERVER             = $00040000;  // Resolving fileserver name resolution (Winapi.Windows 7 or later)
 
 
 type
@@ -4062,10 +4064,10 @@ var
 {
 	wsipx.h
 
-	Microsoft Windows
+	Microsoft Winapi.Windows
 	Copyright (C) Microsoft Corporation, 1992-1999.
 
-	Windows Sockets include file for IPX/SPX.  This file contains all
+	Winapi.Windows Sockets include file for IPX/SPX.  This file contains all
 	standardized IPX/SPX information.  Include this header file after
 	winsock.h.
 
@@ -4123,9 +4125,9 @@ const
 {
 	wsnwlink.h
 
-	Microsoft Windows
+	Microsoft Winapi.Windows
 	Copyright (C) Microsoft Corporation, 1992-1999.
-		Microsoft-specific extensions to the Windows NT IPX/SPX Windows
+		Microsoft-specific extensions to the Winapi.Windows NT IPX/SPX Winapi.Windows
 		Sockets interface.  These extensions are provided for use as
 		necessary for compatibility with existing applications.  They are
 		otherwise not recommended for use, as they are only guaranteed to
@@ -4359,7 +4361,7 @@ const
 //	wsnetbs.h
 //	Copyright (c) 1994-1999, Microsoft Corp. All rights reserved.
 //
-//	Windows Sockets include file for NETBIOS.  This file contains all
+//	Winapi.Windows Sockets include file for NETBIOS.  This file contains all
 //	standardized NETBIOS information.  Include this header file after
 //	winsock.h.
 
@@ -5143,10 +5145,10 @@ begin
       if LError = 0 then begin
         Exit;
       end;
-      Windows.FreeLibrary(hWinSockDll);
+      Winapi.Windows.FreeLibrary(hWinSockDll);
       hWinSockDll := 0;
     end else begin
-      LError := Windows.GetLastError;
+      LError := Winapi.Windows.GetLastError;
     end;
     raise EIdWinsockStubError.Build(LError, RSWinsockLoadError, [WINSOCK2_DLL]);
   end;
@@ -5159,7 +5161,7 @@ begin
   if hMSWSockDll = 0 then begin
     hMSWSockDll := SafeLoadLibrary(MSWSOCK_DLL);
     if hMSWSockDll = 0 then begin
-      raise EIdWinsockStubError.Build(Windows.GetLastError, RSWinsockLoadError, [MSWSOCK_DLL]);
+      raise EIdWinsockStubError.Build(Winapi.Windows.GetLastError, RSWinsockLoadError, [MSWSOCK_DLL]);
     end;
   end;
 end;
@@ -5190,7 +5192,7 @@ begin
     inherited Create(FTitle);
   end else
   begin
-    FWin32ErrorMessage := SysUtils.SysErrorMessage(AWin32Error);
+    FWin32ErrorMessage := System.SysUtils.SysErrorMessage(AWin32Error);
     inherited Create(FTitle + ': ' + FWin32ErrorMessage);    {Do not Localize}
   end;
 end;
@@ -5208,7 +5210,7 @@ begin
   if hDll = 0 then begin
     raise EIdWinsockStubError.Build(WSANOTINITIALISED, RSWinsockCallError, [AName]);
   end;
-  Result := Windows.GetProcAddress(hDll, {$IFDEF WINCE}PWideChar{$ELSE}PChar{$ENDIF}(AName));
+  Result := Winapi.Windows.GetProcAddress(hDll, {$IFDEF WINCE}PWideChar{$ELSE}PChar{$ENDIF}(AName));
   if Result = nil then begin
     raise EIdWinsockStubError.Build(WSAEINVAL, RSWinsockCallError, [AName]);
   end;
@@ -6511,7 +6513,7 @@ end;
 function IN6_ADDR_EQUAL(const a: PIn6Addr; const b: PIn6Addr): Boolean;
 {$IFDEF USE_INLINE}inline;{$ENDIF}
 begin
-  Result := SysUtils.CompareMem(a, b, SIZE_TIN6ADDR);
+  Result := System.SysUtils.CompareMem(a, b, SIZE_TIN6ADDR);
 end;
 
 function IN6_IS_ADDR_UNSPECIFIED(const a: PIn6Addr): Boolean;
@@ -6718,7 +6720,7 @@ begin
     with snb^ do begin
       snb_family := AF_NETBIOS;
       snb_type := SnbType;
-      len := StrLen(Name);
+      len := System.AnsiStrings.StrLen(Name);
       if len >= NETBIOS_NAME_LENGTH-1 then begin
         System.Move(Name^, snb_name, NETBIOS_NAME_LENGTH-1);
       end else begin

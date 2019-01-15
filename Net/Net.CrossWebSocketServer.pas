@@ -52,6 +52,7 @@ uses
   System.Hash,
   System.NetEncoding,
   System.Math,
+  System.Generics.Collections,
   Net.CrossSocket.Base,
   Net.CrossHttpServer;
 
@@ -297,9 +298,9 @@ type
 
   TNetCrossWebSocketServer = class(TCrossHttpServer, ICrossWebSocketServer)
   private
-    FOnOpen: TWsOnOpen;
-    FOnMessage: TWsOnMessage;
-    FOnClose: TWsOnClose;
+    FOnOpenEvents: TList<TWsOnOpen>;
+    FOnMessageEvents: TList<TWsOnMessage>;
+    FOnCloseEvents: TList<TWsOnClose>;
 
     procedure _WebSocketHandshake(AConnection: ICrossWebSocketConnection;
       ACallback: TProc<ICrossWebSocketConnection, Boolean>);
@@ -319,6 +320,9 @@ type
     procedure TriggerWsRequest(AConnection: ICrossWebSocketConnection;
       ARequestType: TWsRequestType; const ARequestData: TBytes); virtual;
   public
+    constructor Create(AIoThreads: Integer); override;
+    destructor Destroy; override;
+
     function OnOpen(ACallback: TWsOnOpen): ICrossWebSocketServer;
     function OnMessage(ACallback: TWsOnMessage): ICrossWebSocketServer;
     function OnClose(ACallback: TWsOnClose): ICrossWebSocketServer;
@@ -868,6 +872,24 @@ end;
 
 { TNetCrossWebSocketServer }
 
+constructor TNetCrossWebSocketServer.Create(AIoThreads: Integer);
+begin
+  inherited;
+
+  FOnOpenEvents := TList<TWsOnOpen>.Create;
+  FOnMessageEvents := TList<TWsOnMessage>.Create;
+  FOnCloseEvents := TList<TWsOnClose>.Create;
+end;
+
+destructor TNetCrossWebSocketServer.Destroy;
+begin
+  FreeAndNil(FOnOpenEvents);
+  FreeAndNil(FOnMessageEvents);
+  FreeAndNil(FOnCloseEvents);
+
+  inherited;
+end;
+
 procedure TNetCrossWebSocketServer.LogicDisconnected(
   AConnection: ICrossConnection);
 var
@@ -894,19 +916,37 @@ end;
 
 function TNetCrossWebSocketServer.OnClose(ACallback: TWsOnClose): ICrossWebSocketServer;
 begin
-  FOnClose := ACallback;
+  System.TMonitor.Enter(FOnCloseEvents);
+  try
+    FOnCloseEvents.Add(ACallback);
+  finally
+    System.TMonitor.Exit(FOnCloseEvents);
+  end;
+
   Result := Self;
 end;
 
 function TNetCrossWebSocketServer.OnMessage(ACallback: TWsOnMessage): ICrossWebSocketServer;
 begin
-  FOnMessage := ACallback;
+  System.TMonitor.Enter(FOnMessageEvents);
+  try
+    FOnMessageEvents.Add(ACallback);
+  finally
+    System.TMonitor.Exit(FOnMessageEvents);
+  end;
+
   Result := Self;
 end;
 
 function TNetCrossWebSocketServer.OnOpen(ACallback: TWsOnOpen): ICrossWebSocketServer;
 begin
-  FOnOpen := ACallback;
+  System.TMonitor.Enter(FOnOpenEvents);
+  try
+    FOnOpenEvents.Add(ACallback);
+  finally
+    System.TMonitor.Exit(FOnOpenEvents);
+  end;
+
   Result := Self;
 end;
 
@@ -919,24 +959,57 @@ end;
 
 procedure TNetCrossWebSocketServer._OnClose(
   AConnection: ICrossWebSocketConnection);
+var
+  LOnCloseEvents: TArray<TWsOnClose>;
+  LOnCloseEvent: TWsOnClose;
 begin
-  if Assigned(FOnClose) then
-    FOnClose(AConnection);
+  System.TMonitor.Enter(FOnCloseEvents);
+  try
+    LOnCloseEvents := FOnCloseEvents.ToArray;
+  finally
+    System.TMonitor.Exit(FOnCloseEvents);
+  end;
+
+  for LOnCloseEvent in LOnCloseEvents do
+    if Assigned(LOnCloseEvent) then
+      LOnCloseEvent(AConnection);
 end;
 
 procedure TNetCrossWebSocketServer._OnMessage(
   AConnection: ICrossWebSocketConnection; ARequestType: TWsRequestType;
   const ARequestData: TBytes);
+var
+  LOnMessageEvents: TArray<TWsOnMessage>;
+  LOnMessageEvent: TWsOnMessage;
 begin
-  if Assigned(FOnMessage) then
-    FOnMessage(AConnection, ARequestType, ARequestData);
+  System.TMonitor.Enter(FOnMessageEvents);
+  try
+    LOnMessageEvents := FOnMessageEvents.ToArray;
+  finally
+    System.TMonitor.Exit(FOnMessageEvents);
+  end;
+
+  for LOnMessageEvent in LOnMessageEvents do
+    if Assigned(LOnMessageEvent) then
+      LOnMessageEvent(AConnection, ARequestType, ARequestData);
 end;
 
 procedure TNetCrossWebSocketServer._OnOpen(
   AConnection: ICrossWebSocketConnection);
+var
+  LOnOpenEvents: TArray<TWsOnOpen>;
+  LOnOpenEvent: TWsOnOpen;
 begin
-  if Assigned(FOnOpen) then
-    FOnOpen(AConnection);
+  System.TMonitor.Enter(FOnOpenEvents);
+  try
+    LOnOpenEvents := FOnOpenEvents.ToArray;
+  finally
+    System.TMonitor.Exit(FOnOpenEvents);
+  end;
+
+  for LOnOpenEvent in LOnOpenEvents do
+    if Assigned(LOnOpenEvent) then
+      LOnOpenEvent(AConnection);
 end;
 
 procedure TNetCrossWebSocketServer._WebSocketHandshake(

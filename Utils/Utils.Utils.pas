@@ -19,7 +19,8 @@ uses
   System.Math,
   System.Diagnostics,
   System.TimeSpan,
-  System.Character;
+  System.Character,
+  System.SysConst;
 
 type
   TUtils = class
@@ -47,6 +48,7 @@ type
     class function UnicodeTrim(const S: string): string; static;
     class function UnicodeTrimLeft(const S: string): string; static;
     class function UnicodeTrimRight(const S: string): string; static;
+    class function StrIPos(const ASubStr, AStr: string; AOffset: Integer): Integer; static;
 
     class procedure BinToHex(ABuffer: Pointer; ABufSize: Integer; AText: PChar); overload; static;
     class function BinToHex(ABuffer: Pointer; ABufSize: Integer): string; overload; static; inline;
@@ -56,11 +58,21 @@ type
     class function GetFullFileName(const AFileName: string): string; static;
     class function GetFileSize(const AFileName: string): Int64; static;
 
+    // 判断两段日期是否有交集
+    class function IsCrossDate(const AStartDate1, AEndDate1, AStartDate2, AEndDate2: TDateTime): Boolean;
+
     class property AppFile: string read FAppFile;
     class property AppPath: string read FAppPath;
     class property AppHome: string read FAppHome;
     class property AppDocuments: string read FAppDocuments; // ios, android 可写
     class property AppName: string read FAppName;
+  end;
+
+  TEncodingHelper = class helper for TEncoding
+    /// <summary>
+    ///   从内存块中直接解码出字符串, 省去先将内存块转换为TBytes, 从而提高效率
+    /// </summary>
+    function GetString(ABytes: PByte; AByteCount: Integer): string; overload;
   end;
 
 implementation
@@ -151,6 +163,12 @@ begin
 //    LGuid.D4[4], LGuid.D4[5], LGuid.D4[6], LGuid.D4[7]]);
 end;
 
+class function TUtils.IsCrossDate(const AStartDate1, AEndDate1, AStartDate2,
+  AEndDate2: TDateTime): Boolean;
+begin
+  Result := (AEndDate1 >= AStartDate2) and (AStartDate1 <= AEndDate2);
+end;
+
 class function TUtils.IsSpaceChar(const C: Char): Boolean;
 begin
   Result := (C.GetUnicodeCategory in [
@@ -210,6 +228,54 @@ end;
 class function TUtils.SimilarText(const AStr1, AStr2: string): Single;
 begin
   Result := 1 - (EditDistance(AStr1, AStr2) / Max(AStr1.Length, AStr2.Length));
+end;
+
+class function TUtils.StrIPos(const ASubStr, AStr: string;
+  AOffset: Integer): Integer;
+var
+  I, LIterCnt, L, J: Integer;
+  PSubStr, PS: PChar;
+  LCh: Char;
+begin
+  PSubStr := Pointer(ASubStr);
+  PS := Pointer(AStr);
+  if (PSubStr = nil) or (PS = nil) or (AOffset < 1) then
+    Exit(0);
+  L := Length(ASubStr);
+  { Calculate the number of possible iterations. }
+  LIterCnt := Length(AStr) - AOffset - L + 2;
+  if (L > 0) and (LIterCnt > 0) then
+  begin
+    Inc(PS, AOffset - 1);
+    I := 0;
+    LCh := UpCase(PSubStr[0]);
+    if L = 1 then   // Special case when Substring length is 1
+      repeat
+        if UpCase(PS[I]) = LCh then
+          Exit(I + AOffset);
+        Inc(I);
+      until I = LIterCnt
+    else
+      repeat
+        if UpCase(PS[I]) = LCh then
+        begin
+          J := 1;
+          repeat
+            if UpCase(PS[I + J]) = UpCase(PSubStr[J]) then
+            begin
+              Inc(J);
+              if J = L then
+                Exit(I + AOffset);
+            end
+            else
+              Break;
+          until False;
+        end;
+        Inc(I);
+      until I = LIterCnt;
+  end;
+
+  Result := 0;
 end;
 
 class function TUtils.StrToDateTime(const S: string): TDateTime;
@@ -403,6 +469,24 @@ begin
   end;
 
   Result := d[ASourceStr.length][ATargetStr.length];
+end;
+
+{ TEncodingHelper }
+
+function TEncodingHelper.GetString(ABytes: PByte; AByteCount: Integer): string;
+var
+  LSize: Integer;
+begin
+  if (ABytes = nil) then
+    raise EEncodingError.CreateRes(@SInvalidSourceArray);
+  if (AByteCount < 0) then
+    raise EEncodingError.CreateResFmt(@SInvalidCharCount, [AByteCount]);
+
+  LSize := GetCharCount(ABytes, AByteCount);
+  if (AByteCount > 0) and (LSize = 0) then
+    raise EEncodingError.CreateRes(@SNoMappingForUnicodeCharacter);
+  SetLength(Result, LSize);
+  GetChars(ABytes, AByteCount, PChar(Result), LSize);
 end;
 
 end.

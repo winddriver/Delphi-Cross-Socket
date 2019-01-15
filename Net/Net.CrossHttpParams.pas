@@ -12,10 +12,17 @@ unit Net.CrossHttpParams;
 interface
 
 uses
-  System.SysUtils, System.Classes, System.Generics.Collections,
-  System.Generics.Defaults, System.NetEncoding, System.IOUtils,
-  System.RegularExpressions, System.SyncObjs, System.Diagnostics,
-  System.DateUtils, Net.CrossHttpUtils;
+  System.SysUtils,
+  System.Classes,
+  System.Generics.Collections,
+  System.Generics.Defaults,
+  System.NetEncoding,
+  System.IOUtils,
+  System.RegularExpressions,
+  System.SyncObjs,
+  System.Diagnostics,
+  System.DateUtils,
+  Net.CrossHttpUtils;
 
 type
   TNameValue = record
@@ -331,7 +338,6 @@ type
     FFilePath: string;
     FContentType: string;
     FContentTransferEncoding: string;
-    FAutoDeleteFile: Boolean;
   public
     constructor Create;
     destructor Destroy; override;
@@ -373,11 +379,6 @@ type
     ///   文件保存路径（只有文件才有该属性）
     /// </summary>
     property FilePath: string read FFilePath;
-
-    /// <summary>
-    /// 对象释放时自动删除上传的文件
-    /// </summary>
-    property AutoDeleteFile: Boolean read FAutoDeleteFile write FAutoDeleteFile;
 
     /// <summary>
     ///   内容类型（只有文件才有该属性）
@@ -504,6 +505,11 @@ type
     procedure SetValue(const AName, AValue: string);
 
     /// <summary>
+    ///   更新最后访问时间
+    /// </summary>
+    procedure Touch;
+
+    /// <summary>
     ///   是否已过期
     /// </summary>
     function Expired: Boolean;
@@ -559,6 +565,7 @@ type
   public
     constructor Create(const ASessionID: string); virtual; abstract;
 
+    procedure Touch; virtual;
     function Expired: Boolean; virtual;
 
     property SessionID: string read GetSessionID write SetSessionID;
@@ -809,7 +816,8 @@ type
 implementation
 
 uses
-  Utils.Utils, Utils.DateTime;
+  Utils.Utils,
+  Utils.DateTime;
 
 { TNameValue }
 
@@ -1268,9 +1276,6 @@ destructor TFormField.Destroy;
 begin
   FreeValue;
 
-  if FAutoDeleteFile and (FFilePath <> '') and TFile.Exists(FFilePath) then
-    TFile.Delete(FFilePath);
-
   inherited;
 end;
 
@@ -1352,7 +1357,18 @@ begin
 end;
 
 procedure THttpMultiPartFormData.Clear;
+var
+  LField: TFormField;
 begin
+  for LField in FPartFields do
+  begin
+    if FAutoDeleteFiles and TFile.Exists(LField.FilePath) then
+    begin
+      LField.FreeValue;
+      TFile.Delete(LField.FilePath);
+    end;
+  end;
+
   FPartFields.Clear;
 end;
 
@@ -1550,7 +1566,6 @@ begin
             LPartHeader := TEncoding.UTF8.GetString(FCurrentPartHeader.Bytes, 0, FCurrentPartHeader.Size - 4{#13#10#13#10});
             FCurrentPartHeader.Clear;
             FCurrentPartField := TFormField.Create;
-            FCurrentPartField.AutoDeleteFile := FAutoDeleteFiles;
             __InitFormFieldByHeader(FCurrentPartField, LPartHeader);
             FPartFields.Add(FCurrentPartField);
 
@@ -1692,6 +1707,11 @@ end;
 function TSessionBase.Expired: Boolean;
 begin
   Result := (Now.SecondsDiffer(LastAccessTime) >= ExpiryTime);
+end;
+
+procedure TSessionBase.Touch;
+begin
+  LastAccessTime := Now;
 end;
 
 { TSession }
