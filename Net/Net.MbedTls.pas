@@ -330,6 +330,12 @@ type
 
   PMbedtls_SSL_Cache_Entry = Pointer;
 
+  PTlsMutex = ^TTlsMutex;
+  TTlsMutex = record
+    Lock: TObject;
+    IsValid: Byte;
+  end;
+
   TMbedtls_MPI = record
     s: Integer; // integer sign
     n: Size_T; // total # of limbs
@@ -594,7 +600,7 @@ type
     chain: PMbedtls_SSL_Cache_Entry; // !< start of the chain
     timeout: Integer; // !< cache entry timeout
     max_entries: Integer; // !< maximum entries
-    mutex: Pointer; // !< mutex
+    mutex: TTlsMutex; // !< mutex
   end;
 
   TMbedtls_Asn1_Buf = record
@@ -770,7 +776,7 @@ type
     source_count: Integer;
     source: array [0 .. MBEDTLS_ENTROPY_MAX_SOURCES - 1] of TMbedtls_Entropy_Source_State;
     havege_data: TMbedtls_Havege_State;
-    mutex: Pointer; // !< mutex
+    mutex: TTlsMutex; // !< mutex
     initial_entropy_run: Integer;
   end;
 
@@ -808,7 +814,7 @@ type
 
     p_entropy: Pointer; // !< The context for the entropy function.
 
-    mutex: Pointer;
+    mutex: TTlsMutex;
   end;
 
   TEntropyFunc = function(data: Pointer; output: MarshaledAString; len: Size_T): Integer; cdecl;
@@ -1537,13 +1543,6 @@ function CryptGenRandom(hProv: HCRYPTPROV; dwLen: DWORD; pbBuffer: LPBYTE): BOOL
 
 function CryptReleaseContext(hProv: HCRYPTPROV; dwFlags: ULONG_PTR): BOOL; stdcall; external advapi32;
 {$ENDIF}
-
-type
-  PTlsMutex = ^TTlsMutex;
-  TTlsMutex = record
-    Lock: TObject;
-    IsValid: Byte;
-  end;
 
 procedure _mutex_init(mutex: PTlsMutex); cdecl;
 begin
