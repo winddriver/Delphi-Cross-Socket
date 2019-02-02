@@ -126,7 +126,7 @@ type
     procedure _InitSslConf;
     procedure _FreeSslConf;
 
-    function _MbedCert(const ACertStr: string): string; inline;
+    function _MbedCert(const ACertBytes: TBytes): TBytes; inline;
     procedure _UpdateCert;
   protected
     procedure TriggerConnected(AConnection: ICrossConnection); override;
@@ -344,7 +344,8 @@ procedure TCrossMbedTlsSocket.SetCertificate(const ACertStr: string);
 var
   LCertBytes: TBytes;
 begin
-  LCertBytes := TEncoding.ANSI.GetBytes(_MbedCert(ACertStr));
+  LCertBytes := TEncoding.ANSI.GetBytes(ACertStr);
+  LCertBytes := _MbedCert(LCertBytes);
 
   SetCertificate(Pointer(LCertBytes), Length(LCertBytes));
 end;
@@ -354,6 +355,7 @@ var
   LCertBytes: TBytes;
 begin
   LCertBytes := TFile.ReadAllBytes(ACertFile);
+  LCertBytes := _MbedCert(LCertBytes);
 
   SetCertificate(Pointer(LCertBytes), Length(LCertBytes));
 end;
@@ -369,7 +371,8 @@ procedure TCrossMbedTlsSocket.SetPrivateKey(const APKeyStr: string);
 var
   LPKeyBytes: TBytes;
 begin
-  LPKeyBytes := TEncoding.ANSI.GetBytes(_MbedCert(APKeyStr));
+  LPKeyBytes := TEncoding.ANSI.GetBytes(APKeyStr);
+  LPKeyBytes := _MbedCert(LPKeyBytes);
 
   SetPrivateKey(Pointer(LPKeyBytes), Length(LPKeyBytes));
 end;
@@ -379,6 +382,7 @@ var
   LPKeyBytes: TBytes;
 begin
   LPKeyBytes := TFile.ReadAllBytes(APKeyFile);
+  LPKeyBytes := _MbedCert(LPKeyBytes);
 
   SetPrivateKey(Pointer(LPKeyBytes), Length(LPKeyBytes));
 end;
@@ -507,13 +511,14 @@ begin
   {$endregion}
 end;
 
-function TCrossMbedTlsSocket._MbedCert(const ACertStr: string): string;
+function TCrossMbedTlsSocket._MbedCert(const ACertBytes: TBytes): TBytes;
 begin
-  // MbedTls 要求证书必须以 #0 结束
-  if ACertStr.EndsWith(#0) then
-    Result := ACertStr
+  // PEM格式的证书需要以#0结尾
+  if (ACertBytes = nil)
+    or (ACertBytes[High(ACertBytes)] = 0) then
+    Result := ACertBytes
   else
-    Result := ACertStr + #0;
+    Result := ACertBytes + [0];
 end;
 
 procedure TCrossMbedTlsSocket._UpdateCert;
