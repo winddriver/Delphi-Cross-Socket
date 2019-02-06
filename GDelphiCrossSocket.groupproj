@@ -33,4 +33,12 @@
         <CallTarget Targets="PDelphiCrossSocket:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+    <ItemGroup Condition="'$(BuildGroup)'=='All'">
+        <BuildGroupProject Include="PDelphiCrossSocket.dproj">
+            <ProjectGuid>{20B380D8-A20E-4C3D-94D7-B0281A2939A4}</ProjectGuid>
+            <Configurations>Debug;Release</Configurations>
+            <Platforms>Android;iOSDevice32;iOSDevice64;Win32;Win64</Platforms>
+            <Enabled>True</Enabled>
+        </BuildGroupProject>
+    </ItemGroup>
 </Project>
