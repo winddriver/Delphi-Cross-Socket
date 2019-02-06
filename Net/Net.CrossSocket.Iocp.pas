@@ -50,7 +50,7 @@ type
     TPerIoBufUnion = record
       case Integer of
         0: (DataBuf: WSABUF);
-        // This Buffer is only used to save the terminal address data in AcceptEx, the size is 2 times the address structure.
+        // 这个Buffer只用于AcceptEx保存终端地址数据，大小为2倍地址结构
         1: (AcceptExBuffer: TAcceptExBuffer);
     end;
 
@@ -190,7 +190,7 @@ begin
   LClientSocket := APerIoData.Socket;
   LListenSocket := LListen.Socket;
 
-  // Do not set this parameter, will cause the getpeername call to fail
+  // 不设置该参数, 会导致 getpeername 调用失败
   if (TSocketAPI.SetSockOpt<THandle>(LClientSocket, SOL_SOCKET,
     SO_UPDATE_ACCEPT_CONTEXT, LListenSocket) < 0) then
   begin
@@ -244,7 +244,7 @@ begin
     Exit;
   end;
 
-  // Do not set this parameter, will cause the getpeername call to fail
+  // 不设置该参数, 会导致 getpeername 调用失败
   if (TSocketAPI.SetSockOpt<Integer>(LClientSocket, SOL_SOCKET,
     SO_UPDATE_CONNECT_CONTEXT, 1) < 0) then
   begin
@@ -276,7 +276,7 @@ begin
   begin
     LRcvd := TSocketAPI.Recv(LConnection.Socket, FRecvBuf[0], RCV_BUF_SIZE);
 
-    // The other party actively disconnects
+    // 对方主动断开连接
     if (LRcvd = 0) then
     begin
       LConnection.Close;
@@ -287,13 +287,13 @@ begin
     begin
       LError := GetLastError;
 
-      // Interrupted by the system signal, you can re-recv
+      // 被系统信号中断, 可以重新recv
       if (LError = WSAEINTR) then
         Continue
-      // The data in the receive buffer has been fetched.
+      // 接收缓冲区中数据已经被取完了
       else if (LError = WSAEWOULDBLOCK) or (LError = WSAEINPROGRESS) then
         Break
-      // Receive error
+      // 接收出错
       else
       begin
         LConnection.Close;
@@ -346,7 +346,7 @@ begin
   for I := 0 to Length(FIoThreads) - 1 do
   begin
     if (FIoThreads[I].ThreadID = LCurrentThreadID) then
-      raise ECrossSocket.Create('Cannot execute StopLoop in IO thread!');
+      raise ECrossSocket.Create('不能在IO线程中执行StopLoop!');
 
     FIoThreads[I].WaitFor;
     FreeAndNil(FIoThreads[I]);
@@ -555,13 +555,13 @@ begin
         Exit;
       end;
 
-      // Deliver an AcceptEx to each IO thread
+      // 给每个IO线程投递一个AcceptEx
       for I := 1 to GetIoThreads do
         _NewAccept(LListen);
 
       _Success;
 
-      // If the port passes 0, let all addresses be unified with the first assigned port
+      // 如果端口传入0，让所有地址统一用首个分配到的端口
       if (APort = 0) and (LAddrInfo.ai_next <> nil) then
         LAddrInfo.ai_next.ai_addr.sin_port := LListen.LocalPort;
 
@@ -588,19 +588,19 @@ begin
 
   LFlags := 0;
   LBytes := 0;
-  // WSASend will not be partially sent, either fail or all succeed
-  // So you don’t need to check the actual number sent after calling the call like kqueue or epoll
-  // The only thing to note is that WSASend will lock the data to be sent to non-page memory, non-page memory resources.
-  // is very nervous, so don't call WSASend in an uncontrolled way, it is best to send a batch of data through the callback and then continue
-  // Continue to send the next batch
+  // WSASend 不会出现部分发送的情况, 要么全部失败, 要么全部成功
+  // 所以不需要像 kqueue 或 epoll 中调用 send 那样调用完之后还得检查实际发送了多少
+  // 唯一需要注意的是: WSASend 会将待发送的数据锁定到非页面内存, 非页面内存资源
+  // 是非常紧张的, 所以不要无节制的调用 WSASend, 最好通过回调发送完一批数据再继
+  // 续发送下一批
   if (WSASend(AConnection.Socket, @LPerIoData.Buffer.DataBuf, 1, LBytes, LFlags, PWSAOverlapped(LPerIoData), nil) < 0)
     and (WSAGetLastError <> WSA_IO_PENDING) then
   begin
-    // Most of the errors are WSAENOBUFS, that is, too many WSASends are delivered, too late to send
-    // Causes all non-page memory resources to be locked. To avoid this, the upper layer must be sent logic.
-    // Ensure that you can not send Send a large amount of data in an uncontrolled way, it is best to send one and then continue
-    // One, this function provides a callback function that sends the result, and the callback function report is sent successfully.
-    // After that, you can continue to send the next piece of data.
+    // 出错多半是 WSAENOBUFS, 也就是投递的 WSASend 过多, 来不及发送
+    // 导致非页面内存资源全部被锁定, 要避免这种情况必须上层发送逻辑
+    // 保证不能无节制的调用Send发送大量数据, 最好发送完一个再继续下
+    // 一个, 本函数提供了发送结果的回调函数, 在回调函数报告发送成功
+    // 之后就可以继续下一块数据发送了
     _FreeIoData(LPerIoData);
     AConnection.Close;
 
@@ -620,13 +620,13 @@ var
 begin
   if not GetQueuedCompletionStatus(FIocpHandle, LBytes, ULONG_PTR(LSocket), POverlapped(LPerIoData), INFINITE) then
   begin
-    // An error has occurred, and the completion data is also empty.
-    // This situation should continue to go wrong even if you try again, it is best to terminate the IO thread immediately.
+    // 出错了, 并且完成数据也都是空的,
+    // 这种情况即便重试, 应该也会继续出错, 最好立即终止IO线程
     if (LPerIoData = nil) then
     begin
       {$IFDEF DEBUG}
       LErrNo := GetLastError;
-      // ERROR_INVALID_HANDLE and ERROR_ABANDONED_WAIT_0 may be triggered when the port is closed
+      // 完成端口被关闭时可能会触发 ERROR_INVALID_HANDLE 和 ERROR_ABANDONED_WAIT_0
       if (LErrNo <> ERROR_INVALID_HANDLE)
         and (LErrNo <> ERROR_ABANDONED_WAIT_0)
       then
@@ -636,16 +636,16 @@ begin
     end;
 
     try
-      // WSA_OPERATION_ABORTED, 995, I/O operation has been aborted due to thread exit or application request.
-      // WSAENOTSOCK, 10038, tried an operation on a non-socket.
-      // ERROR_NETNAME_DELETED, 64, the specified network name is no longer available
-      // ERROR_CONNECTION_REFUSED, 1225, The remote computer rejects the network connection.
+      // WSA_OPERATION_ABORTED, 995, 由于线程退出或应用程序请求，已中止 I/O 操作。
+      // WSAENOTSOCK, 10038, 在一个非套接字上尝试了一个操作。
+      // ERROR_NETNAME_DELETED, 64, 指定的网络名不再可用
+      // ERROR_CONNECTION_REFUSED, 1225, 远程计算机拒绝网络连接。
       if (LPerIoData.CrossData <> nil) then
       begin
-        // If AcceptEx succeeds, but the Socket handle is exhausted, and the AcceptEx is delivered again.
+        // AcceptEx虽然成功, 但是Socket句柄耗尽了, 再次投递AcceptEx
         if (LPerIoData.Action = ioAccept) then
         begin
-          // This error is triggered when the listener is turned off. This should not continue to be delivered.
+          // 关闭监听后会触发该错误, 这种情况不应该继续投递
           if (GetLastError <> WSA_OPERATION_ABORTED) then
             _NewAccept(LPerIoData.CrossData as ICrossListen);
         end else
@@ -665,15 +665,15 @@ begin
       _FreeIoData(LPerIoData);
     end;
 
-    // An error occurred, but the completion data is not empty and needs to be retried
+    // 出错了, 但是完成数据不是空的, 需要重试
     Exit(True);
   end;
 
-  // Actively called StopLoop
+  // 主动调用了 StopLoop
   if (LBytes = 0) and (ULONG_PTR(LPerIoData) = SHUTDOWN_FLAG) then Exit(False);
 
-  // The completion data was not obtained for unknown reasons, but the returned error code is normal again.
-  // This situation needs to be retried (the IO thread will call ProcessIoEvent again after returning True)
+  // 由于未知原因未获取到完成数据, 但是返回的错误代码又是正常
+  // 这种情况需要进行重试(返回True之后IO线程会再次调用ProcessIoEvent)
   if (LPerIoData = nil) then Exit(True);
 
   try
