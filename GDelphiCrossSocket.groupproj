@@ -1,0 +1,36 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{1B8630DD-6168-41D3-9028-3ADF60C97A5A}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="PDelphiCrossSocket.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="PDelphiCrossSocket">
+        <MSBuild Projects="PDelphiCrossSocket.dproj"/>
+    </Target>
+    <Target Name="PDelphiCrossSocket:Clean">
+        <MSBuild Projects="PDelphiCrossSocket.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="PDelphiCrossSocket:Make">
+        <MSBuild Projects="PDelphiCrossSocket.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="PDelphiCrossSocket"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="PDelphiCrossSocket:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="PDelphiCrossSocket:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>

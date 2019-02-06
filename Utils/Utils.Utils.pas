@@ -290,7 +290,7 @@ class function TUtils.StrToDateTime(const S, Fmt: string): TDateTime;
   function GetSeparator(const S: string): Char;
   begin
     for Result in S do
-      if not CharInSet(Result, ['a'..'z', 'A'..'Z']) then Exit;
+      if not Result.IsLetter then Exit;
     Result := #0;
   end;
 var

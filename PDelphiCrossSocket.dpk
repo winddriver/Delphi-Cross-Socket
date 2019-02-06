@@ -1,0 +1,67 @@
+package PDelphiCrossSocket;
+
+{$R *.res}
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO OFF}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS OFF}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION ON}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO OFF}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES OFF}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE RELEASE}
+{$ENDIF IMPLICITBUILDING}
+{$DESCRIPTION 'iPub thirdy-party - Delphi Cross Socket'}
+{$IMPLICITBUILD ON}
+
+requires
+  rtl;
+
+contains
+  Utils.DateTime in 'Utils\Utils.DateTime.pas',
+  Utils.Logger in 'Utils\Utils.Logger.pas',
+  Utils.RegEx in 'Utils\Utils.RegEx.pas',
+  Utils.Utils in 'Utils\Utils.Utils.pas',
+  BSD.kqueue in 'Net\BSD.kqueue.pas',
+  Linux.epoll in 'Net\Linux.epoll.pas',
+  Net.CrossHttpMiddleware in 'Net\Net.CrossHttpMiddleware.pas',
+  Net.CrossHttpParams in 'Net\Net.CrossHttpParams.pas',
+  Net.CrossHttpRouter in 'Net\Net.CrossHttpRouter.pas',
+  Net.CrossHttpServer in 'Net\Net.CrossHttpServer.pas',
+  Net.CrossHttpUtils in 'Net\Net.CrossHttpUtils.pas',
+  Net.CrossServer in 'Net\Net.CrossServer.pas',
+  Net.CrossSocket.Base in 'Net\Net.CrossSocket.Base.pas',
+  Net.CrossSocket.Epoll in 'Net\Net.CrossSocket.Epoll.pas',
+  Net.CrossSocket.Iocp in 'Net\Net.CrossSocket.Iocp.pas',
+  Net.CrossSocket.Kqueue in 'Net\Net.CrossSocket.Kqueue.pas',
+  Net.CrossSocket in 'Net\Net.CrossSocket.pas',
+  Net.CrossSslDemoCert in 'Net\Net.CrossSslDemoCert.pas',
+  Net.CrossSslServer in 'Net\Net.CrossSslServer.pas',
+  Net.CrossSslSocket.Base in 'Net\Net.CrossSslSocket.Base.pas',
+  Net.CrossSslSocket.MbedTls in 'Net\Net.CrossSslSocket.MbedTls.pas',
+  Net.CrossSslSocket.OpenSSL in 'Net\Net.CrossSslSocket.OpenSSL.pas',
+  Net.CrossSslSocket in 'Net\Net.CrossSslSocket.pas',
+  Net.CrossWebSocketServer in 'Net\Net.CrossWebSocketServer.pas',
+  Net.MbedBIO in 'Net\Net.MbedBIO.pas',
+  Net.MbedTls in 'Net\Net.MbedTls.pas',
+  Net.OpenSSL in 'Net\Net.OpenSSL.pas',
+  Net.RawSocket in 'Net\Net.RawSocket.pas',
+  Net.SocketAPI in 'Net\Net.SocketAPI.pas',
+  Net.Winsock2 in 'Net\Net.Winsock2.pas',
+  Net.Wship6 in 'Net\Net.Wship6.pas';
+
+end.

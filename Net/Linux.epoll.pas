@@ -11,6 +11,8 @@ unit Linux.epoll;
 
 interface
 
+{$IF defined(LINUX) or defined(ANDROID)}
+
 uses
   Posix.Base, Posix.Signal;
 
@@ -69,4 +71,7 @@ function eventfd(initval: Cardinal; flags: Integer): Integer; cdecl;
 
 implementation
 
+{$ELSE}
+implementation
+{$ENDIF}
 end.

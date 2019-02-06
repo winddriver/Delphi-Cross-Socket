@@ -910,8 +910,8 @@ begin
       {$ENDIF}
     end;
     {$IFDEF DEBUG}
-    Inc(LRunCount)
-    {$ENDIF};
+    Inc(LRunCount);
+    {$ENDIF}
   end;
   {$IFDEF DEBUG}
 //  _Log('%s Io thread ID %d, %d times called, [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, LRunCount]);

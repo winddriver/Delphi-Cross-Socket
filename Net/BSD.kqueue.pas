@@ -11,6 +11,8 @@ unit BSD.kqueue;
 
 interface
 
+{$IF defined(MACOS) or defined(IOS)}
+
 uses
   Posix.Base, Posix.Time;
 
@@ -111,4 +113,7 @@ begin
   kevp^.uData  := auData;
 end;
 
+{$ELSE}
+implementation
+{$ENDIF}
 end.

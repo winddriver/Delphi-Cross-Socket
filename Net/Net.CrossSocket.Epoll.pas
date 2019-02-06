@@ -11,6 +11,8 @@ unit Net.CrossSocket.Epoll;
 
 interface
 
+{$IF defined(LINUX) or defined(ANDROID)}
+
 uses
   System.SysUtils,
   System.Classes,
@@ -978,4 +980,7 @@ begin
   Result := True;
 end;
 
+{$ELSE}
+implementation
+{$ENDIF}
 end.

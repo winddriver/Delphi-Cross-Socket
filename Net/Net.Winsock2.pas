@@ -137,6 +137,7 @@ unit Net.Winsock2;
 
 interface
 
+{$IF defined(MSWINDOWS)}
 {$I Net.Winsock.inc}
 
 {
@@ -6751,5 +6752,8 @@ initialization
 finalization
   UninitializeWinSock;
 
+{$ELSE}
+implementation
+{$ENDIF}
 end.
 

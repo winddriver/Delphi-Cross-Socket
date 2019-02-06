@@ -11,6 +11,8 @@ unit Net.CrossSocket.Iocp;
 
 interface
 
+{$IF defined(MSWINDOWS)}
+
 uses
   System.SysUtils,
   System.Classes,
@@ -690,4 +692,7 @@ begin
   Result := True;
 end;
 
+{$ELSE}
+implementation
+{$ENDIF}
 end.

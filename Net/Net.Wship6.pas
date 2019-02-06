@@ -32,6 +32,7 @@ unit Net.Wship6;
 
 interface
 
+{$IF defined(MSWINDOWS)}
 {$I Net.Winsock.inc}
 
 {$IFDEF FPC}
@@ -587,4 +588,7 @@ initialization
 finalization
   CloseLibrary;
 
+{$ELSE}
+implementation
+{$ENDIF}
 end.
