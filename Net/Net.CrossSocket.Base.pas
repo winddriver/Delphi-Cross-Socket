@@ -699,7 +699,7 @@ type
 
   TIoEventThread = class(TThread)
   private
-    FCrossSocket: ICrossSocket;
+    [Weak] FCrossSocket: ICrossSocket;
   protected
     procedure Execute; override;
   public
@@ -998,8 +998,8 @@ end;
 
 procedure TAbstractCrossSocket.AfterConstruction;
 begin
-  inherited AfterConstruction;
   StartLoop;
+  inherited AfterConstruction;
 end;
 
 procedure TAbstractCrossSocket.BeforeDestruction;
