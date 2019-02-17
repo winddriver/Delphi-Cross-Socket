@@ -4,6 +4,12 @@
 
 ## 更新记录
 
+#### 2019.02.17
+- 修复 TIoEventThread 可能引起的内存泄漏的问题
+  > 感谢 viniciusfbb 发现并修复了该问题
+- 修复 [weak] 引起的内存泄漏问题
+  > 与第三方内存管理库搭配使用时会出现内存泄漏，robertodellapasqua 发现了该问题，最终由 pony5551 找到了该问题产生的原因，特此感谢！这应该是 Delphi 的 [weak] 内部实现有缺陷，将 [weak] 替换成 [unsafe] 后该问题得以解决。
+
 #### 2019.01.15
 - 增加 mbedtls 支持
   - mbedtls启用方法：在工程编译选项中开启 \_\_CROSS\_SSL\_\_ 和 \_\_MBED\_TLS\_\_ 这两个编译开关, 并且将 MbedObj 下的目录添加到对应平台的 Library path 中

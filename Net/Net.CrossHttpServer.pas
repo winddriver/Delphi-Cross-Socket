@@ -1789,7 +1789,7 @@ type
   private
     // Request 是 Connection 的子对象, 它的生命周期跟随 Connection
     // 这里使用弱引用, 不增加 Connection 的引用计数, 避免循环引用造成接口对象无法自动释放
-    [weak]FConnection: ICrossHttpConnection;
+    [unsafe]FConnection: ICrossHttpConnection;
     FHeader: THttpHeader;
     FCookies: TRequestCookies;
     FSession: ISession;
@@ -1851,7 +1851,7 @@ type
   private
     // Response 是 Connection 的子对象, 它的生命周期跟随 Connection
     // 这里使用弱引用, 不增加 Connection 的引用计数, 避免循环引用造成接口对象无法自动释放
-    [weak]FConnection: ICrossHttpConnection;
+    [unsafe]FConnection: ICrossHttpConnection;
     FStatusCode: Integer;
     FHeader: THttpHeader;
     FCookies: TResponseCookies;

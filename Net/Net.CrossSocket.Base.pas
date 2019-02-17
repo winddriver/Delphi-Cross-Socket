@@ -579,7 +579,7 @@ type
   private
     class var FCrossUID: UInt64;
   private
-    [weak]FOwner: ICrossSocket;
+    [unsafe]FOwner: ICrossSocket;
     FUID: UInt64;
     FSocket: THandle;
     FLocalAddr: string;
@@ -699,7 +699,7 @@ type
 
   TIoEventThread = class(TThread)
   private
-    [weak]FCrossSocket: ICrossSocket;
+    [unsafe]FCrossSocket: ICrossSocket;
   protected
     procedure Execute; override;
   public
