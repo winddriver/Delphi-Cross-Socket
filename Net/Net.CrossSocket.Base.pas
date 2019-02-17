@@ -699,7 +699,7 @@ type
 
   TIoEventThread = class(TThread)
   private
-    FCrossSocket: ICrossSocket;
+    [weak]FCrossSocket: ICrossSocket;
   protected
     procedure Execute; override;
   public
@@ -998,8 +998,8 @@ end;
 
 procedure TAbstractCrossSocket.AfterConstruction;
 begin
-  inherited AfterConstruction;
   StartLoop;
+  inherited AfterConstruction;
 end;
 
 procedure TAbstractCrossSocket.BeforeDestruction;
@@ -1131,8 +1131,10 @@ begin
 
   _LockConnections;
   try
+    if not FConnections.ContainsKey(AConnection.UID) then
+      Inc(FConnectionsCount);
+
     FConnections.AddOrSetValue(AConnection.UID, AConnection);
-    FConnectionsCount := FConnections.Count;
   finally
     _UnlockConnections;
   end;
@@ -1156,8 +1158,9 @@ begin
   _LockConnections;
   try
     if not FConnections.ContainsKey(AConnection.UID) then Exit;
+
     FConnections.Remove(AConnection.UID);
-    FConnectionsCount := FConnections.Count;
+    Dec(FConnectionsCount);
   finally
     _UnlockConnections;
   end;

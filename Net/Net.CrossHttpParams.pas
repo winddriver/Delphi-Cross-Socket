@@ -563,7 +563,7 @@ type
     procedure SetExpiryTime(const Value: Integer); virtual; abstract;
     procedure SetValue(const AName, AValue: string); virtual; abstract;
   public
-    constructor Create(const ASessionID: string); virtual; abstract;
+    constructor Create(const ASessionID: string); virtual;
 
     procedure Touch; virtual;
     function Expired: Boolean; virtual;
@@ -1704,6 +1704,13 @@ end;
 
 { TSessionBase }
 
+constructor TSessionBase.Create(const ASessionID: string);
+begin
+  SetSessionID(ASessionID);
+  SetCreateTime(Now);
+  SetLastAccessTime(Now);
+end;
+
 function TSessionBase.Expired: Boolean;
 begin
   Result := (Now.SecondsDiffer(LastAccessTime) >= ExpiryTime);
@@ -1719,8 +1726,8 @@ end;
 constructor TSession.Create(const ASessionID: string);
 begin
   FValues := TDictionary<string, string>.Create;
-  FSessionID := ASessionID;
-  FCreateTime := Now;
+
+  inherited;
 end;
 
 destructor TSession.Destroy;
@@ -1901,7 +1908,7 @@ begin
         while not FShutdown do
         begin
           // 每 5 分钟清理一次超时 Session
-          if (FExpire > 0) and (LWatch.Elapsed.TotalMinutes >= 5) then
+          if (FExpire > 0) and (LWatch.Elapsed.TotalMinutes >= 1) then
           begin
             _ClearExpiredSessions;
             LWatch.Reset;

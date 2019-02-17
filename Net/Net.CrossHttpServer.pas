@@ -3999,7 +3999,7 @@ begin
       Exit;
     end;
 
-    LStream := TFile.Open(AFileName, TFileMode.fmOpen, TFileAccess.faRead, TFileShare.fsReadWrite);
+    LStream := TFileStream.Create(AFileName, fmOpenRead, fmShareDenyNone);
   except
     on e: Exception do
     begin

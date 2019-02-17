@@ -251,7 +251,7 @@ begin
     if (Value <> nil) then
     begin
       Value.Callback := nil;
-      System.Dispose(Value);
+      FreeMem(Value, SizeOf(TSendItem));
     end;
   end;
 end;
@@ -692,15 +692,17 @@ end;
 procedure TKqueueCrossSocket.StartLoop;
 var
   I: Integer;
+  LCrossSocket: ICrossSocket;
 begin
   if (FIoThreads <> nil) then Exit;
 
   _OpenIdleHandle;
 
   FKqueueHandle := kqueue();
+  LCrossSocket := Self;
   SetLength(FIoThreads, GetIoThreads);
   for I := 0 to Length(FIoThreads) - 1 do
-    FIoThreads[i] := TIoEventThread.Create(Self);
+    FIoThreads[i] := TIoEventThread.Create(LCrossSocket);
 
   _OpenStopHandle;
 end;
@@ -933,7 +935,7 @@ begin
   // 测试过先发送, 然后将剩余部分放入发送队列的做法
   // 发现会引起内存访问异常, 放到队列里到IO线程中发送则不会有问题
   {$region '放入发送队列'}
-  System.New(LSendItem);
+  GetMem(LSendItem, SizeOf(TSendItem));
   LSendItem.Data := ABuf;
   LSendItem.Size := ALen;
   LSendItem.Callback := ACallback;

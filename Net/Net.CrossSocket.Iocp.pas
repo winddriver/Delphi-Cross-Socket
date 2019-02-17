@@ -106,14 +106,17 @@ implementation
 
 function TIocpCrossSocket._NewIoData: PPerIoData;
 begin
-  System.New(Result);
+  GetMem(Result, SizeOf(TPerIoData));
   FillChar(Result^, SizeOf(TPerIoData), 0);
 end;
 
 procedure TIocpCrossSocket._FreeIoData(P: PPerIoData);
 begin
+  if (P = nil) then Exit;
+
   P.CrossData := nil;
-  System.Dispose(P);
+  P.Callback := nil;
+  FreeMem(P, SizeOf(TPerIoData));
 end;
 
 procedure TIocpCrossSocket._NewAccept(AListen: ICrossListen);
@@ -139,6 +142,7 @@ begin
   LPerIoData.Action := ioAccept;
   LPerIoData.Socket := LClientSocket;
   LPerIoData.CrossData := AListen;
+
   if (not AcceptEx(AListen.Socket, LClientSocket, @LPerIoData.Buffer.AcceptExBuffer, 0,
     SizeOf(TAddrBuffer), SizeOf(TAddrBuffer), LBytes, POverlapped(LPerIoData)))
     and (WSAGetLastError <> WSA_IO_PENDING) then
@@ -319,13 +323,15 @@ end;
 procedure TIocpCrossSocket.StartLoop;
 var
   I: Integer;
+  LCrossSocket: ICrossSocket;
 begin
   if (FIoThreads <> nil) then Exit;
 
   FIocpHandle := CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 0);
+  LCrossSocket := Self;
   SetLength(FIoThreads, GetIoThreads);
   for I := 0 to Length(FIoThreads) - 1 do
-    FIoThreads[I] := TIoEventThread.Create(Self);
+    FIoThreads[I] := TIoEventThread.Create(LCrossSocket);
 end;
 
 procedure TIocpCrossSocket.StopLoop;

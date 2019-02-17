@@ -1,4 +1,13 @@
-﻿unit Net.MbedBIO;
+﻿{******************************************************************************}
+{                                                                              }
+{       Delphi cross platform socket library                                   }
+{                                                                              }
+{       Copyright (c) 2017 WiNDDRiVER(soulawing@gmail.com)                     }
+{                                                                              }
+{       Homepage: https://github.com/winddriver/Delphi-Cross-Socket            }
+{                                                                              }
+{******************************************************************************}
+unit Net.MbedBIO;
 
 interface
 
