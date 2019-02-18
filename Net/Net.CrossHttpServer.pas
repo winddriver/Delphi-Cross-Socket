@@ -124,6 +124,15 @@ type
     function GetHostName: string;
     function GetHostPort: Word;
     function GetContentType: string;
+    function GetContentEncoding: string;
+    function GetRequestBoundary: string;
+    function GetRequestCmdLine: string;
+    function GetRequestConnection: string;
+    function GetTransferEncoding: string;
+    function GetIsChunked: Boolean;
+    function GetIsMultiPartFormData: Boolean;
+    function GetIsUrlEncodedFormData: Boolean;
+    function GetPostDataSize: Int64;
 
     /// <summary>
     ///   HTTP连接对象
@@ -387,6 +396,51 @@ type
     ///   内容类型
     /// </summary>
     property ContentType: string read GetContentType;
+
+    /// <summary>
+    ///   请求命令行(也就是HTTP请求的第一行)
+    /// </summary>
+    property RequestCmdLine: string read GetRequestCmdLine;
+
+    /// <summary>
+    ///   请求分界符
+    /// </summary>
+    property RequestBoundary: string read GetRequestBoundary;
+
+    /// <summary>
+    ///   传输编码
+    /// </summary>
+    property TransferEncoding: string read GetTransferEncoding;
+
+    /// <summary>
+    ///   内容编码
+    /// </summary>
+    property ContentEncoding: string read GetContentEncoding;
+
+    /// <summary>
+    ///   连接方式
+    /// </summary>
+    property RequestConnection: string read GetRequestConnection;
+
+    /// <summary>
+    ///   请求数据是否使用块编码
+    /// </summary>
+    property IsChunked: Boolean read GetIsChunked;
+
+    /// <summary>
+    ///   请求数据是使用 multipart/form-data 方式提交的
+    /// </summary>
+    property IsMultiPartFormData: Boolean read GetIsMultiPartFormData;
+
+    /// <summary>
+    ///   请求数据是使用 application/x-www-form-urlencoded 方式提交的
+    /// </summary>
+    property IsUrlEncodedFormData: Boolean read GetIsUrlEncodedFormData;
+
+    /// <summary>
+    ///   请求数据大小
+    /// </summary>
+    property PostDataSize: Int64 read GetPostDataSize;
   end;
 
   /// <summary>
@@ -1741,6 +1795,15 @@ type
     function GetHostName: string;
     function GetHostPort: Word;
     function GetContentType: string;
+    function GetContentEncoding: string;
+    function GetRequestBoundary: string;
+    function GetRequestCmdLine: string;
+    function GetRequestConnection: string;
+    function GetTransferEncoding: string;
+    function GetIsChunked: Boolean;
+    function GetIsMultiPartFormData: Boolean;
+    function GetIsUrlEncodedFormData: Boolean;
+    function GetPostDataSize: Int64;
   private type
     TCrossHttpParseState = (psHeader, psPostData, psChunkSize, psChunkData, psChunkEnd, psDone);
   private
@@ -1780,10 +1843,6 @@ type
     FRequestCookies: string;
     FRequestHost: string;
     FRequestConnection: string;
-
-    function GetIsChunked: Boolean;
-    function GetIsMultiPartFormData: Boolean;
-    function GetIsUrlEncodedFormData: Boolean;
   protected
     function ParseRequestData: Boolean; virtual;
   private
@@ -1833,16 +1892,16 @@ type
     property HostPort: Word read GetHostPort;
     property ContentType: string read GetContentType;
 
-    property RequestCmdLine: string read FRequestCmdLine;
+    property RequestCmdLine: string read GetRequestCmdLine;
 
-    property RequestBoundary: string read FRequestBoundary;
-    property TransferEncoding: string read FTransferEncoding;
-    property ContentEncoding: string read FContentEncoding;
-    property RequestConnection: string read FRequestConnection;
+    property RequestBoundary: string read GetRequestBoundary;
+    property TransferEncoding: string read GetTransferEncoding;
+    property ContentEncoding: string read GetContentEncoding;
+    property RequestConnection: string read GetRequestConnection;
     property IsChunked: Boolean read GetIsChunked;
     property IsMultiPartFormData: Boolean read GetIsMultiPartFormData;
     property IsUrlEncodedFormData: Boolean read GetIsUrlEncodedFormData;
-    property PostDataSize: Int64 read FPostDataSize;
+    property PostDataSize: Int64 read GetPostDataSize;
   end;
 
   TCrossHttpResponse = class(TInterfacedObject, ICrossHttpResponse)
@@ -3442,6 +3501,11 @@ begin
   Result := FConnection;
 end;
 
+function TCrossHttpRequest.GetContentEncoding: string;
+begin
+  Result := FContentEncoding;
+end;
+
 function TCrossHttpRequest.GetContentLength: Int64;
 begin
   Result := FContentLength;
@@ -3522,6 +3586,11 @@ begin
   Result := FPath;
 end;
 
+function TCrossHttpRequest.GetPostDataSize: Int64;
+begin
+  Result := FPostDataSize;
+end;
+
 function TCrossHttpRequest.GetQuery: THttpUrlParams;
 begin
   Result := FQuery;
@@ -3547,9 +3616,29 @@ begin
   Result := FReferer;
 end;
 
+function TCrossHttpRequest.GetRequestBoundary: string;
+begin
+  Result := FRequestBoundary;
+end;
+
+function TCrossHttpRequest.GetRequestCmdLine: string;
+begin
+  Result := FRequestCmdLine;
+end;
+
+function TCrossHttpRequest.GetRequestConnection: string;
+begin
+  Result := FRequestConnection;
+end;
+
 function TCrossHttpRequest.GetSession: ISession;
 begin
   Result := FSession;
+end;
+
+function TCrossHttpRequest.GetTransferEncoding: string;
+begin
+  Result := FTransferEncoding;
 end;
 
 function TCrossHttpRequest.GetUserAgent: string;
