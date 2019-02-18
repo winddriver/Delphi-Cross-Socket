@@ -2,6 +2,8 @@
 
 作者: WiNDDRiVER(soulawing@gmail.com)
 
+### [English](README.en.md)
+
 ## 更新记录
 
 #### 2019.02.17
