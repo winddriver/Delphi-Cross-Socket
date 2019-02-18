@@ -2,7 +2,7 @@
 
 Author: WiNDDRiVER(soulawing@gmail.com)
 
-### [ÖÐÎÄ](README.md)
+### [ä¸­æ–‡](README.md)
 
 ## Update list
 
