@@ -1524,10 +1524,11 @@ begin
       if not ASuccess then
       begin
         LSender := nil;
-        AConnection.Close;
 
         if Assigned(ACallback) then
           ACallback(AConnection, False);
+
+        AConnection.Close;
 
         Exit;
       end;
