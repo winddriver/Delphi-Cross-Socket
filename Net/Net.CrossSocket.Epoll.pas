@@ -667,6 +667,8 @@ procedure TEpollCrossSocket.Connect(const AHost: string; APort: Word;
         LEpConnection.FConnectCallback := ACallback;
         if not LEpConnection._UpdateIoEvent([ieWrite]) then
         begin
+          if Assigned(ACallback) then
+            ACallback(LConnection, False);
           LConnection.Close;
           Exit(False);
         end;
@@ -675,9 +677,9 @@ procedure TEpollCrossSocket.Connect(const AHost: string; APort: Word;
       end;
     end else
     begin
-      TSocketAPI.CloseSocket(ASocket);
       if Assigned(ACallback) then
         ACallback(nil, False);
+      TSocketAPI.CloseSocket(ASocket);
       Exit(False);
     end;
 

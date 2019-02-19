@@ -234,10 +234,10 @@ var
     _LogLastOsError('TIocpCrossSocket._HandleConnect');
     {$ENDIF}
 
-    TSocketAPI.CloseSocket(LClientSocket);
-
     if Assigned(APerIoData.Callback) then
       APerIoData.Callback(nil, False);
+
+    TSocketAPI.CloseSocket(LClientSocket);
   end;
 begin
   LClientSocket := APerIoData.Socket;
@@ -261,12 +261,13 @@ begin
 
   LSuccess := _NewReadZero(LConnection);
   if LSuccess then
-    TriggerConnected(LConnection)
-  else
-    LConnection.Close;
+    TriggerConnected(LConnection);
 
   if Assigned(APerIoData.Callback) then
     APerIoData.Callback(LConnection, LSuccess);
+
+  if not LSuccess then
+    LConnection.Close;
 end;
 
 procedure TIocpCrossSocket._HandleRead(APerIoData: PPerIoData);
@@ -378,9 +379,9 @@ var
   function _Connect(ASocket: THandle; AAddr: PRawAddrInfo): Boolean;
     procedure _Failed2;
     begin
-      TSocketAPI.CloseSocket(ASocket);
       if Assigned(ACallback) then
         ACallback(nil, False);
+      TSocketAPI.CloseSocket(ASocket);
     end;
   var
     LSockAddr: TRawSockAddrIn;
@@ -486,11 +487,11 @@ var
 
   procedure _Failed;
   begin
-    if (LListen <> nil) then
-      LListen.Close;
-
     if Assigned(ACallback) then
       ACallback(LListen, False);
+
+    if (LListen <> nil) then
+      LListen.Close;
   end;
 
   procedure _Success;
@@ -608,10 +609,11 @@ begin
     // 一个, 本函数提供了发送结果的回调函数, 在回调函数报告发送成功
     // 之后就可以继续下一块数据发送了
     _FreeIoData(LPerIoData);
-    AConnection.Close;
 
     if Assigned(ACallback) then
       ACallback(AConnection, False);
+
+    AConnection.Close;
   end;
 end;
 
@@ -656,16 +658,18 @@ begin
             _NewAccept(LPerIoData.CrossData as ICrossListen);
         end else
         begin
-          LPerIoData.CrossData.Close;
           if Assigned(LPerIoData.Callback)
             and (LPerIoData.CrossData is TIocpConnection) then
             LPerIoData.Callback(LPerIoData.CrossData as ICrossConnection, False);
+
+          LPerIoData.CrossData.Close;
         end;
       end else
       begin
-        TSocketAPI.CloseSocket(LPerIoData.Socket);
         if Assigned(LPerIoData.Callback) then
           LPerIoData.Callback(nil, False);
+
+        TSocketAPI.CloseSocket(LPerIoData.Socket);
       end;
     finally
       _FreeIoData(LPerIoData);

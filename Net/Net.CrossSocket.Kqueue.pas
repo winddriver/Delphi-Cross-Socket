@@ -528,12 +528,13 @@ begin
   end;
 
   if LSuccess then
-    TriggerConnected(LConnection)
-  else
-    TriggerDisconnected(LConnection);
+    TriggerConnected(LConnection);
 
   if Assigned(LConnectCallback) then
     LConnectCallback(LConnection, LSuccess);
+
+  if not LSuccess then
+    TriggerDisconnected(LConnection);
 end;
 
 procedure TKqueueCrossSocket._HandleRead(AConnection: ICrossConnection);
@@ -764,6 +765,8 @@ procedure TKqueueCrossSocket.Connect(const AHost: string; APort: Word;
         if not LKqConnection._UpdateIoEvent([ieWrite]) then
         begin
           TriggerDisconnected(LConnection);
+          if Assigned(ACallback) then
+            ACallback(LConnection, False);
           Exit(False);
         end;
       finally
@@ -771,9 +774,9 @@ procedure TKqueueCrossSocket.Connect(const AHost: string; APort: Word;
       end;
     end else
     begin
-      TSocketAPI.CloseSocket(ASocket);
       if Assigned(ACallback) then
         ACallback(nil, False);
+      TSocketAPI.CloseSocket(ASocket);
       Exit(False);
     end;
 
