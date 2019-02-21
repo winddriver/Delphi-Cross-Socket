@@ -939,6 +939,7 @@ begin
   // 发现会引起内存访问异常, 放到队列里到IO线程中发送则不会有问题
   {$region '放入发送队列'}
   GetMem(LSendItem, SizeOf(TSendItem));
+  FillChar(LSendItem^, SizeOf(TSendItem), 0);
   LSendItem.Data := ABuf;
   LSendItem.Size := ALen;
   LSendItem.Callback := ACallback;
