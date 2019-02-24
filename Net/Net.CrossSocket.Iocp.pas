@@ -14,8 +14,6 @@ interface
 uses
   System.SysUtils,
   System.Classes,
-  System.SyncObjs,
-  System.Generics.Collections,
   Winapi.Windows,
   Net.Winsock2,
   Net.Wship6,
@@ -65,14 +63,12 @@ type
       Action: TIocpAction;
       Socket: THandle;
       CrossData: ICrossData;
-      [unsafe] CrossSocket: TIocpCrossSocket;
       Callback: TProc<ICrossConnection, Boolean>;
     end;
   private
-    FPerIoDataDic: TDictionary<PPerIoData, Boolean>;
-    FPerIoDataDicCriticalSection: TCriticalSection;
     FIocpHandle: THandle;
     FIoThreads: TArray<TIoEventThread>;
+    FPerIoDataCount: NativeInt;
 
     function _NewIoData: PPerIoData; inline;
     procedure _FreeIoData(P: PPerIoData); inline;
@@ -84,8 +80,6 @@ type
     procedure _HandleConnect(APerIoData: PPerIoData);
     procedure _HandleRead(APerIoData: PPerIoData);
     procedure _HandleWrite(APerIoData: PPerIoData);
-    procedure AddPerIoData(var APerIoData: PPerIoData);
-    procedure RemovePerIoData(var APerIoData: PPerIoData);
   protected
     function CreateListen(AOwner: ICrossSocket; AListenSocket: THandle;
       AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
@@ -105,35 +99,18 @@ type
       const ACallback: TProc<ICrossConnection, Boolean> = nil); override;
 
     function ProcessIoEvent: Boolean; override;
-  public
-    constructor Create(AIoThreads: Integer); override;
-    destructor Destroy; override;
   end;
 
 implementation
 
+uses
+  System.Threading;
+
 { TIocpCrossSocket }
-
-constructor TIocpCrossSocket.Create(AIoThreads: Integer);
-begin
-  inherited;
-  FPerIoDataDic := TDictionary<PPerIoData, Boolean>.Create(15000);
-  FPerIoDataDicCriticalSection := TCriticalSection.Create;
-end;
-
-destructor TIocpCrossSocket.Destroy;
-var
-  LPerIoData: PPerIoData;
-begin
-  for LPerIoData in FPerIoDataDic.Keys.ToArray do
-    _FreeIoData(LPerIoData);
-  FPerIoDataDic.Free;
-  FPerIoDataDicCriticalSection.Free;
-  inherited;
-end;
 
 function TIocpCrossSocket._NewIoData: PPerIoData;
 begin
+  AtomicIncrement(FPerIoDataCount);
   GetMem(Result, SizeOf(TPerIoData));
   FillChar(Result^, SizeOf(TPerIoData), 0);
 end;
@@ -145,6 +122,7 @@ begin
   P.CrossData := nil;
   P.Callback := nil;
   FreeMem(P, SizeOf(TPerIoData));
+  AtomicDecrement(FPerIoDataCount);
 end;
 
 procedure TIocpCrossSocket._NewAccept(AListen: ICrossListen);
@@ -166,7 +144,7 @@ begin
   TSocketAPI.SetNonBlock(LClientSocket, True);
   SetKeepAlive(LClientSocket);
 
-  TIocpCrossSocket(AListen.Owner).AddPerIoData(LPerIoData);
+  LPerIoData := _NewIoData;
   LPerIoData.Action := ioAccept;
   LPerIoData.Socket := LClientSocket;
   LPerIoData.CrossData := AListen;
@@ -179,7 +157,7 @@ begin
     _LogLastOsError('TIocpCrossSocket._NewAccept.AcceptEx');
     {$ENDIF}
     TSocketAPI.CloseSocket(LClientSocket);
-    LPerIoData.CrossSocket.RemovePerIoData(LPerIoData);
+    _FreeIoData(LPerIoData);
   end;
 end;
 
@@ -188,7 +166,7 @@ var
   LPerIoData: PPerIoData;
   LBytes, LFlags: Cardinal;
 begin
-  TIocpCrossSocket(AConnection.Owner).AddPerIoData(LPerIoData);
+  LPerIoData := _NewIoData;
   LPerIoData.Buffer.DataBuf.buf := nil;
   LPerIoData.Buffer.DataBuf.len := 0;
   LPerIoData.Action := ioRead;
@@ -203,7 +181,7 @@ begin
     {$IFDEF DEBUG}
     _LogLastOsError('TIocpCrossSocket._NewReadZero.WSARecv');
     {$ENDIF}
-    LPerIoData.CrossSocket.RemovePerIoData(LPerIoData);
+    _FreeIoData(LPerIoData);
     Exit(False);
   end;
 
@@ -349,18 +327,6 @@ begin
     APerIoData.Callback(APerIoData.CrossData as ICrossConnection, True);
 end;
 
-procedure TIocpCrossSocket.AddPerIoData(var APerIoData: PPerIoData);
-begin
-  APerIoData := _NewIoData;
-  APerIoData.CrossSocket := Self;
-  FPerIoDataDicCriticalSection.Enter;
-  try
-    FPerIoDataDic.Add(APerIoData, True);
-  finally
-    FPerIoDataDicCriticalSection.Leave;
-  end;
-end;
-
 procedure TIocpCrossSocket.StartLoop;
 var
   I: Integer;
@@ -376,6 +342,32 @@ begin
 end;
 
 procedure TIocpCrossSocket.StopLoop;
+
+  procedure _CloseHandle(AIocpHandle: THandle; APerIoDataCount: NativeInt);
+  begin
+    TTask.Run(
+      procedure()
+      var
+        LBytes: Cardinal;
+        LSocket: THandle;
+        LPerIoData: PPerIoData;
+      begin
+        while APerIoDataCount > 0 do
+        begin
+          GetQueuedCompletionStatus(AIocpHandle, LBytes, ULONG_PTR(LSocket), POverlapped(LPerIoData), INFINITE);
+          if LPerIoData <> nil then
+          begin
+            LPerIoData.CrossData := nil;
+            LPerIoData.Callback := nil;
+            FreeMem(LPerIoData, SizeOf(TPerIoData));
+            Dec(APerIoDataCount);
+          end;
+        end;
+        CloseHandle(AIocpHandle);
+      end
+    );
+  end;
+
 var
   I: Integer;
   LCurrentThreadID: TThreadID;
@@ -400,7 +392,7 @@ begin
   end;
   FIoThreads := nil;
 
-  CloseHandle(FIocpHandle);
+  _CloseHandle(FIocpHandle, FPerIoDataCount);
 end;
 
 procedure TIocpCrossSocket.Connect(const AHost: string; APort: Word;
@@ -451,14 +443,14 @@ var
       Exit(False);
     end;
 
-    AddPerIoData(LPerIoData);
+    LPerIoData := _NewIoData;
     LPerIoData.Action := ioConnect;
     LPerIoData.Socket := ASocket;
     LPerIoData.Callback := ACallback;
     if not ConnectEx(ASocket, AAddr.ai_addr, AAddr.ai_addrlen, nil, 0, LBytes, PWSAOverlapped(LPerIoData)) and
       (WSAGetLastError <> WSA_IO_PENDING) then
     begin
-      RemovePerIoData(LPerIoData);
+      _FreeIoData(LPerIoData);
       _Failed2;
       Exit(False);
     end;
@@ -625,7 +617,7 @@ var
   LPerIoData: PPerIoData;
   LBytes, LFlags: Cardinal;
 begin
-  TIocpCrossSocket(AConnection.Owner).AddPerIoData(LPerIoData);
+  LPerIoData := _NewIoData;
   LPerIoData.Buffer.DataBuf.buf := ABuf;
   LPerIoData.Buffer.DataBuf.len := ALen;
   LPerIoData.Action := ioWrite;
@@ -648,7 +640,7 @@ begin
     // 保证不能无节制的调用Send发送大量数据, 最好发送完一个再继续下
     // 一个, 本函数提供了发送结果的回调函数, 在回调函数报告发送成功
     // 之后就可以继续下一块数据发送了
-    LPerIoData.CrossSocket.RemovePerIoData(LPerIoData);
+    _FreeIoData(LPerIoData);
 
     if Assigned(ACallback) then
       ACallback(AConnection, False);
@@ -712,7 +704,7 @@ begin
         TSocketAPI.CloseSocket(LPerIoData.Socket);
       end;
     finally
-      LPerIoData.CrossSocket.RemovePerIoData(LPerIoData);
+      _FreeIoData(LPerIoData);
     end;
 
     // 出错了, 但是完成数据不是空的, 需要重试
@@ -734,22 +726,10 @@ begin
       ioWrite   : _HandleWrite(LPerIoData);
     end;
   finally
-    LPerIoData.CrossSocket.RemovePerIoData(LPerIoData);
+    _FreeIoData(LPerIoData);
   end;
 
   Result := True;
-end;
-
-procedure TIocpCrossSocket.RemovePerIoData(var APerIoData: PPerIoData);
-begin
-  FPerIoDataDicCriticalSection.Enter;
-  try
-    FPerIoDataDic.Remove(APerIoData);
-  finally
-    FPerIoDataDicCriticalSection.Leave;
-  end;
-  _FreeIoData(APerIoData);
-  APerIoData := nil;
 end;
 
 end.
