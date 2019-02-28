@@ -68,6 +68,7 @@ type
   private
     FIocpHandle: THandle;
     FIoThreads: TArray<TIoEventThread>;
+    FPerIoDataCount: NativeInt;
 
     function _NewIoData: PPerIoData; inline;
     procedure _FreeIoData(P: PPerIoData); inline;
@@ -108,6 +109,8 @@ function TIocpCrossSocket._NewIoData: PPerIoData;
 begin
   GetMem(Result, SizeOf(TPerIoData));
   FillChar(Result^, SizeOf(TPerIoData), 0);
+
+  AtomicIncrement(FPerIoDataCount);
 end;
 
 procedure TIocpCrossSocket._FreeIoData(P: PPerIoData);
@@ -117,6 +120,8 @@ begin
   P.CrossData := nil;
   P.Callback := nil;
   FreeMem(P, SizeOf(TPerIoData));
+
+  AtomicDecrement(FPerIoDataCount);
 end;
 
 procedure TIocpCrossSocket._NewAccept(AListen: ICrossListen);
@@ -336,6 +341,45 @@ begin
 end;
 
 procedure TIocpCrossSocket.StopLoop;
+
+  // IO 线程在收到 SHUTDOWN_FLAG 标记之后就会退出
+  // 而这时候有可能还有部分操作未完成, 其对应的 PerIoData 结构就无法释放
+  // 只需要在这里再次接收完成端口的消息, 就能等到这部分未完成的操作超时或失败
+  // 从而释放其对应的 PerIoData 结构
+  procedure _FreeMissingPerIoDatas;
+  var
+    LBytes: Cardinal;
+    LSocket: THandle;
+    LPerIoData: PPerIoData;
+    LConnection: ICrossConnection;
+  begin
+    while (AtomicCmpExchange(FPerIoDataCount, 0, 0) > 0) do
+    begin
+      GetQueuedCompletionStatus(FIocpHandle, LBytes, ULONG_PTR(LSocket), POverlapped(LPerIoData), 10);
+
+      if (LPerIoData <> nil) then
+      begin
+        if Assigned(LPerIoData.Callback) then
+        begin
+          if (LPerIoData.CrossData <> nil)
+            and (LPerIoData.CrossData is TIocpConnection) then
+            LConnection := LPerIoData.CrossData as ICrossConnection
+          else
+            LConnection := nil;
+
+          LPerIoData.Callback(LConnection, False);
+        end;
+
+        if (LPerIoData.CrossData <> nil) then
+          LPerIoData.CrossData.Close
+        else
+          TSocketAPI.CloseSocket(LPerIoData.Socket);
+
+        _FreeIoData(LPerIoData);
+      end;
+    end;
+  end;
+
 var
   I: Integer;
   LCurrentThreadID: TThreadID;
@@ -360,6 +404,7 @@ begin
   end;
   FIoThreads := nil;
 
+  _FreeMissingPerIoDatas;
   CloseHandle(FIocpHandle);
 end;
 
@@ -622,6 +667,7 @@ var
   LBytes: Cardinal;
   LSocket: THandle;
   LPerIoData: PPerIoData;
+  LConnection: ICrossConnection;
   {$IFDEF DEBUG}
   LErrNo: Cardinal;
   {$ENDIF}
@@ -658,9 +704,16 @@ begin
             _NewAccept(LPerIoData.CrossData as ICrossListen);
         end else
         begin
-          if Assigned(LPerIoData.Callback)
-            and (LPerIoData.CrossData is TIocpConnection) then
-            LPerIoData.Callback(LPerIoData.CrossData as ICrossConnection, False);
+          if Assigned(LPerIoData.Callback) then
+          begin
+            if (LPerIoData.CrossData <> nil)
+              and (LPerIoData.CrossData is TIocpConnection) then
+              LConnection := LPerIoData.CrossData as ICrossConnection
+            else
+              LConnection := nil;
+
+            LPerIoData.Callback(LConnection, False);
+          end;
 
           LPerIoData.CrossData.Close;
         end;
