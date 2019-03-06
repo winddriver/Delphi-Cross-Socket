@@ -904,9 +904,17 @@ begin
     try
       if not FCrossSocket.ProcessIoEvent then Break;
     except
-      {$IFDEF DEBUG}
+      {$IF defined(DEBUG) or defined(madExcept)}
       on e: Exception do
-        _Log('%s Io线程ID %d, 异常 %s, %s', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, e.ClassName, e.Message]);
+        begin
+          {$IFDEF DEBUG}
+          _Log('%s Io线程ID %d, 异常 %s, %s', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, e.ClassName, e.Message]);
+          {$ENDIF}
+          {$IFDEF madExcept}
+          e.Message := Format('%s Io线程ID %d, 异常 %s, %s', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, e.ClassName, e.Message]);
+          raise;
+          {$ENDIF}
+        end;
       {$ENDIF}
     end;
     {$IFDEF DEBUG}
