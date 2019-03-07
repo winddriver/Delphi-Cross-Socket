@@ -193,7 +193,10 @@ var
   LConnection: ICrossConnection;
   LClientSocket, LListenSocket: THandle;
 begin
+  if (APerIoData.CrossData = nil) then Exit;
+
   LListen := APerIoData.CrossData as ICrossListen;
+
   _NewAccept(LListen);
 
   LClientSocket := APerIoData.Socket;
@@ -280,6 +283,13 @@ var
   LConnection: ICrossConnection;
   LRcvd, LError: Integer;
 begin
+  if (APerIoData.CrossData = nil) then
+  begin
+    if Assigned(APerIoData.Callback) then
+      APerIoData.Callback(nil, False);
+    Exit;
+  end;
+
   LConnection := APerIoData.CrossData as ICrossConnection;
 
   while True do
@@ -706,8 +716,7 @@ begin
         begin
           if Assigned(LPerIoData.Callback) then
           begin
-            if (LPerIoData.CrossData <> nil)
-              and (LPerIoData.CrossData is TIocpConnection) then
+            if (LPerIoData.CrossData is TIocpConnection) then
               LConnection := LPerIoData.CrossData as ICrossConnection
             else
               LConnection := nil;
