@@ -43,6 +43,8 @@ type
   ECrossSocket = class(Exception);
 
   ICrossSocket = interface;
+  TAbstractCrossSocket = class;
+  TIoEventThread = class;
 
   /// <summary>
   ///   连接类型
@@ -319,6 +321,7 @@ type
   end;
   TCrossConnections = TDictionary<UInt64, ICrossConnection>;
 
+  TCrossIoThreadEvent = procedure(Sender: TObject; AIoThread: TIoEventThread) of object;
   TCrossListenEvent = procedure(Sender: TObject; AListen: ICrossListen) of object;
   TCrossConnectEvent = procedure(Sender: TObject; AConnection: ICrossConnection) of object;
   TCrossDataEvent = procedure(Sender: TObject; AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer) of object;
@@ -332,6 +335,8 @@ type
     function GetConnectionsCount: Integer;
     function GetListensCount: Integer;
 
+    function GetOnIoThreadBegin: TCrossIoThreadEvent;
+    function GetOnIoThreadEnd: TCrossIoThreadEvent;
     function GetOnConnected: TCrossConnectEvent;
     function GetOnDisconnected: TCrossConnectEvent;
     function GetOnListened: TCrossListenEvent;
@@ -339,6 +344,8 @@ type
     function GetOnReceived: TCrossDataEvent;
     function GetOnSent: TCrossDataEvent;
 
+    procedure SetOnIoThreadBegin(const Value: TCrossIoThreadEvent);
+    procedure SetOnIoThreadEnd(const Value: TCrossIoThreadEvent);
     procedure SetOnConnected(const Value: TCrossConnectEvent);
     procedure SetOnDisconnected(const Value: TCrossConnectEvent);
     procedure SetOnListened(const Value: TCrossListenEvent);
@@ -530,6 +537,16 @@ type
     {$endregion}
 
     /// <summary>
+    ///   IO线程开始时触发
+    /// </summary>
+    procedure TriggerIoThreadBegin(AIoThread: TIoEventThread);
+
+    /// <summary>
+    ///   IO线程结束时触发
+    /// </summary>
+    procedure TriggerIoThreadEnd(AIoThread: TIoEventThread);
+
+    /// <summary>
     ///   IO线程数
     /// </summary>
     property IoThreads: Integer read GetIoThreads;
@@ -543,6 +560,16 @@ type
     ///   监听数
     /// </summary>
     property ListensCount: Integer read GetListensCount;
+
+    /// <summary>
+    ///   IO线程开始事件
+    /// </summary>
+    property OnIoThreadBegin: TCrossIoThreadEvent read GetOnIoThreadBegin write SetOnIoThreadBegin;
+
+    /// <summary>
+    ///   IO线程结束事件
+    /// </summary>
+    property OnIoThreadEnd: TCrossIoThreadEvent read GetOnIoThreadEnd write SetOnIoThreadEnd;
 
     /// <summary>
     ///   监听成功事件
@@ -723,6 +750,8 @@ type
     FListens: TCrossListens;
     FListensLock: TObject;
 
+    FOnIoThreadBegin: TCrossIoThreadEvent;
+    FOnIoThreadEnd: TCrossIoThreadEvent;
     FOnListened: TCrossListenEvent;
     FOnListenEnd: TCrossListenEvent;
     FOnConnected: TCrossConnectEvent;
@@ -739,6 +768,8 @@ type
     function GetConnectionsCount: Integer;
     function GetListensCount: Integer;
 
+    function GetOnIoThreadBegin: TCrossIoThreadEvent;
+    function GetOnIoThreadEnd: TCrossIoThreadEvent;
     function GetOnConnected: TCrossConnectEvent;
     function GetOnDisconnected: TCrossConnectEvent;
     function GetOnListened: TCrossListenEvent;
@@ -746,6 +777,8 @@ type
     function GetOnReceived: TCrossDataEvent;
     function GetOnSent: TCrossDataEvent;
 
+    procedure SetOnIoThreadBegin(const Value: TCrossIoThreadEvent);
+    procedure SetOnIoThreadEnd(const Value: TCrossIoThreadEvent);
     procedure SetOnConnected(const Value: TCrossConnectEvent);
     procedure SetOnDisconnected(const Value: TCrossConnectEvent);
     procedure SetOnListened(const Value: TCrossListenEvent);
@@ -791,6 +824,9 @@ type
     procedure LogicSent(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer); virtual;
     {$endregion}
 
+    procedure TriggerIoThreadBegin(AIoThread: TIoEventThread); virtual;
+    procedure TriggerIoThreadEnd(AIoThread: TIoEventThread); virtual;
+
     procedure StartLoop; virtual; abstract;
     procedure StopLoop; virtual; abstract;
 
@@ -824,6 +860,8 @@ type
     property ConnectionsCount: Integer read GetConnectionsCount;
     property ListensCount: Integer read GetListensCount;
 
+    property OnIoThreadBegin: TCrossIoThreadEvent read GetOnIoThreadBegin write SetOnIoThreadBegin;
+    property OnIoThreadEnd: TCrossIoThreadEvent read GetOnIoThreadEnd write SetOnIoThreadEnd;
     property OnListened: TCrossListenEvent read GetOnListened write SetOnListened;
     property OnListenEnd: TCrossListenEvent read GetOnListenEnd write SetOnListenEnd;
     property OnConnected: TCrossConnectEvent read GetOnConnected write SetOnConnected;
@@ -891,31 +929,38 @@ begin
 end;
 
 procedure TIoEventThread.Execute;
-{$IFDEF DEBUG}
 var
-  LRunCount: Int64;
-{$ENDIF}
-begin
   {$IFDEF DEBUG}
-  LRunCount := 0;
+  LRunCount: Int64;
   {$ENDIF}
-  while not Terminated do
-  begin
-    try
-      if not FCrossSocket.ProcessIoEvent then Break;
-    except
+  LCrossSocketObj: TAbstractCrossSocket;
+begin
+  LCrossSocketObj := FCrossSocket as TAbstractCrossSocket;
+  try
+    LCrossSocketObj.TriggerIoThreadBegin(Self);
+    {$IFDEF DEBUG}
+    LRunCount := 0;
+    {$ENDIF}
+    while not Terminated do
+    begin
+      try
+        if not LCrossSocketObj.ProcessIoEvent then Break;
+      except
+        {$IFDEF DEBUG}
+        on e: Exception do
+          _Log('%s Io线程ID %d, 异常 %s, %s', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, e.ClassName, e.Message]);
+        {$ENDIF}
+      end;
       {$IFDEF DEBUG}
-      on e: Exception do
-        _Log('%s Io线程ID %d, 异常 %s, %s', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, e.ClassName, e.Message]);
-      {$ENDIF}
+      Inc(LRunCount)
+      {$ENDIF};
     end;
     {$IFDEF DEBUG}
-    Inc(LRunCount)
-    {$ENDIF};
+  //  _Log('%s Io线程ID %d, 被调用了 %d 次', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, LRunCount]);
+    {$ENDIF}
+  finally
+    LCrossSocketObj.TriggerIoThreadEnd(Self);
   end;
-  {$IFDEF DEBUG}
-//  _Log('%s Io线程ID %d, 被调用了 %d 次', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, LRunCount]);
-  {$ENDIF}
 end;
 
 { TAbstractCrossSocket }
@@ -1036,6 +1081,16 @@ begin
   Result := FOnDisconnected;
 end;
 
+function TAbstractCrossSocket.GetOnIoThreadBegin: TCrossIoThreadEvent;
+begin
+  Result := FOnIoThreadBegin;
+end;
+
+function TAbstractCrossSocket.GetOnIoThreadEnd: TCrossIoThreadEvent;
+begin
+  Result := FOnIoThreadEnd;
+end;
+
 function TAbstractCrossSocket.GetOnListened: TCrossListenEvent;
 begin
   Result := FOnListened;
@@ -1105,6 +1160,18 @@ begin
   FOnDisconnected := Value;
 end;
 
+procedure TAbstractCrossSocket.SetOnIoThreadBegin(
+  const Value: TCrossIoThreadEvent);
+begin
+  FOnIoThreadBegin := Value;
+end;
+
+procedure TAbstractCrossSocket.SetOnIoThreadEnd(
+  const Value: TCrossIoThreadEvent);
+begin
+  FOnIoThreadEnd := Value;
+end;
+
 procedure TAbstractCrossSocket.SetOnListened(const Value: TCrossListenEvent);
 begin
   FOnListened := Value;
@@ -1169,6 +1236,18 @@ begin
 
   if Assigned(FOnDisconnected) then
     FOnDisconnected(Self, AConnection);
+end;
+
+procedure TAbstractCrossSocket.TriggerIoThreadBegin(AIoThread: TIoEventThread);
+begin
+  if Assigned(FOnIoThreadBegin) then
+    FOnIoThreadBegin(Self, AIoThread);
+end;
+
+procedure TAbstractCrossSocket.TriggerIoThreadEnd(AIoThread: TIoEventThread);
+begin
+  if Assigned(FOnIoThreadEnd) then
+    FOnIoThreadEnd(Self, AIoThread);
 end;
 
 procedure TAbstractCrossSocket.TriggerListened(AListen: ICrossListen);
