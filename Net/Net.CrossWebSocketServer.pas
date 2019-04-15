@@ -330,6 +330,9 @@ type
 
 implementation
 
+uses
+  StrUtils;
+
 { TCrossWebSocketConnection }
 
 constructor TCrossWebSocketConnection.Create(AOwner: ICrossSocket;
@@ -1043,8 +1046,8 @@ var
   LConnection: ICrossWebSocketConnection;
 begin
   LConnection := AConnection as ICrossWebSocketConnection;
-  if SameText(AConnection.Request.Header['Connection'], 'Upgrade')
-    and SameText(AConnection.Request.Header['Upgrade'], 'websocket') then
+  if ContainsText(AConnection.Request.Header['Connection'], 'Upgrade')
+    and ContainsText(AConnection.Request.Header['Upgrade'], 'websocket') then
   begin
     TCrossWebSocketConnection(LConnection).FIsWebSocket := True;
     _WebSocketHandshake(LConnection,
