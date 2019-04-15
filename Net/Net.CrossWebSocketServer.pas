@@ -331,7 +331,7 @@ type
 implementation
 
 uses
-  StrUtils;
+  System.StrUtils;
 
 { TCrossWebSocketConnection }
 
@@ -658,60 +658,93 @@ begin
   PBuf := ABuf;
   while (ALen > 0) do
   begin
-    case FWsFrameState of
-      wsHeader:
-        begin
-          FWsFrameHeader.Write(PBuf^, 1);
-          Dec(ALen);
-          Inc(PBuf);
-
-          if (FWsFrameHeader.Size = 2) then
+    // 使用循环处理粘包, 比递归调用节省资源
+    while (ALen > 0) and (FWsFrameState <> wsDone) do
+    begin
+      case FWsFrameState of
+        wsHeader:
           begin
-            // 第1个字节最高位为 FIN 状态
-            FWsFIN := (FWsFrameHeader.Bytes[0] and $80 <> 0);
+            FWsFrameHeader.Write(PBuf^, 1);
+            Dec(ALen);
+            Inc(PBuf);
 
-            // 第1个字节低4位为 opcode 状态
-            LByte := FWsFrameHeader.Bytes[0] and $0F;
-            if (LByte <> WS_OP_CONTINUATION) then
-              FWsOpCode := LByte;
+            if (FWsFrameHeader.Size = 2) then
+            begin
+              // 第1个字节最高位为 FIN 状态
+              FWsFIN := (FWsFrameHeader.Bytes[0] and $80 <> 0);
 
-            // 第2个字节最高位为 MASK 状态
-            FWsMask := (FWsFrameHeader.Bytes[1] and $80 <> 0);
+              // 第1个字节低4位为 opcode 状态
+              LByte := FWsFrameHeader.Bytes[0] and $0F;
+              if (LByte <> WS_OP_CONTINUATION) then
+                FWsOpCode := LByte;
 
-            // 第2个字节低7位为 payload len
-            FWsPayload := FWsFrameHeader.Bytes[1] and $7F;
+              // 第2个字节最高位为 MASK 状态
+              FWsMask := (FWsFrameHeader.Bytes[1] and $80 <> 0);
 
-            FWsHeaderSize := 2;
-            if (FWsPayload < 126) then
-              FWsBodySize := FWsPayload
-            else if (FWsPayload = 126) then
-              Inc(FWsHeaderSize, 2)
-            else if (FWsPayload = 127) then
-              Inc(FWsHeaderSize, 8);
-            if FWsMask then
-              Inc(FWsHeaderSize, 4);
-          end else
-          if (FWsFrameHeader.Size = FWsHeaderSize) then
+              // 第2个字节低7位为 payload len
+              FWsPayload := FWsFrameHeader.Bytes[1] and $7F;
+
+              FWsHeaderSize := 2;
+              if (FWsPayload < 126) then
+                FWsBodySize := FWsPayload
+              else if (FWsPayload = 126) then
+                Inc(FWsHeaderSize, 2)
+              else if (FWsPayload = 127) then
+                Inc(FWsHeaderSize, 8);
+              if FWsMask then
+                Inc(FWsHeaderSize, 4);
+            end else
+            if (FWsFrameHeader.Size = FWsHeaderSize) then
+            begin
+              FWsFrameState := wsBody;
+
+              // 保存 mask key
+              if FWsMask then
+                Move(PCardinal(UIntPtr(FWsFrameHeader.Memory) + FWsHeaderSize - 4)^, FWsMaskKey, 4);
+
+              if (FWsPayload = 126) then
+                FWsBodySize := FWsFrameHeader.Bytes[3]
+                  + Word(FWsFrameHeader.Bytes[2]) shl 8
+              else if (FWsPayload = 127) then
+                FWsBodySize := FWsFrameHeader.Bytes[9]
+                  + UInt64(FWsFrameHeader.Bytes[8]) shl 8
+                  + UInt64(FWsFrameHeader.Bytes[7]) shl 16
+                  + UInt64(FWsFrameHeader.Bytes[6]) shl 24
+                  + UInt64(FWsFrameHeader.Bytes[5]) shl 32
+                  + UInt64(FWsFrameHeader.Bytes[4]) shl 40
+                  + UInt64(FWsFrameHeader.Bytes[3]) shl 48
+                  + UInt64(FWsFrameHeader.Bytes[2]) shl 56
+                  ;
+
+              // 接收完一帧
+              if (FWsBodySize <= 0) then
+              begin
+                // 如果这是一个独立帧或者连续帧的最后一帧
+                // 则表示一次请求数据接收完成
+                if FWsFIN then
+                begin
+                  FWsFrameState := wsDone;
+                  Break;
+                // 否则继续接收下一帧
+                end else
+                  _ResetFrameHeader;
+              end;
+            end;
+          end;
+
+        wsBody:
           begin
-            FWsFrameState := wsBody;
-
-            // 保存 mask key
+            LByte := PBuf^;
+            // 如果 MASK 状态为 1, 则将收到的数据与 mask key 做异或处理
             if FWsMask then
-              Move(PCardinal(UIntPtr(FWsFrameHeader.Memory) + FWsHeaderSize - 4)^, FWsMaskKey, 4);
-
-            if (FWsPayload = 126) then
-              FWsBodySize := FWsFrameHeader.Bytes[3]
-                + Word(FWsFrameHeader.Bytes[2]) shl 8
-            else if (FWsPayload = 127) then
-              FWsBodySize := FWsFrameHeader.Bytes[9]
-                + UInt64(FWsFrameHeader.Bytes[8]) shl 8
-                + UInt64(FWsFrameHeader.Bytes[7]) shl 16
-                + UInt64(FWsFrameHeader.Bytes[6]) shl 24
-                + UInt64(FWsFrameHeader.Bytes[5]) shl 32
-                + UInt64(FWsFrameHeader.Bytes[4]) shl 40
-                + UInt64(FWsFrameHeader.Bytes[3]) shl 48
-                + UInt64(FWsFrameHeader.Bytes[2]) shl 56
-                ;
+            begin
+              LByte := LByte xor PByte(@FWsMaskKey)[FWsMaskKeyShift];
+              FWsMaskKeyShift := (FWsMaskKeyShift + 1) mod 4;
+            end;
+            FWsRequestBody.Write(LByte, 1);
+            Dec(ALen);
+            Inc(PBuf);
+            Dec(FWsBodySize);
 
             // 接收完一帧
             if (FWsBodySize <= 0) then
@@ -719,79 +752,50 @@ begin
               // 如果这是一个独立帧或者连续帧的最后一帧
               // 则表示一次请求数据接收完成
               if FWsFIN then
-                FWsFrameState := wsDone
+              begin
+                FWsFrameState := wsDone;
+                Break;
               // 否则继续接收下一帧
-              else
+              end else
                 _ResetFrameHeader;
             end;
           end;
-        end;
-
-      wsBody:
-        begin
-          LByte := PBuf^;
-          // 如果 MASK 状态为 1, 则将收到的数据与 mask key 做异或处理
-          if FWsMask then
-          begin
-            LByte := LByte xor PByte(@FWsMaskKey)[FWsMaskKeyShift];
-            FWsMaskKeyShift := (FWsMaskKeyShift + 1) mod 4;
-          end;
-          FWsRequestBody.Write(LByte, 1);
-          Dec(ALen);
-          Inc(PBuf);
-          Dec(FWsBodySize);
-
-          // 接收完一帧
-          if (FWsBodySize <= 0) then
-          begin
-            // 如果这是一个独立帧或者连续帧的最后一帧
-            // 则表示一次请求数据接收完成
-            if FWsFIN then
-              FWsFrameState := wsDone
-            // 否则继续接收下一帧
-            else
-              _ResetFrameHeader;
-          end;
-        end;
-    end;
-  end;
-
-  // 一个完整的WebSocket数据帧接收完毕
-  if (FWsFrameState = wsDone) then
-  begin
-    case FWsOpCode of
-      WS_OP_CLOSE:
-        begin
-          // 关闭帧
-          // 收到关闭帧, 如果已经发送关闭帧, 直接关闭连接
-          // 否则, 需要发送关闭帧, 发送完成之后关闭连接
-          _RespondClose;
-          Exit;
-        end;
-
-      WS_OP_PING:
-        begin
-          // pong 帧必须将 ping 帧发来的数据原封不动地返回
-          LReqData := FWsRequestBody.Bytes;
-          SetLength(LReqData, FWsRequestBody.Size);
-          _RespondPong(LReqData);
-        end;
-
-      WS_OP_TEXT, WS_OP_BINARY:
-        begin
-          // 收到请求数据
-          LReqData := FWsRequestBody.Bytes;
-          SetLength(LReqData, FWsRequestBody.Size);
-          TriggerWsRequest(_OpCodeToReqType(FWsOpCode), LReqData);
-        end;
+      end;
     end;
 
-    _ResetRequest;
-  end;
+    // 一个完整的 WebSocket 数据帧接收完毕
+    if (FWsFrameState = wsDone) then
+    begin
+      case FWsOpCode of
+        WS_OP_CLOSE:
+          begin
+            // 关闭帧
+            // 收到关闭帧, 如果已经发送关闭帧, 直接关闭连接
+            // 否则, 需要发送关闭帧, 发送完成之后关闭连接
+            _RespondClose;
+            Exit;
+          end;
 
-  // 处理粘包
-  if (ALen > 0) then
-    _WebSocketRecv(PBuf, ALen);
+        WS_OP_PING:
+          begin
+            // pong 帧必须将 ping 帧发来的数据原封不动地返回
+            LReqData := FWsRequestBody.Bytes;
+            SetLength(LReqData, FWsRequestBody.Size);
+            _RespondPong(LReqData);
+          end;
+
+        WS_OP_TEXT, WS_OP_BINARY:
+          begin
+            // 收到请求数据
+            LReqData := FWsRequestBody.Bytes;
+            SetLength(LReqData, FWsRequestBody.Size);
+            TriggerWsRequest(_OpCodeToReqType(FWsOpCode), LReqData);
+          end;
+      end;
+
+      _ResetRequest;
+    end;
+  end;
 end;
 
 procedure TCrossWebSocketConnection._RespondClose;
