@@ -4,6 +4,19 @@
 
 ### [English](README.en.md)
 
+## 捐赠
+如果你觉得这个项目对你有用，请考虑捐赠支持作者继续更新
+
+- ####微信
+
+![image](https://user-images.githubusercontent.com/3221597/60226747-2648ee00-98bf-11e9-9085-4ee3afb1186e.png)
+
+<br>
+- ####支付宝
+
+![image](https://user-images.githubusercontent.com/3221597/60226762-35c83700-98bf-11e9-9242-3b56351dc6e9.png)
+
+<br>
 ## 更新记录
 
 #### 2019.02.17
@@ -24,7 +37,6 @@
   - ICrossSslSocket
   - ICrossServer
   - ICrossSslServer
-
 
 ## 特性
 
