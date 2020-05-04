@@ -1198,10 +1198,8 @@ begin
 
   _LockConnections;
   try
-    if not FConnections.ContainsKey(AConnection.UID) then
-      Inc(FConnectionsCount);
-
     FConnections.AddOrSetValue(AConnection.UID, AConnection);
+    FConnectionsCount := FConnections.Count;
   finally
     _UnlockConnections;
   end;
@@ -1224,10 +1222,8 @@ begin
 
   _LockConnections;
   try
-    if not FConnections.ContainsKey(AConnection.UID) then Exit;
-
     FConnections.Remove(AConnection.UID);
-    Dec(FConnectionsCount);
+    FConnectionsCount := FConnections.Count;
   finally
     _UnlockConnections;
   end;
@@ -1270,7 +1266,6 @@ procedure TAbstractCrossSocket.TriggerListenEnd(AListen: ICrossListen);
 begin
   _LockListens;
   try
-    if not FListens.ContainsKey(AListen.UID) then Exit;
     FListens.Remove(AListen.UID);
     FListensCount := FListens.Count;
   finally
