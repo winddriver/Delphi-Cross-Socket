@@ -71,6 +71,7 @@ type
     property Millisecond: Word read GetMillisecond write SetMillisecond;
 
     function ToString(const AFormatStr: string = ''): string; inline;
+    function ToISO8601: string; inline;
     function ToMilliseconds: Int64; inline;
 
     function StartOfYear: TDateTime; inline;
@@ -463,6 +464,27 @@ end;
 function TDateTimeHelper.StartOfYear: TDateTime;
 begin
   Result := StartOfTheYear(Self);
+end;
+
+function TDateTimeHelper.ToISO8601: string;
+var
+  LOffset: TDateTime;
+  LYear, LMonth, LDay, LHour, LMinute, LSecond, LMilliseconds: Word;
+begin
+  DecodeDate(Self, LYear, LMonth, LDay);
+  DecodeTime(Self, LHour, LMinute, LSecond, LMilliseconds);
+  Result := Format('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%d', [LYear, LMonth, LDay, LHour, LMinute, LSecond, LMilliseconds]);
+  if (Self <> 0) then
+    LOffset := Self - TTimeZone.Local.ToUniversalTime(Self)
+  else
+    LOffset := 0;
+  DecodeTime(LOffset, LHour, LMinute, LSecond, LMilliseconds);
+  if LOffset < 0 then
+    Result := Format('%s-%.2d:%.2d', [Result, LHour, LMinute])
+  else if LOffset > 0 then
+    Result := Format('%s+%.2d:%.2d', [Result, LHour, LMinute])
+  else
+    Result := Result + 'Z';
 end;
 
 function TDateTimeHelper.ToLocalTime: TDateTime;

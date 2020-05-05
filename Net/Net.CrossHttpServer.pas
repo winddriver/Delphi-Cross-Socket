@@ -3693,6 +3693,7 @@ begin
     FRawParamsText := FRawPathAndParams.Substring(J + 1);
   end;
   FPath := TNetEncoding.URL.Decode(FRawPath);
+
   FQuery.Decode(FRawParamsText);
 
   // HTTP协议版本

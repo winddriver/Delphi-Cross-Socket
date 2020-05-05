@@ -14,6 +14,10 @@ unit Net.CrossSocket.Base;
 //       否则会导致两块数据被分成小块后出现交错
 {.$DEFINE __LITTLE_PIECE__}
 
+{$IF defined(DEBUG) or defined(madExcept)}
+  {$DEFINE __DEBUG__}
+{$ENDIF}
+
 interface
 
 uses
@@ -364,7 +368,7 @@ type
     procedure StopLoop;
 
     /// <summary>
-    ///   处理IO事件
+    ///   处理IO事件(内部使用)
     /// </summary>
     function ProcessIoEvent: Boolean;
 
@@ -537,12 +541,12 @@ type
     {$endregion}
 
     /// <summary>
-    ///   IO线程开始时触发
+    ///   IO线程开始时触发(内部使用)
     /// </summary>
     procedure TriggerIoThreadBegin(AIoThread: TIoEventThread);
 
     /// <summary>
-    ///   IO线程结束时触发
+    ///   IO线程结束时触发(内部使用)
     /// </summary>
     procedure TriggerIoThreadEnd(AIoThread: TIoEventThread);
 
@@ -901,13 +905,13 @@ begin
 end;
 
 procedure _LogLastOsError(const ATag: string);
-{$IFDEF DEBUG}
+{$IFDEF __DEBUG__}
 var
   LError: Integer;
   LErrMsg: string;
 {$ENDIF}
 begin
-  {$IFDEF DEBUG}
+  {$IFDEF __DEBUG__}
   LError := GetLastError;
   if (ATag <> '') then
     LErrMsg := ATag + ' : '
@@ -930,7 +934,7 @@ end;
 
 procedure TIoEventThread.Execute;
 var
-  {$IFDEF DEBUG}
+  {$IFDEF __DEBUG__}
   LRunCount: Int64;
   {$ENDIF}
   LCrossSocketObj: TAbstractCrossSocket;
@@ -938,7 +942,7 @@ begin
   LCrossSocketObj := FCrossSocket as TAbstractCrossSocket;
   try
     LCrossSocketObj.TriggerIoThreadBegin(Self);
-    {$IFDEF DEBUG}
+    {$IFDEF __DEBUG__}
     LRunCount := 0;
     {$ENDIF}
     while not Terminated do
@@ -946,17 +950,17 @@ begin
       try
         if not LCrossSocketObj.ProcessIoEvent then Break;
       except
-        {$IFDEF DEBUG}
+        {$IFDEF __DEBUG__}
         on e: Exception do
-          _Log('%s Io线程ID %d, 异常 %s, %s', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, e.ClassName, e.Message]);
+          _Log('%s Io线程ID %d, 异常 %s, %s', [LCrossSocketObj.ClassName, Self.ThreadID, e.ClassName, e.Message]);
         {$ENDIF}
       end;
-      {$IFDEF DEBUG}
+      {$IFDEF __DEBUG__}
       Inc(LRunCount)
       {$ENDIF};
     end;
-    {$IFDEF DEBUG}
-  //  _Log('%s Io线程ID %d, 被调用了 %d 次', [TAbstractCrossSocket(FCrossSocket).ClassName, Self.ThreadID, LRunCount]);
+    {$IFDEF __DEBUG__}
+  //  _Log('%s Io线程ID %d, 被调用了 %d 次', [LCrossSocketObj.ClassName, Self.ThreadID, LRunCount]);
     {$ENDIF}
   finally
     LCrossSocketObj.TriggerIoThreadEnd(Self);
@@ -1198,10 +1202,8 @@ begin
 
   _LockConnections;
   try
-    if not FConnections.ContainsKey(AConnection.UID) then
-      Inc(FConnectionsCount);
-
     FConnections.AddOrSetValue(AConnection.UID, AConnection);
+    FConnectionsCount := FConnections.Count;
   finally
     _UnlockConnections;
   end;
@@ -1224,10 +1226,8 @@ begin
 
   _LockConnections;
   try
-    if not FConnections.ContainsKey(AConnection.UID) then Exit;
-
     FConnections.Remove(AConnection.UID);
-    Dec(FConnectionsCount);
+    FConnectionsCount := FConnections.Count;
   finally
     _UnlockConnections;
   end;
@@ -1270,7 +1270,6 @@ procedure TAbstractCrossSocket.TriggerListenEnd(AListen: ICrossListen);
 begin
   _LockListens;
   try
-    if not FListens.ContainsKey(AListen.UID) then Exit;
     FListens.Remove(AListen.UID);
     FListensCount := FListens.Count;
   finally
@@ -1350,7 +1349,7 @@ begin
   if (FSocket <> INVALID_HANDLE_VALUE) then
   begin
     TSocketAPI.CloseSocket(FSocket);
-    {$IFDEF DEBUG}
+    {$IFDEF __DEBUG__}
 //    _Log('close result %d', [GetLastError]);
     {$ENDIF}
     FSocket := INVALID_HANDLE_VALUE;
