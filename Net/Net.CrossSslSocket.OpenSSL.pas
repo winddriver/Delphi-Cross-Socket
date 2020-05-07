@@ -48,13 +48,13 @@ type
     procedure _SslUnlock; inline;
 
     function _SslHandshake: Boolean;
-    procedure _WriteBioToSocket(const ACallback: TProc<ICrossConnection, Boolean> = nil);
+    procedure _WriteBioToSocket(const ACallback: TCrossConnectionCallback = nil);
   protected
-    procedure DirectSend(ABuffer: Pointer; ACount: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); override;
+    procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
+      const ACallback: TCrossConnectionCallback = nil); override;
   public
-    constructor Create(AOwner: ICrossSocket; AClientSocket: THandle;
-      AConnectType: TConnectType); override;
+    constructor Create(const AOwner: ICrossSocket; const AClientSocket: THandle;
+      const AConnectType: TConnectType); override;
     destructor Destroy; override;
   end;
 
@@ -72,20 +72,20 @@ type
     procedure _InitSslCtx;
     procedure _FreeSslCtx;
   protected
-    procedure TriggerConnected(AConnection: ICrossConnection); override;
-    procedure TriggerReceived(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer); override;
+    procedure TriggerConnected(const AConnection: ICrossConnection); override;
+    procedure TriggerReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
 
-    function CreateConnection(AOwner: ICrossSocket; AClientSocket: THandle;
-      AConnectType: TConnectType): ICrossConnection; override;
+    function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
+      const AConnectType: TConnectType): ICrossConnection; override;
   public
     constructor Create(AIoThreads: Integer); override;
     destructor Destroy; override;
 
-    procedure SetCertificate(ACertBuf: Pointer; ACertBufSize: Integer); overload;
+    procedure SetCertificate(const ACertBuf: Pointer; const ACertBufSize: Integer); overload;
     procedure SetCertificate(const ACertStr: string); overload;
     procedure SetCertificateFile(const ACertFile: string);
 
-    procedure SetPrivateKey(APKeyBuf: Pointer; APKeyBufSize: Integer); overload;
+    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer); overload;
     procedure SetPrivateKey(const APKeyStr: string); overload;
     procedure SetPrivateKeyFile(const APKeyFile: string);
   end;
@@ -94,8 +94,8 @@ implementation
 
 { TCrossOpenSslConnection }
 
-constructor TCrossOpenSslConnection.Create(AOwner: ICrossSocket;
-  AClientSocket: THandle; AConnectType: TConnectType);
+constructor TCrossOpenSslConnection.Create(const AOwner: ICrossSocket;
+  const AClientSocket: THandle; const AConnectType: TConnectType);
 begin
   inherited;
 
@@ -128,7 +128,7 @@ begin
 end;
 
 procedure TCrossOpenSslConnection._WriteBioToSocket(
-  const ACallback: TProc<ICrossConnection, Boolean>);
+  const ACallback: TCrossConnectionCallback);
 var
   LConnection: ICrossConnection;
   ret, error: Integer;
@@ -198,7 +198,7 @@ begin
 
   {$region '发送缓存中已加密的数据'}
   inherited DirectSend(LBuffer.Memory, LBuffer.Size,
-    procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
       FreeAndNil(LBuffer);
       if Assigned(ACallback) then
@@ -207,8 +207,8 @@ begin
   {$endregion}
 end;
 
-procedure TCrossOpenSslConnection.DirectSend(ABuffer: Pointer; ACount: Integer;
-  const ACallback: TProc<ICrossConnection, Boolean>);
+procedure TCrossOpenSslConnection.DirectSend(const ABuffer: Pointer;
+  const ACount: Integer; const ACallback: TCrossConnectionCallback);
 var
   LConnection: ICrossConnection;
   ret, error: Integer;
@@ -306,8 +306,8 @@ begin
   TSSLTools.UnloadSSL;
 end;
 
-function TCrossOpenSslSocket.CreateConnection(AOwner: ICrossSocket;
-  AClientSocket: THandle; AConnectType: TConnectType): ICrossConnection;
+function TCrossOpenSslSocket.CreateConnection(const AOwner: ICrossSocket;
+  const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
 begin
   Result := TCrossOpenSslConnection.Create(AOwner, AClientSocket, AConnectType);
 end;
@@ -379,8 +379,8 @@ begin
   TSSLTools.FreeCTX(FSslCtx);
 end;
 
-procedure TCrossOpenSslSocket.SetCertificate(ACertBuf: Pointer;
-  ACertBufSize: Integer);
+procedure TCrossOpenSslSocket.SetCertificate(const ACertBuf: Pointer;
+  const ACertBufSize: Integer);
 begin
   TSSLTools.SetCertificate(FSslCtx, ACertBuf, ACertBufSize);
 end;
@@ -395,8 +395,8 @@ begin
   TSSLTools.SetCertificateFile(FSslCtx, ACertFile);
 end;
 
-procedure TCrossOpenSslSocket.SetPrivateKey(APKeyBuf: Pointer;
-  APKeyBufSize: Integer);
+procedure TCrossOpenSslSocket.SetPrivateKey(const APKeyBuf: Pointer;
+  const APKeyBufSize: Integer);
 begin
   TSSLTools.SetPrivateKey(FSslCtx, APKeyBuf, APKeyBufSize);
 end;
@@ -411,7 +411,7 @@ begin
   TSSLTools.SetPrivateKeyFile(FSslCtx, APKeyFile);
 end;
 
-procedure TCrossOpenSslSocket.TriggerConnected(AConnection: ICrossConnection);
+procedure TCrossOpenSslSocket.TriggerConnected(const AConnection: ICrossConnection);
 var
   LConnection: TCrossOpenSslConnection;
 begin
@@ -433,8 +433,8 @@ begin
   end;
 end;
 
-procedure TCrossOpenSslSocket.TriggerReceived(AConnection: ICrossConnection;
-  ABuf: Pointer; ALen: Integer);
+procedure TCrossOpenSslSocket.TriggerReceived(const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer);
 var
   LConnection: TCrossOpenSslConnection;
   ret, error: Integer;

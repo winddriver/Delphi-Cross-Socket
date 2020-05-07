@@ -70,13 +70,13 @@ type
     FRunWatch, FSendWatch, FRecvWatch: TStopwatch;
     FBufSize: Integer;
     FBuffer: TBytes;
-    FTestProc: TProc<ICrossConnection, Boolean>;
+    FTestProc: TCrossConnectionCallback;
 
-    procedure OnConnected(Sender: TObject; AConnection: ICrossConnection);
-    procedure OnReceived(Sender: TObject; AConnection: ICrossConnection;
-      ABuf: Pointer; ALen: Integer);
-    procedure OnSent(Sender: TObject; AConnection: ICrossConnection;
-      ABuf: Pointer; ALen: Integer);
+    procedure OnConnected(const Sender: TObject; const AConnection: ICrossConnection);
+    procedure OnReceived(const Sender: TObject; const AConnection: ICrossConnection;
+      const ABuf: Pointer; const ALen: Integer);
+    procedure OnSent(const Sender: TObject; const AConnection: ICrossConnection;
+      const ABuf: Pointer; const ALen: Integer);
 
     procedure InitBuffer;
     function GetBuffer: TBytes; inline;
@@ -136,7 +136,7 @@ begin
   if (btnListen.Tag = 0) then
   begin
     FSocket.Listen('0.0.0.0', Trunc(edtListenPort.Value),
-      procedure(AListen: ICrossListen; ASuccess: Boolean)
+      procedure(const AListen: ICrossListen; const ASuccess: Boolean)
       begin
         {$IFDEF DEBUG}
         TThread.Queue(nil,
@@ -169,7 +169,7 @@ var
 begin
   for I := 1 to Trunc(edtConnCount.Value) do
     FSocket.Connect(edtConnHost.Text, Trunc(edtConnPort.Value),
-      procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+      procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
       begin
 //        {$IFDEF DEBUG}
 //        TThread.Queue(nil,
@@ -205,7 +205,7 @@ begin
     LStream.Position := 0;
 
     LConns[0].SendStream(LStream,
-      procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+      procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
       begin
         TThread.Queue(nil,
           procedure
@@ -224,7 +224,7 @@ end;
 procedure TfmMain.Button3Click(Sender: TObject);
 begin
   FSocket.Connect(edtConnHost.Text, Trunc(edtConnPort.Value),
-    procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
       TThread.Synchronize(nil,
         procedure
@@ -313,7 +313,7 @@ begin
   {$ENDIF}
 
   FTestProc :=
-    procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     var
       LBytes: TBytes;
     begin
@@ -351,21 +351,21 @@ begin
     FBuffer[I] := RandomRange(0, 255 + 1);
 end;
 
-procedure TfmMain.OnConnected(Sender: TObject; AConnection: ICrossConnection);
+procedure TfmMain.OnConnected(const Sender: TObject; const AConnection: ICrossConnection);
 begin
   if FTesting and Assigned(FTestProc) then
     FTestProc(AConnection, True);
 end;
 
-procedure TfmMain.OnReceived(Sender: TObject; AConnection: ICrossConnection;
-  ABuf: Pointer; ALen: Integer);
+procedure TfmMain.OnReceived(const Sender: TObject; const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer);
 begin
   AtomicIncrement(FRcvdCount);
   AtomicIncrement(FRcvdBytes, ALen);
 end;
 
-procedure TfmMain.OnSent(Sender: TObject; AConnection: ICrossConnection;
-  ABuf: Pointer; ALen: Integer);
+procedure TfmMain.OnSent(const Sender: TObject; const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer);
 begin
   AtomicIncrement(FSendCount);
   AtomicIncrement(FSentBytes, ALen);

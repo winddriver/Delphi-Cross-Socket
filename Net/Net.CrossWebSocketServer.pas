@@ -67,6 +67,12 @@ const
   WS_MAGIC_STR = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
 type
+  ICrossWebSocketConnection = interface;
+
+  TCrossWsCallback = reference to procedure(const AWsConnection: ICrossWebSocketConnection; const ASuccess: Boolean);
+
+  TCrossWsChundDataFunc = reference to function(const AData: PPointer; const ACount: PNativeInt): Boolean;
+
   /// <summary>
   ///   WebSocket连接接口
   /// </summary>
@@ -94,7 +100,7 @@ type
     /// <param name="ACallback">
     ///   回调函数
     /// </param>
-    procedure WsSend(const AData; ACount: NativeInt; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
+    procedure WsSend(const AData; const ACount: NativeInt; const ACallback: TCrossWsCallback = nil); overload;
 
     /// <summary>
     ///   发送字节数据
@@ -111,7 +117,7 @@ type
     /// <param name="ACallback">
     ///   回调函数
     /// </param>
-    procedure WsSend(const AData: TBytes; AOffset, ACount: NativeInt; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
+    procedure WsSend(const AData: TBytes; const AOffset, ACount: NativeInt; const ACallback: TCrossWsCallback = nil); overload;
 
     /// <summary>
     ///   发送字节数据
@@ -122,7 +128,7 @@ type
     /// <param name="ACallback">
     ///   回调函数
     /// </param>
-    procedure WsSend(const AData: TBytes; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
+    procedure WsSend(const AData: TBytes; const ACallback: TCrossWsCallback = nil); overload;
 
     /// <summary>
     ///   发送字符串数据
@@ -133,7 +139,7 @@ type
     /// <param name="ACallback">
     ///   回调函数
     /// </param>
-    procedure WsSend(const AData: string; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
+    procedure WsSend(const AData: string; const ACallback: TCrossWsCallback = nil); overload;
 
     /// <summary>
     ///   发送碎片化数据
@@ -161,7 +167,7 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    procedure WsSend(const AData: TFunc<PPointer, PNativeInt, Boolean>; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
+    procedure WsSend(const AData: TCrossWsChundDataFunc; const ACallback: TCrossWsCallback = nil); overload;
 
     /// <summary>
     ///   发送流数据
@@ -181,7 +187,7 @@ type
     /// <remarks>
     ///   必须保证发送过程中流对象的有效性, 要释放流对象可以放到回调函数中进行
     /// </remarks>
-    procedure WsSend(const AData: TStream; const AOffset, ACount: Int64; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
+    procedure WsSend(const AData: TStream; const AOffset, ACount: Int64; const ACallback: TCrossWsCallback = nil); overload;
 
     /// <summary>
     ///   发送流数据
@@ -195,14 +201,14 @@ type
     /// <remarks>
     ///   必须保证发送过程中流对象的有效性, 要释放流对象可以放到回调函数中进行
     /// </remarks>
-    procedure WsSend(const AData: TStream; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
+    procedure WsSend(const AData: TStream; const ACallback: TCrossWsCallback = nil); overload;
   end;
 
   TWsRequestType = (wsrtUnknown, wsrtText, wsrtBinary);
-  TWsOnOpen = TProc<ICrossWebSocketConnection>;
-  TWsOnMessage = reference to procedure(AConnection: ICrossWebSocketConnection;
-    ARequestType: TWsRequestType; const ARequestData: TBytes);
-  TWsOnClose = TProc<ICrossWebSocketConnection>;
+  TWsOnOpen = reference to procedure(const AConnection: ICrossWebSocketConnection);
+  TWsOnMessage = reference to procedure(const AConnection: ICrossWebSocketConnection;
+    const ARequestType: TWsRequestType; const ARequestData: TBytes);
+  TWsOnClose = TWsOnOpen;
 
   /// <summary>
   ///   跨平台WebSocket服务器
@@ -215,7 +221,7 @@ type
     /// <param name="ACallback">
     ///   回调函数
     /// </param>
-    function OnOpen(ACallback: TWsOnOpen): ICrossWebSocketServer;
+    function OnOpen(const ACallback: TWsOnOpen): ICrossWebSocketServer;
 
     /// <summary>
     ///   收到WebSocket消息时触发
@@ -223,7 +229,7 @@ type
     /// <param name="ACallback">
     ///   回调函数
     /// </param>
-    function OnMessage(ACallback: TWsOnMessage): ICrossWebSocketServer;
+    function OnMessage(const ACallback: TWsOnMessage): ICrossWebSocketServer;
 
     /// <summary>
     ///   WebSocket连接关闭时触发
@@ -231,7 +237,7 @@ type
     /// <param name="ACallback">
     ///   hui'diaohanshu
     /// </param>
-    function OnClose(ACallback: TWsOnClose): ICrossWebSocketServer;
+    function OnClose(const ACallback: TWsOnClose): ICrossWebSocketServer;
   end;
 
   TCrossWebSocketConnection = class(TCrossHttpConnection, ICrossWebSocketConnection)
@@ -260,13 +266,13 @@ type
 
     {$region '内部发送方法'}
     procedure _WsSend(AOpCode: Byte; AFin: Boolean; AData: Pointer; ACount: NativeInt;
-      ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
+      ACallback: TCrossWsCallback = nil); overload;
 
     procedure _WsSend(AOpCode: Byte; AFin: Boolean; const AData: TBytes; AOffset, ACount: NativeInt;
-      ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
+      ACallback: TCrossWsCallback = nil); overload;
 
     procedure _WsSend(AOpCode: Byte; AFin: Boolean; const AData: TBytes;
-      ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
+      ACallback: TCrossWsCallback = nil); overload;
     {$endregion}
 
     procedure _RespondPong(const AData: TBytes);
@@ -277,8 +283,8 @@ type
     procedure TriggerWsRequest(ARequestType: TWsRequestType;
       const ARequestData: TBytes); virtual;
   public
-    constructor Create(AOwner: ICrossSocket; AClientSocket: THandle;
-      AConnectType: TConnectType); override;
+    constructor Create(const AOwner: ICrossSocket; const AClientSocket: THandle;
+      const AConnectType: TConnectType); override;
     destructor Destroy; override;
 
     class function _MakeFrameHeader(AOpCode: Byte; AFin: Boolean; AMaskKey: Cardinal; ADataSize: UInt64): TBytes; static;
@@ -286,14 +292,14 @@ type
     function IsWebSocket: Boolean;
     procedure WsClose;
 
-    procedure WsSend(const AData; ACount: NativeInt; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
-    procedure WsSend(const AData: TBytes; AOffset, ACount: NativeInt; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
-    procedure WsSend(const AData: TBytes; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
-    procedure WsSend(const AData: string; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
+    procedure WsSend(const AData; const ACount: NativeInt; const ACallback: TCrossWsCallback = nil); overload;
+    procedure WsSend(const AData: TBytes; const AOffset, ACount: NativeInt; const ACallback: TCrossWsCallback = nil); overload;
+    procedure WsSend(const AData: TBytes; const ACallback: TCrossWsCallback = nil); overload;
+    procedure WsSend(const AData: string; const ACallback: TCrossWsCallback = nil); overload;
 
-    procedure WsSend(const AData: TFunc<PPointer, PNativeInt, Boolean>; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
-    procedure WsSend(const AData: TStream; const AOffset, ACount: Int64; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
-    procedure WsSend(const AData: TStream; ACallback: TProc<ICrossWebSocketConnection, Boolean> = nil); overload;
+    procedure WsSend(const AData: TCrossWsChundDataFunc; const ACallback: TCrossWsCallback = nil); overload;
+    procedure WsSend(const AData: TStream; const AOffset, ACount: Int64; const ACallback: TCrossWsCallback = nil); overload;
+    procedure WsSend(const AData: TStream; const ACallback: TCrossWsCallback = nil); overload;
   end;
 
   TNetCrossWebSocketServer = class(TCrossHttpServer, ICrossWebSocketServer)
@@ -302,30 +308,30 @@ type
     FOnMessageEvents: TList<TWsOnMessage>;
     FOnCloseEvents: TList<TWsOnClose>;
 
-    procedure _WebSocketHandshake(AConnection: ICrossWebSocketConnection;
-      ACallback: TProc<ICrossWebSocketConnection, Boolean>);
+    procedure _WebSocketHandshake(const AConnection: ICrossWebSocketConnection;
+      const ACallback: TCrossWsCallback);
 
-    procedure _OnOpen(AConnection: ICrossWebSocketConnection);
-    procedure _OnMessage(AConnection: ICrossWebSocketConnection;
-      ARequestType: TWsRequestType; const ARequestData: TBytes);
-    procedure _OnClose(AConnection: ICrossWebSocketConnection);
+    procedure _OnOpen(const AConnection: ICrossWebSocketConnection);
+    procedure _OnMessage(const AConnection: ICrossWebSocketConnection;
+      const ARequestType: TWsRequestType; const ARequestData: TBytes);
+    procedure _OnClose(const AConnection: ICrossWebSocketConnection);
   protected
-    function CreateConnection(AOwner: ICrossSocket; AClientSocket: THandle;
-      AConnectType: TConnectType): ICrossConnection; override;
-    procedure LogicReceived(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer); override;
-    procedure LogicDisconnected(AConnection: ICrossConnection); override;
+    function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
+      const AConnectType: TConnectType): ICrossConnection; override;
+    procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
+    procedure LogicDisconnected(const AConnection: ICrossConnection); override;
 
-    procedure DoOnRequest(AConnection: ICrossHttpConnection); override;
+    procedure DoOnRequest(const AConnection: ICrossHttpConnection); override;
 
-    procedure TriggerWsRequest(AConnection: ICrossWebSocketConnection;
-      ARequestType: TWsRequestType; const ARequestData: TBytes); virtual;
+    procedure TriggerWsRequest(const AConnection: ICrossWebSocketConnection;
+      const ARequestType: TWsRequestType; const ARequestData: TBytes); virtual;
   public
-    constructor Create(AIoThreads: Integer); override;
+    constructor Create(const AIoThreads: Integer); override;
     destructor Destroy; override;
 
-    function OnOpen(ACallback: TWsOnOpen): ICrossWebSocketServer;
-    function OnMessage(ACallback: TWsOnMessage): ICrossWebSocketServer;
-    function OnClose(ACallback: TWsOnClose): ICrossWebSocketServer;
+    function OnOpen(const ACallback: TWsOnOpen): ICrossWebSocketServer;
+    function OnMessage(const ACallback: TWsOnMessage): ICrossWebSocketServer;
+    function OnClose(const ACallback: TWsOnClose): ICrossWebSocketServer;
   end;
 
 implementation
@@ -335,8 +341,8 @@ uses
 
 { TCrossWebSocketConnection }
 
-constructor TCrossWebSocketConnection.Create(AOwner: ICrossSocket;
-  AClientSocket: THandle; AConnectType: TConnectType);
+constructor TCrossWebSocketConnection.Create(const AOwner: ICrossSocket;
+  const AClientSocket: THandle; const AConnectType: TConnectType);
 begin
   inherited;
 
@@ -363,43 +369,43 @@ begin
   TNetCrossWebSocketServer(Owner).TriggerWsRequest(Self, ARequestType, ARequestData);
 end;
 
-procedure TCrossWebSocketConnection.WsSend(const AData; ACount: NativeInt;
-  ACallback: TProc<ICrossWebSocketConnection, Boolean>);
+procedure TCrossWebSocketConnection.WsSend(const AData; const ACount: NativeInt;
+  const ACallback: TCrossWsCallback);
 begin
   _WsSend(WS_OP_BINARY, True, @AData, ACount, ACallback);
 end;
 
-procedure TCrossWebSocketConnection.WsSend(const AData: TBytes; AOffset,
-  ACount: NativeInt; ACallback: TProc<ICrossWebSocketConnection, Boolean>);
+procedure TCrossWebSocketConnection.WsSend(const AData: TBytes;
+  const AOffset, ACount: NativeInt; const ACallback: TCrossWsCallback);
 begin
   _WsSend(WS_OP_BINARY, True, AData, AOffset, ACount, ACallback);
 end;
 
 procedure TCrossWebSocketConnection.WsSend(const AData: TBytes;
-  ACallback: TProc<ICrossWebSocketConnection, Boolean>);
+  const ACallback: TCrossWsCallback);
 begin
   WsSend(AData, 0, Length(AData), ACallback);
 end;
 
 procedure TCrossWebSocketConnection.WsSend(const AData: string;
-  ACallback: TProc<ICrossWebSocketConnection, Boolean>);
+  const ACallback: TCrossWsCallback);
 begin
   _WsSend(WS_OP_TEXT, True, TEncoding.UTF8.GetBytes(AData), ACallback);
 end;
 
 procedure TCrossWebSocketConnection.WsSend(
-  const AData: TFunc<PPointer, PNativeInt, Boolean>;
-  ACallback: TProc<ICrossWebSocketConnection, Boolean>);
+  const AData: TCrossWsChundDataFunc;
+  const ACallback: TCrossWsCallback);
 var
   LConnection: ICrossWebSocketConnection;
   LOpCode: Byte;
-  LSender: TProc<ICrossWebSocketConnection, Boolean>;
+  LSender: TCrossWsCallback;
 begin
   LConnection := Self;
   LOpCode := WS_OP_BINARY;
 
   LSender :=
-    procedure(AConnection: ICrossWebSocketConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossWebSocketConnection; const ASuccess: Boolean)
     var
       LData: Pointer;
       LCount: NativeInt;
@@ -431,7 +437,7 @@ begin
         // 结束帧只有一个头, 因为结束帧是流无数据可读时才生成的
         TCrossWebSocketConnection(AConnection)._WsSend(LOpCode,
           True, nil, 0,
-          procedure(AConnection: ICrossWebSocketConnection; ASuccess: Boolean)
+          procedure(const AConnection: ICrossWebSocketConnection; const ASuccess: Boolean)
           begin
             if Assigned(ACallback) then
               ACallback(AConnection, ASuccess);
@@ -452,8 +458,8 @@ begin
   LSender(LConnection, True);
 end;
 
-procedure TCrossWebSocketConnection.WsSend(const AData: TStream; const AOffset,
-  ACount: Int64; ACallback: TProc<ICrossWebSocketConnection, Boolean>);
+procedure TCrossWebSocketConnection.WsSend(const AData: TStream;
+  const AOffset, ACount: Int64; const ACallback: TCrossWsCallback);
 var
   LOffset, LCount: Int64;
   LBody: TStream;
@@ -476,7 +482,7 @@ begin
 
   WsSend(
     // BODY
-    function(AData: PPointer; ACount: PNativeInt): Boolean
+    function(const AData: PPointer; const ACount: PNativeInt): Boolean
     begin
       if (LCount <= 0) then Exit(False);
 
@@ -489,7 +495,7 @@ begin
         Dec(LCount, ACount^);
     end,
     // CALLBACK
-    procedure(AConnection: ICrossWebSocketConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossWebSocketConnection; const ASuccess: Boolean)
     begin
       LBuffer := nil;
 
@@ -499,7 +505,7 @@ begin
 end;
 
 procedure TCrossWebSocketConnection.WsSend(const AData: TStream;
-  ACallback: TProc<ICrossWebSocketConnection, Boolean>);
+  const ACallback: TCrossWsCallback);
 begin
   WsSend(AData, 0, 0, ACallback);
 end;
@@ -805,7 +811,7 @@ begin
   else
   begin
     _WsSend(WS_OP_CLOSE, True, nil, 0,
-      procedure(AConnection: ICrossWebSocketConnection; ASuccess: Boolean)
+      procedure(const AConnection: ICrossWebSocketConnection; const ASuccess: Boolean)
       begin
         AConnection.Disconnect;
       end);
@@ -819,13 +825,13 @@ end;
 
 procedure TCrossWebSocketConnection._WsSend(AOpCode: Byte; AFin: Boolean;
   AData: Pointer; ACount: NativeInt;
-  ACallback: TProc<ICrossWebSocketConnection, Boolean>);
+  ACallback: TCrossWsCallback);
 var
   LWsFrameHeader: TBytes;
 begin
   LWsFrameHeader := _MakeFrameHeader(AOpCode, AFin, 0, ACount);
   inherited SendBytes(LWsFrameHeader,
-    procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
       if not ASuccess then
       begin
@@ -842,7 +848,7 @@ begin
       end;
 
       inherited SendBuf(AData^, ACount,
-        procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+        procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
         begin
           if Assigned(ACallback) then
             ACallback(AConnection as ICrossWebSocketConnection, ASuccess);
@@ -852,7 +858,7 @@ end;
 
 procedure TCrossWebSocketConnection._WsSend(AOpCode: Byte; AFin: Boolean;
   const AData: TBytes; AOffset, ACount: NativeInt;
-  ACallback: TProc<ICrossWebSocketConnection, Boolean>);
+  ACallback: TCrossWsCallback);
 var
   LData: TBytes;
   LOffset, LCount: NativeInt;
@@ -863,7 +869,7 @@ begin
   _AdjustOffsetCount(Length(AData), LOffset, LCount);
 
   _WsSend(AOpCode, AFin, @LData[LOffset], LCount,
-    procedure(AConnection: ICrossWebSocketConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossWebSocketConnection; const ASuccess: Boolean)
     begin
       LData := nil;
       if Assigned(ACallback) then
@@ -872,14 +878,14 @@ begin
 end;
 
 procedure TCrossWebSocketConnection._WsSend(AOpCode: Byte; AFin: Boolean;
-  const AData: TBytes; ACallback: TProc<ICrossWebSocketConnection, Boolean>);
+  const AData: TBytes; ACallback: TCrossWsCallback);
 begin
   _WsSend(AOpCode, AFin, AData, 0, Length(AData), ACallback);
 end;
 
 { TNetCrossWebSocketServer }
 
-constructor TNetCrossWebSocketServer.Create(AIoThreads: Integer);
+constructor TNetCrossWebSocketServer.Create(const AIoThreads: Integer);
 begin
   inherited;
 
@@ -898,7 +904,7 @@ begin
 end;
 
 procedure TNetCrossWebSocketServer.LogicDisconnected(
-  AConnection: ICrossConnection);
+  const AConnection: ICrossConnection);
 var
   LConnection: ICrossWebSocketConnection;
 begin
@@ -909,8 +915,8 @@ begin
     inherited;
 end;
 
-procedure TNetCrossWebSocketServer.LogicReceived(AConnection: ICrossConnection;
-  ABuf: Pointer; ALen: Integer);
+procedure TNetCrossWebSocketServer.LogicReceived(const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer);
 var
   LConnection: ICrossWebSocketConnection;
 begin
@@ -921,7 +927,7 @@ begin
     inherited;
 end;
 
-function TNetCrossWebSocketServer.OnClose(ACallback: TWsOnClose): ICrossWebSocketServer;
+function TNetCrossWebSocketServer.OnClose(const ACallback: TWsOnClose): ICrossWebSocketServer;
 begin
   System.TMonitor.Enter(FOnCloseEvents);
   try
@@ -933,7 +939,7 @@ begin
   Result := Self;
 end;
 
-function TNetCrossWebSocketServer.OnMessage(ACallback: TWsOnMessage): ICrossWebSocketServer;
+function TNetCrossWebSocketServer.OnMessage(const ACallback: TWsOnMessage): ICrossWebSocketServer;
 begin
   System.TMonitor.Enter(FOnMessageEvents);
   try
@@ -945,7 +951,7 @@ begin
   Result := Self;
 end;
 
-function TNetCrossWebSocketServer.OnOpen(ACallback: TWsOnOpen): ICrossWebSocketServer;
+function TNetCrossWebSocketServer.OnOpen(const ACallback: TWsOnOpen): ICrossWebSocketServer;
 begin
   System.TMonitor.Enter(FOnOpenEvents);
   try
@@ -958,14 +964,14 @@ begin
 end;
 
 procedure TNetCrossWebSocketServer.TriggerWsRequest(
-  AConnection: ICrossWebSocketConnection; ARequestType: TWsRequestType;
+  const AConnection: ICrossWebSocketConnection; const ARequestType: TWsRequestType;
   const ARequestData: TBytes);
 begin
   _OnMessage(AConnection, ARequestType, ARequestData);
 end;
 
 procedure TNetCrossWebSocketServer._OnClose(
-  AConnection: ICrossWebSocketConnection);
+  const AConnection: ICrossWebSocketConnection);
 var
   LOnCloseEvents: TArray<TWsOnClose>;
   LOnCloseEvent: TWsOnClose;
@@ -983,7 +989,7 @@ begin
 end;
 
 procedure TNetCrossWebSocketServer._OnMessage(
-  AConnection: ICrossWebSocketConnection; ARequestType: TWsRequestType;
+  const AConnection: ICrossWebSocketConnection; const ARequestType: TWsRequestType;
   const ARequestData: TBytes);
 var
   LOnMessageEvents: TArray<TWsOnMessage>;
@@ -1002,7 +1008,7 @@ begin
 end;
 
 procedure TNetCrossWebSocketServer._OnOpen(
-  AConnection: ICrossWebSocketConnection);
+  const AConnection: ICrossWebSocketConnection);
 var
   LOnOpenEvents: TArray<TWsOnOpen>;
   LOnOpenEvent: TWsOnOpen;
@@ -1020,8 +1026,8 @@ begin
 end;
 
 procedure TNetCrossWebSocketServer._WebSocketHandshake(
-  AConnection: ICrossWebSocketConnection;
-  ACallback: TProc<ICrossWebSocketConnection, Boolean>);
+  const AConnection: ICrossWebSocketConnection;
+  const ACallback: TCrossWsCallback);
 begin
   AConnection.Response.Header['Upgrade'] := 'websocket';
   AConnection.Response.Header['Connection'] := 'Upgrade';
@@ -1032,20 +1038,20 @@ begin
       )
     );
   AConnection.Response.SendStatus(101, '',
-    procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
       ACallback(AConnection as ICrossWebSocketConnection, ASuccess);
     end);
 end;
 
-function TNetCrossWebSocketServer.CreateConnection(AOwner: ICrossSocket;
-  AClientSocket: THandle; AConnectType: TConnectType): ICrossConnection;
+function TNetCrossWebSocketServer.CreateConnection(const AOwner: ICrossSocket;
+  const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
 begin
   Result := TCrossWebSocketConnection.Create(AOwner, AClientSocket, AConnectType);
 end;
 
 procedure TNetCrossWebSocketServer.DoOnRequest(
-  AConnection: ICrossHttpConnection);
+  const AConnection: ICrossHttpConnection);
 var
   LConnection: ICrossWebSocketConnection;
 begin
@@ -1055,7 +1061,7 @@ begin
   begin
     TCrossWebSocketConnection(LConnection).FIsWebSocket := True;
     _WebSocketHandshake(LConnection,
-      procedure(AConnection: ICrossWebSocketConnection; ASuccess: Boolean)
+      procedure(const AConnection: ICrossWebSocketConnection; const ASuccess: Boolean)
       begin
         if ASuccess then
           _OnOpen(AConnection);

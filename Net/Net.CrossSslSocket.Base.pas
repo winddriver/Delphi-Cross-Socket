@@ -34,7 +34,7 @@ type
     /// <param name="ACertBufSize">
     ///   证书缓冲区大小
     /// </param>
-    procedure SetCertificate(ACertBuf: Pointer; ACertBufSize: Integer); overload;
+    procedure SetCertificate(const ACertBuf: Pointer; const ACertBufSize: Integer); overload;
 
     /// <summary>
     ///   从字符串加载证书
@@ -61,7 +61,7 @@ type
     /// <param name="APKeyBufSize">
     ///   私钥缓冲区大小
     /// </param>
-    procedure SetPrivateKey(APKeyBuf: Pointer; APKeyBufSize: Integer); overload;
+    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer); overload;
 
     /// <summary>
     ///   从字符串加载私钥

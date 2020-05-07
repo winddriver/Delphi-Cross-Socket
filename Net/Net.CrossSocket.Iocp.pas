@@ -63,7 +63,7 @@ type
       Action: TIocpAction;
       Socket: THandle;
       CrossData: ICrossData;
-      Callback: TProc<ICrossConnection, Boolean>;
+      Callback: TCrossConnectionCallback;
     end;
   private
     FIocpHandle: THandle;
@@ -81,22 +81,22 @@ type
     procedure _HandleRead(APerIoData: PPerIoData);
     procedure _HandleWrite(APerIoData: PPerIoData);
   protected
-    function CreateListen(AOwner: ICrossSocket; AListenSocket: THandle;
-      AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
-    function CreateConnection(AOwner: ICrossSocket; AClientSocket: THandle;
-      AConnectType: TConnectType): ICrossConnection; override;
+    function CreateListen(const AOwner: ICrossSocket; const AListenSocket: THandle;
+      const AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
+    function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
+      const AConnectType: TConnectType): ICrossConnection; override;
 
     procedure StartLoop; override;
     procedure StopLoop; override;
 
-    procedure Listen(const AHost: string; APort: Word;
-      const ACallback: TProc<ICrossListen, Boolean> = nil); override;
+    procedure Listen(const AHost: string; const APort: Word;
+      const ACallback: TCrossListenCallback = nil); override;
 
-    procedure Connect(const AHost: string; APort: Word;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); override;
+    procedure Connect(const AHost: string; const APort: Word;
+      const ACallback: TCrossConnectionCallback = nil); override;
 
-    procedure Send(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); override;
+    procedure Send(const AConnection: ICrossConnection; const ABuf: Pointer;
+      const ALen: Integer; const ACallback: TCrossConnectionCallback = nil); override;
 
     function ProcessIoEvent: Boolean; override;
   end;
@@ -418,8 +418,8 @@ begin
   CloseHandle(FIocpHandle);
 end;
 
-procedure TIocpCrossSocket.Connect(const AHost: string; APort: Word;
-  const ACallback: TProc<ICrossConnection, Boolean>);
+procedure TIocpCrossSocket.Connect(const AHost: string; const APort: Word;
+  const ACallback: TCrossConnectionCallback);
 var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
@@ -519,20 +519,20 @@ begin
   _Failed1;
 end;
 
-function TIocpCrossSocket.CreateConnection(AOwner: ICrossSocket;
-  AClientSocket: THandle; AConnectType: TConnectType): ICrossConnection;
+function TIocpCrossSocket.CreateConnection(const AOwner: ICrossSocket;
+  const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
 begin
   Result := TIocpConnection.Create(AOwner, AClientSocket, AConnectType);
 end;
 
-function TIocpCrossSocket.CreateListen(AOwner: ICrossSocket;
-  AListenSocket: THandle; AFamily, ASockType, AProtocol: Integer): ICrossListen;
+function TIocpCrossSocket.CreateListen(const AOwner: ICrossSocket;
+  const AListenSocket: THandle; const AFamily, ASockType, AProtocol: Integer): ICrossListen;
 begin
   Result := TIocpListen.Create(AOwner, AListenSocket, AFamily, ASockType, AProtocol);
 end;
 
-procedure TIocpCrossSocket.Listen(const AHost: string; APort: Word;
-  const ACallback: TProc<ICrossListen, Boolean>);
+procedure TIocpCrossSocket.Listen(const AHost: string; const APort: Word;
+  const ACallback: TCrossListenCallback);
 var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
@@ -634,8 +634,8 @@ begin
   end;
 end;
 
-procedure TIocpCrossSocket.Send(AConnection: ICrossConnection; ABuf: Pointer;
-  ALen: Integer; const ACallback: TProc<ICrossConnection, Boolean>);
+procedure TIocpCrossSocket.Send(const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer; const ACallback: TCrossConnectionCallback);
 var
   LPerIoData: PPerIoData;
   LBytes, LFlags: Cardinal;

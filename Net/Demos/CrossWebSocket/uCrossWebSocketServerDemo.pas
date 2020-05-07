@@ -119,8 +119,9 @@ begin
   .OnOpen(
     procedure(AConnection: ICrossWebSocketConnection)
     begin
-      AddLog('OnOpen [%s:%d]',
-        [AConnection.PeerAddr, AConnection.PeerPort]);
+      AddLog('OnOpen [%s:%d]%s',
+        [AConnection.PeerAddr, AConnection.PeerPort,
+         AConnection.Request.Path]);
     end)
   .OnMessage(
     procedure(AConnection: ICrossWebSocketConnection;
@@ -141,8 +142,9 @@ begin
   .OnClose(
     procedure(AConnection: ICrossWebSocketConnection)
     begin
-      AddLog('OnClose [%s:%d]',
-        [AConnection.PeerAddr, AConnection.PeerPort]);
+      AddLog('OnClose [%s:%d]%s',
+        [AConnection.PeerAddr, AConnection.PeerPort,
+         AConnection.Request.Path]);
     end)
   ;
 
@@ -151,6 +153,13 @@ begin
   FServer
   .Dir('/', TPath.Combine(TUtils.AppPath, '../../web'))
   ;
+  FServer.Get('/hello',
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
+    begin
+      AResponse.Send('OK');
+      AHandled := True;
+    end);
+
 end;
 
 procedure TfmCrossWebSocketServerDemo.FormDestroy(Sender: TObject);

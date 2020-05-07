@@ -47,6 +47,8 @@ type
   ECrossSocket = class(Exception);
 
   ICrossSocket = interface;
+  ICrossListen = interface;
+  ICrossConnection = interface;
   TAbstractCrossSocket = class;
   TIoEventThread = class;
 
@@ -95,6 +97,9 @@ type
     ///   已关闭
     /// </summary>
     csClosed);
+
+  TCrossListenCallback = reference to procedure(const AListen: ICrossListen; const AResult: Boolean);
+  TCrossConnectionCallback = reference to procedure(const AConnection: ICrossConnection; const AResult: Boolean);
 
   /// <summary>
   ///   基础数据接口
@@ -211,7 +216,7 @@ type
     function GetConnectType: TConnectType;
     function GetConnectStatus: TConnectStatus;
 
-    procedure SetConnectStatus(const Value: TConnectStatus);
+    procedure SetConnectStatus(const AValue: TConnectStatus);
 
     /// <summary>
     ///   优雅关闭
@@ -230,8 +235,8 @@ type
     /// <param name="ACallback">
     ///   全部数据发送完成或者出错时调用的回调函数
     /// </param>
-    procedure SendBuf(ABuffer: Pointer; ACount: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
+    procedure SendBuf(const ABuffer: Pointer; const ACount: Integer;
+      const ACallback: TCrossConnectionCallback = nil); overload;
 
     /// <summary>
     ///   发送无类型数据
@@ -245,8 +250,8 @@ type
     /// <param name="ACallback">
     ///   全部数据发送完成或者出错时调用的回调函数
     /// </param>
-    procedure SendBuf(const ABuffer; ACount: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
+    procedure SendBuf(const ABuffer; const ACount: Integer;
+      const ACallback: TCrossConnectionCallback = nil); overload;
 
     /// <summary>
     ///   发送字节数据
@@ -263,8 +268,8 @@ type
     /// <param name="ACallback">
     ///   全部数据发送完成或者出错时调用的回调函数
     /// </param>
-    procedure SendBytes(const ABytes: TBytes; AOffset, ACount: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
+    procedure SendBytes(const ABytes: TBytes; const AOffset, ACount: Integer;
+      const ACallback: TCrossConnectionCallback = nil); overload;
 
     /// <summary>
     ///   发送字节数据
@@ -276,7 +281,7 @@ type
     ///   全部数据发送完成或者出错时调用的回调函数
     /// </param>
     procedure SendBytes(const ABytes: TBytes;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
+      const ACallback: TCrossConnectionCallback = nil); overload;
 
     /// <summary>
     ///   发送数据流(用于发送较大的数据)
@@ -291,7 +296,7 @@ type
     ///   由于是纯异步发送, 所以务必保证发送过程中 AStream 的有效性, 将 AStream 的释放放到回调函数中去 <br />
     /// </remarks>
     procedure SendStream(const AStream: TStream;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil);
+      const ACallback: TCrossConnectionCallback = nil);
 
     /// <summary>
     ///   连接IP地址
@@ -325,10 +330,10 @@ type
   end;
   TCrossConnections = TDictionary<UInt64, ICrossConnection>;
 
-  TCrossIoThreadEvent = procedure(Sender: TObject; AIoThread: TIoEventThread) of object;
-  TCrossListenEvent = procedure(Sender: TObject; AListen: ICrossListen) of object;
-  TCrossConnectEvent = procedure(Sender: TObject; AConnection: ICrossConnection) of object;
-  TCrossDataEvent = procedure(Sender: TObject; AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer) of object;
+  TCrossIoThreadEvent = procedure(const Sender: TObject; const AIoThread: TIoEventThread) of object;
+  TCrossListenEvent = procedure(const Sender: TObject; const AListen: ICrossListen) of object;
+  TCrossConnectEvent = procedure(const Sender: TObject; const AConnection: ICrossConnection) of object;
+  TCrossDataEvent = procedure(const Sender: TObject; const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer) of object;
 
   /// <summary>
   ///   跨平台Socket接口
@@ -348,14 +353,14 @@ type
     function GetOnReceived: TCrossDataEvent;
     function GetOnSent: TCrossDataEvent;
 
-    procedure SetOnIoThreadBegin(const Value: TCrossIoThreadEvent);
-    procedure SetOnIoThreadEnd(const Value: TCrossIoThreadEvent);
-    procedure SetOnConnected(const Value: TCrossConnectEvent);
-    procedure SetOnDisconnected(const Value: TCrossConnectEvent);
-    procedure SetOnListened(const Value: TCrossListenEvent);
-    procedure SetOnListenEnd(const Value: TCrossListenEvent);
-    procedure SetOnReceived(const Value: TCrossDataEvent);
-    procedure SetOnSent(const Value: TCrossDataEvent);
+    procedure SetOnIoThreadBegin(const AValue: TCrossIoThreadEvent);
+    procedure SetOnIoThreadEnd(const AValue: TCrossIoThreadEvent);
+    procedure SetOnConnected(const AValue: TCrossConnectEvent);
+    procedure SetOnDisconnected(const AValue: TCrossConnectEvent);
+    procedure SetOnListened(const AValue: TCrossListenEvent);
+    procedure SetOnListenEnd(const AValue: TCrossListenEvent);
+    procedure SetOnReceived(const AValue: TCrossDataEvent);
+    procedure SetOnSent(const AValue: TCrossDataEvent);
 
     /// <summary>
     ///   启动IO循环
@@ -401,8 +406,8 @@ type
     /// <param name="ACallback">
     ///   回调匿名函数
     /// </param>
-    procedure Listen(const AHost: string; APort: Word;
-      const ACallback: TProc<ICrossListen, Boolean> = nil);
+    procedure Listen(const AHost: string; const APort: Word;
+      const ACallback: TCrossListenCallback = nil);
 
     /// <summary>
     ///   连接到主机
@@ -416,8 +421,8 @@ type
     /// <param name="ACallback">
     ///   回调匿名函数
     /// </param>
-    procedure Connect(const AHost: string; APort: Word;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil);
+    procedure Connect(const AHost: string; const APort: Word;
+      const ACallback: TCrossConnectionCallback = nil);
 
     /// <summary>
     ///   发送数据
@@ -437,8 +442,8 @@ type
     /// <remarks>
     ///   由于发送是异步的, 所以需要调用者保证发送完成之前数据的有效性
     /// </remarks>
-    procedure Send(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil);
+    procedure Send(const AConnection: ICrossConnection; const ABuf: Pointer;
+      const ALen: Integer; const ACallback: TCrossConnectionCallback = nil);
 
     /// <summary>
     ///   关闭所有连接
@@ -489,14 +494,14 @@ type
     /// <summary>
     ///   创建连接对象(内部使用)
     /// </summary>
-    function CreateConnection(AOwner: ICrossSocket; AClientSocket: THandle;
-      AConnectType: TConnectType): ICrossConnection;
+    function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
+      const AConnectType: TConnectType): ICrossConnection;
 
     /// <summary>
     ///   创建监听对象(内部使用)
     /// </summary>
-    function CreateListen(AOwner: ICrossSocket; AListenSocket: THandle;
-      AFamily, ASockType, AProtocol: Integer): ICrossListen;
+    function CreateListen(const AOwner: ICrossSocket; const AListenSocket: THandle;
+      const AFamily, ASockType, AProtocol: Integer): ICrossListen;
 
     {$region '物理事件'}
     /// <summary>
@@ -505,7 +510,7 @@ type
     /// <param name="AListen">
     ///   监听对象
     /// </param>
-    procedure TriggerListened(AListen: ICrossListen);
+    procedure TriggerListened(const AListen: ICrossListen);
 
     /// <summary>
     ///   监听结束后触发(内部使用)
@@ -513,7 +518,7 @@ type
     /// <param name="AListen">
     ///   监听对象
     /// </param>
-    procedure TriggerListenEnd(AListen: ICrossListen);
+    procedure TriggerListenEnd(const AListen: ICrossListen);
 
     /// <summary>
     ///   正在连接(内部使用)
@@ -521,7 +526,7 @@ type
     /// <param name="AConnection">
     ///   连接对象
     /// </param>
-    procedure TriggerConnecting(AConnection: ICrossConnection);
+    procedure TriggerConnecting(const AConnection: ICrossConnection);
 
     /// <summary>
     ///   连接成功后触发(内部使用)
@@ -529,7 +534,7 @@ type
     /// <param name="AConnection">
     ///   连接对象
     /// </param>
-    procedure TriggerConnected(AConnection: ICrossConnection);
+    procedure TriggerConnected(const AConnection: ICrossConnection);
 
     /// <summary>
     ///   连接断开后触发(内部使用)
@@ -537,18 +542,18 @@ type
     /// <param name="AConnection">
     ///   连接对象
     /// </param>
-    procedure TriggerDisconnected(AConnection: ICrossConnection);
+    procedure TriggerDisconnected(const AConnection: ICrossConnection);
     {$endregion}
 
     /// <summary>
     ///   IO线程开始时触发(内部使用)
     /// </summary>
-    procedure TriggerIoThreadBegin(AIoThread: TIoEventThread);
+    procedure TriggerIoThreadBegin(const AIoThread: TIoEventThread);
 
     /// <summary>
     ///   IO线程结束时触发(内部使用)
     /// </summary>
-    procedure TriggerIoThreadEnd(AIoThread: TIoEventThread);
+    procedure TriggerIoThreadEnd(const AIoThread: TIoEventThread);
 
     /// <summary>
     ///   IO线程数
@@ -634,7 +639,7 @@ type
     procedure SetUserObject(const AValue: TObject);
     procedure SetUserInterface(const AValue: IInterface);
   public
-    constructor Create(AOwner: ICrossSocket; ASocket: THandle); virtual;
+    constructor Create(const AOwner: ICrossSocket; const ASocket: THandle); virtual;
     destructor Destroy; override;
 
     procedure UpdateAddr; virtual;
@@ -664,8 +669,8 @@ type
     function GetProtocol: Integer;
     function GetIsClosed: Boolean; override;
   public
-    constructor Create(AOwner: ICrossSocket; AListenSocket: THandle;
-      AFamily, ASockType, AProtocol: Integer); reintroduce; virtual;
+    constructor Create(const AOwner: ICrossSocket; const AListenSocket: THandle;
+      const AFamily, ASockType, AProtocol: Integer); reintroduce; virtual;
 
     procedure Close; override;
 
@@ -693,28 +698,28 @@ type
     function GetIsClosed: Boolean; override;
 
     function _SetConnectStatus(const AStatus: TConnectStatus): TConnectStatus; inline;
-    procedure SetConnectStatus(const Value: TConnectStatus);
+    procedure SetConnectStatus(const AValue: TConnectStatus);
 
-    procedure DirectSend(ABuffer: Pointer; ACount: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); virtual;
+    procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
+      const ACallback: TCrossConnectionCallback = nil); virtual;
   public
-    constructor Create(AOwner: ICrossSocket; AClientSocket: THandle;
-      AConnectType: TConnectType); reintroduce; virtual;
+    constructor Create(const AOwner: ICrossSocket; const AClientSocket: THandle;
+      const AConnectType: TConnectType); reintroduce; virtual;
 
     procedure UpdateAddr; override;
     procedure Close; override;
     procedure Disconnect; virtual;
 
-    procedure SendBuf(ABuffer: Pointer; ACount: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
-    procedure SendBuf(const ABuffer; ACount: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); overload; inline;
-    procedure SendBytes(const ABytes: TBytes; AOffset, ACount: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); overload;
+    procedure SendBuf(const ABuffer: Pointer; const ACount: Integer;
+      const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure SendBuf(const ABuffer; const ACount: Integer;
+      const ACallback: TCrossConnectionCallback = nil); overload; inline;
+    procedure SendBytes(const ABytes: TBytes; const AOffset, ACount: Integer;
+      const ACallback: TCrossConnectionCallback = nil); overload;
     procedure SendBytes(const ABytes: TBytes;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); overload; inline;
+      const ACallback: TCrossConnectionCallback = nil); overload; inline;
     procedure SendStream(const AStream: TStream;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil);
+      const ACallback: TCrossConnectionCallback = nil);
 
     property Owner: ICrossSocket read GetOwner;
     property Socket: THandle read GetSocket;
@@ -734,7 +739,7 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(ACrossSocket: ICrossSocket); reintroduce;
+    constructor Create(const ACrossSocket: ICrossSocket); reintroduce;
   end;
 
   TAbstractCrossSocket = class abstract(TInterfacedObject, ICrossSocket)
@@ -746,7 +751,7 @@ type
     FIoThreads: Integer;
 
     // 设置套接字心跳参数, 用于处理异常断线(拔网线, 主机异常掉电等造成的网络异常)
-    function SetKeepAlive(ASocket: THandle): Integer;
+    function SetKeepAlive(const ASocket: THandle): Integer;
   private
     FConnections: TCrossConnections;
     FConnectionsLock: TObject;
@@ -781,14 +786,14 @@ type
     function GetOnReceived: TCrossDataEvent;
     function GetOnSent: TCrossDataEvent;
 
-    procedure SetOnIoThreadBegin(const Value: TCrossIoThreadEvent);
-    procedure SetOnIoThreadEnd(const Value: TCrossIoThreadEvent);
-    procedure SetOnConnected(const Value: TCrossConnectEvent);
-    procedure SetOnDisconnected(const Value: TCrossConnectEvent);
-    procedure SetOnListened(const Value: TCrossListenEvent);
-    procedure SetOnListenEnd(const Value: TCrossListenEvent);
-    procedure SetOnReceived(const Value: TCrossDataEvent);
-    procedure SetOnSent(const Value: TCrossDataEvent);
+    procedure SetOnIoThreadBegin(const AValue: TCrossIoThreadEvent);
+    procedure SetOnIoThreadEnd(const AValue: TCrossIoThreadEvent);
+    procedure SetOnConnected(const AValue: TCrossConnectEvent);
+    procedure SetOnDisconnected(const AValue: TCrossConnectEvent);
+    procedure SetOnListened(const AValue: TCrossListenEvent);
+    procedure SetOnListenEnd(const AValue: TCrossListenEvent);
+    procedure SetOnReceived(const AValue: TCrossDataEvent);
+    procedure SetOnSent(const AValue: TCrossDataEvent);
   protected
     FConnectionsCount: Integer;
     FListensCount: Integer;
@@ -797,23 +802,23 @@ type
     function GetIoThreads: Integer; virtual;
 
     // 创建连接对象
-    function CreateConnection(AOwner: ICrossSocket; AClientSocket: THandle;
-      AConnectType: TConnectType): ICrossConnection; virtual; abstract;
+    function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
+      const AConnectType: TConnectType): ICrossConnection; virtual; abstract;
 
     // 创建监听对象
-    function CreateListen(AOwner: ICrossSocket; AListenSocket: THandle;
-      AFamily, ASockType, AProtocol: Integer): ICrossListen; virtual; abstract;
+    function CreateListen(const AOwner: ICrossSocket; const AListenSocket: THandle;
+      const AFamily, ASockType, AProtocol: Integer): ICrossListen; virtual; abstract;
 
     {$region '物理事件'}
-    procedure TriggerListened(AListen: ICrossListen); virtual;
-    procedure TriggerListenEnd(AListen: ICrossListen); virtual;
+    procedure TriggerListened(const AListen: ICrossListen); virtual;
+    procedure TriggerListenEnd(const AListen: ICrossListen); virtual;
 
-    procedure TriggerConnecting(AConnection: ICrossConnection); virtual;
-    procedure TriggerConnected(AConnection: ICrossConnection); virtual;
-    procedure TriggerDisconnected(AConnection: ICrossConnection); virtual;
+    procedure TriggerConnecting(const AConnection: ICrossConnection); virtual;
+    procedure TriggerConnected(const AConnection: ICrossConnection); virtual;
+    procedure TriggerDisconnected(const AConnection: ICrossConnection); virtual;
 
-    procedure TriggerReceived(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer); virtual;
-    procedure TriggerSent(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer); virtual;
+    procedure TriggerReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); virtual;
+    procedure TriggerSent(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); virtual;
     {$endregion}
 
     {$region '逻辑事件'}
@@ -822,33 +827,33 @@ type
     // 已加密数据包, 然后才能解密出数据, 也就是说可能几次网络端口的接收才
     // 会对应到一次实际的数据接收, 所以设计了以下接口, 以下接口是实际数据
     // 发生时才会被触发的
-    procedure LogicConnected(AConnection: ICrossConnection); virtual;
-    procedure LogicDisconnected(AConnection: ICrossConnection); virtual;
-    procedure LogicReceived(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer); virtual;
-    procedure LogicSent(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer); virtual;
+    procedure LogicConnected(const AConnection: ICrossConnection); virtual;
+    procedure LogicDisconnected(const AConnection: ICrossConnection); virtual;
+    procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); virtual;
+    procedure LogicSent(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); virtual;
     {$endregion}
 
-    procedure TriggerIoThreadBegin(AIoThread: TIoEventThread); virtual;
-    procedure TriggerIoThreadEnd(AIoThread: TIoEventThread); virtual;
+    procedure TriggerIoThreadBegin(const AIoThread: TIoEventThread); virtual;
+    procedure TriggerIoThreadEnd(const AIoThread: TIoEventThread); virtual;
 
     procedure StartLoop; virtual; abstract;
     procedure StopLoop; virtual; abstract;
 
-    procedure Listen(const AHost: string; APort: Word;
-      const ACallback: TProc<ICrossListen, Boolean> = nil); virtual; abstract;
+    procedure Listen(const AHost: string; const APort: Word;
+      const ACallback: TCrossListenCallback = nil); virtual; abstract;
 
-    procedure Connect(const AHost: string; APort: Word;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); virtual; abstract;
+    procedure Connect(const AHost: string; const APort: Word;
+      const ACallback: TCrossConnectionCallback = nil); virtual; abstract;
 
-    procedure Send(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); virtual; abstract;
+    procedure Send(const AConnection: ICrossConnection; const ABuf: Pointer;
+      const ALen: Integer; const ACallback: TCrossConnectionCallback = nil); virtual; abstract;
 
     procedure CloseAllConnections; virtual;
     procedure CloseAllListens; virtual;
     procedure CloseAll; virtual;
     procedure DisconnectAll; virtual;
   public
-    constructor Create(AIoThreads: Integer); virtual;
+    constructor Create(const AIoThreads: Integer); virtual;
     destructor Destroy; override;
 
     procedure AfterConstruction; override;
@@ -925,7 +930,7 @@ end;
 
 { TIoEventThread }
 
-constructor TIoEventThread.Create(ACrossSocket: ICrossSocket);
+constructor TIoEventThread.Create(const ACrossSocket: ICrossSocket);
 begin
   inherited Create(True);
   FCrossSocket := ACrossSocket;
@@ -1007,7 +1012,7 @@ begin
     LListen.Close;
 end;
 
-constructor TAbstractCrossSocket.Create(AIoThreads: Integer);
+constructor TAbstractCrossSocket.Create(const AIoThreads: Integer);
 begin
   FIoThreads := AIoThreads;
 
@@ -1127,76 +1132,76 @@ begin
   Result := FListens;
 end;
 
-procedure TAbstractCrossSocket.LogicConnected(AConnection: ICrossConnection);
+procedure TAbstractCrossSocket.LogicConnected(const AConnection: ICrossConnection);
 begin
 
 end;
 
-procedure TAbstractCrossSocket.LogicDisconnected(AConnection: ICrossConnection);
+procedure TAbstractCrossSocket.LogicDisconnected(const AConnection: ICrossConnection);
 begin
 
 end;
 
-procedure TAbstractCrossSocket.LogicReceived(AConnection: ICrossConnection;
-  ABuf: Pointer; ALen: Integer);
+procedure TAbstractCrossSocket.LogicReceived(const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer);
 begin
 
 end;
 
-procedure TAbstractCrossSocket.LogicSent(AConnection: ICrossConnection;
-  ABuf: Pointer; ALen: Integer);
+procedure TAbstractCrossSocket.LogicSent(const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer);
 begin
 
 end;
 
-function TAbstractCrossSocket.SetKeepAlive(ASocket: THandle): Integer;
+function TAbstractCrossSocket.SetKeepAlive(const ASocket: THandle): Integer;
 begin
   Result := TSocketAPI.SetKeepAlive(ASocket, 5, 3, 5);
 end;
 
-procedure TAbstractCrossSocket.SetOnConnected(const Value: TCrossConnectEvent);
+procedure TAbstractCrossSocket.SetOnConnected(const AValue: TCrossConnectEvent);
 begin
-  FOnConnected := Value;
+  FOnConnected := AValue;
 end;
 
-procedure TAbstractCrossSocket.SetOnDisconnected(const Value: TCrossConnectEvent);
+procedure TAbstractCrossSocket.SetOnDisconnected(const AValue: TCrossConnectEvent);
 begin
-  FOnDisconnected := Value;
+  FOnDisconnected := AValue;
 end;
 
 procedure TAbstractCrossSocket.SetOnIoThreadBegin(
-  const Value: TCrossIoThreadEvent);
+  const AValue: TCrossIoThreadEvent);
 begin
-  FOnIoThreadBegin := Value;
+  FOnIoThreadBegin := AValue;
 end;
 
 procedure TAbstractCrossSocket.SetOnIoThreadEnd(
-  const Value: TCrossIoThreadEvent);
+  const AValue: TCrossIoThreadEvent);
 begin
-  FOnIoThreadEnd := Value;
+  FOnIoThreadEnd := AValue;
 end;
 
-procedure TAbstractCrossSocket.SetOnListened(const Value: TCrossListenEvent);
+procedure TAbstractCrossSocket.SetOnListened(const AValue: TCrossListenEvent);
 begin
-  FOnListened := Value;
+  FOnListened := AValue;
 end;
 
-procedure TAbstractCrossSocket.SetOnListenEnd(const Value: TCrossListenEvent);
+procedure TAbstractCrossSocket.SetOnListenEnd(const AValue: TCrossListenEvent);
 begin
-  FOnListenEnd := Value;
+  FOnListenEnd := AValue;
 end;
 
-procedure TAbstractCrossSocket.SetOnReceived(const Value: TCrossDataEvent);
+procedure TAbstractCrossSocket.SetOnReceived(const AValue: TCrossDataEvent);
 begin
-  FOnReceived := Value;
+  FOnReceived := AValue;
 end;
 
-procedure TAbstractCrossSocket.SetOnSent(const Value: TCrossDataEvent);
+procedure TAbstractCrossSocket.SetOnSent(const AValue: TCrossDataEvent);
 begin
-  FOnSent := Value;
+  FOnSent := AValue;
 end;
 
-procedure TAbstractCrossSocket.TriggerConnecting(AConnection: ICrossConnection);
+procedure TAbstractCrossSocket.TriggerConnecting(const AConnection: ICrossConnection);
 begin
   AConnection.ConnectStatus := csConnecting;
 
@@ -1209,7 +1214,7 @@ begin
   end;
 end;
 
-procedure TAbstractCrossSocket.TriggerConnected(AConnection: ICrossConnection);
+procedure TAbstractCrossSocket.TriggerConnected(const AConnection: ICrossConnection);
 begin
   AConnection.UpdateAddr;
   AConnection.ConnectStatus := csConnected;
@@ -1220,7 +1225,7 @@ begin
     FOnConnected(Self, AConnection);
 end;
 
-procedure TAbstractCrossSocket.TriggerDisconnected(AConnection: ICrossConnection);
+procedure TAbstractCrossSocket.TriggerDisconnected(const AConnection: ICrossConnection);
 begin
   AConnection.ConnectStatus := csClosed;
 
@@ -1238,19 +1243,19 @@ begin
     FOnDisconnected(Self, AConnection);
 end;
 
-procedure TAbstractCrossSocket.TriggerIoThreadBegin(AIoThread: TIoEventThread);
+procedure TAbstractCrossSocket.TriggerIoThreadBegin(const AIoThread: TIoEventThread);
 begin
   if Assigned(FOnIoThreadBegin) then
     FOnIoThreadBegin(Self, AIoThread);
 end;
 
-procedure TAbstractCrossSocket.TriggerIoThreadEnd(AIoThread: TIoEventThread);
+procedure TAbstractCrossSocket.TriggerIoThreadEnd(const AIoThread: TIoEventThread);
 begin
   if Assigned(FOnIoThreadEnd) then
     FOnIoThreadEnd(Self, AIoThread);
 end;
 
-procedure TAbstractCrossSocket.TriggerListened(AListen: ICrossListen);
+procedure TAbstractCrossSocket.TriggerListened(const AListen: ICrossListen);
 begin
   AListen.UpdateAddr;
 
@@ -1266,7 +1271,7 @@ begin
     FOnListened(Self, AListen);
 end;
 
-procedure TAbstractCrossSocket.TriggerListenEnd(AListen: ICrossListen);
+procedure TAbstractCrossSocket.TriggerListenEnd(const AListen: ICrossListen);
 begin
   _LockListens;
   try
@@ -1280,8 +1285,8 @@ begin
     FOnListenEnd(Self, AListen);
 end;
 
-procedure TAbstractCrossSocket.TriggerReceived(AConnection: ICrossConnection;
-  ABuf: Pointer; ALen: Integer);
+procedure TAbstractCrossSocket.TriggerReceived(const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer);
 begin
   LogicReceived(AConnection, ABuf, ALen);
 
@@ -1289,8 +1294,8 @@ begin
     FOnReceived(Self, AConnection, ABuf, ALen);
 end;
 
-procedure TAbstractCrossSocket.TriggerSent(AConnection: ICrossConnection;
-  ABuf: Pointer; ALen: Integer);
+procedure TAbstractCrossSocket.TriggerSent(const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer);
 begin
   LogicSent(AConnection, ABuf, ALen);
 
@@ -1330,7 +1335,7 @@ end;
 
 { TCrossData }
 
-constructor TCrossData.Create(AOwner: ICrossSocket; ASocket: THandle);
+constructor TCrossData.Create(const AOwner: ICrossSocket; const ASocket: THandle);
 begin
   // 理论上说62位的唯一编号永远也不可能用完
   // 所以也就不用考虑编号重置的问题了
@@ -1433,8 +1438,8 @@ end;
 
 { TAbstractCrossListen }
 
-constructor TAbstractCrossListen.Create(AOwner: ICrossSocket; AListenSocket: THandle;
-  AFamily, ASockType, AProtocol: Integer);
+constructor TAbstractCrossListen.Create(const AOwner: ICrossSocket;
+  const AListenSocket: THandle; const AFamily, ASockType, AProtocol: Integer);
 begin
   inherited Create(AOwner, AListenSocket);
 
@@ -1484,17 +1489,17 @@ end;
 
 { TAbstractCrossConnection }
 
-constructor TAbstractCrossConnection.Create(AOwner: ICrossSocket;
-  AClientSocket: THandle; AConnectType: TConnectType);
+constructor TAbstractCrossConnection.Create(const AOwner: ICrossSocket;
+  const AClientSocket: THandle; const AConnectType: TConnectType);
 begin
   inherited Create(AOwner, AClientSocket);
 
   FConnectType := AConnectType;
 end;
 
-procedure TAbstractCrossConnection.SetConnectStatus(const Value: TConnectStatus);
+procedure TAbstractCrossConnection.SetConnectStatus(const AValue: TConnectStatus);
 begin
-  _SetConnectStatus(Value);
+  _SetConnectStatus(AValue);
 end;
 
 procedure TAbstractCrossConnection.Close;
@@ -1509,8 +1514,8 @@ begin
   end;
 end;
 
-procedure TAbstractCrossConnection.DirectSend(ABuffer: Pointer; ACount: Integer;
-  const ACallback: TProc<ICrossConnection, Boolean>);
+procedure TAbstractCrossConnection.DirectSend(const ABuffer: Pointer;
+  const ACount: Integer; const ACallback: TCrossConnectionCallback);
 var
   LConnection: ICrossConnection;
   LBuffer: Pointer;
@@ -1527,7 +1532,7 @@ begin
 
   LBuffer := ABuffer;
   FOwner.Send(LConnection, LBuffer, ACount,
-    procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
       if ASuccess then
         (FOwner as TAbstractCrossSocket).TriggerSent(AConnection, LBuffer, ACount);
@@ -1574,8 +1579,8 @@ begin
   Result := UID_CONNECTION;
 end;
 
-procedure TAbstractCrossConnection.SendBuf(ABuffer: Pointer; ACount: Integer;
-  const ACallback: TProc<ICrossConnection, Boolean>);
+procedure TAbstractCrossConnection.SendBuf(const ABuffer: Pointer;
+  const ACount: Integer; const ACallback: TCrossConnectionCallback);
 {$IF defined(POSIX) or not defined(__LITTLE_PIECE__)}
 begin
   DirectSend(ABuffer, ACount, ACallback);
@@ -1587,7 +1592,7 @@ var
   LConnection: ICrossConnection;
   P: PByte;
   LSize: Integer;
-  LSender: TProc<ICrossConnection, Boolean>;
+  LSender: TCrossConnectionCallback;
 begin
   LConnection := Self;
   P := ABuffer;
@@ -1641,14 +1646,14 @@ begin
 end;
 {$ENDIF}
 
-procedure TAbstractCrossConnection.SendBuf(const ABuffer; ACount: Integer;
-  const ACallback: TProc<ICrossConnection, Boolean>);
+procedure TAbstractCrossConnection.SendBuf(const ABuffer; const ACount: Integer;
+  const ACallback: TCrossConnectionCallback);
 begin
   SendBuf(@ABuffer, ACount, ACallback);
 end;
 
-procedure TAbstractCrossConnection.SendBytes(const ABytes: TBytes; AOffset,
-  ACount: Integer; const ACallback: TProc<ICrossConnection, Boolean>);
+procedure TAbstractCrossConnection.SendBytes(const ABytes: TBytes;
+  const AOffset, ACount: Integer; const ACallback: TCrossConnectionCallback);
 var
   LBytes: TBytes;
 begin
@@ -1658,7 +1663,7 @@ begin
   // 需要定义一个局部变量用来引用 ABytes, 以维持其引用计数
   LBytes := ABytes;
   SendBuf(@LBytes[AOffset], ACount,
-    procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
       // 减少引用计数
       LBytes := nil;
@@ -1669,17 +1674,17 @@ begin
 end;
 
 procedure TAbstractCrossConnection.SendBytes(const ABytes: TBytes;
-  const ACallback: TProc<ICrossConnection, Boolean>);
+  const ACallback: TCrossConnectionCallback);
 begin
   SendBytes(ABytes, 0, Length(ABytes), ACallback);
 end;
 
 procedure TAbstractCrossConnection.SendStream(const AStream: TStream;
-  const ACallback: TProc<ICrossConnection, Boolean>);
+  const ACallback: TCrossConnectionCallback);
 var
   LConnection: ICrossConnection;
   LBuffer: TBytes;
-  LSender: TProc<ICrossConnection, Boolean>;
+  LSender: TCrossConnectionCallback;
 begin
   if (AStream is TBytesStream) then
   begin
@@ -1695,7 +1700,7 @@ begin
   SetLength(LBuffer, SND_BUF_SIZE);
 
   LSender :=
-    procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     var
       LData: Pointer;
       LCount: Integer;

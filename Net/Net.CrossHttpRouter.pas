@@ -79,7 +79,7 @@ begin
     ];
 
   Result :=
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
       LPath, LFile, LDefMainFile: string;
     begin
@@ -117,7 +117,7 @@ class function TNetCrossRouter.Static(
   const ALocalDir, AFileParamName: string): TCrossHttpRouterProc2;
 begin
   Result :=
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
       LFile: string;
     begin
@@ -392,7 +392,7 @@ class function TNetCrossRouter.Dir(
   const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc2;
 begin
   Result :=
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
       LFile: string;
     begin

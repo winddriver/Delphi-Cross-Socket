@@ -108,7 +108,7 @@ begin
   StartLoop;
 
   Listen(FAddr, FPort,
-    procedure(AListen: ICrossListen; ASuccess: Boolean)
+    procedure(const AListen: ICrossListen; const ASuccess: Boolean)
     begin
       if not ASuccess then
         AtomicExchange(FStarted, 0);

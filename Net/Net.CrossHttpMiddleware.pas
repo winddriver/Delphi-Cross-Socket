@@ -18,7 +18,7 @@ type
   /// <summary>
   ///   HTTP认证获取用户密码
   /// </summary>
-  TAuthGetPasswordProc = reference to procedure(ARequest: ICrossHttpRequest; const AUserName: string; var ACorrectPassword: string);
+  TAuthGetPasswordProc = reference to procedure(const ARequest: ICrossHttpRequest; const AUserName: string; var ACorrectPassword: string);
 
   /// <summary>
   ///   中间件
@@ -82,7 +82,7 @@ class function TNetCrossMiddleware.AuthenticateBasic(AAuthGetPasswordProc: TAuth
   const ARealm: string): TCrossHttpRouterProc2;
 begin
   Result :=
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
       LAuthStr: string;
       LStrArr: TArray<string>;
@@ -127,7 +127,7 @@ class function TNetCrossMiddleware.AuthenticateDigest(
   AAuthGetPasswordProc: TAuthGetPasswordProc; const ARealm: string): TCrossHttpRouterProc2;
 begin
   Result :=
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
       LUserName, LCorrectPassword: string;
       LNonce, LUserResponse, LCorrectResponse: string;
@@ -200,7 +200,7 @@ end;
 class function TNetCrossMiddleware.CORS: TCrossHttpRouterProc2;
 begin
   Result :=
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     begin
       AHandled := False;
       AResponse.Header['Access-Control-Allow-Origin'] := '*';
@@ -212,7 +212,7 @@ end;
 class function TNetCrossMiddleware.HSTS: TCrossHttpRouterProc2;
 begin
   Result :=
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse; var AHandled: Boolean)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     begin
       AHandled := False;
       AResponse.Header['Strict-Transport-Security'] := 'max-age=31536000; includeSubDomains';

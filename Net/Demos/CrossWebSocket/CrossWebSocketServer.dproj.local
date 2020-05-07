@@ -1,15 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <BorlandProject>
-	<Transactions>
-    <Transaction>2017/05/26 15:45:18.000.411,D:\VclFmxRtl\zLib\Net\Demos\CrossWebSocket\Unit1.fmx=C:\Users\Zeng\Documents\Embarcadero\Studio\Projects\Unit1.fmx</Transaction>
-    <Transaction>2017/05/26 15:45:26.000.084,D:\VclFmxRtl\zLib\Net\Demos\CrossWebSocket\Project1.dproj=C:\Users\Zeng\Documents\Embarcadero\Studio\Projects\Project1.dproj</Transaction>
-    <Transaction>2018/04/02 11:50:28.000.475,D:\VclFmxRtl\zLib\Net\Demos\CrossWebSocket\Project1.dproj=D:\VclFmxRtl\zLib\Net\Demos\CrossWebSocket\CrossWebSocketServer.dproj</Transaction>
-    <Transaction>2018/04/02 15:02:08.978,D:\VclFmxRtl\zLib\Net\Demos\CrossWebSocket\uCrossWebSocketServerMain.pas=D:\VclFmxRtl\zLib\Net\Demos\CrossWebSocket\Unit1.pas</Transaction>
-    <Transaction>2018/04/02 15:02:08.978,D:\VclFmxRtl\zLib\Net\Demos\CrossWebSocket\uCrossWebSocketServerMain.fmx=D:\VclFmxRtl\zLib\Net\Demos\CrossWebSocket\Unit1.fmx</Transaction>
-    <Transaction>2018/04/02 15:02:27.309,D:\VclFmxRtl\zLib\Net\Demos\CrossWebSocket\uCrossWebSocketServerDemo.fmx=D:\VclFmxRtl\zLib\Net\Demos\CrossWebSocket\uCrossWebSocketServerMain.fmx</Transaction>
-    <Transaction>2018/04/02 15:02:27.309,D:\VclFmxRtl\zLib\Net\Demos\CrossWebSocket\uCrossWebSocketServerDemo.pas=D:\VclFmxRtl\zLib\Net\Demos\CrossWebSocket\uCrossWebSocketServerMain.pas</Transaction>
-  </Transactions>
 	<ActiveMobileDevice>
 		<POSX iOSSimulator="iPhone5"/>
+		<NoProfile iOSSimulator="iPhone5"/>
 	</ActiveMobileDevice>
 </BorlandProject>

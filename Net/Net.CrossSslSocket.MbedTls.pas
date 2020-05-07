@@ -97,13 +97,13 @@ type
     procedure _Unlock; inline;
 
     function _SslHandshake: Boolean;
-    procedure _SendBIOPendingData(const ACallback: TProc<ICrossConnection, Boolean> = nil);
+    procedure _SendBIOPendingData(const ACallback: TCrossConnectionCallback = nil);
   protected
-    procedure DirectSend(ABuffer: Pointer; ACount: Integer;
-      const ACallback: TProc<ICrossConnection, Boolean> = nil); override;
+    procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
+      const ACallback: TCrossConnectionCallback = nil); override;
   public
-    constructor Create(AOwner: ICrossSocket; AClientSocket: THandle;
-      AConnectType: TConnectType); override;
+    constructor Create(const AOwner: ICrossSocket; const AClientSocket: THandle;
+      const AConnectType: TConnectType); override;
     destructor Destroy; override;
   end;
 
@@ -126,23 +126,23 @@ type
     procedure _InitSslConf;
     procedure _FreeSslConf;
 
-    function _MbedCert(const ACertBytes: TBytes): TBytes; inline;
+    function _MbedCert(const ACertBytes: TBytes): TBytes;
     procedure _UpdateCert;
   protected
-    procedure TriggerConnected(AConnection: ICrossConnection); override;
-    procedure TriggerReceived(AConnection: ICrossConnection; ABuf: Pointer; ALen: Integer); override;
+    procedure TriggerConnected(const AConnection: ICrossConnection); override;
+    procedure TriggerReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
 
-    function CreateConnection(AOwner: ICrossSocket; AClientSocket: THandle;
-      AConnectType: TConnectType): ICrossConnection; override;
+    function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
+      const AConnectType: TConnectType): ICrossConnection; override;
   public
     constructor Create(AIoThreads: Integer); override;
     destructor Destroy; override;
 
-    procedure SetCertificate(ACertBuf: Pointer; ACertBufSize: Integer); overload;
+    procedure SetCertificate(const ACertBuf: Pointer; const ACertBufSize: Integer); overload;
     procedure SetCertificate(const ACertStr: string); overload;
     procedure SetCertificateFile(const ACertFile: string);
 
-    procedure SetPrivateKey(APKeyBuf: Pointer; APKeyBufSize: Integer); overload;
+    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer); overload;
     procedure SetPrivateKey(const APKeyStr: string); overload;
     procedure SetPrivateKeyFile(const APKeyFile: string);
   end;
@@ -186,8 +186,8 @@ end;
 
 { TCrossMbedTlsConnection }
 
-constructor TCrossMbedTlsConnection.Create(AOwner: ICrossSocket;
-  AClientSocket: THandle; AConnectType: TConnectType);
+constructor TCrossMbedTlsConnection.Create(const AOwner: ICrossSocket;
+  const AClientSocket: THandle; const AConnectType: TConnectType);
 begin
   inherited;
 
@@ -223,7 +223,7 @@ begin
 end;
 
 procedure TCrossMbedTlsConnection._SendBIOPendingData(
-  const ACallback: TProc<ICrossConnection, Boolean>);
+  const ACallback: TCrossConnectionCallback);
 var
   LConnection: ICrossConnection;
   LRetCode: Integer;
@@ -274,7 +274,7 @@ begin
 
   {$region '发送缓存中已加密的数据'}
   inherited DirectSend(LBuffer.Memory, LBuffer.Size,
-    procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
       FreeAndNil(LBuffer);
       if Assigned(ACallback) then
@@ -283,8 +283,8 @@ begin
   {$endregion}
 end;
 
-procedure TCrossMbedTlsConnection.DirectSend(ABuffer: Pointer; ACount: Integer;
-  const ACallback: TProc<ICrossConnection, Boolean>);
+procedure TCrossMbedTlsConnection.DirectSend(const ABuffer: Pointer;
+  const ACount: Integer; const ACallback: TCrossConnectionCallback);
 var
   LRetCode: Integer;
 begin
@@ -327,13 +327,14 @@ begin
   _FreeSslConf;
 end;
 
-function TCrossMbedTlsSocket.CreateConnection(AOwner: ICrossSocket;
-  AClientSocket: THandle; AConnectType: TConnectType): ICrossConnection;
+function TCrossMbedTlsSocket.CreateConnection(const AOwner: ICrossSocket;
+  const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
 begin
   Result := TCrossMbedTlsConnection.Create(AOwner, AClientSocket, AConnectType);
 end;
 
-procedure TCrossMbedTlsSocket.SetCertificate(ACertBuf: Pointer; ACertBufSize: Integer);
+procedure TCrossMbedTlsSocket.SetCertificate(const ACertBuf: Pointer;
+  const ACertBufSize: Integer);
 begin
   MbedCheck(mbedtls_x509_crt_parse(@FCert, ACertBuf, ACertBufSize), 'mbedtls_x509_crt_parse SetCertificate:');
 
@@ -360,7 +361,8 @@ begin
   SetCertificate(Pointer(LCertBytes), Length(LCertBytes));
 end;
 
-procedure TCrossMbedTlsSocket.SetPrivateKey(APKeyBuf: Pointer; APKeyBufSize: Integer);
+procedure TCrossMbedTlsSocket.SetPrivateKey(const APKeyBuf: Pointer;
+  const APKeyBufSize: Integer);
 begin
   MbedCheck(mbedtls_pk_parse_key(@FPKey, APKeyBuf, APKeyBufSize, nil, 0), 'mbedtls_pk_parse_key SetPrivateKey:');
 
@@ -387,7 +389,7 @@ begin
   SetPrivateKey(Pointer(LPKeyBytes), Length(LPKeyBytes));
 end;
 
-procedure TCrossMbedTlsSocket.TriggerConnected(AConnection: ICrossConnection);
+procedure TCrossMbedTlsSocket.TriggerConnected(const AConnection: ICrossConnection);
 var
   LConnection: TCrossMbedTlsConnection;
 begin
@@ -403,8 +405,8 @@ begin
   end;
 end;
 
-procedure TCrossMbedTlsSocket.TriggerReceived(AConnection: ICrossConnection;
-  ABuf: Pointer; ALen: Integer);
+procedure TCrossMbedTlsSocket.TriggerReceived(const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer);
 var
   LConnection: TCrossMbedTlsConnection;
   LRetCode: Integer;

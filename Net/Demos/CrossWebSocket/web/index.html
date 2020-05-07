@@ -18,22 +18,35 @@
   <script src="jquery-2.2.3.min.js"></script>
 
   <script>
-    var ws = new WebSocket("ws://" + document.location.host + "/chat");
-    ws.onopen = function(evt) { 
-      console.log("Connection open ..."); 
-      connected = true;
-    };
+    var WS = document.location.protocol == "http:" ? "ws://" : "wss://";
+    var URL = WS + document.location.host + "/chat";
+    var ws;
+        
+    function openWs() {
+      console.log('Connect %s', URL);
 
-    ws.onmessage = function(evt) {
-      console.log( "Received Message: " + evt.data);
-      addChatMessage(evt.data);
-    };
+      ws = new WebSocket(URL);
 
-    ws.onclose = function(evt) {
-      console.log("Connection closed.");
-      connected = false;
-    };
+      ws.onopen = function(evt) { 
+        console.log("Connection open ..."); 
+        connected = true;
+      };
 
+      ws.onmessage = function(evt) {
+        console.log( "Received Message: " + evt.data);
+        addChatMessage(evt.data);
+      };
+
+      ws.onclose = function(evt) {
+        console.log("Connection closed.");
+        connected = false;
+        
+        setTimeout(openWs, 1000);
+      };
+    }
+    
+    openWs();
+    
     var FADE_TIME = 150; // ms
     var $window = $(window);
     var $messages = $('.messages');
