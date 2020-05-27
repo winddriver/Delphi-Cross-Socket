@@ -52,7 +52,7 @@ type
     procedure SetPort(const Value: Word);
     procedure SetActive(const Value: Boolean);
   public
-    constructor Create(AIoThreads: Integer); override;
+    constructor Create(const AIoThreads: Integer); override;
 
     procedure Start(const ACallback: TProc<Boolean> = nil);
     procedure Stop;
@@ -66,7 +66,7 @@ implementation
 
 { TCrossSslServer }
 
-constructor TCrossSslServer.Create(AIoThreads: Integer);
+constructor TCrossSslServer.Create(const AIoThreads: Integer);
 begin
   inherited;
 end;

@@ -78,7 +78,7 @@ type
     function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
       const AConnectType: TConnectType): ICrossConnection; override;
   public
-    constructor Create(AIoThreads: Integer); override;
+    constructor Create(const AIoThreads: Integer); override;
     destructor Destroy; override;
 
     procedure SetCertificate(const ACertBuf: Pointer; const ACertBufSize: Integer); overload;
@@ -290,7 +290,7 @@ end;
 
 { TCrossOpenSslSocket }
 
-constructor TCrossOpenSslSocket.Create(AIoThreads: Integer);
+constructor TCrossOpenSslSocket.Create(const AIoThreads: Integer);
 begin
   inherited;
 
