@@ -709,6 +709,11 @@ begin
         // AcceptEx虽然成功, 但是Socket句柄耗尽了, 再次投递AcceptEx
         if (LPerIoData.Action = ioAccept) then
         begin
+          // 照理说能执行到这里, 说明Socket分配失败了
+          // 但是为了以防万一, 这里还是判断一下并释放掉无效的Socket句柄
+          if (LPerIoData.Socket <> 0) then
+            TSocketAPI.CloseSocket(LPerIoData.Socket);
+
           // 关闭监听后会触发该错误, 这种情况不应该继续投递
           if (GetLastError <> WSA_OPERATION_ABORTED) then
             _NewAccept(LPerIoData.CrossData as ICrossListen);
@@ -731,7 +736,8 @@ begin
         if Assigned(LPerIoData.Callback) then
           LPerIoData.Callback(nil, False);
 
-        TSocketAPI.CloseSocket(LPerIoData.Socket);
+        if (LPerIoData.Socket <> 0) then
+          TSocketAPI.CloseSocket(LPerIoData.Socket);
       end;
     finally
       _FreeIoData(LPerIoData);
