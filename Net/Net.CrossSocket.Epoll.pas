@@ -146,7 +146,7 @@ type
 
     function ProcessIoEvent: Boolean; override;
   public
-    constructor Create(AIoThreads: Integer); override;
+    constructor Create(const AIoThreads: Integer); override;
     destructor Destroy; override;
   end;
 
@@ -334,7 +334,7 @@ end;
 
 { TEpollCrossSocket }
 
-constructor TEpollCrossSocket.Create(AIoThreads: Integer);
+constructor TEpollCrossSocket.Create(const AIoThreads: Integer);
 begin
   inherited;
 

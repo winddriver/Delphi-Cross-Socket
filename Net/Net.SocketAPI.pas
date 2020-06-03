@@ -350,7 +350,7 @@ class function TSocketAPI.RecvFrom(ASocket: THandle; const Addr: PSockAddr;
   var AddrLen: Integer; var Buf; len, flags: Integer): Integer;
 begin
   {$IFDEF POSIX}
-  Result := Posix.SysSocket.recvfrom(ASocket, Buf, len, flags, Addr^, Cardinal(AddrLen));
+  Result := Posix.SysSocket.recvfrom(ASocket, Buf, len, flags, Addr^, socklen_t(AddrLen));
   {$ELSE}
   Result := Net.Winsock2.recvfrom(ASocket, Buf, len, flags, Addr, @AddrLen);
   {$ENDIF}
@@ -360,7 +360,7 @@ class function TSocketAPI.Accept(ASocket: THandle; Addr: PSockAddr;
   AddrLen: PInteger): THandle;
 begin
   {$IFDEF POSIX}
-  Result := Posix.SysSocket.accept(ASocket, Addr^, Cardinal(AddrLen^));
+  Result := Posix.SysSocket.accept(ASocket, Addr^, socklen_t(AddrLen^));
   {$ELSE}
   Result := Net.Winsock2.accept(ASocket, Addr, AddrLen);
   {$ENDIF}
@@ -507,7 +507,7 @@ class function TSocketAPI.GetPeerName(ASocket: THandle; Addr: PSockAddr;
   var AddrLen: Integer): Integer;
 begin
   {$IFDEF POSIX}
-  Result := Posix.SysSocket.getpeername(ASocket, Addr^, Cardinal(AddrLen));
+  Result := Posix.SysSocket.getpeername(ASocket, Addr^, socklen_t(AddrLen));
   {$ELSE}
   Result := Net.Winsock2.getpeername(ASocket, Addr, AddrLen);
   {$ENDIF}
@@ -517,7 +517,7 @@ class function TSocketAPI.GetSockName(ASocket: THandle; Addr: PSockAddr;
   var AddrLen: Integer): Integer;
 begin
   {$IFDEF POSIX}
-  Result := Posix.SysSocket.getsockname(ASocket, Addr^, Cardinal(AddrLen));
+  Result := Posix.SysSocket.getsockname(ASocket, Addr^, socklen_t(AddrLen));
   {$ELSE}
   Result := Net.Winsock2.getsockname(ASocket, Addr, AddrLen);
   {$ENDIF}
@@ -527,7 +527,7 @@ class function TSocketAPI.GetSockOpt(ASocket: THandle; ALevel, AOptionName: Inte
   var AOptionValue; var AOptionLen: Integer): Integer;
 begin
   {$IFDEF POSIX}
-  Result := Posix.SysSocket.getsockopt(ASocket, ALevel, AOptionName, AOptionValue, Cardinal(AOptionLen));
+  Result := Posix.SysSocket.getsockopt(ASocket, ALevel, AOptionName, AOptionValue, socklen_t(AOptionLen));
   {$ELSE}
   Result := Net.Winsock2.getsockopt(ASocket, ALevel, AOptionName, PAnsiChar(@AOptionValue), AOptionLen);
   {$ENDIF}

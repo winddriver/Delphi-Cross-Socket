@@ -166,7 +166,7 @@ type
 
     function ProcessIoEvent: Boolean; override;
   public
-    constructor Create(AIoThreads: Integer); override;
+    constructor Create(const AIoThreads: Integer); override;
     destructor Destroy; override;
   end;
 
@@ -399,7 +399,7 @@ end;
 
 { TKqueueCrossSocket }
 
-constructor TKqueueCrossSocket.Create(AIoThreads: Integer);
+constructor TKqueueCrossSocket.Create(const AIoThreads: Integer);
 begin
   inherited;
 

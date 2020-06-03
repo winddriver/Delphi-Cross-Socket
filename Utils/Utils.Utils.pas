@@ -23,6 +23,18 @@ uses
   System.SysConst;
 
 type
+  TConstProc = reference to procedure;
+  TConstProc<T> = reference to procedure (const Arg1: T);
+  TConstProc<T1,T2> = reference to procedure (const Arg1: T1; const Arg2: T2);
+  TConstProc<T1,T2,T3> = reference to procedure (const Arg1: T1; const Arg2: T2; const Arg3: T3);
+  TConstProc<T1,T2,T3,T4> = reference to procedure (const Arg1: T1; const Arg2: T2; const Arg3: T3; const Arg4: T4);
+
+  TConstFunc<TResult> = reference to function: TResult;
+  TConstFunc<T,TResult> = reference to function (const Arg1: T): TResult;
+  TConstFunc<T1,T2,TResult> = reference to function (const Arg1: T1; const Arg2: T2): TResult;
+  TConstFunc<T1,T2,T3,TResult> = reference to function (const Arg1: T1; const Arg2: T2; const Arg3: T3): TResult;
+  TConstFunc<T1,T2,T3,T4,TResult> = reference to function (const Arg1: T1; const Arg2: T2; const Arg3: T3; const Arg4: T4): TResult;
+
   TUtils = class
   private class var
     FAppFile, FAppPath, FAppHome, FAppDocuments, FAppName: string;
@@ -49,6 +61,7 @@ type
     class function UnicodeTrimLeft(const S: string): string; static;
     class function UnicodeTrimRight(const S: string): string; static;
     class function StrIPos(const ASubStr, AStr: string; AOffset: Integer): Integer; static;
+    class function CompareStringIncludeNumber(const AStr1, AStr2: string): Integer; static;
 
     class procedure BinToHex(ABuffer: Pointer; ABufSize: Integer; AText: PChar); overload; static;
     class function BinToHex(ABuffer: Pointer; ABufSize: Integer): string; overload; static; inline;
@@ -197,6 +210,62 @@ begin
     Result := AEndTick - AStartTick
   else
     Result := High(Cardinal) - AStartTick + AEndTick;
+end;
+
+class function TUtils.CompareStringIncludeNumber(const AStr1,
+  AStr2: string): Integer;
+var
+  I, J, LStrLen1, LStrLen2: Integer;
+  C1, C2: Char;
+  LNumStr1, LNumStr2: string;
+  LNum1, LNum2: Int64;
+begin
+  I := 0;
+  J := 0;
+  LStrLen1 := AStr1.Length;
+  LStrLen2 := AStr2.Length;
+
+  while (I < LStrLen1)
+   and (J < LStrLen2) do
+  begin
+    C1 := AStr1.Chars[I];
+    C2 := AStr2.Chars[J];
+
+    if C1.IsDigit and C2.IsDigit then
+    begin
+      LNumStr1 := '';
+      LNumStr2 := '';
+
+      while (I < LStrLen1) do
+      begin
+        LNumStr1 := LNumStr1 + AStr1.Chars[I];
+        Inc(I);
+      end;
+
+      while (J < LStrLen2) do
+      begin
+        LNumStr2 := LNumStr2 + AStr2.Chars[J];
+        Inc(J);
+      end;
+
+      LNum1 := StrToInt64Def(LNumStr1, -1);
+      LNum2 := StrToInt64Def(LNumStr2, -1);
+
+      if (LNum1 > LNum2) then Exit(1)
+      else if (LNum1 < LNum2) then Exit(-1);
+    end else
+    begin
+      if (C1 > C2) then Exit(1)
+      else if (C1 < C2) then Exit(-11);
+
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+
+  if (LStrLen1 > LStrLen2) then Exit(1)
+  else if (LStrLen1 < LStrLen2) then Exit(-11)
+  else Exit(0);
 end;
 
 class function TUtils.CompareVersion(const V1, V2: string): Integer;
