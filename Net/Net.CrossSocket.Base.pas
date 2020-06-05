@@ -1517,21 +1517,18 @@ end;
 procedure TAbstractCrossConnection.DirectSend(const ABuffer: Pointer;
   const ACount: Integer; const ACallback: TCrossConnectionCallback);
 var
-  LConnection: ICrossConnection;
   LBuffer: Pointer;
 begin
-  LConnection := Self as ICrossConnection;
-
   if (FSocket = INVALID_HANDLE_VALUE)
     or IsClosed then
   begin
     if Assigned(ACallback) then
-      ACallback(LConnection, False);
+      ACallback(Self, False);
     Exit;
   end;
 
   LBuffer := ABuffer;
-  FOwner.Send(LConnection, LBuffer, ACount,
+  FOwner.Send(Self, LBuffer, ACount,
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
       if ASuccess then
@@ -1589,12 +1586,10 @@ end;
 // Windows下 iocp 发送数据会锁定非页面内存, 为了减少非页面内存的占用
 // 采用将大数据分小块发送的策略, 一个小块发送完之后再发送下一个
 var
-  LConnection: ICrossConnection;
   P: PByte;
   LSize: Integer;
   LSender: TCrossConnectionCallback;
 begin
-  LConnection := Self;
   P := ABuffer;
   LSize := ACount;
 
@@ -1642,7 +1637,7 @@ begin
       TAbstractCrossConnection(AConnection).DirectSend(LData, LCount, LSender);
     end;
 
-  LSender(LConnection, True);
+  LSender(Self, True);
 end;
 {$ENDIF}
 
@@ -1682,7 +1677,6 @@ end;
 procedure TAbstractCrossConnection.SendStream(const AStream: TStream;
   const ACallback: TCrossConnectionCallback);
 var
-  LConnection: ICrossConnection;
   LBuffer: TBytes;
   LSender: TCrossConnectionCallback;
 begin
@@ -1696,7 +1690,6 @@ begin
     Exit;
   end;
 
-  LConnection := Self;
   SetLength(LBuffer, SND_BUF_SIZE);
 
   LSender :=
@@ -1735,7 +1728,7 @@ begin
       TAbstractCrossConnection(AConnection).DirectSend(LData, LCount, LSender);
     end;
 
-  LSender(LConnection, True);
+  LSender(Self, True);
 end;
 
 procedure TAbstractCrossConnection.UpdateAddr;

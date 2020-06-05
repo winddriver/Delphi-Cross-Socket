@@ -2229,15 +2229,11 @@ end;
 
 constructor TCrossHttpConnection.Create(const AOwner: ICrossSocket;
   const AClientSocket: THandle; const AConnectType: TConnectType);
-var
-  LConnection: ICrossHttpConnection;
 begin
   inherited;
 
-  LConnection := Self;
-
-  FRequest := TCrossHttpRequest.Create(LConnection);
-  FResponse := TCrossHttpResponse.Create(LConnection);
+  FRequest := TCrossHttpRequest.Create(Self);
+  FResponse := TCrossHttpResponse.Create(Self);
 end;
 
 function TCrossHttpConnection.GetRequest: ICrossHttpRequest;
