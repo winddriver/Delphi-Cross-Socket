@@ -1066,8 +1066,8 @@ type
     ///   路由方法
     /// </param>
     function CreateRouter(const AMethod, APath: string;
-      ARouterProc: TCrossHttpRouterProc; ARouterMethod: TCrossHttpRouterMethod;
-      ARouterProc2: TCrossHttpRouterProc2; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpRouter;
+      const ARouterProc: TCrossHttpRouterProc; const ARouterMethod: TCrossHttpRouterMethod;
+      const ARouterProc2: TCrossHttpRouterProc2; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpRouter;
 
     /// <summary>
     ///   注册中间件
@@ -1092,7 +1092,7 @@ type
     ///   </list>
     /// </remarks>
     function Use(const AMethod, APath: string;
-      AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+      const AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册中间件
@@ -1118,7 +1118,7 @@ type
     ///   </list>
     /// </remarks>
     function Use(const AMethod, APath: string;
-      AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+      const AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册中间件
@@ -1143,7 +1143,7 @@ type
     ///   </list>
     /// </remarks>
     function Use(const AMethod, APath: string;
-      AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+      const AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册中间件
@@ -1169,7 +1169,7 @@ type
     ///   </list>
     /// </remarks>
     function Use(const AMethod, APath: string;
-      AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+      const AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册中间件
@@ -1191,7 +1191,7 @@ type
     ///   </list>
     /// </remarks>
     function Use(const APath: string;
-      AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+      const AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册中间件
@@ -1214,7 +1214,7 @@ type
     ///   </list>
     /// </remarks>
     function Use(const APath: string;
-      AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+      const AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册中间件
@@ -1236,7 +1236,7 @@ type
     ///   </list>
     /// </remarks>
     function Use(const APath: string;
-      AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+      const AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册中间件
@@ -1259,7 +1259,7 @@ type
     ///   </list>
     /// </remarks>
     function Use(const APath: string;
-      AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+      const AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册中间件
@@ -1277,8 +1277,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function Use(AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function Use(AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Use(const AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Use(const AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册中间件
@@ -1296,8 +1296,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function Use(AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function Use(AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function Use(const AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Use(const AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册路由(请求处理函数)
@@ -1323,8 +1323,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function Route(const AMethod, APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function Route(const AMethod, APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册路由(请求处理函数)
@@ -1350,8 +1350,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function Route(const AMethod, APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function Route(const AMethod, APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册GET路由(请求处理函数)
@@ -1374,8 +1374,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function Get(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function Get(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Get(const APath: string; const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Get(const APath: string; const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册GET路由(请求处理函数)
@@ -1398,8 +1398,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function Get(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function Get(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function Get(const APath: string; const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Get(const APath: string; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册PUT路由(请求处理函数)
@@ -1422,8 +1422,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function Put(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function Put(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Put(const APath: string; const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Put(const APath: string; const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册PUT路由(请求处理函数)
@@ -1446,8 +1446,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function Put(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function Put(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function Put(const APath: string; const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Put(const APath: string; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册POST路由(请求处理函数)
@@ -1470,8 +1470,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function Post(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function Post(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Post(const APath: string; const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Post(const APath: string; const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册POST路由(请求处理函数)
@@ -1494,8 +1494,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function Post(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function Post(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function Post(const APath: string; const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Post(const APath: string; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册DELETE路由(请求处理函数)
@@ -1518,8 +1518,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function Delete(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function Delete(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Delete(const APath: string; const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Delete(const APath: string; const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册DELETE路由(请求处理函数)
@@ -1542,8 +1542,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function Delete(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function Delete(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function Delete(const APath: string; const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Delete(const APath: string; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册全部请求方式路由(请求处理函数)
@@ -1566,8 +1566,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function All(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function All(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function All(const APath: string; const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function All(const APath: string; const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册全部请求方式路由(请求处理函数)
@@ -1590,8 +1590,8 @@ type
     ///     </item>
     ///   </list>
     /// </remarks>
-    function All(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function All(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function All(const APath: string; const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function All(const APath: string; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
     /// <summary>
     ///   注册静态文件路由
@@ -1862,7 +1862,7 @@ type
     FBody: TObject;
     FBodyType: TBodyType;
   public
-    constructor Create(AConnection: ICrossHttpConnection);
+    constructor Create(const AConnection: ICrossHttpConnection);
     destructor Destroy; override;
 
     procedure Reset;
@@ -1986,7 +1986,7 @@ type
     procedure Attachment(const AFileName: string);
     {$endregion}
   public
-    constructor Create(AConnection: ICrossHttpConnection);
+    constructor Create(const AConnection: ICrossHttpConnection);
     destructor Destroy; override;
   end;
 
@@ -2010,10 +2010,10 @@ type
     function GetPath: string;
   public
     constructor Create(const AMethod, APath: string;
-      ARouterProc: TCrossHttpRouterProc;
-      ARouterMethod: TCrossHttpRouterMethod;
-      ARouterProc2: TCrossHttpRouterProc2;
-      ARouterMethod2: TCrossHttpRouterMethod2);
+      const ARouterProc: TCrossHttpRouterProc;
+      const ARouterMethod: TCrossHttpRouterMethod;
+      const ARouterProc2: TCrossHttpRouterProc2;
+      const ARouterMethod2: TCrossHttpRouterMethod2);
     destructor Destroy; override;
 
     function IsMatch(const ARequest: ICrossHttpRequest): Boolean;
@@ -2049,19 +2049,19 @@ type
     FOnPostDataEnd: TCrossHttpConnEvent;
     FCompressible: Boolean;
 
-    function IsValidHttpRequest(ABuf: Pointer; ALen: Integer): Boolean;
+    function IsValidHttpRequest(const ABuf: Pointer; const ALen: Integer): Boolean;
     procedure ParseRecvData(const AConnection: ICrossConnection; const ABuf: Pointer; ALen: Integer);
 
     function RegisterRouter(const AMethod, APath: string;
-      ARouterProc: TCrossHttpRouterProc;
-      ARouterMethod: TCrossHttpRouterMethod;
-      ARouterProc2: TCrossHttpRouterProc2;
-      ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+      const ARouterProc: TCrossHttpRouterProc;
+      const ARouterMethod: TCrossHttpRouterMethod;
+      const ARouterProc2: TCrossHttpRouterProc2;
+      const ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
     function RegisterMiddleware(const AMethod, APath: string;
-      AMiddlewareProc: TCrossHttpRouterProc;
-      AMiddlewareMethod: TCrossHttpRouterMethod;
-      AMiddlewareProc2: TCrossHttpRouterProc2;
-      AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+      const AMiddlewareProc: TCrossHttpRouterProc;
+      const AMiddlewareMethod: TCrossHttpRouterMethod;
+      const AMiddlewareProc2: TCrossHttpRouterProc2;
+      const AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
   private
     function GetStoragePath: string;
     function GetAutoDeleteFiles: Boolean;
@@ -2095,8 +2095,10 @@ type
       const AConnectType: TConnectType): ICrossConnection; override;
 
     function CreateRouter(const AMethod, APath: string;
-      ARouterProc: TCrossHttpRouterProc; ARouterMethod: TCrossHttpRouterMethod;
-      ARouterProc2: TCrossHttpRouterProc2; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpRouter; virtual;
+      const ARouterProc: TCrossHttpRouterProc;
+      const ARouterMethod: TCrossHttpRouterMethod;
+      const ARouterProc2: TCrossHttpRouterProc2;
+      const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpRouter; virtual;
 
     procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
   protected
@@ -2112,63 +2114,63 @@ type
     destructor Destroy; override;
 
     function Use(const AMethod, APath: string;
-      AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+      const AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
 
     function Use(const AMethod, APath: string;
-      AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+      const AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
     function Use(const AMethod, APath: string;
-      AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+      const AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
 
     function Use(const AMethod, APath: string;
-      AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+      const AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
     function Use(const APath: string;
-      AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+      const AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
 
     function Use(const APath: string;
-      AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+      const AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
 
     function Use(const APath: string;
-      AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+      const AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
 
     function Use(const APath: string;
-      AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+      const AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    function Use(AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function Use(AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
-    function Use(AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function Use(AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function Use(const AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Use(const AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Use(const AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Use(const AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    function Route(const AMethod, APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function Route(const AMethod, APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
-    function Route(const AMethod, APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function Route(const AMethod, APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Route(const AMethod, APath: string; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    function Get(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function Get(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
-    function Get(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function Get(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function Get(const APath: string; const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Get(const APath: string; const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Get(const APath: string; const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Get(const APath: string; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    function Put(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function Put(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
-    function Put(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function Put(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function Put(const APath: string; const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Put(const APath: string; const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Put(const APath: string; const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Put(const APath: string; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    function Post(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function Post(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
-    function Post(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function Post(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function Post(const APath: string; const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Post(const APath: string; const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Post(const APath: string; const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Post(const APath: string; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    function Delete(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function Delete(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
-    function Delete(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function Delete(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function Delete(const APath: string; const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function Delete(const APath: string; const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function Delete(const APath: string; const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function Delete(const APath: string; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
-    function All(const APath: string; ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
-    function All(const APath: string; ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
-    function All(const APath: string; ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
-    function All(const APath: string; ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
+    function All(const APath: string; const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
+    function All(const APath: string; const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer; overload;
+    function All(const APath: string; const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer; overload;
+    function All(const APath: string; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer; overload;
 
     function &Static(const APath, ALocalStaticDir: string): ICrossHttpServer;
     function Dir(const APath, ALocalDir: string): ICrossHttpServer;
@@ -2254,8 +2256,8 @@ end;
 { TCrossHttpRouter }
 
 constructor TCrossHttpRouter.Create(const AMethod, APath: string;
-  ARouterProc: TCrossHttpRouterProc; ARouterMethod: TCrossHttpRouterMethod;
-  ARouterProc2: TCrossHttpRouterProc2; ARouterMethod2: TCrossHttpRouterMethod2);
+  const ARouterProc: TCrossHttpRouterProc; const ARouterMethod: TCrossHttpRouterMethod;
+  const ARouterProc2: TCrossHttpRouterProc2; const ARouterMethod2: TCrossHttpRouterMethod2);
 begin
   FMethod := AMethod;
   FPath := APath;
@@ -2478,25 +2480,25 @@ end;
 { TCrossHttpServer }
 
 function TCrossHttpServer.All(const APath: string;
-  ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
+  const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Route('*', APath, ARouterProc);
 end;
 
 function TCrossHttpServer.All(const APath: string;
-  ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
+  const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Route('*', APath, ARouterProc2);
 end;
 
 function TCrossHttpServer.All(const APath: string;
-  ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
+  const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Route('*', APath, ARouterMethod);
 end;
 
 function TCrossHttpServer.All(const APath: string;
-  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
+  const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Route('*', APath, ARouterMethod2);
 end;
@@ -2532,9 +2534,10 @@ begin
 end;
 
 function TCrossHttpServer.CreateRouter(const AMethod, APath: string;
-  ARouterProc: TCrossHttpRouterProc; ARouterMethod: TCrossHttpRouterMethod;
-  ARouterProc2: TCrossHttpRouterProc2;
-  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpRouter;
+  const ARouterProc: TCrossHttpRouterProc;
+  const ARouterMethod: TCrossHttpRouterMethod;
+  const ARouterProc2: TCrossHttpRouterProc2;
+  const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpRouter;
 begin
   Result := TCrossHttpRouter.Create(AMethod, APath,
     ARouterProc, ARouterMethod,
@@ -2570,25 +2573,25 @@ begin
 end;
 
 function TCrossHttpServer.Delete(const APath: string;
-  ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
+  const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Route('DELETE', APath, ARouterProc);
 end;
 
 function TCrossHttpServer.Delete(const APath: string;
-  ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
+  const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Route('DELETE', APath, ARouterProc2);
 end;
 
 function TCrossHttpServer.Delete(const APath: string;
-  ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
+  const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Route('DELETE', APath, ARouterMethod);
 end;
 
 function TCrossHttpServer.Delete(const APath: string;
-  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
+  const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Route('DELETE', APath, ARouterMethod2);
 end;
@@ -2702,25 +2705,25 @@ begin
 end;
 
 function TCrossHttpServer.Get(const APath: string;
-  ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
+  const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Route('GET', APath, ARouterProc);
 end;
 
 function TCrossHttpServer.Get(const APath: string;
-  ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
+  const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Route('GET', APath, ARouterProc2);
 end;
 
 function TCrossHttpServer.Get(const APath: string;
-  ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
+  const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Route('GET', APath, ARouterMethod);
 end;
 
 function TCrossHttpServer.Get(const APath: string;
-  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
+  const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Route('GET', APath, ARouterMethod2);
 end;
@@ -2880,8 +2883,8 @@ begin
   Result := Get(LReqPath, TNetCrossRouter.Index(ALocalDir, 'file', ADefIndexFiles));
 end;
 
-function TCrossHttpServer.IsValidHttpRequest(ABuf: Pointer;
-  ALen: Integer): Boolean;
+function TCrossHttpServer.IsValidHttpRequest(const ABuf: Pointer;
+  const ALen: Integer): Boolean;
 var
   LBytes: TBytes;
   I: Integer;
@@ -3117,58 +3120,58 @@ begin
 end;
 
 function TCrossHttpServer.Post(const APath: string;
-  ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
+  const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Route('POST', APath, ARouterProc);
 end;
 
 function TCrossHttpServer.Post(const APath: string;
-  ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
+  const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Route('POST', APath, ARouterProc2);
 end;
 
 function TCrossHttpServer.Post(const APath: string;
-  ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
+  const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Route('POST', APath, ARouterMethod);
 end;
 
 function TCrossHttpServer.Post(const APath: string;
-  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
+  const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Route('POST', APath, ARouterMethod2);
 end;
 
 function TCrossHttpServer.Put(const APath: string;
-  ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
+  const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Route('PUT', APath, ARouterMethod);
 end;
 
 function TCrossHttpServer.Put(const APath: string;
-  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
+  const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Route('PUT', APath, ARouterMethod2);
 end;
 
 function TCrossHttpServer.Put(const APath: string;
-  ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
+  const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Route('PUT', APath, ARouterProc);
 end;
 
 function TCrossHttpServer.Put(const APath: string;
-  ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
+  const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Route('PUT', APath, ARouterProc2);
 end;
 
 function TCrossHttpServer.RegisterMiddleware(const AMethod, APath: string;
-  AMiddlewareProc: TCrossHttpRouterProc;
-  AMiddlewareMethod: TCrossHttpRouterMethod;
-  AMiddlewareProc2: TCrossHttpRouterProc2;
-  AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+  const AMiddlewareProc: TCrossHttpRouterProc;
+  const AMiddlewareMethod: TCrossHttpRouterMethod;
+  const AMiddlewareProc2: TCrossHttpRouterProc2;
+  const AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
 var
   LMiddleware: ICrossHttpRouter;
 begin
@@ -3185,8 +3188,10 @@ begin
 end;
 
 function TCrossHttpServer.RegisterRouter(const AMethod, APath: string;
-  ARouterProc: TCrossHttpRouterProc; ARouterMethod: TCrossHttpRouterMethod;
-  ARouterProc2: TCrossHttpRouterProc2; ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
+  const ARouterProc: TCrossHttpRouterProc;
+  const ARouterMethod: TCrossHttpRouterMethod;
+  const ARouterProc2: TCrossHttpRouterProc2;
+  const ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
 var
   LRouter: ICrossHttpRouter;
 begin
@@ -3203,25 +3208,25 @@ begin
 end;
 
 function TCrossHttpServer.Route(const AMethod, APath: string;
-  ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
+  const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := RegisterRouter(AMethod, APath, ARouterProc, nil, nil, nil);
 end;
 
 function TCrossHttpServer.Route(const AMethod, APath: string;
-  ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
+  const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := RegisterRouter(AMethod, APath, nil, nil, ARouterProc2, nil);
 end;
 
 function TCrossHttpServer.Route(const AMethod, APath: string;
-  ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
+  const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := RegisterRouter(AMethod, APath, nil, ARouterMethod, nil, nil);
 end;
 
 function TCrossHttpServer.Route(const AMethod, APath: string;
-  ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
+  const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := RegisterRouter(AMethod, APath, nil, nil, nil, ARouterMethod2);
 end;
@@ -3360,31 +3365,31 @@ begin
 end;
 
 function TCrossHttpServer.Use(const AMethod, APath: string;
-  AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer;
+  const AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := RegisterMiddleware(AMethod, APath, nil, AMiddlewareMethod, nil, nil);
 end;
 
 function TCrossHttpServer.Use(const AMethod, APath: string;
-  AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer;
+  const AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := RegisterMiddleware(AMethod, APath, AMiddlewareProc, nil, nil, nil);
 end;
 
 function TCrossHttpServer.Use(const APath: string;
-  AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer;
+  const AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Use('*', APath, AMiddlewareMethod);
 end;
 
 function TCrossHttpServer.Use(const APath: string;
-  AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer;
+  const AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Use('*', APath, AMiddlewareProc);
 end;
 
 function TCrossHttpServer.Use(
-  AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer;
+  const AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
   Result := Use('*', '*', AMiddlewareMethod);
 end;
@@ -3400,50 +3405,50 @@ begin
 end;
 
 function TCrossHttpServer.Use(
-  AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
+  const AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Use('*', '*', AMiddlewareMethod2);
 end;
 
 function TCrossHttpServer.Use(
-  AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer;
+  const AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Use('*', '*', AMiddlewareProc2);
 end;
 
 function TCrossHttpServer.Use(const AMethod, APath: string;
-  AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
+  const AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := RegisterMiddleware(AMethod, APath, nil, nil, nil, AMiddlewareMethod2);
 end;
 
 function TCrossHttpServer.Use(const AMethod, APath: string;
-  AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer;
+  const AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := RegisterMiddleware(AMethod, APath, nil, nil, AMiddlewareProc2, nil);
 end;
 
 function TCrossHttpServer.Use(const APath: string;
-  AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
+  const AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
   Result := Use('*', APath, AMiddlewareMethod2);
 end;
 
 function TCrossHttpServer.Use(const APath: string;
-  AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer;
+  const AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
   Result := Use('*', APath, AMiddlewareProc2);
 end;
 
 function TCrossHttpServer.Use(
-  AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer;
+  const AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
   Result := Use('*', '*', AMiddlewareProc);
 end;
 
 { TCrossHttpRequest }
 
-constructor TCrossHttpRequest.Create(AConnection: ICrossHttpConnection);
+constructor TCrossHttpRequest.Create(const AConnection: ICrossHttpConnection);
 begin
   FConnection := AConnection;
 
@@ -3782,7 +3787,7 @@ end;
 
 { TCrossHttpResponse }
 
-constructor TCrossHttpResponse.Create(AConnection: ICrossHttpConnection);
+constructor TCrossHttpResponse.Create(const AConnection: ICrossHttpConnection);
 begin
   FConnection := AConnection;
   FHeader := THttpHeader.Create;
