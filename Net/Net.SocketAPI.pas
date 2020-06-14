@@ -1,4 +1,4 @@
-{******************************************************************************}
+ï»¿{******************************************************************************}
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
@@ -40,221 +40,221 @@ type
   PRawAddrInfo = ^TRawAddrInfo;
 
   /// <summary>
-  ///   Ì×½Ó×Ö»ù´¡½Ó¿Ú·â×°
+  ///   å¥—æ¥å­—åŸºç¡€æ¥å£å°è£…
   /// </summary>
   TSocketAPI = class
   public
     /// <summary>
-    ///   ĞÂ½¨Ì×½Ó×Ö
+    ///   æ–°å»ºå¥—æ¥å­—
     /// </summary>
     class function NewSocket(const ADomain, AType, AProtocol: Integer): THandle; static;
 
     /// <summary>
-    ///   ĞÂ½¨ Tcp Ì×½Ó×Ö
+    ///   æ–°å»º Tcp å¥—æ¥å­—
     /// </summary>
     class function NewTcp: THandle; static;
 
     /// <summary>
-    ///   ĞÂ½¨ Udp Ì×½Ó×Ö
+    ///   æ–°å»º Udp å¥—æ¥å­—
     /// </summary>
     class function NewUdp: THandle; static;
 
     /// <summary>
-    ///   ¹Ø±ÕÌ×½Ó×Ö
+    ///   å…³é—­å¥—æ¥å­—
     /// </summary>
-    class function CloseSocket(ASocket: THandle): Integer; static;
+    class function CloseSocket(const ASocket: THandle): Integer; static;
 
     /// <summary>
-    ///   Í£Ö¹Ì×½Ó×Ö(SD_RECEIVE=0, SD_SEND=1, SD_BOTH=2)
+    ///   åœæ­¢å¥—æ¥å­—(SD_RECEIVE=0, SD_SEND=1, SD_BOTH=2)
     /// </summary>
-    class function Shutdown(ASocket: THandle; AHow: Integer = 2): Integer; static;
+    class function Shutdown(const ASocket: THandle; const AHow: Integer = 2): Integer; static;
 
     /// <summary>
-    ///   ½ÓÊÜÒ»¸öÁ¬½ÓÇëÇó, ²¢·ÖÅä Socket
+    ///   æ¥å—ä¸€ä¸ªè¿æ¥è¯·æ±‚, å¹¶åˆ†é… Socket
     /// </summary>
-    class function Accept(ASocket: THandle; Addr: PSockAddr; AddrLen: PInteger): THandle; static;
+    class function Accept(const ASocket: THandle; const Addr: PSockAddr; const AddrLen: PInteger): THandle; static;
 
     /// <summary>
-    ///   °ó¶¨Ì×½Ó×Öµ½Ö¸¶¨µØÖ·ºÍ¶Ë¿Ú, Ö§³Ö IPv6
+    ///   ç»‘å®šå¥—æ¥å­—åˆ°æŒ‡å®šåœ°å€å’Œç«¯å£, æ”¯æŒ IPv6
     /// </summary>
-    class function Bind(ASocket: THandle; Addr: PSockAddr; AddrLen: Integer): Integer; static;
+    class function Bind(const ASocket: THandle; const Addr: PSockAddr; const AddrLen: Integer): Integer; static;
 
     /// <summary>
-    ///   Á¬½Óµ½Ö÷»ú, Ö§³Ö IPv6
+    ///   è¿æ¥åˆ°ä¸»æœº, æ”¯æŒ IPv6
     /// </summary>
-    class function Connect(ASocket: THandle; Addr: PSockAddr; AddrLen: Integer): Integer; static;
+    class function Connect(const ASocket: THandle; const Addr: PSockAddr; const AddrLen: Integer): Integer; static;
 
     /// <summary>
-    ///   Æô¶¯¼àÌı
+    ///   å¯åŠ¨ç›‘å¬
     /// </summary>
-    class function Listen(ASocket: THandle; backlog: Integer = SOMAXCONN): Integer; overload; static;
+    class function Listen(const ASocket: THandle; const backlog: Integer = SOMAXCONN): Integer; overload; static;
 
     /// <summary>
-    ///   ½ÓÊÕÊı¾İ
+    ///   æ¥æ”¶æ•°æ®
     /// </summary>
-    class function Recv(ASocket: THandle; var Buf; len: Integer; flags: Integer = 0): Integer; static;
+    class function Recv(const ASocket: THandle; var Buf; const len: Integer; const flags: Integer = 0): Integer; static;
 
     /// <summary>
-    ///   ·¢ËÍÊı¾İ
+    ///   å‘é€æ•°æ®
     /// </summary>
-    class function Send(ASocket: THandle; const Buf; len: Integer; flags: Integer = 0): Integer; static;
+    class function Send(const ASocket: THandle; const Buf; const len: Integer; const flags: Integer = 0): Integer; static;
 
     /// <summary>
-    ///    ½ÓÊÕÊı¾İ´ÓÖ¸¶¨µØÖ·¶Ë¿Ú(ÓÃÓÚUDP)
+    ///    æ¥æ”¶æ•°æ®ä»æŒ‡å®šåœ°å€ç«¯å£(ç”¨äºUDP)
     /// </summary>
-    class function RecvFrom(ASocket: THandle; const Addr: PSockAddr;
-      var AddrLen: Integer; var Buf; len: Integer; flags: Integer = 0): Integer; static;
+    class function RecvFrom(const ASocket: THandle; const Addr: PSockAddr;
+      var AddrLen: Integer; var Buf; const len: Integer; const flags: Integer = 0): Integer; static;
 
     /// <summary>
-    ///    ·¢ËÍÊı¾İµ½Ö¸¶¨µØÖ·¶Ë¿Ú(ÓÃÓÚUDP)
+    ///    å‘é€æ•°æ®åˆ°æŒ‡å®šåœ°å€ç«¯å£(ç”¨äºUDP)
     /// </summary>
-    class function SendTo(ASocket: THandle; const Addr: PSockAddr;
-      AddrLen: Integer; const Buf; len: Integer; flags: Integer = 0): Integer; static;
+    class function SendTo(const ASocket: THandle; const Addr: PSockAddr;
+      const AddrLen: Integer; const Buf; const len: Integer; const flags: Integer = 0): Integer; static;
 
     /// <summary>
-    ///   ·µ»ØÓëÌ×½Ó×Ö¹ØÁªµÄÔ¶³ÌĞ­ÒéµØÖ·
+    ///   è¿”å›ä¸å¥—æ¥å­—å…³è”çš„è¿œç¨‹åè®®åœ°å€
     /// </summary>
-    class function GetPeerName(ASocket: THandle; Addr: PSockAddr;
+    class function GetPeerName(const ASocket: THandle; const Addr: PSockAddr;
       var AddrLen: Integer): Integer; static;
 
     /// <summary>
-    ///   ·µ»ØÓëÌ×½Ó×Ö¹ØÁªµÄ±¾µØĞ­ÒéµØÖ·
+    ///   è¿”å›ä¸å¥—æ¥å­—å…³è”çš„æœ¬åœ°åè®®åœ°å€
     /// </summary>
-    class function GetSockName(ASocket: THandle; Addr: PSockAddr;
+    class function GetSockName(const ASocket: THandle; const Addr: PSockAddr;
       var AddrLen: Integer): Integer; static;
 
     /// <summary>
-    ///   »ñÈ¡Ì×½Ó×Ö²ÎÊı
+    ///   è·å–å¥—æ¥å­—å‚æ•°
     /// </summary>
-    class function GetSockOpt(ASocket: THandle; ALevel, AOptionName: Integer;
+    class function GetSockOpt(const ASocket: THandle; const ALevel, AOptionName: Integer;
        var AOptionValue; var AOptionLen: Integer): Integer; overload; static;
 
     /// <summary>
-    ///   »ñÈ¡Ì×½Ó×Ö²ÎÊı
+    ///   è·å–å¥—æ¥å­—å‚æ•°
     /// </summary>
-    class function GetSockOpt<T>(ASocket: THandle; ALevel, AOptionName: Integer;
+    class function GetSockOpt<T>(const ASocket: THandle; const ALevel, AOptionName: Integer;
        var AOptionValue: T): Integer; overload; static;
 
     /// <summary>
-    ///   ÉèÖÃÌ×½Ó×Ö²ÎÊı
+    ///   è®¾ç½®å¥—æ¥å­—å‚æ•°
     /// </summary>
-    class function SetSockOpt(ASocket: THandle; ALevel, AOptionName: Integer;
+    class function SetSockOpt(const ASocket: THandle; const ALevel, AOptionName: Integer;
       const AOptionValue; AOptionLen: Integer): Integer; overload; static;
 
     /// <summary>
-    ///   ÉèÖÃÌ×½Ó×Ö²ÎÊı
+    ///   è®¾ç½®å¥—æ¥å­—å‚æ•°
     /// </summary>
-    class function SetSockOpt<T>(ASocket: THandle; ALevel, AOptionName: Integer;
+    class function SetSockOpt<T>(const ASocket: THandle; const ALevel, AOptionName: Integer;
       const AOptionValue: T): Integer; overload; static;
 
     /// <summary>
-    ///   ¼ì²éÌ×½Ó×Ö´íÎóÂë
+    ///   æ£€æŸ¥å¥—æ¥å­—é”™è¯¯ç 
     /// </summary>
-    class function GetError(ASocket: THandle): Integer; static;
+    class function GetError(const ASocket: THandle): Integer; static;
 
     /// <summary>
-    ///   ÉèÖÃ·Ç×èÈûÄ£Ê½
+    ///   è®¾ç½®éé˜»å¡æ¨¡å¼
     /// </summary>
-    class function SetNonBlock(ASocket: THandle; ANonBlock: Boolean = True): Integer; static;
+    class function SetNonBlock(const ASocket: THandle; const ANonBlock: Boolean = True): Integer; static;
 
     /// <summary>
-    ///   ÉèÖÃµØÖ·ÖØÓÃÄ£Ê½
+    ///   è®¾ç½®åœ°å€é‡ç”¨æ¨¡å¼
     /// </summary>
-    class function SetReUseAddr(ASocket: THandle; AReUseAddr: Boolean = True): Integer; static;
+    class function SetReUseAddr(const ASocket: THandle; const AReUseAddr: Boolean = True): Integer; static;
 
     /// <summary>
-    ///   ÉèÖÃĞÄÌø²ÎÊı
+    ///   è®¾ç½®å¿ƒè·³å‚æ•°
     /// </summary>
-    class function SetKeepAlive(ASocket: THandle; AIdleSeconds, AInterval, ACount: Integer): Integer; static;
+    class function SetKeepAlive(const ASocket: THandle; const AIdleSeconds, AInterval, ACount: Integer): Integer; static;
 
     /// <summary>
-    ///   ¿ªÆôTCP_NODELAY
+    ///   å¼€å¯TCP_NODELAY
     /// </summary>
-    class function SetTcpNoDelay(ASocket: THandle; ANoDelay: Boolean = True): Integer; static;
+    class function SetTcpNoDelay(const ASocket: THandle; const ANoDelay: Boolean = True): Integer; static;
 
     /// <summary>
-    ///   ÉèÖÃ·¢ËÍ»º³åÇø´óĞ¡
+    ///   è®¾ç½®å‘é€ç¼“å†²åŒºå¤§å°
     /// </summary>
-    class function SetSndBuf(ASocket: THandle; ABufSize: Integer): Integer; static;
+    class function SetSndBuf(const ASocket: THandle; const ABufSize: Integer): Integer; static;
 
     /// <summary>
-    ///   ÉèÖÃ½ÓÊÕ»º³åÇø´óĞ¡
+    ///   è®¾ç½®æ¥æ”¶ç¼“å†²åŒºå¤§å°
     /// </summary>
-    class function SetRcvBuf(ASocket: THandle; ABufSize: Integer): Integer; static;
+    class function SetRcvBuf(const ASocket: THandle; const ABufSize: Integer): Integer; static;
 
     /// <summary>
-    ///   ÉèÖÃLinger²ÎÊı(ÔÚclosesocket()µ÷ÓÃ, µ«ÊÇ»¹ÓĞÊı¾İÃ»·¢ËÍÍê±ÏÊ±ÈİĞí¶ºÁôµÄÃëÊı)
+    ///   è®¾ç½®Lingerå‚æ•°(åœ¨closesocket()è°ƒç”¨, ä½†æ˜¯è¿˜æœ‰æ•°æ®æ²¡å‘é€å®Œæ¯•æ—¶å®¹è®¸é€—ç•™çš„ç§’æ•°)
     /// </summary>
-    class function SetLinger(ASocket: THandle; const AOnOff: Boolean; ALinger: Integer): Integer; static;
+    class function SetLinger(const ASocket: THandle; const AOnOff: Boolean; const ALinger: Integer): Integer; static;
 
     /// <summary>
-    ///   ÉèÖÃ¹ã²¥SO_BROADCAST
+    ///   è®¾ç½®å¹¿æ’­SO_BROADCAST
     /// </summary>
-    class function SetBroadcast(ASocket: THandle; ABroadcast: Boolean = True): Integer; static;
+    class function SetBroadcast(const ASocket: THandle; const ABroadcast: Boolean = True): Integer; static;
 
     /// <summary>
-    ///    ÉèÖÃ½ÓÊÕ³¬Ê±(µ¥Î»Îªms)
+    ///    è®¾ç½®æ¥æ”¶è¶…æ—¶(å•ä½ä¸ºms)
     /// </summary>
-    class function SetRecvTimeout(ASocket: THandle; ATimeout: Cardinal): Integer; static;
+    class function SetRecvTimeout(const ASocket: THandle; const ATimeout: Cardinal): Integer; static;
 
     /// <summary>
-    ///    ÉèÖÃ·¢ËÍ³¬Ê±(µ¥Î»Îªms)
+    ///    è®¾ç½®å‘é€è¶…æ—¶(å•ä½ä¸ºms)
     /// </summary>
-    class function SetSendTimeout(ASocket: THandle; ATimeout: Cardinal): Integer; static;
+    class function SetSendTimeout(const ASocket: THandle; const ATimeout: Cardinal): Integer; static;
 
     /// <summary>
-    ///   ²é¿´½ÓÊÕ¶ÓÁĞ
-    ///   ATimeout < 0 ×èÈû
-    ///   ATimeout = 0 ·Ç×èÈûÁ¢¼´·µ»Ø
-    ///   ATimeout > 0 µÈ´ı³¬Ê±Ê±¼ä
+    ///   æŸ¥çœ‹æ¥æ”¶é˜Ÿåˆ—
+    ///   ATimeout < 0 é˜»å¡
+    ///   ATimeout = 0 éé˜»å¡ç«‹å³è¿”å›
+    ///   ATimeout > 0 ç­‰å¾…è¶…æ—¶æ—¶é—´
     /// </summary>
-    class function Readable(ASocket: THandle; ATimeout: Integer): Integer; static;
+    class function Readable(const ASocket: THandle; const ATimeout: Integer): Integer; static;
 
     /// <summary>
-    ///   ²é¿´·¢ËÍ¶ÓÁĞ
-    ///   ATimeout < 0 ×èÈû
-    ///   ATimeout = 0 ·Ç×èÈûÁ¢¼´·µ»Ø
-    ///   ATimeout > 0 µÈ´ı³¬Ê±Ê±¼ä
+    ///   æŸ¥çœ‹å‘é€é˜Ÿåˆ—
+    ///   ATimeout < 0 é˜»å¡
+    ///   ATimeout = 0 éé˜»å¡ç«‹å³è¿”å›
+    ///   ATimeout > 0 ç­‰å¾…è¶…æ—¶æ—¶é—´
     /// </summary>
-    class function Writeable(ASocket: THandle; ATimeout: Integer): Integer; static;
+    class function Writeable(const ASocket: THandle; const ATimeout: Integer): Integer; static;
 
     /// <summary>
-    ///   »º´æÖĞÒÑ½ÓÊÕµÄ×Ö½ÚÊı
+    ///   ç¼“å­˜ä¸­å·²æ¥æ”¶çš„å­—èŠ‚æ•°
     /// </summary>
-    class function RecvdCount(ASocket: THandle): Integer; static;
+    class function RecvdCount(const ASocket: THandle): Integer; static;
 
     /// <summary>
-    ///   ½âÎöµØÖ·ĞÅÏ¢, Ö§³Ö IPv6
+    ///   è§£æåœ°å€ä¿¡æ¯, æ”¯æŒ IPv6
     /// </summary>
     class function GetAddrInfo(const AHostName, AServiceName: string;
       const AHints: TRawAddrInfo): PRawAddrInfo; overload; static;
 
     /// <summary>
-    ///   ½âÎöµØÖ·ĞÅÏ¢, Ö§³Ö IPv6
+    ///   è§£æåœ°å€ä¿¡æ¯, æ”¯æŒ IPv6
     /// </summary>
-    class function GetAddrInfo(const AHostName: string; APort: Word;
+    class function GetAddrInfo(const AHostName: string; const APort: Word;
       const AHints: TRawAddrInfo): PRawAddrInfo; overload; static;
 
     /// <summary>
-    ///   ÊÍ·Å GetAddrInfo ·µ»ØµÄÊı¾İ
+    ///   é‡Šæ”¾ GetAddrInfo è¿”å›çš„æ•°æ®
     /// </summary>
-    class procedure FreeAddrInfo(ARawAddrInfo: PRawAddrInfo); static;
+    class procedure FreeAddrInfo(const ARawAddrInfo: PRawAddrInfo); static;
 
     /// <summary>
-    ///   ´Ó SockAddr ½á¹¹ÖĞ½âÎö³ö IP ºÍ ¶Ë¿Ú, Ö§³Ö IPv6
+    ///   ä» SockAddr ç»“æ„ä¸­è§£æå‡º IP å’Œ ç«¯å£, æ”¯æŒ IPv6
     /// </summary>
-    class procedure ExtractAddrInfo(const AAddr: PSockAddr; AAddrLen: Integer;
+    class procedure ExtractAddrInfo(const AAddr: PSockAddr; const AAddrLen: Integer;
       var AIP: string; var APort: Word); static;
 
     /// <summary>
-    ///   ½«ÓòÃû½âÎöÎª IP µØÖ·, Ö§³Ö IPv6
+    ///   å°†åŸŸåè§£æä¸º IP åœ°å€, æ”¯æŒ IPv6
     /// </summary>
     class function GetIpAddrByHost(const AHost: string): string; static;
 
     /// <summary>
-    ///    Ì×½Ó×ÖÊÇ·ñÓĞĞ§
+    ///    å¥—æ¥å­—æ˜¯å¦æœ‰æ•ˆ
     /// </summary>
-    class function IsValidSocket(ASocket: THandle): Boolean; static;
+    class function IsValidSocket(const ASocket: THandle): Boolean; static;
   end;
 
 implementation
@@ -288,7 +288,7 @@ begin
   Result := TSocketAPI.NewSocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 end;
 
-class function TSocketAPI.Readable(ASocket: THandle; ATimeout: Integer): Integer;
+class function TSocketAPI.Readable(const ASocket: THandle; const ATimeout: Integer): Integer;
 var
   {$IFDEF POSIX}
   LFDSet: fd_set;
@@ -318,7 +318,7 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.Recv(ASocket: THandle; var Buf; len,
+class function TSocketAPI.Recv(const ASocket: THandle; var Buf; const len,
   flags: Integer): Integer;
 begin
   Result :=
@@ -330,7 +330,7 @@ begin
     recv(ASocket, Buf, len, flags);
 end;
 
-class function TSocketAPI.RecvdCount(ASocket: THandle): Integer;
+class function TSocketAPI.RecvdCount(const ASocket: THandle): Integer;
 {$IFNDEF POSIX}
 var
   LTemp : Cardinal;
@@ -346,8 +346,8 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.RecvFrom(ASocket: THandle; const Addr: PSockAddr;
-  var AddrLen: Integer; var Buf; len, flags: Integer): Integer;
+class function TSocketAPI.RecvFrom(const ASocket: THandle; const Addr: PSockAddr;
+  var AddrLen: Integer; var Buf; const len, flags: Integer): Integer;
 begin
   {$IFDEF POSIX}
   Result := Posix.SysSocket.recvfrom(ASocket, Buf, len, flags, Addr^, socklen_t(AddrLen));
@@ -356,8 +356,8 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.Accept(ASocket: THandle; Addr: PSockAddr;
-  AddrLen: PInteger): THandle;
+class function TSocketAPI.Accept(const ASocket: THandle; const Addr: PSockAddr;
+  const AddrLen: PInteger): THandle;
 begin
   {$IFDEF POSIX}
   Result := Posix.SysSocket.accept(ASocket, Addr^, socklen_t(AddrLen^));
@@ -366,8 +366,8 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.Bind(ASocket: THandle; Addr: PSockAddr;
-  AddrLen: Integer): Integer;
+class function TSocketAPI.Bind(const ASocket: THandle; const Addr: PSockAddr;
+  const AddrLen: Integer): Integer;
 begin
   {$IFDEF POSIX}
   Result := Posix.SysSocket.bind(ASocket, Addr^, AddrLen);
@@ -376,7 +376,7 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.CloseSocket(ASocket: THandle): Integer;
+class function TSocketAPI.CloseSocket(const ASocket: THandle): Integer;
 begin
   {$IFDEF POSIX}
   Result := Posix.UniStd.__close(ASocket);
@@ -385,7 +385,7 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.Shutdown(ASocket: THandle; AHow: Integer): Integer;
+class function TSocketAPI.Shutdown(const ASocket: THandle; const AHow: Integer): Integer;
 begin
   {$IFDEF POSIX}
   Result := Posix.SysSocket.shutdown(ASocket, AHow);
@@ -394,8 +394,8 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.Connect(ASocket: THandle; Addr: PSockAddr;
-  AddrLen: Integer): Integer;
+class function TSocketAPI.Connect(const ASocket: THandle; const Addr: PSockAddr;
+  const AddrLen: Integer): Integer;
 begin
   {$IFDEF POSIX}
   Result := Posix.SysSocket.connect(ASocket, Addr^, AddrLen);
@@ -446,13 +446,13 @@ begin
   Result := LAddrInfo;
 end;
 
-class function TSocketAPI.GetAddrInfo(const AHostName: string; APort: Word;
+class function TSocketAPI.GetAddrInfo(const AHostName: string; const APort: Word;
   const AHints: TRawAddrInfo): PRawAddrInfo;
 begin
   Result := GetAddrInfo(AHostName, APort.ToString, AHints);
 end;
 
-class function TSocketAPI.GetError(ASocket: THandle): Integer;
+class function TSocketAPI.GetError(const ASocket: THandle): Integer;
 var
   LRet, LErrLen: Integer;
 begin
@@ -462,7 +462,7 @@ begin
     Result := LRet;
 end;
 
-class procedure TSocketAPI.FreeAddrInfo(ARawAddrInfo: PRawAddrInfo);
+class procedure TSocketAPI.FreeAddrInfo(const ARawAddrInfo: PRawAddrInfo);
 begin
   {$IFDEF POSIX}
   Posix.NetDB.freeaddrinfo(ARawAddrInfo^);
@@ -472,7 +472,7 @@ begin
 end;
 
 class procedure TSocketAPI.ExtractAddrInfo(const AAddr: PSockAddr;
-  AAddrLen: Integer; var AIP: string; var APort: Word);
+  const AAddrLen: Integer; var AIP: string; var APort: Word);
 var
   M: TMarshaller;
   LIP, LServInfo: TPtrWrapper;
@@ -503,7 +503,7 @@ begin
   FreeAddrInfo(LAddrInfo);
 end;
 
-class function TSocketAPI.GetPeerName(ASocket: THandle; Addr: PSockAddr;
+class function TSocketAPI.GetPeerName(const ASocket: THandle; const Addr: PSockAddr;
   var AddrLen: Integer): Integer;
 begin
   {$IFDEF POSIX}
@@ -513,7 +513,7 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.GetSockName(ASocket: THandle; Addr: PSockAddr;
+class function TSocketAPI.GetSockName(const ASocket: THandle; const Addr: PSockAddr;
   var AddrLen: Integer): Integer;
 begin
   {$IFDEF POSIX}
@@ -523,7 +523,7 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.GetSockOpt(ASocket: THandle; ALevel, AOptionName: Integer;
+class function TSocketAPI.GetSockOpt(const ASocket: THandle; const ALevel, AOptionName: Integer;
   var AOptionValue; var AOptionLen: Integer): Integer;
 begin
   {$IFDEF POSIX}
@@ -533,7 +533,7 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.GetSockOpt<T>(ASocket: THandle; ALevel,
+class function TSocketAPI.GetSockOpt<T>(const ASocket: THandle; const ALevel,
   AOptionName: Integer; var AOptionValue: T): Integer;
 var
   LOptionLen: Integer;
@@ -541,12 +541,12 @@ begin
   Result := GetSockOpt(ASocket, ALevel, AOptionName, AOptionValue, LOptionLen);
 end;
 
-class function TSocketAPI.IsValidSocket(ASocket: THandle): Boolean;
+class function TSocketAPI.IsValidSocket(const ASocket: THandle): Boolean;
 begin
   Result := (ASocket <> INVALID_HANDLE_VALUE);
 end;
 
-class function TSocketAPI.Listen(ASocket: THandle; backlog: Integer): Integer;
+class function TSocketAPI.Listen(const ASocket: THandle; const backlog: Integer): Integer;
 begin
   Result :=
     {$IFDEF POSIX}
@@ -562,7 +562,7 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.Send(ASocket: THandle; const Buf; len,
+class function TSocketAPI.Send(const ASocket: THandle; const Buf; const len,
   flags: Integer): Integer;
 begin
   Result :=
@@ -574,8 +574,8 @@ begin
     send(ASocket, Buf, len, flags);
 end;
 
-class function TSocketAPI.SendTo(ASocket: THandle; const Addr: PSockAddr;
-  AddrLen: Integer; const Buf; len, flags: Integer): Integer;
+class function TSocketAPI.SendTo(const ASocket: THandle; const Addr: PSockAddr;
+  const AddrLen: Integer; const Buf; const len, flags: Integer): Integer;
 begin
   {$IFDEF POSIX}
   Result := Posix.SysSocket.sendto(ASocket, Buf, len, flags, Addr^, AddrLen);
@@ -584,8 +584,8 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.SetBroadcast(ASocket: THandle;
-  ABroadcast: Boolean): Integer;
+class function TSocketAPI.SetBroadcast(const ASocket: THandle;
+  const ABroadcast: Boolean): Integer;
 var
   LOptVal: Integer;
 begin
@@ -596,7 +596,7 @@ begin
   Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, SO_BROADCAST, LOptVal, SizeOf(Integer));
 end;
 
-class function TSocketAPI.SetKeepAlive(ASocket: THandle; AIdleSeconds,
+class function TSocketAPI.SetKeepAlive(const ASocket: THandle; const AIdleSeconds,
   AInterval, ACount: Integer): Integer;
 var
   LOptVal: Integer;
@@ -610,7 +610,7 @@ begin
   if (Result < 0) then Exit;
 
   {$IFDEF MSWINDOWS}
-  // Windows ÏÂÖØÊÔ´ÎÊıÎª 3 ´Î, ÎŞ·¨ĞŞ¸Ä
+  // Windows ä¸‹é‡è¯•æ¬¡æ•°ä¸º 3 æ¬¡, æ— æ³•ä¿®æ”¹
   LKeepAlive.onoff := 1;
   LKeepAlive.keepalivetime := AIdleSeconds * 1000;
   LKeepAlive.keepaliveinterval := AInterval * 1000;
@@ -618,9 +618,9 @@ begin
   Result := WSAIoctl(ASocket, SIO_KEEPALIVE_VALS, @LKeepAlive, SizeOf(tcp_keepalive),
     nil, 0, @LBytes, nil, nil);
   {$ELSEIF defined(MACOS)}
-  // MAC ÏÂ TCP_KEEPALIVE Ïàµ±ÓÚ Linux ÖĞµÄ TCP_KEEPIDLE
-  // Ôİ²»Ö§³Ö TCP_KEEPINTVL ºÍ TCP_KEEPCNT
-  // OSX 10.9.5ÏÂÄ¬ÈÏµÄĞÄÌø²ÎÊı
+  // MAC ä¸‹ TCP_KEEPALIVE ç›¸å½“äº Linux ä¸­çš„ TCP_KEEPIDLE
+  // æš‚ä¸æ”¯æŒ TCP_KEEPINTVL å’Œ TCP_KEEPCNT
+  // OSX 10.9.5ä¸‹é»˜è®¤çš„å¿ƒè·³å‚æ•°
   // sysctl -A | grep net.inet.tcp.*keep
   // **************************************
   // net.inet.tcp.keepidle: 7200000
@@ -642,8 +642,8 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.SetLinger(ASocket: THandle;
-  const AOnOff: Boolean; ALinger: Integer): Integer;
+class function TSocketAPI.SetLinger(const ASocket: THandle;
+  const AOnOff: Boolean; const ALinger: Integer): Integer;
 var
   LLinger: linger;
 begin
@@ -655,8 +655,8 @@ begin
   Result := SetSockOpt(ASocket, SOL_SOCKET, SO_LINGER, LLinger, SizeOf(linger));
 end;
 
-class function TSocketAPI.SetNonBlock(ASocket: THandle;
-  ANonBlock: Boolean): Integer;
+class function TSocketAPI.SetNonBlock(const ASocket: THandle;
+  const ANonBlock: Boolean): Integer;
 var
   LFlag: Cardinal;
 begin
@@ -676,8 +676,8 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.SetReUseAddr(ASocket: THandle;
-  AReUseAddr: Boolean): Integer;
+class function TSocketAPI.SetReUseAddr(const ASocket: THandle;
+  const AReUseAddr: Boolean): Integer;
 var
   LOptVal: Integer;
 begin
@@ -688,33 +688,33 @@ begin
   Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, SO_REUSEADDR, LOptVal, SizeOf(Integer));
 end;
 
-class function TSocketAPI.SetRcvBuf(ASocket: THandle;
-  ABufSize: Integer): Integer;
+class function TSocketAPI.SetRcvBuf(const ASocket: THandle;
+  const ABufSize: Integer): Integer;
 begin
   Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, SO_RCVBUF, ABufSize, SizeOf(Integer));
 end;
 
-class function TSocketAPI.SetRecvTimeout(ASocket: THandle;
-  ATimeout: Cardinal): Integer;
+class function TSocketAPI.SetRecvTimeout(const ASocket: THandle;
+  const ATimeout: Cardinal): Integer;
 begin
   Result := SetSockOpt(ASocket,
     SOL_SOCKET, SO_RCVTIMEO, ATimeout, SizeOf(Cardinal));
 end;
 
-class function TSocketAPI.SetSendTimeout(ASocket: THandle;
-  ATimeout: Cardinal): Integer;
+class function TSocketAPI.SetSendTimeout(const ASocket: THandle;
+  const ATimeout: Cardinal): Integer;
 begin
   Result := TSocketAPI.SetSockOpt(ASocket,
     SOL_SOCKET, SO_SNDTIMEO, ATimeout, SizeOf(Cardinal));
 end;
 
-class function TSocketAPI.SetSndBuf(ASocket: THandle;
-  ABufSize: Integer): Integer;
+class function TSocketAPI.SetSndBuf(const ASocket: THandle;
+  const ABufSize: Integer): Integer;
 begin
   Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, SO_SNDBUF, ABufSize, SizeOf(Integer));
 end;
 
-class function TSocketAPI.SetSockOpt(ASocket: THandle; ALevel, AOptionName: Integer;
+class function TSocketAPI.SetSockOpt(const ASocket: THandle; const ALevel, AOptionName: Integer;
   const AOptionValue; AOptionLen: Integer): Integer;
 begin
   {$IFDEF POSIX}
@@ -724,14 +724,14 @@ begin
   {$ENDIF}
 end;
 
-class function TSocketAPI.SetSockOpt<T>(ASocket: THandle; ALevel,
+class function TSocketAPI.SetSockOpt<T>(const ASocket: THandle; const ALevel,
   AOptionName: Integer; const AOptionValue: T): Integer;
 begin
   Result := SetSockOpt(ASocket, ALevel, AOptionName, AOptionValue, SizeOf(T));
 end;
 
-class function TSocketAPI.SetTcpNoDelay(ASocket: THandle;
-  ANoDelay: Boolean): Integer;
+class function TSocketAPI.SetTcpNoDelay(const ASocket: THandle;
+  const ANoDelay: Boolean): Integer;
 var
   LOptVal: Integer;
 begin
@@ -742,8 +742,8 @@ begin
   Result := TSocketAPI.SetSockOpt(ASocket, IPPROTO_TCP, TCP_NODELAY, LOptVal, SizeOf(Integer));
 end;
 
-class function TSocketAPI.Writeable(ASocket: THandle;
-  ATimeout: Integer): Integer;
+class function TSocketAPI.Writeable(const ASocket: THandle;
+  const ATimeout: Integer): Integer;
 var
   {$IFDEF POSIX}
   LFDSet: fd_set;

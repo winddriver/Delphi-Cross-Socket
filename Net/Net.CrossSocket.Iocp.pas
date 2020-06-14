@@ -71,15 +71,15 @@ type
     FPerIoDataCount: NativeInt;
 
     function _NewIoData: PPerIoData; inline;
-    procedure _FreeIoData(P: PPerIoData); inline;
+    procedure _FreeIoData(const P: PPerIoData); inline;
 
-    procedure _NewAccept(AListen: ICrossListen);
-    function _NewReadZero(AConnection: ICrossConnection): Boolean;
+    procedure _NewAccept(const AListen: ICrossListen);
+    function _NewReadZero(const AConnection: ICrossConnection): Boolean;
 
-    procedure _HandleAccept(APerIoData: PPerIoData);
-    procedure _HandleConnect(APerIoData: PPerIoData);
-    procedure _HandleRead(APerIoData: PPerIoData);
-    procedure _HandleWrite(APerIoData: PPerIoData);
+    procedure _HandleAccept(const APerIoData: PPerIoData);
+    procedure _HandleConnect(const APerIoData: PPerIoData);
+    procedure _HandleRead(const APerIoData: PPerIoData);
+    procedure _HandleWrite(const APerIoData: PPerIoData);
   protected
     function CreateListen(const AOwner: ICrossSocket; const AListenSocket: THandle;
       const AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
@@ -113,7 +113,7 @@ begin
   AtomicIncrement(FPerIoDataCount);
 end;
 
-procedure TIocpCrossSocket._FreeIoData(P: PPerIoData);
+procedure TIocpCrossSocket._FreeIoData(const P: PPerIoData);
 begin
   if (P = nil) then Exit;
 
@@ -124,7 +124,7 @@ begin
   AtomicDecrement(FPerIoDataCount);
 end;
 
-procedure TIocpCrossSocket._NewAccept(AListen: ICrossListen);
+procedure TIocpCrossSocket._NewAccept(const AListen: ICrossListen);
 var
   LClientSocket: THandle;
   LPerIoData: PPerIoData;
@@ -160,7 +160,7 @@ begin
   end;
 end;
 
-function TIocpCrossSocket._NewReadZero(AConnection: ICrossConnection): Boolean;
+function TIocpCrossSocket._NewReadZero(const AConnection: ICrossConnection): Boolean;
 var
   LPerIoData: PPerIoData;
   LBytes, LFlags: Cardinal;
@@ -187,7 +187,7 @@ begin
   Result := True;
 end;
 
-procedure TIocpCrossSocket._HandleAccept(APerIoData: PPerIoData);
+procedure TIocpCrossSocket._HandleAccept(const APerIoData: PPerIoData);
 var
   LListen: ICrossListen;
   LConnection: ICrossConnection;
@@ -230,7 +230,7 @@ begin
     LConnection.Close;
 end;
 
-procedure TIocpCrossSocket._HandleConnect(APerIoData: PPerIoData);
+procedure TIocpCrossSocket._HandleConnect(const APerIoData: PPerIoData);
 var
   LClientSocket: THandle;
   LConnection: ICrossConnection;
@@ -278,7 +278,7 @@ begin
     LConnection.Close;
 end;
 
-procedure TIocpCrossSocket._HandleRead(APerIoData: PPerIoData);
+procedure TIocpCrossSocket._HandleRead(const APerIoData: PPerIoData);
 var
   LConnection: ICrossConnection;
   LRcvd, LError: Integer;
@@ -330,7 +330,7 @@ begin
     LConnection.Close;
 end;
 
-procedure TIocpCrossSocket._HandleWrite(APerIoData: PPerIoData);
+procedure TIocpCrossSocket._HandleWrite(const APerIoData: PPerIoData);
 begin
   if Assigned(APerIoData.Callback) then
     APerIoData.Callback(APerIoData.CrossData as ICrossConnection, True);
@@ -684,24 +684,23 @@ var
 begin
   if not GetQueuedCompletionStatus(FIocpHandle, LBytes, ULONG_PTR(LSocket), POverlapped(LPerIoData), INFINITE) then
   begin
+    {$IFDEF DEBUG}
+    LErrNo := GetLastError;
+    // 完成端口被关闭时可能会触发 ERROR_INVALID_HANDLE 和 ERROR_ABANDONED_WAIT_0
+    if (LErrNo <> ERROR_INVALID_HANDLE)
+      and (LErrNo <> ERROR_ABANDONED_WAIT_0)
+    then
+      _LogLastOsError('TIocpCrossSocket.ProcessIoEvent.GetQueuedCompletionStatus');
+    {$ENDIF}
+
     // 出错了, 并且完成数据也都是空的,
     // 这种情况即便重试, 应该也会继续出错, 最好立即终止IO线程
-    if (LPerIoData = nil) then
-    begin
-      {$IFDEF DEBUG}
-      LErrNo := GetLastError;
-      // 完成端口被关闭时可能会触发 ERROR_INVALID_HANDLE 和 ERROR_ABANDONED_WAIT_0
-      if (LErrNo <> ERROR_INVALID_HANDLE)
-        and (LErrNo <> ERROR_ABANDONED_WAIT_0)
-      then
-        _LogLastOsError('TIocpCrossSocket.ProcessIoEvent.GetQueuedCompletionStatus');
-      {$ENDIF}
-      Exit(False);
-    end;
+    if (LPerIoData = nil) then Exit(False);
 
     try
       // WSA_OPERATION_ABORTED, 995, 由于线程退出或应用程序请求，已中止 I/O 操作。
       // WSAENOTSOCK, 10038, 在一个非套接字上尝试了一个操作。
+      // WSAESHUTDOWN, 10058, 套接字已关闭
       // ERROR_NETNAME_DELETED, 64, 指定的网络名不再可用
       // ERROR_CONNECTION_REFUSED, 1225, 远程计算机拒绝网络连接。
       if (LPerIoData.CrossData <> nil) then
