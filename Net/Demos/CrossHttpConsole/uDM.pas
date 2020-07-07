@@ -3,10 +3,8 @@
 interface
 
 uses
-  {$IFDEF __CROSS_SSL__}
   Net.CrossSslSocket,
   Net.CrossSslDemoCert,
-  {$ENDIF}
   System.SysUtils, System.Classes, System.Generics.Collections,
   Net.CrossSocket.Base,
   Net.CrossSocket,
@@ -78,8 +76,8 @@ type
     procedure _CreateRouter;
     procedure _CreateWatchThread;
 
-    procedure _OnConnected(Sender: TObject; AConnection: ICrossConnection);
-    procedure _OnDisconnected(Sender: TObject; AConnection: ICrossConnection);
+    procedure _OnConnected(const Sender: TObject; const AConnection: ICrossConnection);
+    procedure _OnDisconnected(const Sender: TObject; const AConnection: ICrossConnection);
   public
     procedure Start;
     procedure Stop;
@@ -200,11 +198,14 @@ end;
 
 procedure TDM.DataModuleCreate(Sender: TObject);
 begin
-  FHttpServer := TCrossHttpServer.Create(0);
-  {$IFDEF __CROSS_SSL__}
-  FHttpServer.SetCertificate(SSL_SERVER_CERT);
-  FHttpServer.SetPrivateKey(SSL_SERVER_PKEY);
-  {$ENDIF}
+  FHttpServer := TCrossHttpServer.Create(0, True);
+//  {$IFDEF __CROSS_SSL__}
+  if FHttpServer.SSL then
+  begin
+    FHttpServer.SetCertificate(SSL_SERVER_CERT);
+    FHttpServer.SetPrivateKey(SSL_SERVER_PKEY);
+  end;
+//  {$ENDIF}
 //  FHttpServer.Addr := IPv4_ALL; // IPv4
 //  FHttpServer.Addr := IPv6_ALL; // IPv6
   FHttpServer.Addr := IPv4v6_ALL; // IPv4v6
@@ -277,24 +278,24 @@ begin
 
   FHttpServer
   .Get('/hello',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse)
     begin
       AResponse.Send('Hello World');
     end)
   .Get('/null',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse)
     begin
       AResponse.Send('');
     end)
   .Get('/yeah',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse)
     begin
       AResponse.Send(TUtils.RandomStr(
         'abcdefghijklmnopqrstuvwxyz',
         256 * 1024));
     end)
   .Get('/progress/:id(\d+)',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse)
     var
       LProgID: Int64;
       LProg: IProgress;
@@ -308,7 +309,7 @@ begin
         AResponse.Send('非法id');
     end)
   .Delete('/progress/:id(\d+)',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse)
     var
       LProgID: Int64;
     begin
@@ -320,7 +321,7 @@ begin
         AResponse.Send('非法id');
     end)
   .Get('task',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse)
     begin
       TTask.Run(
         procedure
@@ -350,7 +351,7 @@ begin
   .Dir('/static', 'D:\')
   .Dir('/g', 'G:\')
   .Get('/file',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse)
     var
       LStream: TStream;
     begin
@@ -359,13 +360,13 @@ begin
       AResponse.SendNoCompress(LStream,
         StrToInt64Def(ARequest.Query['pos'], 0),
         StrToInt64Def(ARequest.Query['count'], 0),
-        procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+        procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
         begin
           FreeAndNil(LStream);
         end);
     end)
   .Get('/stream',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse)
     var
       LStream: TMemoryStream;
     begin
@@ -376,13 +377,13 @@ begin
         StrToInt64Def(ARequest.Query['pos'], 0),
         StrToInt64Def(ARequest.Query['count'], 0),
         TCompressType.ctGZip,
-        procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+        procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
         begin
           FreeAndNil(LStream);
         end);
     end)
   .Get('/bytes',
-    procedure(ARequest: ICrossHttpRequest; AResponse: ICrossHttpResponse)
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse)
     var
       LBytes: TBytes;
     begin
@@ -391,10 +392,31 @@ begin
       AResponse.SendNoCompress(LBytes,
         StrToInt64Def(ARequest.Query['pos'], 0),
         StrToInt64Def(ARequest.Query['count'], 0),
-        procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+        procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
         begin
           LBytes := nil;
         end);
+    end)
+  .Post('/post',
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse)
+    var
+      LResult: string;
+    begin
+      case ARequest.BodyType of
+        btNone:
+          LResult := 'Body是空的';
+
+        btUrlEncoded:
+          LResult := 'Body第一个参数是: ' + (ARequest.Body as THttpUrlParams).Items[0].Name + '=' + (ARequest.Body as THttpUrlParams).Items[0].Value;
+
+        btMultiPart:
+          LResult := 'Body第一个参数是: ' + (ARequest.Body as THttpMultiPartFormData).Items[0].Name + '=' + (ARequest.Body as THttpMultiPartFormData).Items[0].AsString;
+
+        btBinary:
+          LResult := 'Body是二进制数据';
+      end;
+
+      AResponse.Send(LResult);
     end)
     ;
 
@@ -427,13 +449,13 @@ begin
     end).Start;
 end;
 
-procedure TDM._OnConnected(Sender: TObject; AConnection: ICrossConnection);
+procedure TDM._OnConnected(const Sender: TObject; const AConnection: ICrossConnection);
 begin
 //  if (FHttpServer.ConnectionsCount > 100) then
 //    AConnection.Close;
 end;
 
-procedure TDM._OnDisconnected(Sender: TObject; AConnection: ICrossConnection);
+procedure TDM._OnDisconnected(const Sender: TObject; const AConnection: ICrossConnection);
 begin
 end;
 

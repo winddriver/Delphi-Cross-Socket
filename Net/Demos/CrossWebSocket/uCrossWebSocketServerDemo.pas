@@ -108,24 +108,25 @@ end;
 
 procedure TfmCrossWebSocketServerDemo.FormCreate(Sender: TObject);
 begin
-  FServer := TNetCrossWebSocketServer.Create(0);
-  {$IFDEF __CROSS_SSL__}
-  FServer.SetCertificateFile('server.crt');
-  FServer.SetPrivateKeyFile('server.key');
-  {$ENDIF}
+  FServer := TNetCrossWebSocketServer.Create(0, False);
+  if FServer.Ssl then
+  begin
+    FServer.SetCertificateFile('server.crt');
+    FServer.SetPrivateKeyFile('server.key');
+  end;
 
   // 绑定WebSocket事件
   FServer
   .OnOpen(
-    procedure(AConnection: ICrossWebSocketConnection)
+    procedure(const AConnection: ICrossWebSocketConnection)
     begin
       AddLog('OnOpen [%s:%d]%s',
         [AConnection.PeerAddr, AConnection.PeerPort,
          AConnection.Request.Path]);
     end)
   .OnMessage(
-    procedure(AConnection: ICrossWebSocketConnection;
-      ARequestType: TWsRequestType; const ARequestData: TBytes)
+    procedure(const AConnection: ICrossWebSocketConnection;
+      const ARequestType: TWsRequestType; const ARequestData: TBytes)
     var
       LMessage: string;
     begin
@@ -140,7 +141,7 @@ begin
          LMessage]);
     end)
   .OnClose(
-    procedure(AConnection: ICrossWebSocketConnection)
+    procedure(const AConnection: ICrossWebSocketConnection)
     begin
       AddLog('OnClose [%s:%d]%s',
         [AConnection.PeerAddr, AConnection.PeerPort,

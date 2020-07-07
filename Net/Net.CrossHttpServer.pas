@@ -33,10 +33,6 @@ uses
   Net.CrossSocket.Base,
   Net.CrossSocket,
   Net.CrossServer,
-  {$IFDEF __CROSS_SSL__}
-    Net.CrossSslSocket,
-    Net.CrossSslServer,
-  {$ENDIF}
   Net.CrossHttpParams,
   Net.CrossHttpUtils,
   Utils.Logger;
@@ -1014,7 +1010,7 @@ type
   ///       end);
   ///   end);</code>
   /// </example>
-  ICrossHttpServer = interface({$IFDEF __CROSS_SSL__}ICrossSslServer{$ELSE}ICrossServer{$ENDIF})
+  ICrossHttpServer = interface(ICrossServer)
   ['{224D16AA-317C-435E-9C2E-92868E578DB3}']
     function GetStoragePath: string;
     function GetAutoDeleteFiles: Boolean;
@@ -1752,7 +1748,7 @@ type
     property OnPostDataEnd: TCrossHttpConnEvent read GetOnPostDataEnd write SetOnPostDataEnd;
   end;
 
-  TCrossHttpConnection = class({$IFDEF __CROSS_SSL__}TCrossSslConnection{$ELSE}TCrossConnection{$ENDIF}, ICrossHttpConnection)
+  TCrossHttpConnection = class(TCrossServerConnection, ICrossHttpConnection)
   private
     FRequest: ICrossHttpRequest;
     FResponse: ICrossHttpResponse;
@@ -2020,7 +2016,7 @@ type
     procedure Execute(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean);
   end;
 
-  TCrossHttpServer = class({$IFDEF __CROSS_SSL__}TCrossSslServer{$ELSE}TCrossServer{$ENDIF}, ICrossHttpServer)
+  TCrossHttpServer = class(TCrossServer, ICrossHttpServer)
   private const
     HTTP_METHOD_COUNT = 16;
     HTTP_METHODS: array [0..HTTP_METHOD_COUNT-1] of string = (
@@ -2110,7 +2106,7 @@ type
     // 处理请求
     procedure DoOnRequest(const AConnection: ICrossHttpConnection); virtual;
   public
-    constructor Create(const AIoThreads: Integer); override;
+    constructor Create(const AIoThreads: Integer; const ASsl: Boolean); override;
     destructor Destroy; override;
 
     function Use(const AMethod, APath: string;
@@ -2503,11 +2499,11 @@ begin
   Result := Route('*', APath, ARouterMethod2);
 end;
 
-constructor TCrossHttpServer.Create(const AIoThreads: Integer);
+constructor TCrossHttpServer.Create(const AIoThreads: Integer; const ASsl: Boolean);
 var
   I: Integer;
 begin
-  inherited Create(AIoThreads);
+  inherited Create(AIoThreads, ASsl);
 
   FRouters := TCrossHttpRouters.Create;
   FRoutersLock := TMultiReadExclusiveWriteSynchronizer.Create;

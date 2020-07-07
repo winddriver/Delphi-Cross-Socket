@@ -73,6 +73,12 @@ type
 
   TCrossWsChundDataFunc = reference to function(const AData: PPointer; const ACount: PNativeInt): Boolean;
 
+  TWsRequestType = (wsrtUnknown, wsrtText, wsrtBinary);
+  TWsOnOpen = reference to procedure(const AConnection: ICrossWebSocketConnection);
+  TWsOnMessage = reference to procedure(const AConnection: ICrossWebSocketConnection;
+    const ARequestType: TWsRequestType; const ARequestData: TBytes);
+  TWsOnClose = TWsOnOpen;
+
   /// <summary>
   ///   WebSocket连接接口
   /// </summary>
@@ -204,12 +210,6 @@ type
     procedure WsSend(const AData: TStream; const ACallback: TCrossWsCallback = nil); overload;
   end;
 
-  TWsRequestType = (wsrtUnknown, wsrtText, wsrtBinary);
-  TWsOnOpen = reference to procedure(const AConnection: ICrossWebSocketConnection);
-  TWsOnMessage = reference to procedure(const AConnection: ICrossWebSocketConnection;
-    const ARequestType: TWsRequestType; const ARequestData: TBytes);
-  TWsOnClose = TWsOnOpen;
-
   /// <summary>
   ///   跨平台WebSocket服务器
   /// </summary>
@@ -326,7 +326,7 @@ type
     procedure TriggerWsRequest(const AConnection: ICrossWebSocketConnection;
       const ARequestType: TWsRequestType; const ARequestData: TBytes); virtual;
   public
-    constructor Create(const AIoThreads: Integer); override;
+    constructor Create(const AIoThreads: Integer; const ASsl: Boolean); override;
     destructor Destroy; override;
 
     function OnOpen(const ACallback: TWsOnOpen): ICrossWebSocketServer;
@@ -885,9 +885,9 @@ end;
 
 { TNetCrossWebSocketServer }
 
-constructor TNetCrossWebSocketServer.Create(const AIoThreads: Integer);
+constructor TNetCrossWebSocketServer.Create(const AIoThreads: Integer; const ASsl: Boolean);
 begin
-  inherited;
+  inherited Create(AIoThreads, ASsl);
 
   FOnOpenEvents := TList<TWsOnOpen>.Create;
   FOnMessageEvents := TList<TWsOnMessage>.Create;
