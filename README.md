@@ -21,6 +21,10 @@
 
 ## 更新记录
 
+#### 2020.07.07
+- ICrossHttpServer 及 ICrossWebSocketServer 同时支持 http 和 https
+  > 感谢 xlnron 的帮助
+
 #### 2019.02.17
 - 修复 TIoEventThread 可能引起的内存泄漏的问题
   > 感谢 viniciusfbb 发现并修复了该问题

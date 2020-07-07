@@ -13,6 +13,10 @@ If you find this project useful, please consider making a donation.
 
 ## Update list
 
+#### 2020.07.07
+- ICrossHttpServer and ICrossWebSocketServer support both http and https
+  > Thanks to xlnron for his help
+
 #### 2019.02.17
 - Fix the problem of memory leakage caused by TIoEventThread
   > thank viniciusfbb for finding and fixing the problem
