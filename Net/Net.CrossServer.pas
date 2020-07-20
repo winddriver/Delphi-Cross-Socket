@@ -50,7 +50,7 @@ type
     function CreateConnection(const AOwner: ICrossSocket;
       const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection; override;
   public
-    constructor Create(const AIoThreads: Integer; const ASsl: Boolean); virtual;
+    constructor Create(const AIoThreads: Integer; const ASsl: Boolean); reintroduce; virtual;
     destructor Destroy; override;
 
     property Ssl: Boolean read GetSsl write SetSsl;
