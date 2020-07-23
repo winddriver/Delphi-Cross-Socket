@@ -487,7 +487,7 @@ begin
     end;
 
     if not LSuccess then
-      TriggerDisconnected(LConnection);
+      LConnection.Close;
   end;
 
   // 继续接收新连接
@@ -512,9 +512,11 @@ begin
     {$IFDEF DEBUG}
     _LogLastOsError;
     {$ENDIF}
-    TriggerDisconnected(LConnection);
+    LConnection.Close;
     Exit;
   end;
+
+  TriggerConnected(LConnection);
 
   LKqConnection := LConnection as TKqueueConnection;
 
@@ -527,14 +529,11 @@ begin
     LKqConnection._Unlock;
   end;
 
-  if LSuccess then
-    TriggerConnected(LConnection);
-
   if Assigned(LConnectCallback) then
     LConnectCallback(LConnection, LSuccess);
 
   if not LSuccess then
-    TriggerDisconnected(LConnection);
+    LConnection.Close;
 end;
 
 procedure TKqueueCrossSocket._HandleRead(const AConnection: ICrossConnection);
@@ -554,7 +553,7 @@ begin
     if (LRcvd = 0) then
     begin
 //      _Log('%d close on read 0, ref %d', [LConnection.Socket, TInterfacedObject(LConnection).RefCount]);
-      TriggerDisconnected(LConnection);
+      LConnection.Close;
       Exit;
     end;
 
@@ -572,7 +571,7 @@ begin
       // 接收出错
       begin
 //        _Log('%d close on read error %d, ref %d', [LConnection.Socket, GetLastError, TInterfacedObject(LConnection).RefCount]);
-        TriggerDisconnected(LConnection);
+        LConnection.Close;
         Exit;
       end;
     end;
@@ -591,7 +590,7 @@ begin
   end;
 
   if not LSuccess then
-    TriggerDisconnected(LConnection);
+    LConnection.Close;
 end;
 
 procedure TKqueueCrossSocket._HandleWrite(const AConnection: ICrossConnection);
@@ -764,7 +763,7 @@ procedure TKqueueCrossSocket.Connect(const AHost: string; const APort: Word;
         LKqConnection.FConnectCallback := ACallback;
         if not LKqConnection._UpdateIoEvent([ieWrite]) then
         begin
-          TriggerDisconnected(LConnection);
+          LConnection.Close;
           if Assigned(ACallback) then
             ACallback(LConnection, False);
           Exit(False);

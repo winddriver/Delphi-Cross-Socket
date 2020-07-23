@@ -266,10 +266,9 @@ begin
 
   LConnection := CreateConnection(Self, LClientSocket, ctConnect);
   TriggerConnecting(LConnection);
+  TriggerConnected(LConnection);
 
   LSuccess := _NewReadZero(LConnection);
-  if LSuccess then
-    TriggerConnected(LConnection);
 
   if Assigned(APerIoData.Callback) then
     APerIoData.Callback(LConnection, LSuccess);
