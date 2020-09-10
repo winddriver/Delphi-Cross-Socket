@@ -3745,15 +3745,15 @@ begin
   else if SameText(FRequestConnection, 'close') then
     FKeepAlive := False;
 
-  FTransferEncoding:= FHeader['Transfer-Encoding'];
-  FContentEncoding:= FHeader['Content-Encoding'];
-  FAccept:= FHeader['Accept'];
-  FReferer:= FHeader['Referer'];
-  FAcceptLanguage:= FHeader['Accept-Language'];
-  FAcceptEncoding:= FHeader['Accept-Encoding'];
-  FUserAgent:= FHeader['User-Agent'];
-  FAuthorization:= FHeader['Authorization'];
-  FRequestCookies:= FHeader['Cookie'];
+  FTransferEncoding := FHeader['Transfer-Encoding'];
+  FContentEncoding := FHeader['Content-Encoding'];
+  FAccept := FHeader['Accept'];
+  FReferer := FHeader['Referer'];
+  FAcceptLanguage := FHeader['Accept-Language'];
+  FAcceptEncoding := FHeader['Accept-Encoding'];
+  FUserAgent := FHeader['User-Agent'];
+  FAuthorization := FHeader['Authorization'];
+  FRequestCookies := FHeader['Cookie'];
   FIfModifiedSince := TCrossHttpUtils.RFC1123_StrToDate(FHeader['If-Modified-Since']);
   FIfNoneMatch := FHeader['If-None-Match'];
   FRange := FHeader['Range'];

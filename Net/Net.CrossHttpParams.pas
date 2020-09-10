@@ -1010,7 +1010,7 @@ begin
   begin
     q := p;
     LSize := 0;
-    while (p^ <> #0) and (p^ <> '=') do
+    while (p^ <> #0) and (p^ <> '=') and (p^ <> '&') do
     begin
       Inc(LSize);
       Inc(p);
