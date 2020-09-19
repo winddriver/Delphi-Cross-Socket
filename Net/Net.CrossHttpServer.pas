@@ -2603,6 +2603,7 @@ var
 begin
   LRequest := AConnection.Request;
   LResponse := AConnection.Response;
+  LHandled := False;
 
   try
     {$region 'Session'}
