@@ -131,6 +131,11 @@ type
     function GetParamValue(const AName: string; out AValue: string): Boolean;
 
     /// <summary>
+    ///   是否存在参数
+    /// </summary>
+    function ExistsParam(const AName: string): Boolean;
+
+    /// <summary>
     ///   按名称访问参数
     /// </summary>
     property Params[const AName: string]: string read GetParam write SetParam; default;
@@ -453,6 +458,11 @@ type
     procedure Clear;
 
     /// <summary>
+    /// 查找参数
+    /// </summary>
+    function FindField(const AFieldName: string; out AField: TFormField): Boolean;
+
+    /// <summary>
     /// Boundary特征字符串(只读)
     /// </summary>
     property Boundary: string read FBoundary;
@@ -488,11 +498,15 @@ type
     property AutoDeleteFiles: Boolean read FAutoDeleteFiles write FAutoDeleteFiles;
   end;
 
+  ISessions = interface;
+
   /// <summary>
   ///   Session成员接口
   /// </summary>
   ISession = interface
   ['{A3D525A1-C534-4CE6-969B-53C5B8CB77C3}']
+    function GetOwner: ISessions;
+
     function GetSessionID: string;
     function GetCreateTime: TDateTime;
     function GetLastAccessTime: TDateTime;
@@ -513,6 +527,11 @@ type
     ///   是否已过期
     /// </summary>
     function Expired: Boolean;
+
+    /// <summary>
+    ///   父容器
+    /// </summary>
+    property Owner: ISessions read GetOwner;
 
     /// <summary>
     ///   Session ID
@@ -538,7 +557,10 @@ type
     ///       值大于0时, 当Session超过设定值秒数没有使用就会被释放;
     ///     </item>
     ///     <item>
-    ///       值小于等于0时, Session生成后一直有效
+    ///       值等于0时, 使用父容器的超时设置
+    ///     </item>
+    ///     <item>
+    ///       值小于0时, Session生成后一直有效
     ///     </item>
     ///   </list>
     /// </remarks>
@@ -551,6 +573,10 @@ type
   end;
 
   TSessionBase = class abstract(TInterfacedObject, ISession)
+  private
+    [unsafe]FOwner: ISessions;
+
+    function GetOwner: ISessions;
   protected
     function GetSessionID: string; virtual; abstract;
     function GetCreateTime: TDateTime; virtual; abstract;
@@ -563,10 +589,12 @@ type
     procedure SetExpiryTime(const Value: Integer); virtual; abstract;
     procedure SetValue(const AName, AValue: string); virtual; abstract;
   public
-    constructor Create(const ASessionID: string); virtual;
+    constructor Create(const AOwner: ISessions; const ASessionID: string); virtual;
 
     procedure Touch; virtual;
     function Expired: Boolean; virtual;
+
+    property Owner: ISessions read GetOwner;
 
     property SessionID: string read GetSessionID write SetSessionID;
     property CreateTime: TDateTime read GetCreateTime write SetCreateTime;
@@ -594,7 +622,7 @@ type
     procedure SetExpiryTime(const AValue: Integer); override;
     procedure SetValue(const AName, AValue: string); override;
   public
-    constructor Create(const ASessionID: string); override;
+    constructor Create(const AOwner: ISessions; const ASessionID: string); override;
     destructor Destroy; override;
 
     property SessionID: string read GetSessionID write SetSessionID;
@@ -697,10 +725,31 @@ type
     /// <summary>
     ///   删除Session
     /// </summary>
+    /// <param name="ASession">
+    ///   Session对象
+    /// </param>
+    procedure RemoveSession(const ASession: ISession); overload;
+
+    /// <summary>
+    ///   删除Session
+    /// </summary>
     /// <param name="ASessionID">
     ///   Session ID
     /// </param>
-    procedure RemoveSession(const ASessionID: string);
+    procedure RemoveSession(const ASessionID: string); overload;
+
+    /// <summary>
+    ///   批量删除Session
+    /// </summary>
+    /// <param name="ASessions">
+    ///   Session对象数据
+    /// </param>
+    procedure RemoveSessions(const ASessions: TArray<ISession>);
+
+    /// <summary>
+    ///   清除所有Session
+    /// </summary>
+    procedure Clear;
 
     /// <summary>
     ///   Session类
@@ -763,9 +812,14 @@ type
     function ExistsSession(const ASessionID: string; var ASession: ISession): Boolean; overload; virtual; abstract;
     function ExistsSession(const ASessionID: string): Boolean; overload; virtual;
     function AddSession(const ASessionID: string): ISession; overload; virtual;
-    function AddSession: ISession; overload; virtual;
+    function AddSession: ISession; overload;
     procedure AddSession(const ASessionID: string; ASession: ISession); overload; virtual; abstract;
-    procedure RemoveSession(const ASessionID: string); virtual; abstract;
+
+    procedure RemoveSessions(const ASessions: TArray<ISession>); virtual; abstract;
+    procedure RemoveSession(const ASession: ISession); overload; virtual;
+    procedure RemoveSession(const ASessionID: string); overload; virtual;
+
+    procedure Clear; virtual; abstract;
 
     property SessionClass: TSessionClass read GetSessionClass write SetSessionClass;
     property Count: Integer read GetCount;
@@ -791,6 +845,9 @@ type
     procedure SetSessionClass(const Value: TSessionClass); override;
     procedure SetExpiryTime(const Value: Integer); override;
 
+    procedure BeforeClearExpiredSessions; virtual;
+    function OnCheckExpiredSession(const ASession: ISession): Boolean; virtual;
+    procedure AfterClearExpiredSessions; virtual;
     procedure CreateExpiredProcThread;
   public
     constructor Create(ANewGUIDFunc: TFunc<string>); overload; virtual;
@@ -808,7 +865,10 @@ type
     function NewSessionID: string; override;
     function ExistsSession(const ASessionID: string; var ASession: ISession): Boolean; override;
     procedure AddSession(const ASessionID: string; ASession: ISession); override;
-    procedure RemoveSession(const ASessionID: string); override;
+
+    procedure RemoveSessions(const ASessions: TArray<ISession>); override;
+
+    procedure Clear; override;
 
     property NewGUIDFunc: TFunc<string> read FNewGUIDFunc write FNewGUIDFunc;
   end;
@@ -942,6 +1002,11 @@ end;
 function TBaseParams.DoGetEnumerator: TEnumerator<TNameValue>;
 begin
   Result := TEnumerator.Create(FParams);
+end;
+
+function TBaseParams.ExistsParam(const AName: string): Boolean;
+begin
+  Result := (GetParamIndex(AName) >= 0);
 end;
 
 function TBaseParams.GetParam(const AName: string): string;
@@ -1377,6 +1442,21 @@ begin
   Result := TEnumerator.Create(FPartFields);
 end;
 
+function THttpMultiPartFormData.FindField(const AFieldName: string;
+  out AField: TFormField): Boolean;
+var
+  I: Integer;
+begin
+  I := GetItemIndex(AFieldName);
+  if (I >= 0) then
+  begin
+    AField := FPartFields[I];
+    Exit(True);
+  end;
+
+  Result := False;
+end;
+
 function THttpMultiPartFormData.GetItem(AIndex: Integer): TFormField;
 begin
   Result := FPartFields.Items[AIndex];
@@ -1704,16 +1784,27 @@ end;
 
 { TSessionBase }
 
-constructor TSessionBase.Create(const ASessionID: string);
+constructor TSessionBase.Create(const AOwner: ISessions; const ASessionID: string);
+var
+  LNow: TDateTime;
 begin
+  LNow := Now;
+
+  FOwner := AOwner;
+
   SetSessionID(ASessionID);
-  SetCreateTime(Now);
-  SetLastAccessTime(Now);
+  SetCreateTime(LNow);
+  SetLastAccessTime(LNow);
 end;
 
 function TSessionBase.Expired: Boolean;
 begin
-  Result := (Now.SecondsDiffer(LastAccessTime) >= ExpiryTime);
+  Result := (ExpiryTime > 0) and (Now.SecondsDiffer(LastAccessTime) >= ExpiryTime);
+end;
+
+function TSessionBase.GetOwner: ISessions;
+begin
+  Result := FOwner;
 end;
 
 procedure TSessionBase.Touch;
@@ -1723,11 +1814,11 @@ end;
 
 { TSession }
 
-constructor TSession.Create(const ASessionID: string);
+constructor TSession.Create(const AOwner: ISessions; const ASessionID: string);
 begin
   FValues := TDictionary<string, string>.Create;
 
-  inherited;
+  inherited Create(AOwner, ASessionID);
 end;
 
 destructor TSession.Destroy;
@@ -1796,7 +1887,7 @@ end;
 
 function TSessionsBase.AddSession(const ASessionID: string): ISession;
 begin
-  Result := GetSessionClass.Create(ASessionID);
+  Result := GetSessionClass.Create(Self, ASessionID);
   Result.ExpiryTime := ExpiryTime;
   AddSession(ASessionID, Result);
 end;
@@ -1813,6 +1904,19 @@ begin
   Result := ExistsSession(ASessionID, LStuff);
 end;
 
+procedure TSessionsBase.RemoveSession(const ASessionID: string);
+var
+  LSession: ISession;
+begin
+  if ExistsSession(ASessionID, LSession) then
+    RemoveSession(LSession);
+end;
+
+procedure TSessionsBase.RemoveSession(const ASession: ISession);
+begin
+  RemoveSessions([ASession]);
+end;
+
 { TSessions }
 
 constructor TSessions.Create(ANewGUIDFunc: TFunc<string>);
@@ -1822,6 +1926,11 @@ begin
   FLocker := TMultiReadExclusiveWriteSynchronizer.Create;
   FSessionClass := TSession;
   CreateExpiredProcThread;
+end;
+
+procedure TSessions.Clear;
+begin
+  FSessions.Clear;
 end;
 
 constructor TSessions.Create;
@@ -1845,9 +1954,19 @@ end;
 
 procedure TSessions.AddSession(const ASessionID: string; ASession: ISession);
 begin
-  if (ASession.ExpiryTime <= 0) then
+  if (ASession.ExpiryTime = 0) then
     ASession.ExpiryTime := ExpiryTime;
   FSessions.AddOrSetValue(ASessionID, ASession);
+end;
+
+procedure TSessions.AfterClearExpiredSessions;
+begin
+
+end;
+
+procedure TSessions.BeforeClearExpiredSessions;
+begin
+
 end;
 
 procedure TSessions.BeginRead;
@@ -1875,7 +1994,7 @@ function TSessions.ExistsSession(const ASessionID: string;
 begin
   Result := FSessions.TryGetValue(ASessionID, ASession);
   if Result then
-    ASession.LastAccessTime := Now;
+    ASession.Touch;
 end;
 
 procedure TSessions.CreateExpiredProcThread;
@@ -1885,16 +2004,23 @@ begin
       procedure _ClearExpiredSessions;
       var
         LPair: TPair<string, ISession>;
+        LDelSessions: TArray<ISession>;
       begin
         BeginWrite;
         try
+          BeforeClearExpiredSessions;
+
+          LDelSessions := nil;
           for LPair in FSessions do
           begin
             if FShutdown then Break;
 
-            if LPair.Value.Expired then
-              RemoveSession(LPair.Key);
+            if OnCheckExpiredSession(LPair.Value) then
+              LDelSessions := LDelSessions + [LPair.Value];
           end;
+          RemoveSessions(LDelSessions);
+
+          AfterClearExpiredSessions;
         finally
           EndWrite;
         end;
@@ -1928,6 +2054,11 @@ begin
     Result := FNewGUIDFunc()
   else
     Result := TUtils.GetGUID.ToLower;
+end;
+
+function TSessions.OnCheckExpiredSession(const ASession: ISession): Boolean;
+begin
+  Result := ASession.Expired;
 end;
 
 function TSessions.GetCount: Integer;
@@ -1970,7 +2101,7 @@ begin
       LSessionID := NewSessionID;
     if not FSessions.TryGetValue(LSessionID, Result) then
     begin
-      Result := FSessionClass.Create(LSessionID);
+      Result := FSessionClass.Create(Self, LSessionID);
       Result.ExpiryTime := ExpiryTime;
       AddSession(LSessionID, Result);
     end;
@@ -1986,9 +2117,12 @@ begin
   Result := FSessionClass;
 end;
 
-procedure TSessions.RemoveSession(const ASessionID: string);
+procedure TSessions.RemoveSessions(const ASessions: TArray<ISession>);
+var
+  LSession: ISession;
 begin
-  FSessions.Remove(ASessionID);
+  for LSession in ASessions do
+    FSessions.Remove(LSession.SessionID);
 end;
 
 procedure TSessions.SetExpiryTime(const Value: Integer);

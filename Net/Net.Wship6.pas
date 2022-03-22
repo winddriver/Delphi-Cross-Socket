@@ -58,9 +58,9 @@ interface
 
 uses
   {$IFDEF HAS_TInterlocked}
-  syncobjs, //here to facilitate inlining with Delphi
+  System.syncobjs, //here to facilitate inlining with Delphi
   {$ENDIF}
-  Windows,
+  Winapi.Windows,
   Net.Winsock2;
 
 const
@@ -413,7 +413,7 @@ procedure CloseLibrary;
 implementation
 
 uses
-  SysUtils;
+  System.SysUtils;
 
 var
   hWship6Dll : THandle = 0; // Wship6.dll handle

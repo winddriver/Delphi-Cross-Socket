@@ -331,6 +331,12 @@ end;
 
 procedure TIocpCrossSocket._HandleWrite(const APerIoData: PPerIoData);
 begin
+//  if (GetLastError = WSA_IO_PENDING) then
+//  begin
+//    _HandleRead(APerIoData);
+//    Exit;
+//  end;
+
   if Assigned(APerIoData.Callback) then
     APerIoData.Callback(APerIoData.CrossData as ICrossConnection, True);
 end;

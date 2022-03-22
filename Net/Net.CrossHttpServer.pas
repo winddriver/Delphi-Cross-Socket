@@ -48,7 +48,6 @@ type
   public
     constructor Create(const AMessage: string; AStatusCode: Integer = 400); reintroduce; virtual;
     constructor CreateFmt(const AMessage: string; const AArgs: array of const; AStatusCode: Integer = 400); reintroduce; virtual;
-
     property StatusCode: Integer read FStatusCode write FStatusCode;
   end;
 
@@ -1912,6 +1911,7 @@ type
     // Response 是 Connection 的子对象, 它的生命周期跟随 Connection
     // 这里使用弱引用, 不增加 Connection 的引用计数, 避免循环引用造成接口对象无法自动释放
     [unsafe]FConnection: ICrossHttpConnection;
+    FRequest: ICrossHttpRequest;
     FStatusCode: Integer;
     FHeader: THttpHeader;
     FCookies: TResponseCookies;
@@ -2915,140 +2915,92 @@ begin
   LRequest := LHttpConnection.Request as TCrossHttpRequest;
   LResponse := LHttpConnection.Response as TCrossHttpResponse;
 
-  // 在这里解析客户端浏览器发送过来的请求数据
-  pch := ABuf;
-  while (ALen > 0) do
-  begin
-    // 使用循环处理粘包, 比递归调用节省资源
-    while (ALen > 0) and (LRequest.FParseState <> psDone) do
+  try
+    // 在这里解析客户端浏览器发送过来的请求数据
+    pch := ABuf;
+    while (ALen > 0) do
     begin
-      case LRequest.FParseState of
-        psHeader:
-          begin
-            case pch^ of
-              13{\r}: Inc(LRequest.CR);
-              10{\n}: Inc(LRequest.LF);
-            else
-              LRequest.CR := 0;
-              LRequest.LF := 0;
-            end;
-
-            // Header尺寸超标
-            if (FMaxHeaderSize > 0) and (LRequest.FRawRequest.Size + 1 > FMaxHeaderSize) then
+      // 使用循环处理粘包, 比递归调用节省资源
+      while (ALen > 0) and (LRequest.FParseState <> psDone) do
+      begin
+        case LRequest.FParseState of
+          psHeader:
             begin
-              _Error(400, 'Request header too large.');
-              Exit;
-            end;
+              case pch^ of
+                13{\r}: Inc(LRequest.CR);
+                10{\n}: Inc(LRequest.LF);
+              else
+                LRequest.CR := 0;
+                LRequest.LF := 0;
+              end;
 
-            // 写入请求数据
-            LRequest.FRawRequest.Write(pch^, 1);
-            Dec(ALen);
-            Inc(pch);
-
-            // 如果不是有效的Http请求直接断开
-            // HTTP 请求命令中最长的命令是 PROPFIND, 长度为8个字符
-            // 所以在收到8个字节的时候进行检测
-            if (LRequest.FRawRequest.Size = 8) and
-              not IsValidHttpRequest(LRequest.FRawRequest.Memory, LRequest.FRawRequest.Size) then
-            begin
-              _Error(400, 'Request method invalid.');
-              Exit;
-            end;
-
-            // HTTP头已接收完毕(\r\n\r\n是HTTP头结束的标志)
-            if (LRequest.CR = 2) and (LRequest.LF = 2) then
-            begin
-              LRequest.CR := 0;
-              LRequest.LF := 0;
-
-              if not LRequest.ParseRequestData then
+              // Header尺寸超标
+              if (FMaxHeaderSize > 0) and (LRequest.FRawRequest.Size + 1 > FMaxHeaderSize) then
               begin
-                _Error(400, 'Request data invalid.');
+                _Error(400, 'Request header too large.');
                 Exit;
               end;
 
-              // Post数据尺寸超标, 直接断开连接
-              if (FMaxPostDataSize > 0) and (LRequest.FContentLength > FMaxPostDataSize) then
+              // 写入请求数据
+              LRequest.FRawRequest.Write(pch^, 1);
+              Dec(ALen);
+              Inc(pch);
+
+              // 如果不是有效的Http请求直接断开
+              // HTTP 请求命令中最长的命令是 PROPFIND, 长度为8个字符
+              // 所以在收到8个字节的时候进行检测
+              if (LRequest.FRawRequest.Size = 8) and
+                not IsValidHttpRequest(LRequest.FRawRequest.Memory, LRequest.FRawRequest.Size) then
               begin
-                _Error(400, 'Post data too large.');
+                _Error(400, 'Request method invalid.');
                 Exit;
               end;
 
-              // 如果 RequestContentLength 大于 0, 或者是 Chunked 编码, 则还需要接收 post 数据
-              if (LRequest.FContentLength > 0) or LRequest.IsChunked then
+              // HTTP头已接收完毕(\r\n\r\n是HTTP头结束的标志)
+              if (LRequest.CR = 2) and (LRequest.LF = 2) then
               begin
-                LRequest.FPostDataSize := 0;
+                LRequest.CR := 0;
+                LRequest.LF := 0;
 
-                if LRequest.IsChunked then
+                if not LRequest.ParseRequestData then
                 begin
-                  LRequest.FParseState := psChunkSize;
-                  LRequest.FChunkSizeStream := TBytesStream.Create(nil);
-                end else
-                  LRequest.FParseState := psPostData;
+                  _Error(400, 'Request data invalid.');
+                  Exit;
+                end;
 
-                TriggerPostDataBegin(LHttpConnection);
-              end else
-              begin
-                LRequest.FBodyType := btNone;
-                LRequest.FParseState := psDone;
-                Break;
+                // Post数据尺寸超标, 直接断开连接
+                if (FMaxPostDataSize > 0) and (LRequest.FContentLength > FMaxPostDataSize) then
+                begin
+                  _Error(400, 'Post data too large.');
+                  Exit;
+                end;
+
+                // 如果 RequestContentLength 大于 0, 或者是 Chunked 编码, 则还需要接收 post 数据
+                if (LRequest.FContentLength > 0) or LRequest.IsChunked then
+                begin
+                  LRequest.FPostDataSize := 0;
+
+                  if LRequest.IsChunked then
+                  begin
+                    LRequest.FParseState := psChunkSize;
+                    LRequest.FChunkSizeStream := TBytesStream.Create(nil);
+                  end else
+                    LRequest.FParseState := psPostData;
+
+                  TriggerPostDataBegin(LHttpConnection);
+                end else
+                begin
+                  LRequest.FBodyType := btNone;
+                  LRequest.FParseState := psDone;
+                  Break;
+                end;
               end;
             end;
-          end;
 
-        // 非Chunked编码的Post数据(有RequestContentLength)
-        psPostData:
-          begin
-            LChunkSize := Min((LRequest.ContentLength - LRequest.FPostDataSize), ALen);
-            // Post数据尺寸超标, 直接断开连接
-            if (FMaxPostDataSize > 0) and (LRequest.FPostDataSize + LChunkSize > FMaxPostDataSize) then
+          // 非Chunked编码的Post数据(有RequestContentLength)
+          psPostData:
             begin
-              _Error(400, 'Post data too large.');
-              Exit;
-            end;
-            TriggerPostData(LHttpConnection, pch, LChunkSize);
-
-            Inc(LRequest.FPostDataSize, LChunkSize);
-            Inc(pch, LChunkSize);
-            Dec(ALen, LChunkSize);
-
-            if (LRequest.FPostDataSize >= LRequest.ContentLength) then
-            begin
-              LRequest.FParseState := psDone;
-              TriggerPostDataEnd(LHttpConnection);
-              Break;
-            end;
-          end;
-
-        // Chunked编码: 块尺寸
-        psChunkSize:
-          begin
-            case pch^ of
-              13{\r}: Inc(LRequest.CR);
-              10{\n}: Inc(LRequest.LF);
-            else
-              LRequest.CR := 0;
-              LRequest.LF := 0;
-              LRequest.FChunkSizeStream.Write(pch^, 1);
-            end;
-            Dec(ALen);
-            Inc(pch);
-
-            if (LRequest.CR = 1) and (LRequest.LF = 1) then
-            begin
-              SetString(LLineStr, MarshaledAString(LRequest.FChunkSizeStream.Memory), LRequest.FChunkSizeStream.Size);
-              LRequest.FParseState := psChunkData;
-              LRequest.FChunkSize := StrToIntDef('$' + Trim(LLineStr), -1);
-              LRequest.FChunkLeftSize := LRequest.FChunkSize;
-            end;
-          end;
-
-        // Chunked编码: 块数据
-        psChunkData:
-          begin
-            if (LRequest.FChunkLeftSize > 0) then
-            begin
-              LChunkSize := Min(LRequest.FChunkLeftSize, ALen);
+              LChunkSize := Min((LRequest.ContentLength - LRequest.FPostDataSize), ALen);
               // Post数据尺寸超标, 直接断开连接
               if (FMaxPostDataSize > 0) and (LRequest.FPostDataSize + LChunkSize > FMaxPostDataSize) then
               begin
@@ -3058,61 +3010,113 @@ begin
               TriggerPostData(LHttpConnection, pch, LChunkSize);
 
               Inc(LRequest.FPostDataSize, LChunkSize);
-              Dec(LRequest.FChunkLeftSize, LChunkSize);
               Inc(pch, LChunkSize);
               Dec(ALen, LChunkSize);
-            end;
 
-            if (LRequest.FChunkLeftSize <= 0) then
-            begin
-              LRequest.FParseState := psChunkEnd;
-              LRequest.CR := 0;
-              LRequest.LF := 0;
-            end;
-          end;
-
-        // Chunked编码: 块结束符\r\n
-        psChunkEnd:
-          begin
-            case pch^ of
-              13{\r}: Inc(LRequest.CR);
-              10{\n}: Inc(LRequest.LF);
-            else
-              LRequest.CR := 0;
-              LRequest.LF := 0;
-            end;
-            Dec(ALen);
-            Inc(pch);
-
-            if (LRequest.CR = 1) and (LRequest.LF = 1) then
-            begin
-              // 最后一块的ChunSize为0
-              if (LRequest.FChunkSize > 0) then
-              begin
-                LRequest.FParseState := psChunkSize;
-                LRequest.FChunkSizeStream.Clear;
-                LRequest.CR := 0;
-                LRequest.LF := 0;
-              end else
+              if (LRequest.FPostDataSize >= LRequest.ContentLength) then
               begin
                 LRequest.FParseState := psDone;
-                FreeAndNil(LRequest.FChunkSizeStream);
                 TriggerPostDataEnd(LHttpConnection);
                 Break;
               end;
             end;
-          end;
+
+          // Chunked编码: 块尺寸
+          psChunkSize:
+            begin
+              case pch^ of
+                13{\r}: Inc(LRequest.CR);
+                10{\n}: Inc(LRequest.LF);
+              else
+                LRequest.CR := 0;
+                LRequest.LF := 0;
+                LRequest.FChunkSizeStream.Write(pch^, 1);
+              end;
+              Dec(ALen);
+              Inc(pch);
+
+              if (LRequest.CR = 1) and (LRequest.LF = 1) then
+              begin
+                SetString(LLineStr, MarshaledAString(LRequest.FChunkSizeStream.Memory), LRequest.FChunkSizeStream.Size);
+                LRequest.FParseState := psChunkData;
+                LRequest.FChunkSize := StrToIntDef('$' + Trim(LLineStr), -1);
+                LRequest.FChunkLeftSize := LRequest.FChunkSize;
+              end;
+            end;
+
+          // Chunked编码: 块数据
+          psChunkData:
+            begin
+              if (LRequest.FChunkLeftSize > 0) then
+              begin
+                LChunkSize := Min(LRequest.FChunkLeftSize, ALen);
+                // Post数据尺寸超标, 直接断开连接
+                if (FMaxPostDataSize > 0) and (LRequest.FPostDataSize + LChunkSize > FMaxPostDataSize) then
+                begin
+                  _Error(400, 'Post data too large.');
+                  Exit;
+                end;
+                TriggerPostData(LHttpConnection, pch, LChunkSize);
+
+                Inc(LRequest.FPostDataSize, LChunkSize);
+                Dec(LRequest.FChunkLeftSize, LChunkSize);
+                Inc(pch, LChunkSize);
+                Dec(ALen, LChunkSize);
+              end;
+
+              if (LRequest.FChunkLeftSize <= 0) then
+              begin
+                LRequest.FParseState := psChunkEnd;
+                LRequest.CR := 0;
+                LRequest.LF := 0;
+              end;
+            end;
+
+          // Chunked编码: 块结束符\r\n
+          psChunkEnd:
+            begin
+              case pch^ of
+                13{\r}: Inc(LRequest.CR);
+                10{\n}: Inc(LRequest.LF);
+              else
+                LRequest.CR := 0;
+                LRequest.LF := 0;
+              end;
+              Dec(ALen);
+              Inc(pch);
+
+              if (LRequest.CR = 1) and (LRequest.LF = 1) then
+              begin
+                // 最后一块的ChunSize为0
+                if (LRequest.FChunkSize > 0) then
+                begin
+                  LRequest.FParseState := psChunkSize;
+                  LRequest.FChunkSizeStream.Clear;
+                  LRequest.CR := 0;
+                  LRequest.LF := 0;
+                end else
+                begin
+                  LRequest.FParseState := psDone;
+                  FreeAndNil(LRequest.FChunkSizeStream);
+                  TriggerPostDataEnd(LHttpConnection);
+                  Break;
+                end;
+              end;
+            end;
+        end;
+      end;
+
+      // 处理请求
+      if (LRequest.FParseState = psDone) then
+      begin
+        LResponse.Reset;
+        DoOnRequest(LHttpConnection);
+        LRequest.Reset;
       end;
     end;
-
-    // 处理请求
-    if (LRequest.FParseState = psDone) then
-    begin
-      DoOnRequest(LHttpConnection);
-
-      LRequest.Reset;
-      LResponse.Reset;
-    end;
+  except
+    on e: Exception do
+      _Error(500, e.Message);
   end;
 end;
 
@@ -3726,8 +3730,15 @@ begin
 
   FContentLength := StrToInt64Def(FHeader['Content-Length'], -1);
 
+  // IPv4: 192.168.1.100:8080
+  //       192.168.1.100
+  // IPv6: [fc00::20:80:5:2]:8080
+  //       [fc00::20:80:5:2]
   FRequestHost := FHeader['Host'];
-  J := FRequestHost.IndexOf(':');
+  J := FRequestHost.IndexOf(']');
+  if (J < 0) then
+    J := 0;
+  J := FRequestHost.IndexOf(':', J);
   if (J >= 0) then
   begin
     FHostName := FRequestHost.Substring(0, J);
@@ -3787,6 +3798,7 @@ end;
 constructor TCrossHttpResponse.Create(const AConnection: ICrossHttpConnection);
 begin
   FConnection := AConnection;
+  FRequest := AConnection.Request;
   FHeader := THttpHeader.Create;
   FCookies := TResponseCookies.Create;
   FStatusCode := 200;
@@ -3833,7 +3845,7 @@ end;
 
 function TCrossHttpResponse.GetRequest: ICrossHttpRequest;
 begin
-  Result := FConnection.Request;
+  Result := FRequest;
 end;
 
 function TCrossHttpResponse.GetSent: Boolean;
@@ -4134,6 +4146,12 @@ begin
       LRangeEnd := LStream.Size - 1;
     end;
 
+    if (LRangeBegin < 0) then
+      LRangeBegin := 0;
+
+    if (LRangeEnd <= 0) or (LRangeEnd >= LStream.Size) then
+      LRangeEnd := LStream.Size - 1;
+
     LOffset := LRangeBegin;
     LCount := LRangeEnd - LRangeBegin + 1;
 
@@ -4278,7 +4296,7 @@ begin
     SetContentType(TMediaType.APPLICATION_OCTET_STREAM);
   if (FHeader['Connection'] = '') then
   begin
-    if FConnection.Request.KeepAlive then
+    if FRequest.KeepAlive then
       FHeader['Connection'] := 'keep-alive'
     else
       FHeader['Connection'] := 'close';
@@ -4292,7 +4310,7 @@ begin
   if (FHeader['Server'] = '') then
     FHeader['Server'] := CROSS_HTTP_SERVER_NAME;
 
-  LHeaderStr := FConnection.Request.Version + ' ' + FStatusCode.ToString + ' ' +
+  LHeaderStr := FRequest.Version + ' ' + FStatusCode.ToString + ' ' +
     TCrossHttpUtils.GetHttpStatusText(FStatusCode) + #13#10;
 
   for LCookie in FCookies do
@@ -4312,7 +4330,7 @@ var
 begin
   AtomicIncrement(FSendStatus);
 
-  LKeepAlive := FConnection.Request.KeepAlive;
+  LKeepAlive := FRequest.KeepAlive;
   LStatusCode := FStatusCode;
 
   LSender :=
