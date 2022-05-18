@@ -280,9 +280,7 @@ const
   DTLS1_2_VERSION                             = $FEFD;
   DTLS_MAX_VERSION                            = DTLS1_2_VERSION;
   DTLS1_VERSION_MAJOR                         = $FE;
-
   DTLS1_BAD_VER                               = $0100;
-
   // Special value for method supporting multiple versions
   DTLS_ANY_VERSION                            = $1FFFF;
 
@@ -1038,60 +1036,6 @@ end;
 
 procedure LoadSslLibs;
 begin
-  if (_SslLibHandle = 0) then
-  begin
-    _SslLibHandle := LoadSslLib(SSLEAY_DLL);
-
-    @SSL_library_init := GetSslLibProc(_SslLibHandle, 'SSL_library_init');
-    @SSL_load_error_strings := GetSslLibProc(_SslLibHandle, 'SSL_load_error_strings');
-
-    @SSLv23_method := GetSslLibProc(_SslLibHandle, 'SSLv23_method');
-    @SSLv23_client_method := GetSslLibProc(_SslLibHandle, 'SSLv23_client_method');
-    @SSLv23_server_method := GetSslLibProc(_SslLibHandle, 'SSLv23_server_method');
-
-    @TLSv1_method := GetSslLibProc(_SslLibHandle, 'TLSv1_method');
-    @TLSv1_client_method := GetSslLibProc(_SslLibHandle, 'TLSv1_client_method');
-    @TLSv1_server_method := GetSslLibProc(_SslLibHandle, 'TLSv1_server_method');
-
-    {$IF not(defined(MACOS) and not defined(IOS))}
-    @TLSv1_2_method := GetSslLibProc(_SslLibHandle, 'TLSv1_2_method');
-    @TLSv1_2_client_method := GetSslLibProc(_SslLibHandle, 'TLSv1_2_client_method');
-    @TLSv1_2_server_method := GetSslLibProc(_SslLibHandle, 'TLSv1_2_server_method');
-    {$ENDIF}
-
-    @SSL_CTX_new := GetSslLibProc(_SslLibHandle, 'SSL_CTX_new');
-    @SSL_CTX_free := GetSslLibProc(_SslLibHandle, 'SSL_CTX_free');
-    @SSL_CTX_ctrl := GetSslLibProc(_SslLibHandle, 'SSL_CTX_ctrl');
-    @SSL_CTX_set_verify := GetSslLibProc(_SslLibHandle, 'SSL_CTX_set_verify');
-    @SSL_CTX_set_cipher_list := GetSslLibProc(_SslLibHandle, 'SSL_CTX_set_cipher_list');
-    @SSL_CTX_use_PrivateKey := GetSslLibProc(_SslLibHandle, 'SSL_CTX_use_PrivateKey');
-    @SSL_CTX_use_certificate := GetSslLibProc(_SslLibHandle, 'SSL_CTX_use_certificate');
-    @SSL_CTX_check_private_key := GetSslLibProc(_SslLibHandle, 'SSL_CTX_check_private_key');
-
-    @SSL_new := GetSslLibProc(_SslLibHandle, 'SSL_new');
-    @SSL_set_bio := GetSslLibProc(_SslLibHandle, 'SSL_set_bio');
-    @SSL_get_peer_certificate := GetSslLibProc(_SslLibHandle, 'SSL_get_peer_certificate');
-    @SSL_get_error := GetSslLibProc(_SslLibHandle, 'SSL_get_error');
-
-    @SSL_ctrl := GetSslLibProc(_SslLibHandle, 'SSL_ctrl');
-
-    @SSL_shutdown := GetSslLibProc(_SslLibHandle, 'SSL_shutdown');
-    @SSL_free := GetSslLibProc(_SslLibHandle, 'SSL_free');
-
-    @SSL_set_connect_state := GetSslLibProc(_SslLibHandle, 'SSL_set_connect_state');
-    @SSL_set_accept_state := GetSslLibProc(_SslLibHandle, 'SSL_set_accept_state');
-    @SSL_accept := GetSslLibProc(_SslLibHandle, 'SSL_accept');
-    @SSL_connect := GetSslLibProc(_SslLibHandle, 'SSL_connect');
-    @SSL_do_handshake := GetSslLibProc(_SslLibHandle, 'SSL_do_handshake');
-    @SSL_read := GetSslLibProc(_SslLibHandle, 'SSL_read');
-    @SSL_write := GetSslLibProc(_SslLibHandle, 'SSL_write');
-    @SSL_state := GetSslLibProc(_SslLibHandle, 'SSL_state');
-    @SSL_pending := GetSslLibProc(_SslLibHandle, 'SSL_pending');
-
-    @SSL_CTX_get_cert_store := GetSslLibProc(_SslLibHandle, 'SSL_CTX_get_cert_store');
-    @SSL_CTX_add_client_CA := GetSslLibProc(_SslLibHandle, 'SSL_CTX_add_client_CA');
-  end;
-
   if (_CryptoLibHandle = 0) then
   begin
     _CryptoLibHandle := LoadSslLib(LIBEAY_DLL);
@@ -1164,6 +1108,60 @@ begin
 
     @OpenSSL_add_all_ciphers := GetSslLibProc(_CryptoLibHandle, 'OpenSSL_add_all_ciphers');
     @OpenSSL_add_all_digests := GetSslLibProc(_CryptoLibHandle, 'OpenSSL_add_all_digests');
+  end;
+
+  if (_SslLibHandle = 0) then
+  begin
+    _SslLibHandle := LoadSslLib(SSLEAY_DLL);
+
+    @SSL_library_init := GetSslLibProc(_SslLibHandle, 'SSL_library_init');
+    @SSL_load_error_strings := GetSslLibProc(_SslLibHandle, 'SSL_load_error_strings');
+
+    @SSLv23_method := GetSslLibProc(_SslLibHandle, 'SSLv23_method');
+    @SSLv23_client_method := GetSslLibProc(_SslLibHandle, 'SSLv23_client_method');
+    @SSLv23_server_method := GetSslLibProc(_SslLibHandle, 'SSLv23_server_method');
+
+    @TLSv1_method := GetSslLibProc(_SslLibHandle, 'TLSv1_method');
+    @TLSv1_client_method := GetSslLibProc(_SslLibHandle, 'TLSv1_client_method');
+    @TLSv1_server_method := GetSslLibProc(_SslLibHandle, 'TLSv1_server_method');
+
+    {$IF not(defined(MACOS) and not defined(IOS))}
+    @TLSv1_2_method := GetSslLibProc(_SslLibHandle, 'TLSv1_2_method');
+    @TLSv1_2_client_method := GetSslLibProc(_SslLibHandle, 'TLSv1_2_client_method');
+    @TLSv1_2_server_method := GetSslLibProc(_SslLibHandle, 'TLSv1_2_server_method');
+    {$ENDIF}
+
+    @SSL_CTX_new := GetSslLibProc(_SslLibHandle, 'SSL_CTX_new');
+    @SSL_CTX_free := GetSslLibProc(_SslLibHandle, 'SSL_CTX_free');
+    @SSL_CTX_ctrl := GetSslLibProc(_SslLibHandle, 'SSL_CTX_ctrl');
+    @SSL_CTX_set_verify := GetSslLibProc(_SslLibHandle, 'SSL_CTX_set_verify');
+    @SSL_CTX_set_cipher_list := GetSslLibProc(_SslLibHandle, 'SSL_CTX_set_cipher_list');
+    @SSL_CTX_use_PrivateKey := GetSslLibProc(_SslLibHandle, 'SSL_CTX_use_PrivateKey');
+    @SSL_CTX_use_certificate := GetSslLibProc(_SslLibHandle, 'SSL_CTX_use_certificate');
+    @SSL_CTX_check_private_key := GetSslLibProc(_SslLibHandle, 'SSL_CTX_check_private_key');
+
+    @SSL_new := GetSslLibProc(_SslLibHandle, 'SSL_new');
+    @SSL_set_bio := GetSslLibProc(_SslLibHandle, 'SSL_set_bio');
+    @SSL_get_peer_certificate := GetSslLibProc(_SslLibHandle, 'SSL_get_peer_certificate');
+    @SSL_get_error := GetSslLibProc(_SslLibHandle, 'SSL_get_error');
+
+    @SSL_ctrl := GetSslLibProc(_SslLibHandle, 'SSL_ctrl');
+
+    @SSL_shutdown := GetSslLibProc(_SslLibHandle, 'SSL_shutdown');
+    @SSL_free := GetSslLibProc(_SslLibHandle, 'SSL_free');
+
+    @SSL_set_connect_state := GetSslLibProc(_SslLibHandle, 'SSL_set_connect_state');
+    @SSL_set_accept_state := GetSslLibProc(_SslLibHandle, 'SSL_set_accept_state');
+    @SSL_accept := GetSslLibProc(_SslLibHandle, 'SSL_accept');
+    @SSL_connect := GetSslLibProc(_SslLibHandle, 'SSL_connect');
+    @SSL_do_handshake := GetSslLibProc(_SslLibHandle, 'SSL_do_handshake');
+    @SSL_read := GetSslLibProc(_SslLibHandle, 'SSL_read');
+    @SSL_write := GetSslLibProc(_SslLibHandle, 'SSL_write');
+    @SSL_state := GetSslLibProc(_SslLibHandle, 'SSL_state');
+    @SSL_pending := GetSslLibProc(_SslLibHandle, 'SSL_pending');
+
+    @SSL_CTX_get_cert_store := GetSslLibProc(_SslLibHandle, 'SSL_CTX_get_cert_store');
+    @SSL_CTX_add_client_CA := GetSslLibProc(_SslLibHandle, 'SSL_CTX_add_client_CA');
   end;
 end;
 
