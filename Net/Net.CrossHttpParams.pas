@@ -1499,6 +1499,7 @@ procedure THttpMultiPartFormData.InitWithBoundary(const ABoundary: string);
 begin
   Clear;
   FBoundary := ABoundary;
+  FBoundary := FBoundary.Trim(['"']);
   FBoundaryBytes := TEncoding.ANSI.GetBytes(#13#10'--' + FBoundary);
   FDecodeState := dsBoundary;
   FBoundaryIndex := 0;
