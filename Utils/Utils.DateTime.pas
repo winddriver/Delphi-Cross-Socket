@@ -1,4 +1,4 @@
-{******************************************************************************}
+﻿{******************************************************************************}
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
@@ -12,6 +12,9 @@ unit Utils.DateTime;
 interface
 
 uses
+  {$IFDEF MSWINDOWS}
+  Winapi.Windows,
+  {$ENDIF}
   System.SysUtils,
   System.DateUtils,
   System.Types,
@@ -50,6 +53,15 @@ type
     class function Create(const AYear, AMonth, ADay: Word): TDateTime; overload; static; inline;
     class function Create(const AYear, AMonth, ADay, AHour, AMinute, ASecond,
       AMillisecond: Word): TDateTime; overload; static; inline;
+    class function Create(const AStr: string): TDateTime; overload; static; inline;
+
+    {$IFDEF MSWINDOWS}
+    class function Create(const ASysTime: TSystemTime): TDateTime; overload; static; inline;
+    class function Create(const AFileTime: TFileTime): TDateTime; overload; static; inline;
+    {$ENDIF}
+
+    class function TryStrToDateTime(const AStr: string;
+      out ADateTime: TDateTime; const AConvertToLocal: Boolean = True): Boolean; static;
 
     class property Now: TDateTime read GetNow;
     class property Today: TDateTime read GetToday;
@@ -70,8 +82,9 @@ type
     property Second: Word read GetSecond write SetSecond;
     property Millisecond: Word read GetMillisecond write SetMillisecond;
 
-    function ToString(const AFormatStr: string = ''): string; inline;
-    function ToISO8601: string; inline;
+    function ToString(const AFormatStr: string = ''): string; overload; inline;
+    function ToISO8601(const AIsUtcDateTime: Boolean = False): string;
+    function ToRFC1123(const AIsUtcDateTime: Boolean = False): string;
     function ToMilliseconds: Int64; inline;
 
     function StartOfYear: TDateTime; inline;
@@ -466,7 +479,9 @@ begin
   Result := StartOfTheYear(Self);
 end;
 
-function TDateTimeHelper.ToISO8601: string;
+function TDateTimeHelper.ToISO8601(const AIsUtcDateTime: Boolean): string;
+const
+  NEG: array [Boolean] of string = ('-', '+');
 var
   LOffset: TDateTime;
   LYear, LMonth, LDay, LHour, LMinute, LSecond, LMilliseconds: Word;
@@ -474,22 +489,26 @@ begin
   DecodeDate(Self, LYear, LMonth, LDay);
   DecodeTime(Self, LHour, LMinute, LSecond, LMilliseconds);
   Result := Format('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%d', [LYear, LMonth, LDay, LHour, LMinute, LSecond, LMilliseconds]);
-  if (Self <> 0) then
+
+  if not AIsUtcDateTime and (Self <> 0) then
     LOffset := Self - TTimeZone.Local.ToUniversalTime(Self)
   else
     LOffset := 0;
-  DecodeTime(LOffset, LHour, LMinute, LSecond, LMilliseconds);
-  if LOffset < 0 then
-    Result := Format('%s-%.2d:%.2d', [Result, LHour, LMinute])
-  else if LOffset > 0 then
-    Result := Format('%s+%.2d:%.2d', [Result, LHour, LMinute])
-  else
+
+  if (LOffset <> 0) then
+  begin
+    DecodeTime(LOffset, LHour, LMinute, LSecond, LMilliseconds);
+    Result := Format('%s%s%.2d:%.2d', [Result, NEG[LOffset > 0], LHour, LMinute]);
+  end else
     Result := Result + 'Z';
 end;
 
 function TDateTimeHelper.ToLocalTime: TDateTime;
 begin
-  Result := TTimeZone.Local.ToLocalTime(Self);
+  if (Self <> 0) then
+    Result := TTimeZone.Local.ToLocalTime(Self)
+  else
+    Result := Self;
 end;
 
 function TDateTimeHelper.ToMilliseconds: Int64;
@@ -500,9 +519,29 @@ begin
   Result := (Int64(LTimeStamp.Date) * MSecsPerDay) + LTimeStamp.Time;
 end;
 
+function TDateTimeHelper.ToRFC1123(const AIsUtcDateTime: Boolean): string;
+const
+  ShortDayNamesEnglish :array[1..7] of string =
+    ('Mon','Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun');
+  ShortMonthNamesEnglish :array[1..12] of string = ('Jan', 'Feb','Mar', 'Apr',
+     'May','Jun','Jul','Aug', 'Sep','Oct','Nov','Dec');
+var
+  LDateTime: TDateTime;
+begin
+  if not AIsUtcDateTime then
+    LDateTime := Self.ToUniversalTime
+  else
+    LDateTime := Self;
+
+  Result := ShortDayNamesEnglish[DayOfTheWeek(LDateTime)] + ', ' +
+    FormatDateTime('dd', LDateTime) + ' ' +
+    ShortMonthNamesEnglish[MonthOf(LDateTime)] + ' ' +
+    FormatDateTime('yyyy hh:nn:ss', LDateTime) + ' GMT';
+end;
+
 function TDateTimeHelper.ToString(const AFormatStr: string): string;
 begin
-  if AFormatStr = '' then
+  if (AFormatStr = '') then
     Result := DateToStr(Self)
   else
     Result := FormatDateTime(AFormatStr, Self);
@@ -511,7 +550,144 @@ end;
 function TDateTimeHelper.ToUniversalTime(
   const AForceDaylight: Boolean): TDateTime;
 begin
-  Result := TTimeZone.Local.ToUniversalTime(Self, AForceDaylight);
+  if (Self <> 0) then
+    Result := TTimeZone.Local.ToUniversalTime(Self, AForceDaylight)
+  else
+    Result := Self;
+end;
+
+class function TDateTimeHelper.TryStrToDateTime(const AStr: string;
+  out ADateTime: TDateTime; const AConvertToLocal: Boolean): Boolean;
+
+  function ParseDateTimePart(P: PChar; var AValue: Integer; MaxLen: Integer): PChar;
+  var
+    V: Integer;
+  begin
+    Result := P;
+    V := 0;
+    while (Result^ in ['0'..'9']) and (MaxLen > 0) do
+    begin
+      V := V * 10 + (Ord(Result^) - Ord('0'));
+      Inc(Result);
+      Dec(MaxLen);
+    end;
+    AValue := V;
+  end;
+
+var
+  P: PChar;
+  LMSecsSince1970: Int64;
+  LYear, LMonth, LDay, LHour, LMin, LSec, LMSec: Integer;
+  LOffsetHour, LOffsetMin: Integer;
+  LSign: Double;
+  LTime: TDateTime;
+begin
+  ADateTime := 0;
+  if (AStr = '') then Exit(False);
+
+  P := PChar(AStr);
+  if (P^ = '/') and (StrLComp('Date(', P + 1, 5) = 0) then  // .NET: milliseconds since 1970-01-01
+  begin
+    Inc(P, 6);
+    LMSecsSince1970 := 0;
+    while (P^ <> #0) and (P^ in ['0'..'9']) do
+    begin
+      LMSecsSince1970 := LMSecsSince1970 * 10 + (Ord(P^) - Ord('0'));
+      Inc(P);
+    end;
+    if (P^ = '+') or (P^ = '-') then // timezone information
+    begin
+      Inc(P);
+      while (P^ <> #0) and (P^ in ['0'..'9']) do
+        Inc(P);
+    end;
+    if (P[0] = ')') and (P[1] = '/') and (P[2] = #0) then
+      ADateTime := TDateTime(UnixDateDelta + (LMSecsSince1970 / MSecsPerDay))
+    else
+      Exit(False); // invalid format
+  end else
+  begin
+    if (P^ = '-') then // negative year
+      Inc(P);
+    P := ParseDateTimePart(P, LYear, 4);
+    if (P^ <> '-') then
+      Exit(False); // invalid format
+    P := ParseDateTimePart(P + 1, LMonth, 2);
+    if (P^ <> '-') then
+      Exit(False); // invalid format
+    P := ParseDateTimePart(P + 1, LDay, 2);
+
+    LHour := 0;
+    LMin := 0;
+    LSec := 0;
+    LMSec := 0;
+    if not TryEncodeDate(LYear, LMonth, LDay, ADateTime) then Exit(False);
+
+    // ISO8601
+    // "2015-02-01T16:08:19.202Z"
+    // "2015-02-01T16:08:19.202+08:00"
+    // "2015-02-01T16:08:19.202+0800"
+    // "2015-02-01T16:08:19.202+08"
+    // "2015-02-01T16:08:19.202+8"
+    if (P^ = 'T') then
+    begin
+      P := ParseDateTimePart(P + 1, LHour, 2);
+      if (P^ <> ':') then
+        Exit(False); // invalid format
+      P := ParseDateTimePart(P + 1, LMin, 2);
+      if (P^ = ':') then
+      begin
+        P := ParseDateTimePart(P + 1, LSec, 2);
+        if (P^ = '.') then
+          P := ParseDateTimePart(P + 1, LMSec, 3);
+      end;
+      if not TryEncodeTime(LHour, LMin, LSec, LMSec, LTime) then Exit(False);
+      ADateTime := ADateTime + LTime;
+      if (P^ <> 'Z') then
+      begin
+        if (P^ = '+') or (P^ = '-') then
+        begin
+          if (P^ = '+') then
+            LSign := -1 //  +0100 means that the time is 1 hour later than UTC
+          else
+            LSign := 1;
+
+          P := ParseDateTimePart(P + 1, LOffsetHour, 2);
+          if (P^ = ':') then
+            Inc(P);
+          ParseDateTimePart(P, LOffsetMin, 2);
+
+          if not TryEncodeTime(LOffsetHour, LOffsetMin, 0, 0, LTime) then Exit(False);
+          ADateTime := ADateTime + (LTime * LSign);
+        end else
+          Exit(False); // invalid format
+      end;
+
+      // 带时区格式的时间转换为本地时间
+      if AConvertToLocal then
+        ADateTime := ADateTime.ToLocalTime;
+    end else
+    // "2015-02-01 16:08:19.202"
+    if (P^ = ' ') then
+    begin
+      P := ParseDateTimePart(P + 1, LHour, 2);
+      if (P^ <> ':') then
+        Exit(False); // invalid format
+      P := ParseDateTimePart(P + 1, LMin, 2);
+      if (P^ = ':') then
+      begin
+        P := ParseDateTimePart(P + 1, LSec, 2);
+        if (P^ = '.') then
+          P := ParseDateTimePart(P + 1, LMSec, 3);
+      end;
+      if not TryEncodeTime(LHour, LMin, LSec, LMSec, LTime) then Exit(False);
+      ADateTime := ADateTime + LTime;
+    end else
+    if (P^ <> #0) then
+      Exit(False);
+  end;
+
+  Result := True;
 end;
 
 function TDateTimeHelper.WeeksBetween(const ADateTime: TDateTime): Integer;
@@ -583,5 +759,35 @@ begin
   Result := (Self.ToMilliseconds - ADateTime.ToMilliseconds)
      div Round(CMillisPerDay * ApproxDaysPerYear);
 end;
+
+class function TDateTimeHelper.Create(const AStr: string): TDateTime;
+begin
+  TryStrToDateTime(AStr, Result);
+end;
+
+{$IFDEF MSWINDOWS}
+class function TDateTimeHelper.Create(const ASysTime: TSystemTime): TDateTime;
+begin
+  Result := Create(
+    ASysTime.wYear,
+    ASysTime.wMonth,
+    ASysTime.wDay,
+    ASysTime.wHour,
+    ASysTime.wMinute,
+    ASysTime.wSecond,
+    ASysTime.wMilliseconds
+  ).ToLocalTime;
+end;
+
+class function TDateTimeHelper.Create(const AFileTime: TFileTime): TDateTime;
+var
+  LSysTime: TSystemTime;
+begin
+  if FileTimeToSystemTime(AFileTime, LSysTime) then
+    Result := Create(LSysTime)
+  else
+    Result := 0;
+end;
+{$ENDIF}
 
 end.

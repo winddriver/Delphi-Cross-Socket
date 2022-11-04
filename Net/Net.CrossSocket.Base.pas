@@ -922,7 +922,7 @@ begin
     LErrMsg := ATag + ' : '
   else
     LErrMsg := '';
-  LErrMsg := LErrMsg + Format('System Error.  Code: %0:d(%0:.4x), %1:s',
+  LErrMsg := LErrMsg + Format('System Error: %0:d(0x%0:.4x), %1:s',
     [LError, SysErrorMessage(LError)]);
   _Log(LErrMsg);
   {$ENDIF}

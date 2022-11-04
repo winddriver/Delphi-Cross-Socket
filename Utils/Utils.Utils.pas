@@ -20,7 +20,9 @@ uses
   System.Diagnostics,
   System.TimeSpan,
   System.Character,
-  System.SysConst;
+  System.SysConst,
+  System.Generics.Defaults,
+  System.Generics.Collections;
 
 type
   TConstProc = reference to procedure;
@@ -48,31 +50,73 @@ type
     class function DateTimeToStr(const D: TDateTime; const Fmt: string): string; overload;
     class function DateTimeToStr(const D: TDateTime): string; overload;
     class function ThreadFormat(const Fmt: string; const Args: array of const): string;
+
     class function BytesToStr(const BytesCount: Int64): string; static;
-    class function CompareVersion(const V1, V2: string): Integer; static;
     class procedure DelayCall(ATick: Cardinal; AProc: TProc); static;
     class function GetGUID: string; static;
     class function RandomStr(const ABaseChars: string; ASize: Integer): string; static;
-    class function EditDistance(const ASourceStr, ATargetStr: string): Integer; static;
-    class function SimilarText(const AStr1, AStr2: string): Single; static;
+    class function StrSimilarity(const AStr1, AStr2: string): Single; static;
+
+    class function ToDBC(const AChar: Char): Char; overload; static;
+    class function ToDBC(const AStr: string): string; overload; static;
+    class function ClearStr(const AStr: string; const AKeepChars: array of Char): string; static;
 
     class function IsSpaceChar(const C: Char): Boolean; static;
     class function UnicodeTrim(const S: string): string; static;
     class function UnicodeTrimLeft(const S: string): string; static;
     class function UnicodeTrimRight(const S: string): string; static;
     class function StrIPos(const ASubStr, AStr: string; AOffset: Integer): Integer; static;
-    class function CompareStringIncludeNumber(const AStr1, AStr2: string): Integer; static;
 
+    class function EndsWith(const AStr: string; const AValues: array of string; const AIgnoreCase: Boolean): Boolean; overload; static;
+    class function EndsWith(const AStr: string; const AValues: array of string): Boolean; overload; static;
+
+    class function StartsWith(const AStr: string; const AValues: array of string; const AIgnoreCase: Boolean): Boolean; overload; static;
+    class function StartsWith(const AStr: string; const AValues: array of string): Boolean; overload; static;
+
+    class function CompareStringIncludeNumber(const AStr1, AStr2: string;
+      const AIgnoreCase: Boolean = False): Integer; static;
+    class function CompareVersion(const V1, V2: string): Integer; static;
+
+    // 内存数据转16进制字符串(由于系统自带的转出来是大写, 我希望转成小写的, 所以自己写了这个方法)
     class procedure BinToHex(ABuffer: Pointer; ABufSize: Integer; AText: PChar); overload; static;
     class function BinToHex(ABuffer: Pointer; ABufSize: Integer): string; overload; static; inline;
     class function BytesToHex(const ABytes: TBytes; AOffset, ACount: Integer): string; overload; static; inline;
     class function BytesToHex(const ABytes: TBytes): string; overload; static; inline;
 
+    class procedure HexToBin(AText: PChar; ABuffer: Pointer; ABufSize: Integer); overload; static; inline;
+    class procedure HexToBin(const AText: string; ABuffer: Pointer; ABufSize: Integer); overload; static; inline;
+    class function HexToBytes(AText: PChar): TBytes; overload; static;
+    class function HexToBytes(const AText: string): TBytes; overload; static; inline;
+
     class function GetFullFileName(const AFileName: string): string; static;
     class function GetFileSize(const AFileName: string): Int64; static;
+    class function MoveFile(const ASrcFileName, ADstFileName: string): Boolean; static;
+    class function MoveDir(const ASrcDirName, ADstDirName: string): Boolean; static;
+
+    class function StrToPChar(const S: string): PChar; static;
 
     // 判断两段日期是否有交集
-    class function IsCrossDate(const AStartDate1, AEndDate1, AStartDate2, AEndDate2: TDateTime): Boolean;
+    class function IsCrossDate(const AStartDate1, AEndDate1, AStartDate2, AEndDate2: TDateTime): Boolean; static;
+
+    // 获取缓存中的字符串编码
+    class function GetBufEncoding(const ABuf: Pointer; const ACount: Integer;
+      var AEncoding: TEncoding; const ADefaultEncoding: TEncoding): Integer; static;
+
+    // 自动检测缓存中的字符串编码并解码出字符串
+    class function GetString(const AStrBuf: PByte; ABufSize: Integer;
+      const AEncoding: TEncoding = nil): string; overload; static;
+    class function GetString(const AStrBytes: TBytes; AIndex, ACount: Integer;
+      const AEncoding: TEncoding = nil): string; overload; static;
+    class function GetString(const AStrBytes: TBytes;
+      const AEncoding: TEncoding = nil): string; overload; static;
+
+    class function ArrayOfToTArray<T>(const AValues: array of T): TArray<T>; static;
+    class function IIF<T>(const ATrueFalse: Boolean; const ATrueValue, AFalseValue: T): T; static;
+
+    class function IndexOfArray<T>(const AArray: array of T; const AItem: T;
+      const AComparison: TComparison<T> = nil; const AIndex: Integer = 0;
+      const ACount: Integer = 0): Integer; static;
+    class function ExistsInArray<T>(const AArray: array of T; const AItem: T): Boolean; static;
 
     class property AppFile: string read FAppFile;
     class property AppPath: string read FAppPath;
@@ -85,7 +129,7 @@ type
     /// <summary>
     ///   从内存块中直接解码出字符串, 省去先将内存块转换为TBytes, 从而提高效率
     /// </summary>
-    function GetString(ABytes: PByte; AByteCount: Integer): string; overload;
+    function GetString(const ABytes: PByte; AByteCount: Integer): string; overload;
   end;
 
 implementation
@@ -132,6 +176,67 @@ begin
     end).Start;
 end;
 
+class function TUtils.EndsWith(const AStr: string;
+  const AValues: array of string; const AIgnoreCase: Boolean): Boolean;
+var
+  LValue: string;
+begin
+  for LValue in AValues do
+    if AStr.EndsWith(LValue, AIgnoreCase) then Exit(True);
+
+  Result := False;
+end;
+
+class function TUtils.EndsWith(const AStr: string;
+  const AValues: array of string): Boolean;
+begin
+  Result := EndsWith(AStr, AValues, False);
+end;
+
+class function TUtils.ExistsInArray<T>(const AArray: array of T;
+  const AItem: T): Boolean;
+begin
+  Result := (IndexOfArray(AArray, AItem, nil, 0, 0) >= 0);
+end;
+
+class function TUtils.GetBufEncoding(const ABuf: Pointer; const ACount: Integer;
+  var AEncoding: TEncoding; const ADefaultEncoding: TEncoding): Integer;
+
+  function ContainsPreamble(const APreamble: TBytes; out APreambleSize: Integer): Boolean;
+  begin
+    if (ACount < Length(APreamble)) then Exit(False);
+
+    Result := CompareMem(ABuf, @APreamble[0], Length(APreamble));
+
+    if Result then
+      APreambleSize := Length(APreamble)
+    else
+      APreambleSize := 0;
+  end;
+
+begin
+  if (AEncoding = nil) then
+  begin
+    if ContainsPreamble(TEncoding.UTF8.GetPreamble, Result) then
+      AEncoding := TEncoding.UTF8
+    else if ContainsPreamble(TEncoding.Unicode.GetPreamble, Result) then
+      AEncoding := TEncoding.Unicode
+    else if ContainsPreamble(TEncoding.BigEndianUnicode.GetPreamble, Result) then
+      AEncoding := TEncoding.BigEndianUnicode
+    else
+    begin
+      if (ADefaultEncoding <> nil) then
+        AEncoding := ADefaultEncoding
+      else
+        AEncoding := TEncoding.UTF8;
+      ContainsPreamble(AEncoding.GetPreamble, Result);
+    end;
+  end else
+  begin
+    ContainsPreamble(AEncoding.GetPreamble, Result);
+  end;
+end;
+
 class function TUtils.GetFileSize(const AFileName: string): Int64;
 var
   LFileStream: TStream;
@@ -176,6 +281,99 @@ begin
 //    LGuid.D4[4], LGuid.D4[5], LGuid.D4[6], LGuid.D4[7]]);
 end;
 
+class function TUtils.GetString(const AStrBuf: PByte; ABufSize: Integer;
+  const AEncoding: TEncoding): string;
+var
+  LEncoding: TEncoding;
+  LBomLen: Integer;
+begin
+  if (AStrBuf = nil) or (ABufSize <= 0) then Exit('');
+
+  LEncoding := AEncoding;
+  LBomLen := TUtils.GetBufEncoding(AStrBuf, ABufSize, LEncoding, TEncoding.UTF8);
+
+  Result := LEncoding.GetString(PByte(NativeInt(AStrBuf) + LBomLen), ABufSize - LBomLen);
+end;
+
+class function TUtils.GetString(const AStrBytes: TBytes; AIndex,
+  ACount: Integer; const AEncoding: TEncoding): string;
+begin
+  Result := GetString(PByte(@AStrBytes[AIndex]), ACount);
+end;
+
+class function TUtils.GetString(const AStrBytes: TBytes;
+  const AEncoding: TEncoding): string;
+begin
+  Result := GetString(AStrBytes, 0, Length(AStrBytes), AEncoding);
+end;
+
+class procedure TUtils.HexToBin(AText: PChar; ABuffer: Pointer;
+  ABufSize: Integer);
+begin
+  System.Classes.HexToBin(AText, ABuffer, ABufSize);
+end;
+
+class procedure TUtils.HexToBin(const AText: string; ABuffer: Pointer;
+  ABufSize: Integer);
+begin
+  HexToBin(PChar(AText), ABuffer, ABufSize);
+end;
+
+class function TUtils.HexToBytes(AText: PChar): TBytes;
+var
+  LBufSize: Integer;
+begin
+  LBufSize := StrLen(AText) div 2;
+  SetLength(Result, LBufSize);
+  HexToBin(AText, Pointer(Result), LBufSize);
+end;
+
+class function TUtils.HexToBytes(const AText: string): TBytes;
+begin
+  Result := HexToBytes(PChar(AText));
+end;
+
+class function TUtils.IIF<T>(const ATrueFalse: Boolean; const ATrueValue,
+  AFalseValue: T): T;
+begin
+  if ATrueFalse then
+    Result := ATrueValue
+  else
+    Result := AFalseValue;
+end;
+
+class function TUtils.IndexOfArray<T>(const AArray: array of T; const AItem: T;
+  const AComparison: TComparison<T>; const AIndex, ACount: Integer): Integer;
+var
+  LComparer: IComparer<T>;
+  LIndex, LCount, I: Integer;
+begin
+  if (Length(AArray) = 0) then Exit(-1);
+
+  if Assigned(AComparison) then
+    LComparer := TComparer<T>.Construct(AComparison)
+  else
+    LComparer := TComparer<T>.Default;
+
+  if (AIndex >= 0) then
+    LIndex := AIndex
+  else
+    LIndex := 0;
+
+  if (ACount >= 0) then
+    LCount := ACount
+  else
+    LCount := 0;
+
+  if (LCount <= 0) then
+    LCount := Length(AArray) - LIndex;
+
+  for I := LIndex to LIndex + LCount - 1 do
+    if (LComparer.Compare(AArray[I], AItem) = 0) then Exit(I);
+
+  Result := -1;
+end;
+
 class function TUtils.IsCrossDate(const AStartDate1, AEndDate1, AStartDate2,
   AEndDate2: TDateTime): Boolean;
 begin
@@ -189,6 +387,63 @@ begin
     TUnicodeCategory.ucUnassigned,
     TUnicodeCategory.ucSpaceSeparator
   ]);
+end;
+
+class function TUtils.MoveDir(const ASrcDirName, ADstDirName: string): Boolean;
+begin
+  Result := False;
+  if not TDirectory.Exists(ASrcDirName) then Exit;
+
+  TDirectory.CreateDirectory(ADstDirName);
+
+  TDirectory.GetFiles(ASrcDirName, '*', TSearchOption.soAllDirectories,
+    function(const ADirName: string; const AFileInfo: TSearchRec): Boolean
+    var
+      LSrcFileName, LDstFileName: string;
+    begin
+      Result := False;
+
+      LSrcFileName := TPath.Combine(ADirName, AFileInfo.Name);
+      LDstFileName := TPath.Combine(ADstDirName, AFileInfo.Name);
+
+      if (AFileInfo.Attr and System.SysUtils.faDirectory = 0) then
+      begin
+        {$IFDEF MSWINDOWS}
+        FileSetAttr(LSrcFileName, System.SysUtils.faNormal);
+        {$ENDIF MSWINDOWS}
+
+        MoveFile(LSrcFileName, LDstFileName);
+
+        {$IFDEF MSWINDOWS}
+        FileSetAttr(LDstFileName, AFileInfo.Attr);
+        {$ENDIF MSWINDOWS}
+      end else
+      begin
+        TDirectory.CreateDirectory(LDstFileName);
+      end;
+    end);
+
+  if TDirectory.Exists(ASrcDirName) then
+    TDirectory.Delete(ASrcDirName, True);
+
+  Result := True;
+end;
+
+class function TUtils.MoveFile(const ASrcFileName,
+  ADstFileName: string): Boolean;
+var
+  LDstDirName: string;
+begin
+  if not TFile.Exists(ASrcFileName) then Exit(False);
+
+  LDstDirName := TPath.GetDirectoryName(ADstFileName);
+  if (LDstDirName <> '') then
+    TDirectory.CreateDirectory(LDstDirName);
+
+  if TFile.Exists(ADstFileName) then
+    TFile.Delete(ADstFileName);
+
+  Result := RenameFile(ASrcFileName, ADstFileName);
 end;
 
 class function TUtils.RandomStr(const ABaseChars: string;
@@ -213,7 +468,7 @@ begin
 end;
 
 class function TUtils.CompareStringIncludeNumber(const AStr1,
-  AStr2: string): Integer;
+  AStr2: string; const AIgnoreCase: Boolean): Integer;
 var
   I, J, LStrLen1, LStrLen2: Integer;
   C1, C2: Char;
@@ -233,18 +488,26 @@ begin
 
     if C1.IsDigit and C2.IsDigit then
     begin
-      LNumStr1 := '';
-      LNumStr2 := '';
+      LNumStr1 := C1;
+      LNumStr2 := C2;
 
+      Inc(I);
       while (I < LStrLen1) do
       begin
-        LNumStr1 := LNumStr1 + AStr1.Chars[I];
+        C1 := AStr1.Chars[I];
+        if not C1.IsDigit then Break;
+
+        LNumStr1 := LNumStr1 + C1;
         Inc(I);
       end;
 
+      Inc(J);
       while (J < LStrLen2) do
       begin
-        LNumStr2 := LNumStr2 + AStr2.Chars[J];
+        C2 := AStr2.Chars[J];
+        if not C2.IsDigit then Break;
+
+        LNumStr2 := LNumStr2 + C2;
         Inc(J);
       end;
 
@@ -255,48 +518,89 @@ begin
       else if (LNum1 < LNum2) then Exit(-1);
     end else
     begin
+      if AIgnoreCase then
+      begin
+        C1 := C1.ToUpper;
+        C2 := C2.ToUpper;
+      end;
+
       if (C1 > C2) then Exit(1)
-      else if (C1 < C2) then Exit(-11);
+      else if (C1 < C2) then Exit(-1);
 
       Inc(I);
       Inc(J);
     end;
   end;
 
+  LStrLen1 := LStrLen1 - I;
+  LStrLen2 := LStrLen2 - J;
+
   if (LStrLen1 > LStrLen2) then Exit(1)
-  else if (LStrLen1 < LStrLen2) then Exit(-11)
+  else if (LStrLen1 < LStrLen2) then Exit(-1)
   else Exit(0);
 end;
 
 class function TUtils.CompareVersion(const V1, V2: string): Integer;
-var
-  LArr1, LArr2: TArray<string>;
-  I, I1, I2, LSize1, LSize2: Integer;
 begin
-  LArr1 := V1.Split(['.']);
-  LArr2 := V2.Split(['.']);
-  LSize1 := Length(LArr1);
-  LSize2 := Length(LArr2);
-
-  I := 0;
-  while (I < LSize1) and (I < LSize2) do
-  begin
-    I1 := StrToIntDef(LArr1[I], 0);
-    I2 := StrToIntDef(LArr2[I], 0);
-    if (I1 > I2) then
-      Exit(1)
-    else if (I1 < I2) then
-      Exit(-1);
-
-    Inc(I);
-  end;
-
-  Result := (LSize1 - LSize2);
+  Result := CompareStringIncludeNumber(V1, V2, True);
 end;
 
-class function TUtils.SimilarText(const AStr1, AStr2: string): Single;
+class function TUtils.StrSimilarity(const AStr1, AStr2: string): Single;
+// 算法来源:
+//   https://en.wikipedia.org/wiki/S%C3%B8rensen%E2%80%93Dice_coefficient
+//   https://github.com/aceakash/string-similarity
+var
+  LFirstBigrams: TDictionary<string, Integer>;
+  I, LCount, LIntersectionSize : Integer;
+  LBigram: string;
 begin
-  Result := 1 - (EditDistance(AStr1, AStr2) / Max(AStr1.Length, AStr2.Length));
+  if (AStr1 = AStr2) then Exit(1);
+  if (AStr1.Length < 2) or (AStr2.Length < 2) then Exit(0);
+
+  LFirstBigrams := TDictionary<string, Integer>.Create;
+  try
+    for I := 0 to AStr1.Length - 2 do
+    begin
+      LBigram := AStr1.Substring(I, 2);
+      if LFirstBigrams.TryGetValue(LBigram, LCount) then
+        LFirstBigrams.AddOrSetValue(LBigram, LCount + 1)
+      else
+        LFirstBigrams.Add(LBigram, 1);
+    end;
+
+    LIntersectionSize := 0;
+    for I := 0 to AStr2.Length - 2 do
+    begin
+      LBigram := AStr2.Substring(I, 2);
+      if LFirstBigrams.TryGetValue(LBigram, LCount)
+        and (LCount > 0) then
+      begin
+        LFirstBigrams.AddOrSetValue(LBigram, LCount - 1);
+        Inc(LIntersectionSize);
+      end;
+    end;
+
+    Result := (2.0 * LIntersectionSize) / (AStr1.Length + AStr2.Length - 2);
+  finally
+    FreeAndNil(LFirstBigrams);
+  end;
+end;
+
+class function TUtils.StartsWith(const AStr: string;
+  const AValues: array of string; const AIgnoreCase: Boolean): Boolean;
+var
+  LValue: string;
+begin
+  for LValue in AValues do
+    if AStr.StartsWith(LValue, AIgnoreCase) then Exit(True);
+
+  Result := False;
+end;
+
+class function TUtils.StartsWith(const AStr: string;
+  const AValues: array of string): Boolean;
+begin
+  Result := StartsWith(AStr, AValues, False);
 end;
 
 class function TUtils.StrIPos(const ASubStr, AStr: string;
@@ -352,6 +656,14 @@ begin
   Result := StrToDateTime(S, 'yyyy-mm-dd hh:nn:ss');
 end;
 
+class function TUtils.StrToPChar(const S: string): PChar;
+begin
+  if (S <> '') then
+    Result := PChar(S)
+  else
+    Result := nil;
+end;
+
 class function TUtils.StrToDateTime(const S, Fmt: string): TDateTime;
 // Fmt格式字符串：空格前是日期格式，空格后是时间格式
 // 必须是这样：YYYY-MM-DD HH:NN:SS或者MM-DD-YYYY HH:NN:SS
@@ -402,6 +714,15 @@ begin
     PText[1] := XD[PBuffer[I] and $0f];
     Inc(PText, 2);
   end;
+end;
+
+class function TUtils.ArrayOfToTArray<T>(const AValues: array of T): TArray<T>;
+var
+  I: Integer;
+begin
+  SetLength(Result, Length(AValues));
+  for I := Low(Result) to High(Result) do
+    Result[I] := AValues[I];
 end;
 
 class function TUtils.BinToHex(ABuffer: Pointer; ABufSize: Integer): string;
@@ -458,6 +779,46 @@ begin
   Result := Format(Fmt, Args, TFormatSettings.Create);
 end;
 
+class function TUtils.ToDBC(const AChar: Char): Char;
+begin
+  if (Ord(AChar) = $3000) then
+    Result := ' '
+  else if (Ord(AChar) > $FF00) and (Ord(AChar) < $FF5F) then
+    Result := Chr(Ord(AChar) - $FEE0)
+  else
+    Result := AChar;
+end;
+
+class function TUtils.ToDBC(const AStr: string): string;
+var
+  I: Integer;
+begin
+  SetLength(Result, Length(AStr));
+
+  for I := 1 to Length(AStr) do
+    Result[I] := ToDBC(AStr[I]);
+end;
+
+class function TUtils.ClearStr(const AStr: string;
+  const AKeepChars: array of Char): string;
+var
+  I, J: Integer;
+  C: Char;
+begin
+  SetLength(Result, Length(AStr));
+  J := 1;
+  for I := 1 to Length(AStr) do
+  begin
+    C := AStr[I];
+    if C.IsInArray(AKeepChars) then
+    begin
+      Result[J] := C;
+      J := J + 1;
+    end;
+  end;
+  SetLength(Result, J - 1);
+end;
+
 class function TUtils.UnicodeTrim(const S: string): string;
 var
   I, L: Integer;
@@ -506,43 +867,9 @@ begin
   end;
 end;
 
-class function TUtils.EditDistance(const ASourceStr, ATargetStr: string): Integer;
-var
-  i, j, edIns, edDel, edRep: Integer;
-  d: TArray<TArray<Integer>>;
-begin
-  SetLength(d, Length(ASourceStr) + 1, Length(ATargetStr) + 1);
-
-  for i := 0 to ASourceStr.Length do
-    d[i][0] := i;
-
-  for j := 0 to ATargetStr.Length do
-    d[0][j] := j;
-
-  for i := 1 to ASourceStr.Length do
-  begin
-    for j := 1 to ATargetStr.Length do
-    begin
-      if((ASourceStr[i - 1] = ATargetStr[j - 1])) then
-      begin
-        d[i][j] := d[i - 1][j - 1]; //不需要编辑操作
-      end else
-      begin
-        edIns := d[i][j - 1] + 1; //ASourceStr 插入字符
-        edDel := d[i - 1][j] + 1; //ASourceStr 删除字符
-        edRep := d[i - 1][j - 1] + 1; //ASourceStr 替换字符
-
-        d[i][j] := Min(Min(edIns, edDel), edRep);
-      end;
-    end;
-  end;
-
-  Result := d[ASourceStr.length][ATargetStr.length];
-end;
-
 { TEncodingHelper }
 
-function TEncodingHelper.GetString(ABytes: PByte; AByteCount: Integer): string;
+function TEncodingHelper.GetString(const ABytes: PByte; AByteCount: Integer): string;
 var
   LSize: Integer;
 begin

@@ -448,6 +448,7 @@ var
     LPerIoData: PPerIoData;
     LBytes: Cardinal;
   begin
+    FillChar(LSockAddr, SizeOf(TRawSockAddrIn), 0);
     LSockAddr.AddrLen := AAddr.ai_addrlen;
     Move(AAddr.ai_addr^, LSockAddr.Addr, AAddr.ai_addrlen);
     if (AAddr.ai_family = AF_INET6) then
