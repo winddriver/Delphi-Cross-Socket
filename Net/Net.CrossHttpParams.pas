@@ -1545,6 +1545,7 @@ begin
   FBoundaryBytes := TEncoding.ANSI.GetBytes(#13#10'--' + FBoundary);
   FDecodeState := dsBoundary;
   FBoundaryIndex := 0;
+  FPrevBoundaryIndex := 0;
   FCurrentPartHeader.Clear;
   SetLength(FLookbehind, Length(FBoundaryBytes) + 8);
 end;
@@ -1633,12 +1634,14 @@ begin
       // 检测Boundary, 以确定第一块数据
       dsBoundary:
         begin
+          // 第一块数据是紧跟着 HTTP HEADER 的, 前面没有多余的 #13#10
+          // 所以这里检测时要跳过 2 个字节
           if (C = FBoundaryBytes[2{#13#10} + FBoundaryIndex]) then
             Inc(FBoundaryIndex)
           else
             FBoundaryIndex := 0;
           // --Boundary
-          if (2 + FBoundaryIndex >= Length(FBoundaryBytes)) then
+          if (2{#13#10} + FBoundaryIndex >= Length(FBoundaryBytes)) then
           begin
             FDecodeState := dsDetect;
             CR := 0;
@@ -1759,6 +1762,7 @@ begin
             begin
               FCurrentPartField.FValue.Write(FLookbehind[0], FPrevBoundaryIndex);
               FPrevBoundaryIndex := 0;
+              FPartDataBegin := I;
             end;
           end;
 
@@ -1775,6 +1779,7 @@ begin
               FCurrentPartField.FValue.Position := 0;
               FDecodeState := dsDetect;
               FBoundaryIndex := 0;
+              FPrevBoundaryIndex := 0;
             end else
             // 已解析到本内存块结尾, 但是发现了部分有点像Boundary的数据
             // 将其保存起来
