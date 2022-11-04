@@ -198,14 +198,14 @@ end;
 
 procedure TDM.DataModuleCreate(Sender: TObject);
 begin
-  FHttpServer := TCrossHttpServer.Create(0, True);
-//  {$IFDEF __CROSS_SSL__}
+  FHttpServer := TCrossHttpServer.Create(0, {$IFDEF __CROSS_SSL__}True{$ELSE}False{$ENDIF});
+  {$IFDEF __CROSS_SSL__}
   if FHttpServer.SSL then
   begin
     FHttpServer.SetCertificate(SSL_SERVER_CERT);
     FHttpServer.SetPrivateKey(SSL_SERVER_PKEY);
   end;
-//  {$ENDIF}
+  {$ENDIF}
 //  FHttpServer.Addr := IPv4_ALL; // IPv4
 //  FHttpServer.Addr := IPv6_ALL; // IPv6
   FHttpServer.Addr := IPv4v6_ALL; // IPv4v6
