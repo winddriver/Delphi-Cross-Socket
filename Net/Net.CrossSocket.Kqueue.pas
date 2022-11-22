@@ -605,55 +605,60 @@ begin
   LKqConnection := LConnection as TKqueueConnection;
 
   LKqConnection._Lock;
-  try
+
+  // 队列中没有数据了, 清除 ioWrite 标志
+  if (LKqConnection.FSendQueue.Count <= 0) then
+  begin
+    LKqConnection._UpdateIoEvent([]);
+    LKqConnection._Unlock;
+    Exit;
+  end;
+
+  // 获取Socket发送队列中的第一条数据
+  LSendItem := LKqConnection.FSendQueue.Items[0];
+
+  // 发送数据
+  LSent := PosixSend(LConnection.Socket, LSendItem.Data, LSendItem.Size);
+
+  {$region '全部发送完成'}
+  if (LSent >= LSendItem.Size) then
+  begin
+    // 先保存回调函数, 避免后面删除队列后将其释放
+    LCallback := LSendItem.Callback;
+
+    // 发送成功, 移除已发送成功的数据
+    if (LKqConnection.FSendQueue.Count > 0) then
+      LKqConnection.FSendQueue.Delete(0);
+
     // 队列中没有数据了, 清除 ioWrite 标志
     if (LKqConnection.FSendQueue.Count <= 0) then
-    begin
       LKqConnection._UpdateIoEvent([]);
-      Exit;
-    end;
 
-    // 获取Socket发送队列中的第一条数据
-    LSendItem := LKqConnection.FSendQueue.Items[0];
-
-    // 发送数据
-    LSent := PosixSend(LConnection.Socket, LSendItem.Data, LSendItem.Size);
-
-    {$region '全部发送完成'}
-    if (LSent >= LSendItem.Size) then
-    begin
-      // 先保存回调函数, 避免后面删除队列后将其释放
-      LCallback := LSendItem.Callback;
-
-      // 发送成功, 移除已发送成功的数据
-      if (LKqConnection.FSendQueue.Count > 0) then
-        LKqConnection.FSendQueue.Delete(0);
-
-      // 队列中没有数据了, 清除 ioWrite 标志
-      if (LKqConnection.FSendQueue.Count <= 0) then
-        LKqConnection._UpdateIoEvent([]);
-
-      if Assigned(LCallback) then
-        LCallback(LConnection, True);
-
-      Exit;
-    end;
-    {$endregion}
-
-    {$region '连接断开或发送错误'}
-    // 发送失败的回调会在连接对象的destroy方法中被调用
-    if (LSent < 0) then Exit;
-    {$endregion}
-
-    {$region '部分发送成功,在下一次唤醒发送线程时继续处理剩余部分'}
-    Dec(LSendItem.Size, LSent);
-    Inc(LSendItem.Data, LSent);
-    {$endregion}
-
-    LKqConnection._UpdateIoEvent([ieWrite]);
-  finally
     LKqConnection._Unlock;
+
+    if Assigned(LCallback) then
+      LCallback(LConnection, True);
+
+    Exit;
   end;
+  {$endregion}
+
+  {$region '连接断开或发送错误'}
+  // 发送失败的回调会在连接对象的destroy方法中被调用
+  if (LSent < 0) then
+  begin
+    LKqConnection._Unlock;
+    Exit;
+  end;
+  {$endregion}
+
+  {$region '部分发送成功,在下一次唤醒发送线程时继续处理剩余部分'}
+  Dec(LSendItem.Size, LSent);
+  Inc(LSendItem.Data, LSent);
+  {$endregion}
+
+  LKqConnection._UpdateIoEvent([ieWrite]);
+  LKqConnection._Unlock;
 end;
 
 
@@ -880,7 +885,7 @@ begin
       end;
 
       TSocketAPI.SetNonBlock(LListenSocket, True);
-      TSocketAPI.SetReUseAddr(LListenSocket, True);
+      TSocketAPI.SetReUsePort(LListenSocket, True);
 
       if (LAddrInfo.ai_family = AF_INET6) then
         TSocketAPI.SetSockOpt<Integer>(LListenSocket, IPPROTO_IPV6, IPV6_V6ONLY, 1);

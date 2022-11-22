@@ -8,9 +8,7 @@
 {                                                                              }
 {******************************************************************************}
 unit Net.SocketAPI;
-
 interface
-
 uses
   System.SysUtils,
   {$IFDEF POSIX}
@@ -23,7 +21,6 @@ uses
   {$ELSE}
   Winapi.Windows, Net.Winsock2, Net.Wship6
   {$ENDIF};
-
 type
   TRawSockAddrIn = packed record
     AddrLen: Integer;
@@ -38,7 +35,6 @@ type
   TRawAddrInfo = Net.Winsock2.ADDRINFOW;
   {$ENDIF}
   PRawAddrInfo = ^TRawAddrInfo;
-
   /// <summary>
   ///   套接字基础接口封装
   /// </summary>
@@ -48,96 +44,81 @@ type
     ///   新建套接字
     /// </summary>
     class function NewSocket(const ADomain, AType, AProtocol: Integer): THandle; static;
-
     /// <summary>
     ///   新建 Tcp 套接字
     /// </summary>
     class function NewTcp: THandle; static;
-
     /// <summary>
     ///   新建 Udp 套接字
     /// </summary>
     class function NewUdp: THandle; static;
-
     /// <summary>
     ///   关闭套接字
     /// </summary>
     class function CloseSocket(const ASocket: THandle): Integer; static;
-
     /// <summary>
     ///   停止套接字(SD_RECEIVE=0, SD_SEND=1, SD_BOTH=2)
     /// </summary>
     class function Shutdown(const ASocket: THandle; const AHow: Integer = 2): Integer; static;
-
     /// <summary>
     ///   接受一个连接请求, 并分配 Socket
     /// </summary>
     class function Accept(const ASocket: THandle; const Addr: PSockAddr; const AddrLen: PInteger): THandle; static;
-
     /// <summary>
     ///   绑定套接字到指定地址和端口, 支持 IPv6
     /// </summary>
     class function Bind(const ASocket: THandle; const Addr: PSockAddr; const AddrLen: Integer): Integer; static;
-
     /// <summary>
     ///   连接到主机, 支持 IPv6
     /// </summary>
     class function Connect(const ASocket: THandle; const Addr: PSockAddr; const AddrLen: Integer): Integer; static;
-
     /// <summary>
     ///   启动监听
     /// </summary>
     class function Listen(const ASocket: THandle; const backlog: Integer = SOMAXCONN): Integer; overload; static;
-
     /// <summary>
     ///   接收数据
     /// </summary>
     class function Recv(const ASocket: THandle; var Buf; const len: Integer; const flags: Integer = 0): Integer; static;
-
     /// <summary>
     ///   发送数据
     /// </summary>
     class function Send(const ASocket: THandle; const Buf; const len: Integer; const flags: Integer = 0): Integer; static;
-
     /// <summary>
     ///    接收数据从指定地址端口(用于UDP)
     /// </summary>
     class function RecvFrom(const ASocket: THandle; const Addr: PSockAddr;
       var AddrLen: Integer; var Buf; const len: Integer; const flags: Integer = 0): Integer; static;
-
     /// <summary>
     ///    发送数据到指定地址端口(用于UDP)
     /// </summary>
     class function SendTo(const ASocket: THandle; const Addr: PSockAddr;
       const AddrLen: Integer; const Buf; const len: Integer; const flags: Integer = 0): Integer; static;
-
     /// <summary>
     ///   返回与套接字关联的远程协议地址
     /// </summary>
     class function GetPeerName(const ASocket: THandle; const Addr: PSockAddr;
       var AddrLen: Integer): Integer; static;
-
     /// <summary>
     ///   返回与套接字关联的本地协议地址
     /// </summary>
     class function GetSockName(const ASocket: THandle; const Addr: PSockAddr;
       var AddrLen: Integer): Integer; static;
-
     /// <summary>
     ///   获取套接字参数
     /// </summary>
     class function GetSockOpt(const ASocket: THandle; const ALevel, AOptionName: Integer;
        var AOptionValue; var AOptionLen: Integer): Integer; overload; static;
-
     /// <summary>
     ///   获取套接字参数
     /// </summary>
     class function GetSockOpt<T>(const ASocket: THandle; const ALevel, AOptionName: Integer;
        var AOptionValue: T): Integer; overload; static;
-
     /// <summary>
     ///   设置套接字参数
     /// </summary>
+    class function SetSockOpt(const ASocket: THandle; const ALevel, AOptionName: Integer;
+      const AOptionValue: Pointer; AOptionLen: Integer): Integer; overload; static;
     class function SetSockOpt(const ASocket: THandle; const ALevel, AOptionName: Integer;
       const AOptionValue; AOptionLen: Integer): Integer; overload; static;
 
@@ -151,57 +132,50 @@ type
     ///   检查套接字错误码
     /// </summary>
     class function GetError(const ASocket: THandle): Integer; static;
-
     /// <summary>
     ///   设置非阻塞模式
     /// </summary>
     class function SetNonBlock(const ASocket: THandle; const ANonBlock: Boolean = True): Integer; static;
-
     /// <summary>
     ///   设置地址重用模式
     /// </summary>
     class function SetReUseAddr(const ASocket: THandle; const AReUseAddr: Boolean = True): Integer; static;
-
+    /// <summary>
+    ///   设置端口重用模式(POSIX)
+    /// </summary>
+    class function SetReUsePort(const ASocket: THandle; const AReUsePort: Boolean = True): Integer; static;
     /// <summary>
     ///   设置心跳参数
     /// </summary>
     class function SetKeepAlive(const ASocket: THandle; const AIdleSeconds, AInterval, ACount: Integer): Integer; static;
-
     /// <summary>
     ///   开启TCP_NODELAY
     /// </summary>
     class function SetTcpNoDelay(const ASocket: THandle; const ANoDelay: Boolean = True): Integer; static;
-
     /// <summary>
     ///   设置发送缓冲区大小
     /// </summary>
     class function SetSndBuf(const ASocket: THandle; const ABufSize: Integer): Integer; static;
-
     /// <summary>
     ///   设置接收缓冲区大小
     /// </summary>
     class function SetRcvBuf(const ASocket: THandle; const ABufSize: Integer): Integer; static;
-
     /// <summary>
     ///   设置Linger参数(在closesocket()调用, 但是还有数据没发送完毕时容许逗留的秒数)
     /// </summary>
     class function SetLinger(const ASocket: THandle; const AOnOff: Boolean; const ALinger: Integer): Integer; static;
-
     /// <summary>
     ///   设置广播SO_BROADCAST
     /// </summary>
     class function SetBroadcast(const ASocket: THandle; const ABroadcast: Boolean = True): Integer; static;
-
     /// <summary>
     ///    设置接收超时(单位为ms)
     /// </summary>
     class function SetRecvTimeout(const ASocket: THandle; const ATimeout: Cardinal): Integer; static;
-
     /// <summary>
     ///    设置发送超时(单位为ms)
     /// </summary>
     class function SetSendTimeout(const ASocket: THandle; const ATimeout: Cardinal): Integer; static;
-
     /// <summary>
     ///   查看接收队列
     ///   ATimeout < 0 阻塞
@@ -209,7 +183,6 @@ type
     ///   ATimeout > 0 等待超时时间
     /// </summary>
     class function Readable(const ASocket: THandle; const ATimeout: Integer): Integer; static;
-
     /// <summary>
     ///   查看发送队列
     ///   ATimeout < 0 阻塞
@@ -217,50 +190,40 @@ type
     ///   ATimeout > 0 等待超时时间
     /// </summary>
     class function Writeable(const ASocket: THandle; const ATimeout: Integer): Integer; static;
-
     /// <summary>
     ///   缓存中已接收的字节数
     /// </summary>
     class function RecvdCount(const ASocket: THandle): Integer; static;
-
     /// <summary>
     ///   解析地址信息, 支持 IPv6
     /// </summary>
     class function GetAddrInfo(const AHostName, AServiceName: string;
       const AHints: TRawAddrInfo): PRawAddrInfo; overload; static;
-
     /// <summary>
     ///   解析地址信息, 支持 IPv6
     /// </summary>
     class function GetAddrInfo(const AHostName: string; const APort: Word;
       const AHints: TRawAddrInfo): PRawAddrInfo; overload; static;
-
     /// <summary>
     ///   释放 GetAddrInfo 返回的数据
     /// </summary>
     class procedure FreeAddrInfo(const ARawAddrInfo: PRawAddrInfo); static;
-
     /// <summary>
     ///   从 SockAddr 结构中解析出 IP 和 端口, 支持 IPv6
     /// </summary>
     class procedure ExtractAddrInfo(const AAddr: PSockAddr; const AAddrLen: Integer;
       var AIP: string; var APort: Word); static;
-
     /// <summary>
     ///   将域名解析为 IP 地址, 支持 IPv6
     /// </summary>
     class function GetIpAddrByHost(const AHost: string): string; static;
-
     /// <summary>
     ///    套接字是否有效
     /// </summary>
     class function IsValidSocket(const ASocket: THandle): Boolean; static;
   end;
-
 implementation
-
 { TSocketAPI }
-
 class function TSocketAPI.NewSocket(const ADomain, AType,
   AProtocol: Integer): THandle;
 begin
@@ -306,7 +269,6 @@ begin
     P := @LTime_val;
   end else
     P := nil;
-
   {$IFDEF POSIX}
   FD_ZERO(LFDSet);
   _FD_SET(ASocket, LFDSet);
@@ -402,7 +364,6 @@ begin
   {$ELSE}
   Result := Net.Winsock2.connect(ASocket, Addr, AddrLen);
   {$ENDIF}
-
   {$IFDEF DEBUG}
 //  if (Result <> 0) and (GetLastError <> EINPROGRESS) then
 //    RaiseLastOSError;
@@ -502,7 +463,6 @@ begin
   ExtractAddrInfo(LAddrInfo.ai_addr, LAddrInfo.ai_addrlen, Result, LPort);
   FreeAddrInfo(LAddrInfo);
 end;
-
 class function TSocketAPI.GetPeerName(const ASocket: THandle; const Addr: PSockAddr;
   var AddrLen: Integer): Integer;
 begin
@@ -688,6 +648,22 @@ begin
   Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, SO_REUSEADDR, LOptVal, SizeOf(Integer));
 end;
 
+class function TSocketAPI.SetReUsePort(const ASocket: THandle;
+  const AReUsePort: Boolean): Integer;
+var
+  LOptVal: Integer;
+begin
+  if AReUsePort then
+    LOptVal := 1
+  else
+    LOptVal := 0;
+  {$IFDEF POSIX}
+  Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, SO_REUSEPORT, LOptVal, SizeOf(Integer));
+  {$ELSE}
+  Result := -1;
+  {$ENDIF}
+end;
+
 class function TSocketAPI.SetRcvBuf(const ASocket: THandle;
   const ABufSize: Integer): Integer;
 begin
@@ -712,6 +688,17 @@ class function TSocketAPI.SetSndBuf(const ASocket: THandle;
   const ABufSize: Integer): Integer;
 begin
   Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, SO_SNDBUF, ABufSize, SizeOf(Integer));
+end;
+
+class function TSocketAPI.SetSockOpt(const ASocket: THandle; const ALevel,
+  AOptionName: Integer; const AOptionValue: Pointer;
+  AOptionLen: Integer): Integer;
+begin
+  {$IFDEF POSIX}
+  Result := Posix.SysSocket.setsockopt(ASocket, ALevel, AOptionName, AOptionValue^, Cardinal(AOptionLen));
+  {$ELSE}
+  Result := Net.Winsock2.setsockopt(ASocket, ALevel, AOptionName, AOptionValue, AOptionLen);
+  {$ENDIF}
 end;
 
 class function TSocketAPI.SetSockOpt(const ASocket: THandle; const ALevel, AOptionName: Integer;
@@ -761,7 +748,6 @@ begin
     P := @LTime_val;
   end else
     P := nil;
-
   {$IFDEF POSIX}
   FD_ZERO(LFDSet);
   _FD_SET(ASocket, LFDSet);
