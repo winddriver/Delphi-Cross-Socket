@@ -47,7 +47,7 @@ type
   end;
 
   PSendItem = ^TSendItem;
-  TSendItem = record
+  TSendItem = packed record
     Data: PByte;
     Size: Integer;
     Callback: TCrossConnectionCallback;

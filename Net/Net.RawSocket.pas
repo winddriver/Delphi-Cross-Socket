@@ -25,59 +25,48 @@ type
     ///   关闭 Socket
     /// </summary>
     procedure Close;
-
     /// <summary>
     ///   连接到主机, 支持 IPv6
     /// </summary>
     function Connect(const AHost: string; APort: Word): Integer;
-
     /// <summary>
     ///   绑定 Socket 到指定地址和端口, 支持 IPv6
     /// </summary>
     function Bind(const Addr: string; APort: Word): Integer;
-
     /// <summary>
     ///   启动监听
     /// </summary>
     function Listen(backlog: Integer = SOMAXCONN): Integer;
-
     /// <summary>
     ///   接受一个连接请求, 并分配 Socket
     /// </summary>
     function Accept(Addr: PSockAddr; AddrLen: PInteger): THandle;
-
     /// <summary>
     ///   接收数据
     /// </summary>
     function Recv(var Buf; len: Integer; flags: Integer = 0): Integer;
-
     /// <summary>
     ///   发送数据
     /// </summary>
     function Send(const Buf; len: Integer; flags: Integer = 0): Integer;
-
     /// <summary>
     ///    接收数据从指定地址端口(用于UDP)
     /// </summary>
     function RecvFrom(const Addr: PSockAddr; var AddrLen: Integer; var Buf;
       len: Integer; flags: Integer = 0): Integer;
-
     /// <summary>
     ///    发送数据到指定地址端口(用于UDP)
     /// </summary>
     function SendTo(const Addr: PSockAddr; AddrLen: Integer; const Buf;
       len: Integer; flags: Integer = 0): Integer;
-
     /// <summary>
     ///    判断套接字是否有效
     /// </summary>
     function IsValid: Boolean;
-
     /// <summary>
     ///    套接字句柄
     /// </summary>
     property Socket: THandle read FSocket;
-
     /// <summary>
     ///    套接字地址信息
     ///    如果是 Connect 到远端的套接字, 则该地址保存的是远端地址信息
@@ -95,7 +84,6 @@ implementation
 procedure TRawSocket.Close;
 begin
   if (FSocket = INVALID_HANDLE_VALUE) then Exit;
-
   TSocketAPI.CloseSocket(FSocket);
   FSocket := INVALID_HANDLE_VALUE;
 end;
@@ -111,7 +99,6 @@ begin
   LHints.ai_protocol := IPPROTO_TCP;
   LAddrInfo := TSocketAPI.GetAddrInfo(AHost, APort.ToString, LHints);
   if (LAddrInfo = nil) then Exit(-1);
-
   try
     FSocket := TSocketAPI.NewSocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
       LAddrInfo.ai_protocol);
@@ -139,13 +126,10 @@ begin
   LHints.ai_protocol := IPPROTO_TCP;
   LAddrInfo := TSocketAPI.GetAddrInfo(Addr, APort.ToString, LHints);
   if (LAddrInfo = nil) then Exit(-1);
-
   FSockAddr.AddrLen := LAddrInfo.ai_addrlen;
   Move(LAddrInfo.ai_addr^, FSockAddr.Addr, LAddrInfo.ai_addrlen);
   TSocketAPI.FreeAddrInfo(LAddrInfo);
-
   TSocketAPI.ExtractAddrInfo(@FSockAddr.Addr, FSockAddr.AddrLen, FPeerAddr, FPeerPort);
-
   Result := TSocketAPI.Bind(FSocket, @FSockAddr.Addr, FSockAddr.AddrLen);
 end;
 

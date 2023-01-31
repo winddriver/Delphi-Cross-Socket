@@ -46,7 +46,7 @@ type
   end;
 
   PSendItem = ^TSendItem;
-  TSendItem = record
+  TSendItem = packed record
     Data: PByte;
     Size: Integer;
     Callback: TCrossConnectionCallback;
@@ -74,8 +74,6 @@ type
     constructor Create(const AOwner: ICrossSocket; const AClientSocket: THandle;
       const AConnectType: TConnectType); override;
     destructor Destroy; override;
-
-    procedure Close; override;
   end;
 
   // KQUEUE 与 EPOLL 队列的差异
@@ -303,17 +301,6 @@ begin
   FreeAndNil(FLock);
 
   inherited;
-end;
-
-procedure TKqueueConnection.Close;
-begin
-  if (_SetConnectStatus(csClosed) = csClosed) then Exit;
-
-  // shutdown可以触发套接字在kqueue中的事件
-  // 而直接close会将套接字从kqueue队列中移除, 不会触发任何事件
-  // 这就会导致连接对象在放入kqueue队列时增加的引用计数无法回收, 导致内存泄漏
-  // 使用shutdown触发事件后再释放连接可以确保不会产生内存泄露
-  TSocketAPI.Shutdown(Socket, 2);
 end;
 
 procedure TKqueueConnection._Lock;

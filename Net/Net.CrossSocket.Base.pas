@@ -879,8 +879,11 @@ type
     property OnSent: TCrossDataEvent read GetOnSent write SetOnSent;
   end;
 
+  TCrossLogger = reference to procedure(const S: string);
+
   function GetTagByUID(const AUID: UInt64): Byte;
 
+  procedure _SetCrossLogger(const ALogger: TCrossLogger);
   procedure _LogLastOsError(const ATag: string = '');
   procedure _Log(const S: string); overload;
   procedure _Log(const Fmt: string; const Args: array of const); overload;
@@ -890,18 +893,31 @@ implementation
 uses
   Utils.Logger;
 
+var
+  _CrossLogger: TCrossLogger = nil;
+
 function GetTagByUID(const AUID: UInt64): Byte;
 begin
   // 取最高 2 位
   Result := (AUID shr 62) and $03;
 end;
 
+procedure _SetCrossLogger(const ALogger: TCrossLogger);
+begin
+  _CrossLogger := ALogger;
+end;
+
 procedure _Log(const S: string); overload;
 begin
-  if IsConsole then
-    Writeln(S)
+  if Assigned(_CrossLogger) then
+    _CrossLogger(S)
   else
-    AppendLog(S);
+  begin
+    if IsConsole then
+      Writeln(S)
+    else
+      AppendLog(S);
+  end;
 end;
 
 procedure _Log(const Fmt: string; const Args: array of const); overload;

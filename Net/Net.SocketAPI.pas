@@ -8,7 +8,9 @@
 {                                                                              }
 {******************************************************************************}
 unit Net.SocketAPI;
+
 interface
+
 uses
   System.SysUtils,
   {$IFDEF POSIX}
@@ -21,6 +23,7 @@ uses
   {$ELSE}
   Winapi.Windows, Net.Winsock2, Net.Wship6
   {$ENDIF};
+
 type
   TRawSockAddrIn = packed record
     AddrLen: Integer;
@@ -222,7 +225,9 @@ type
     /// </summary>
     class function IsValidSocket(const ASocket: THandle): Boolean; static;
   end;
+
 implementation
+
 { TSocketAPI }
 class function TSocketAPI.NewSocket(const ADomain, AType,
   AProtocol: Integer): THandle;
@@ -463,6 +468,7 @@ begin
   ExtractAddrInfo(LAddrInfo.ai_addr, LAddrInfo.ai_addrlen, Result, LPort);
   FreeAddrInfo(LAddrInfo);
 end;
+
 class function TSocketAPI.GetPeerName(const ASocket: THandle; const Addr: PSockAddr;
   var AddrLen: Integer): Integer;
 begin
@@ -657,7 +663,7 @@ begin
     LOptVal := 1
   else
     LOptVal := 0;
-  {$IFDEF POSIX}
+  {$IF Defined(POSIX) and not Defined(ANDROID)}
   Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, SO_REUSEPORT, LOptVal, SizeOf(Integer));
   {$ELSE}
   Result := -1;

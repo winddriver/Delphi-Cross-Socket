@@ -149,7 +149,7 @@ var
   F: TSearchRec;
   DirList, FileList: TList<THttpFileEntry>;
   Data: THttpFileEntry;
-  LComparer: TDelegatedComparer<THttpFileEntry>;
+  LComparer: IComparer<THttpFileEntry>;
   i: Integer;
   Total: Cardinal;
   TotalBytes: Int64;

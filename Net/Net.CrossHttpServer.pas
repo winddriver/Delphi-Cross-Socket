@@ -939,6 +939,9 @@ type
   TCrossHttpRequestExceptionEvent = procedure(const Sender: TObject; const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; const AException: Exception) of object;
   TCrossHttpDataEvent = procedure(const Sender: TObject; const AClient: ICrossHttpConnection; const ABuf: Pointer; const ALen: Integer) of object;
 
+  TCrossHttpBeforeRequestEvent = TCrossHttpConnEvent;
+  TCrossHttpAfterRequestEvent = procedure(const Sender: TObject; const AConnection: ICrossHttpConnection; const ASuccess: Boolean) of object;
+
   /// <summary>
   ///   <para>
   ///     跨平台HTTP服务器接口
@@ -1019,7 +1022,9 @@ type
     function GetMinCompressSize: Int64;
     function GetSessions: ISessions;
     function GetSessionIDCookieName: string;
+    function GetOnRequestBegin: TCrossHttpBeforeRequestEvent;
     function GetOnRequest: TCrossHttpRequestEvent;
+    function GetOnRequestEnd: TCrossHttpAfterRequestEvent;
     function GetOnRequestException: TCrossHttpRequestExceptionEvent;
     function GetOnPostDataBegin: TCrossHttpConnEvent;
     function GetOnPostData: TCrossHttpDataEvent;
@@ -1033,7 +1038,9 @@ type
     procedure SetMinCompressSize(const Value: Int64);
     procedure SetSessions(const Value: ISessions);
     procedure SetSessionIDCookieName(const Value: string);
+    procedure SetOnRequestBegin(const Value: TCrossHttpBeforeRequestEvent);
     procedure SetOnRequest(const Value: TCrossHttpRequestEvent);
+    procedure SetOnRequestEnd(const Value: TCrossHttpAfterRequestEvent);
     procedure SetOnRequestException(const Value: TCrossHttpRequestExceptionEvent);
     procedure SetOnPostDataBegin(const Value: TCrossHttpConnEvent);
     procedure SetOnPostData(const Value: TCrossHttpDataEvent);
@@ -1740,7 +1747,9 @@ type
     /// </remarks>
     property SessionIDCookieName: string read GetSessionIDCookieName write SetSessionIDCookieName;
 
+    property OnRequestBegin: TCrossHttpBeforeRequestEvent read GetOnRequestBegin write SetOnRequestBegin;
     property OnRequest: TCrossHttpRequestEvent read GetOnRequest write SetOnRequest;
+    property OnRequestEnd: TCrossHttpAfterRequestEvent read GetOnRequestEnd write SetOnRequestEnd;
     property OnRequestException: TCrossHttpRequestExceptionEvent read GetOnRequestException write SetOnRequestException;
     property OnPostDataBegin: TCrossHttpConnEvent read GetOnPostDataBegin write SetOnPostDataBegin;
     property OnPostData: TCrossHttpDataEvent read GetOnPostData write SetOnPostData;
@@ -2038,6 +2047,8 @@ type
     FMiddlewares: TCrossHttpRouters;
     FMiddlewaresLock: TMultiReadExclusiveWriteSynchronizer;
     FSessions: ISessions;
+    FOnRequestBegin: TCrossHttpBeforeRequestEvent;
+    FOnRequestEnd: TCrossHttpAfterRequestEvent;
     FOnRequest: TCrossHttpRequestEvent;
     FOnRequestException: TCrossHttpRequestExceptionEvent;
     FOnPostDataBegin: TCrossHttpConnEvent;
@@ -2068,6 +2079,8 @@ type
     function GetSessions: ISessions;
     function GetSessionIDCookieName: string;
     function GetOnRequest: TCrossHttpRequestEvent;
+    function GetOnRequestEnd: TCrossHttpAfterRequestEvent;
+    function GetOnRequestBegin: TCrossHttpBeforeRequestEvent;
     function GetOnRequestException: TCrossHttpRequestExceptionEvent;
     function GetOnPostDataBegin: TCrossHttpConnEvent;
     function GetOnPostData: TCrossHttpDataEvent;
@@ -2082,6 +2095,8 @@ type
     procedure SetSessions(const Value: ISessions);
     procedure SetSessionIDCookieName(const Value: string);
     procedure SetOnRequest(const Value: TCrossHttpRequestEvent);
+    procedure SetOnRequestBegin(const Value: TCrossHttpBeforeRequestEvent);
+    procedure SetOnRequestEnd(const Value: TCrossHttpAfterRequestEvent);
     procedure SetOnRequestException(const Value: TCrossHttpRequestExceptionEvent);
     procedure SetOnPostDataBegin(const Value: TCrossHttpConnEvent);
     procedure SetOnPostData(const Value: TCrossHttpDataEvent);
@@ -2103,8 +2118,14 @@ type
       const ABuf: Pointer; const ALen: Integer); virtual;
     procedure TriggerPostDataEnd(const AConnection: ICrossHttpConnection); virtual;
 
+    // 处理请求前
+    procedure DoOnRequestBegin(const AConnection: ICrossHttpConnection); virtual;
+
     // 处理请求
     procedure DoOnRequest(const AConnection: ICrossHttpConnection); virtual;
+
+    // 处理请求后
+    procedure DoOnRequestEnd(const AConnection: ICrossHttpConnection; const ASuccess: Boolean); virtual;
   public
     constructor Create(const AIoThreads: Integer; const ASsl: Boolean); override;
     destructor Destroy; override;
@@ -2190,7 +2211,9 @@ type
     property Sessions: ISessions read GetSessions write SetSessions;
     property SessionIDCookieName: string read GetSessionIDCookieName write SetSessionIDCookieName;
 
+    property OnRequestBegin: TCrossHttpBeforeRequestEvent read GetOnRequestBegin write SetOnRequestBegin;
     property OnRequest: TCrossHttpRequestEvent read GetOnRequest write SetOnRequest;
+    property OnRequestEnd: TCrossHttpAfterRequestEvent read GetOnRequestEnd write SetOnRequestEnd;
     property OnRequestException: TCrossHttpRequestExceptionEvent read GetOnRequestException write SetOnRequestException;
     property OnPostDataBegin: TCrossHttpConnEvent read GetOnPostDataBegin write SetOnPostDataBegin;
     property OnPostData: TCrossHttpDataEvent read GetOnPostData write SetOnPostData;
@@ -2592,6 +2615,20 @@ begin
   Result := Route('DELETE', APath, ARouterMethod2);
 end;
 
+procedure TCrossHttpServer.DoOnRequestBegin(
+  const AConnection: ICrossHttpConnection);
+begin
+  if Assigned(FOnRequestBegin) then
+    FOnRequestBegin(Self, AConnection);
+end;
+
+procedure TCrossHttpServer.DoOnRequestEnd(
+  const AConnection: ICrossHttpConnection; const ASuccess: Boolean);
+begin
+  if Assigned(FOnRequestEnd) then
+    FOnRequestEnd(Self, AConnection, ASuccess);
+end;
+
 procedure TCrossHttpServer.DoOnRequest(const AConnection: ICrossHttpConnection);
 var
   LRequest: ICrossHttpRequest;
@@ -2646,17 +2683,6 @@ begin
     end;
     {$endregion}
 
-    {$region '响应请求事件'}
-    if Assigned(FOnRequest) then
-    begin
-      LHandled := False;
-      FOnRequest(Self, LRequest, LResponse, LHandled);
-
-      // 如果已经发送了数据, 则后续的事件和路由响应都不需要执行了
-      if LHandled or LResponse.Sent then Exit;
-    end;
-    {$endregion}
-
     {$region '路由'}
     FRoutersLock.BeginRead;
     try
@@ -2682,6 +2708,17 @@ begin
         // 如果已经发送了数据, 则后续的事件和路由响应都不需要执行了
         if LHandled or LResponse.Sent then Exit;
       end;
+    end;
+    {$endregion}
+
+    {$region '响应请求事件'}
+    if Assigned(FOnRequest)
+      and not (LHandled or LResponse.Sent) then
+    begin
+      FOnRequest(Self, LRequest, LResponse, LHandled);
+
+      // 如果已经发送了数据, 则后续的事件和路由响应都不需要执行了
+      if LHandled or LResponse.Sent then Exit;
     end;
     {$endregion}
 
@@ -2725,9 +2762,19 @@ begin
   Result := Route('GET', APath, ARouterMethod2);
 end;
 
+function TCrossHttpServer.GetOnRequestEnd: TCrossHttpAfterRequestEvent;
+begin
+  Result := FOnRequestEnd;
+end;
+
 function TCrossHttpServer.GetAutoDeleteFiles: Boolean;
 begin
   Result := FAutoDeleteFiles;
+end;
+
+function TCrossHttpServer.GetOnRequestBegin: TCrossHttpBeforeRequestEvent;
+begin
+  Result := FOnRequestBegin;
 end;
 
 function TCrossHttpServer.GetCompressible: Boolean;
@@ -2790,9 +2837,19 @@ begin
   Result := FStoragePath;
 end;
 
+procedure TCrossHttpServer.SetOnRequestEnd(const Value: TCrossHttpAfterRequestEvent);
+begin
+  FOnRequestEnd := Value;
+end;
+
 procedure TCrossHttpServer.SetAutoDeleteFiles(const Value: Boolean);
 begin
   FAutoDeleteFiles := Value;
+end;
+
+procedure TCrossHttpServer.SetOnRequestBegin(const Value: TCrossHttpBeforeRequestEvent);
+begin
+  FOnRequestBegin := Value;
 end;
 
 procedure TCrossHttpServer.SetCompressible(const Value: Boolean);
@@ -3110,6 +3167,7 @@ begin
       if (LRequest.FParseState = psDone) then
       begin
         LResponse.Reset;
+        DoOnRequestBegin(LHttpConnection);
         DoOnRequest(LHttpConnection);
         LRequest.Reset;
       end;
@@ -4344,6 +4402,10 @@ begin
         if Assigned(ACallback) then
           ACallback(AConnection, False);
 
+        if Assigned(FConnection)
+          and Assigned(FConnection.Server) then
+          TCrossHttpServer(FConnection.Server).DoOnRequestEnd(FConnection, False);
+
         AConnection.Close;
 
         LSender := nil;
@@ -4360,6 +4422,10 @@ begin
       begin
         if Assigned(ACallback) then
           ACallback(AConnection, True);
+
+        if Assigned(FConnection)
+          and Assigned(FConnection.Server) then
+          TCrossHttpServer(FConnection.Server).DoOnRequestEnd(FConnection, True);
 
         if not LKeepAlive
           or (LStatusCode >= 400{如果发送的是出错状态码, 则发送完成之后断开连接}) then
