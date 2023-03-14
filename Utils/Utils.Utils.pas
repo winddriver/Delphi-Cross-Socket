@@ -37,6 +37,8 @@ type
   TConstFunc<T1,T2,T3,TResult> = reference to function (const Arg1: T1; const Arg2: T2; const Arg3: T3): TResult;
   TConstFunc<T1,T2,T3,T4,TResult> = reference to function (const Arg1: T1; const Arg2: T2; const Arg3: T3; const Arg4: T4): TResult;
 
+  TUnicodeCategories = set of TUnicodeCategory;
+
   TUtils = class
   private class var
     FAppFile, FAppPath, FAppHome, FAppDocuments, FAppName: string;
@@ -65,7 +67,11 @@ type
     class function UnicodeTrim(const S: string): string; static;
     class function UnicodeTrimLeft(const S: string): string; static;
     class function UnicodeTrimRight(const S: string): string; static;
+    class function UnicodeClear(const S: string; const ACats: TUnicodeCategories): string; overload; static;
+    class function UnicodeClear(const S: string): string; overload; static;
     class function StrIPos(const ASubStr, AStr: string; AOffset: Integer): Integer; static;
+    class function Replace(const AStr: string; const ASubStrs: array of string;
+      const ANewStr: string; const AReplaceFlags: TReplaceFlags = [rfReplaceAll, rfIgnoreCase]): string; static;
 
     class function EndsWith(const AStr: string; const AValues: array of string; const AIgnoreCase: Boolean): Boolean; overload; static;
     class function EndsWith(const AStr: string; const AValues: array of string): Boolean; overload; static;
@@ -94,6 +100,7 @@ type
     class function MoveDir(const ASrcDirName, ADstDirName: string): Boolean; static;
 
     class function StrToPChar(const S: string): PChar; static;
+    class function PCharToStr(const S: PChar): string; static;
 
     // 判断两段日期是否有交集
     class function IsCrossDate(const AStartDate1, AEndDate1, AStartDate2, AEndDate2: TDateTime): Boolean; static;
@@ -384,6 +391,7 @@ class function TUtils.IsSpaceChar(const C: Char): Boolean;
 begin
   Result := (C.GetUnicodeCategory in [
     TUnicodeCategory.ucControl,
+    TUnicodeCategory.ucFormat,
     TUnicodeCategory.ucUnassigned,
     TUnicodeCategory.ucSpaceSeparator
   ]);
@@ -446,6 +454,11 @@ begin
   Result := RenameFile(ASrcFileName, ADstFileName);
 end;
 
+class function TUtils.PCharToStr(const S: PChar): string;
+begin
+  SetString(Result, S, StrLen(S));
+end;
+
 class function TUtils.RandomStr(const ABaseChars: string;
   ASize: Integer): string;
 var
@@ -457,6 +470,17 @@ begin
   SetLength(Result, ASize);
   for I := Low(Result) to High(Result) do
     Result[I] := ABaseChars[RandomRange(LBaseLow, LBaseHigh + 1)];
+end;
+
+class function TUtils.Replace(const AStr: string;
+  const ASubStrs: array of string; const ANewStr: string;
+  const AReplaceFlags: TReplaceFlags): string;
+var
+  LSubStr: string;
+begin
+  Result := AStr;
+  for LSubStr in ASubStrs do
+    Result := Result.Replace(LSubStr, ANewStr, AReplaceFlags);
 end;
 
 class function TUtils.CalcTickDiff(AStartTick, AEndTick: Cardinal): Cardinal;
@@ -817,6 +841,36 @@ begin
     end;
   end;
   SetLength(Result, J - 1);
+end;
+
+class function TUtils.UnicodeClear(const S: string;
+  const ACats: TUnicodeCategories): string;
+var
+  LChar: Char;
+  I: Integer;
+begin
+  SetLength(Result, Length(S));
+  I := 1;
+
+  for LChar in S do
+  begin
+    if not (LChar.GetUnicodeCategory in ACats) then
+    begin
+      Result[I] := LChar;
+      Inc(I);
+    end;
+  end;
+
+  SetLength(Result, I - 1);
+end;
+
+class function TUtils.UnicodeClear(const S: string): string;
+begin
+  Result := UnicodeClear(S, [
+    TUnicodeCategory.ucControl,
+    TUnicodeCategory.ucFormat,
+    TUnicodeCategory.ucUnassigned
+  ]);
 end;
 
 class function TUtils.UnicodeTrim(const S: string): string;

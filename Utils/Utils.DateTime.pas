@@ -104,6 +104,14 @@ type
     function AddSeconds(const ANumberOfSeconds: Int64 = 1): TDateTime; inline;
     function AddMilliseconds(const ANumberOfMilliseconds: Int64 = 1): TDateTime; inline;
 
+    function DecYears(const ANumberOfYears: Integer = 1): TDateTime; inline;
+    function DecMonths(const ANumberOfMonths: Integer = 1): TDateTime; inline;
+    function DecDays(const ANumberOfDays: Integer = 1): TDateTime; inline;
+    function DecHours(const ANumberOfHours: Int64 = 1): TDateTime; inline;
+    function DecMinutes(const ANumberOfMinutes: Int64 = 1): TDateTime; inline;
+    function DecSeconds(const ANumberOfSeconds: Int64 = 1): TDateTime; inline;
+    function DecMilliseconds(const ANumberOfMilliseconds: Int64 = 1): TDateTime; inline;
+
     function CompareTo(const ADateTime: TDateTime): TValueRelationship; inline;
     function Equals(const ADateTime: TDateTime): Boolean; inline;
     function IsSameDay(const ADateTime: TDateTime): Boolean; inline;
@@ -210,6 +218,42 @@ end;
 function TDateTimeHelper.DaysDiffer(const ADateTime: TDateTime): Integer;
 begin
   Result := (Self.ToMilliseconds - ADateTime.ToMilliseconds) div CMillisPerDay;
+end;
+
+function TDateTimeHelper.DecDays(const ANumberOfDays: Integer): TDateTime;
+begin
+  Result := AddDays(0 - ANumberOfDays);
+end;
+
+function TDateTimeHelper.DecHours(const ANumberOfHours: Int64): TDateTime;
+begin
+  Result := AddHours(0 - ANumberOfHours);
+end;
+
+function TDateTimeHelper.DecMilliseconds(
+  const ANumberOfMilliseconds: Int64): TDateTime;
+begin
+  Result := AddMilliseconds(0 - ANumberOfMilliseconds);
+end;
+
+function TDateTimeHelper.DecMinutes(const ANumberOfMinutes: Int64): TDateTime;
+begin
+  Result := AddMinutes(0 - ANumberOfMinutes);
+end;
+
+function TDateTimeHelper.DecMonths(const ANumberOfMonths: Integer): TDateTime;
+begin
+  Result := AddMonths(0 - ANumberOfMonths);
+end;
+
+function TDateTimeHelper.DecSeconds(const ANumberOfSeconds: Int64): TDateTime;
+begin
+  Result := AddSeconds(0 - ANumberOfSeconds);
+end;
+
+function TDateTimeHelper.DecYears(const ANumberOfYears: Integer): TDateTime;
+begin
+  Result := AddYears(0 - ANumberOfYears);
 end;
 
 function TDateTimeHelper.EndOfDay: TDateTime;

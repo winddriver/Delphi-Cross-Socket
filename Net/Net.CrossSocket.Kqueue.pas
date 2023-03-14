@@ -29,7 +29,7 @@ type
   TIoEvent = (ieRead, ieWrite);
   TIoEvents = set of TIoEvent;
 
-  TKqueueListen = class(TAbstractCrossListen)
+  TKqueueListen = class(TCrossListenBase)
   private
     FLock: TObject;
     FIoEvents: TIoEvents;
@@ -40,7 +40,7 @@ type
     function _ReadEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
   public
-    constructor Create(const AOwner: ICrossSocket; const AListenSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
       const AFamily, ASockType, AProtocol: Integer); override;
     destructor Destroy; override;
   end;
@@ -57,7 +57,7 @@ type
     procedure Notify(const Value: PSendItem; Action: TCollectionNotification); override;
   end;
 
-  TKqueueConnection = class(TAbstractCrossConnection)
+  TKqueueConnection = class(TCrossConnectionBase)
   private
     FLock: TObject;
     FSendQueue: TSendQueue;
@@ -71,7 +71,7 @@ type
     function _WriteEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
   public
-    constructor Create(const AOwner: ICrossSocket; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
       const AConnectType: TConnectType); override;
     destructor Destroy; override;
   end;
@@ -114,7 +114,7 @@ type
   // 所以修改套接字的监听事件时不会互相覆盖, 也就是说每个事件都会对应到一次
   // 触发, 这样就可以方便的使用接口的引用计数机制保持连接的有效性, 也不会出现
   // 内存泄漏
-  TKqueueCrossSocket = class(TAbstractCrossSocket)
+  TKqueueCrossSocket = class(TCrossSocketBase)
   private const
     MAX_EVENT_COUNT = 2048;
     SHUTDOWN_FLAG   = Pointer(-1);
@@ -145,9 +145,9 @@ type
     procedure _HandleRead(const AConnection: ICrossConnection);
     procedure _HandleWrite(const AConnection: ICrossConnection);
   protected
-    function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
       const AConnectType: TConnectType): ICrossConnection; override;
-    function CreateListen(const AOwner: ICrossSocket; const AListenSocket: THandle;
+    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
       const AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
 
     procedure StartLoop; override;
@@ -174,7 +174,7 @@ implementation
 
 { TKqueueListen }
 
-constructor TKqueueListen.Create(const AOwner: ICrossSocket;
+constructor TKqueueListen.Create(const AOwner: TCrossSocketBase;
   const AListenSocket: THandle; const AFamily, ASockType, AProtocol: Integer);
 begin
   inherited;
@@ -256,7 +256,7 @@ end;
 
 { TKqueueConnection }
 
-constructor TKqueueConnection.Create(const AOwner: ICrossSocket;
+constructor TKqueueConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: THandle; const AConnectType: TConnectType);
 begin
   inherited;
@@ -684,17 +684,15 @@ end;
 procedure TKqueueCrossSocket.StartLoop;
 var
   I: Integer;
-  LCrossSocket: ICrossSocket;
 begin
   if (FIoThreads <> nil) then Exit;
 
   _OpenIdleHandle;
 
   FKqueueHandle := kqueue();
-  LCrossSocket := Self;
   SetLength(FIoThreads, GetIoThreads);
   for I := 0 to Length(FIoThreads) - 1 do
-    FIoThreads[i] := TIoEventThread.Create(LCrossSocket);
+    FIoThreads[i] := TIoEventThread.Create(Self);
 
   _OpenStopHandle;
 end;
@@ -817,13 +815,13 @@ begin
   _Failed1;
 end;
 
-function TKqueueCrossSocket.CreateConnection(const AOwner: ICrossSocket;
+function TKqueueCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
 begin
   Result := TKqueueConnection.Create(AOwner, AClientSocket, AConnectType);
 end;
 
-function TKqueueCrossSocket.CreateListen(const AOwner: ICrossSocket;
+function TKqueueCrossSocket.CreateListen(const AOwner: TCrossSocketBase;
   const AListenSocket: THandle; const AFamily, ASockType, AProtocol: Integer): ICrossListen;
 begin
   Result := TKqueueListen.Create(AOwner, AListenSocket, AFamily, ASockType, AProtocol);

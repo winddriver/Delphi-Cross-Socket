@@ -21,13 +21,13 @@ uses
   Net.CrossSocket.Base;
 
 type
-  TIocpListen = class(TAbstractCrossListen)
+  TIocpListen = class(TCrossListenBase)
   end;
 
-  TIocpConnection = class(TAbstractCrossConnection)
+  TIocpConnection = class(TCrossConnectionBase)
   end;
 
-  TIocpCrossSocket = class(TAbstractCrossSocket)
+  TIocpCrossSocket = class(TCrossSocketBase)
   private const
     SHUTDOWN_FLAG = ULONG_PTR(-1);
     SO_UPDATE_CONNECT_CONTEXT = $7010;
@@ -81,9 +81,9 @@ type
     procedure _HandleRead(const APerIoData: PPerIoData);
     procedure _HandleWrite(const APerIoData: PPerIoData);
   protected
-    function CreateListen(const AOwner: ICrossSocket; const AListenSocket: THandle;
+    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
       const AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
-    function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
       const AConnectType: TConnectType): ICrossConnection; override;
 
     procedure StartLoop; override;
@@ -344,15 +344,13 @@ end;
 procedure TIocpCrossSocket.StartLoop;
 var
   I: Integer;
-  LCrossSocket: ICrossSocket;
 begin
   if (FIoThreads <> nil) then Exit;
 
   FIocpHandle := CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 0);
-  LCrossSocket := Self;
   SetLength(FIoThreads, GetIoThreads);
   for I := 0 to Length(FIoThreads) - 1 do
-    FIoThreads[I] := TIoEventThread.Create(LCrossSocket);
+    FIoThreads[I] := TIoEventThread.Create(Self);
 end;
 
 procedure TIocpCrossSocket.StopLoop;
@@ -525,13 +523,13 @@ begin
   _Failed1;
 end;
 
-function TIocpCrossSocket.CreateConnection(const AOwner: ICrossSocket;
+function TIocpCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
 begin
   Result := TIocpConnection.Create(AOwner, AClientSocket, AConnectType);
 end;
 
-function TIocpCrossSocket.CreateListen(const AOwner: ICrossSocket;
+function TIocpCrossSocket.CreateListen(const AOwner: TCrossSocketBase;
   const AListenSocket: THandle; const AFamily, ASockType, AProtocol: Integer): ICrossListen;
 begin
   Result := TIocpListen.Create(AOwner, AListenSocket, AFamily, ASockType, AProtocol);

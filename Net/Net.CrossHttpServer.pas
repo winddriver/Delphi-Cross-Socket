@@ -1765,7 +1765,7 @@ type
     function GetResponse: ICrossHttpResponse;
     function GetServer: ICrossHttpServer;
   public
-    constructor Create(const AOwner: ICrossSocket; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
       const AConnectType: TConnectType); override;
 
     property Request: ICrossHttpRequest read GetRequest;
@@ -1857,7 +1857,7 @@ type
   private
     // Request 是 Connection 的子对象, 它的生命周期跟随 Connection
     // 这里使用弱引用, 不增加 Connection 的引用计数, 避免循环引用造成接口对象无法自动释放
-    [unsafe]FConnection: ICrossHttpConnection;
+    FConnection: TCrossHttpConnection;
     FHeader: THttpHeader;
     FCookies: TRequestCookies;
     FSession: ISession;
@@ -1866,7 +1866,7 @@ type
     FBody: TObject;
     FBodyType: TBodyType;
   public
-    constructor Create(const AConnection: ICrossHttpConnection);
+    constructor Create(const AConnection: TCrossHttpConnection);
     destructor Destroy; override;
 
     procedure Reset;
@@ -1919,7 +1919,7 @@ type
   private
     // Response 是 Connection 的子对象, 它的生命周期跟随 Connection
     // 这里使用弱引用, 不增加 Connection 的引用计数, 避免循环引用造成接口对象无法自动释放
-    [unsafe]FConnection: ICrossHttpConnection;
+    FConnection: TCrossHttpConnection;
     FRequest: ICrossHttpRequest;
     FStatusCode: Integer;
     FHeader: THttpHeader;
@@ -1991,7 +1991,7 @@ type
     procedure Attachment(const AFileName: string);
     {$endregion}
   public
-    constructor Create(const AConnection: ICrossHttpConnection);
+    constructor Create(const AConnection: TCrossHttpConnection);
     destructor Destroy; override;
   end;
 
@@ -2102,7 +2102,7 @@ type
     procedure SetOnPostData(const Value: TCrossHttpDataEvent);
     procedure SetOnPostDataEnd(const Value: TCrossHttpConnEvent);
   protected
-    function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
       const AConnectType: TConnectType): ICrossConnection; override;
 
     function CreateRouter(const AMethod, APath: string;
@@ -2248,7 +2248,7 @@ end;
 
 { TCrossHttpConnection }
 
-constructor TCrossHttpConnection.Create(const AOwner: ICrossSocket;
+constructor TCrossHttpConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: THandle; const AConnectType: TConnectType);
 begin
   inherited;
@@ -2546,7 +2546,7 @@ begin
   FSessionIDCookieName := SESSIONID_COOKIE_NAME;
 end;
 
-function TCrossHttpServer.CreateConnection(const AOwner: ICrossSocket;
+function TCrossHttpServer.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
 begin
   Result := TCrossHttpConnection.Create(AOwner, AClientSocket, AConnectType);
@@ -3507,7 +3507,7 @@ end;
 
 { TCrossHttpRequest }
 
-constructor TCrossHttpRequest.Create(const AConnection: ICrossHttpConnection);
+constructor TCrossHttpRequest.Create(const AConnection: TCrossHttpConnection);
 begin
   FConnection := AConnection;
 
@@ -3853,7 +3853,7 @@ end;
 
 { TCrossHttpResponse }
 
-constructor TCrossHttpResponse.Create(const AConnection: ICrossHttpConnection);
+constructor TCrossHttpResponse.Create(const AConnection: TCrossHttpConnection);
 begin
   FConnection := AConnection;
   FRequest := AConnection.Request;
@@ -4318,7 +4318,8 @@ begin
   LContType := GetContentType;
   LServer := FConnection.Server;
 
-  if LServer.Compressible
+  if Assigned(LServer)
+    and LServer.Compressible
     and (ABodySize > 0)
     and ((LServer.MinCompressSize <= 0) or (ABodySize >= LServer.MinCompressSize))
     and ((Pos('text/', LContType) > 0)

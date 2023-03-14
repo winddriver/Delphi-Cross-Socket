@@ -283,7 +283,7 @@ type
     procedure TriggerWsRequest(ARequestType: TWsRequestType;
       const ARequestData: TBytes); virtual;
   public
-    constructor Create(const AOwner: ICrossSocket; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
       const AConnectType: TConnectType); override;
     destructor Destroy; override;
 
@@ -316,7 +316,7 @@ type
       const ARequestType: TWsRequestType; const ARequestData: TBytes);
     procedure _OnClose(const AConnection: ICrossWebSocketConnection);
   protected
-    function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
       const AConnectType: TConnectType): ICrossConnection; override;
     procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
@@ -341,7 +341,7 @@ uses
 
 { TCrossWebSocketConnection }
 
-constructor TCrossWebSocketConnection.Create(const AOwner: ICrossSocket;
+constructor TCrossWebSocketConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: THandle; const AConnectType: TConnectType);
 begin
   inherited;
@@ -1044,7 +1044,7 @@ begin
     end);
 end;
 
-function TNetCrossWebSocketServer.CreateConnection(const AOwner: ICrossSocket;
+function TNetCrossWebSocketServer.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
 begin
   Result := TCrossWebSocketConnection.Create(AOwner, AClientSocket, AConnectType);

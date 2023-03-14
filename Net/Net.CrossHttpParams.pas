@@ -512,6 +512,7 @@ type
     property AutoDeleteFiles: Boolean read FAutoDeleteFiles write FAutoDeleteFiles;
   end;
 
+  TSessionsBase = class;
   ISessions = interface;
 
   /// <summary>
@@ -588,7 +589,7 @@ type
 
   TSessionBase = class abstract(TInterfacedObject, ISession)
   private
-    [unsafe]FOwner: ISessions;
+    FOwner: TSessionsBase;
 
     function GetOwner: ISessions;
   protected
@@ -603,7 +604,7 @@ type
     procedure SetExpiryTime(const Value: Integer); virtual; abstract;
     procedure SetValue(const AName, AValue: string); virtual; abstract;
   public
-    constructor Create(const AOwner: ISessions; const ASessionID: string); virtual;
+    constructor Create(const AOwner: TSessionsBase; const ASessionID: string); virtual;
 
     procedure Touch; virtual;
     function Expired: Boolean; virtual;
@@ -636,7 +637,7 @@ type
     procedure SetExpiryTime(const AValue: Integer); override;
     procedure SetValue(const AName, AValue: string); override;
   public
-    constructor Create(const AOwner: ISessions; const ASessionID: string); override;
+    constructor Create(const AOwner: TSessionsBase; const ASessionID: string); override;
     destructor Destroy; override;
 
     property SessionID: string read GetSessionID write SetSessionID;
@@ -1417,10 +1418,12 @@ end;
 
 function TFormField.AsString(AEncoding: TEncoding): string;
 begin
-  if (AEncoding = nil) then
-    AEncoding := TEncoding.UTF8;
+//  if (AEncoding = nil) then
+//    AEncoding := TEncoding.UTF8;
+//
+//  Result := AEncoding.GetString(AsBytes);
 
-  Result := AEncoding.GetString(AsBytes);
+  Result := TUtils.GetString(AsBytes, AEncoding);
 end;
 
 { THttpMultiPartFormData.TEnumerator }
@@ -1568,23 +1571,42 @@ function THttpMultiPartFormData.Decode(const ABuf: Pointer; ALen: Integer): Inte
       LContentDisposition := LFieldHeader['Content-Disposition'];
       if (LContentDisposition = '') then Exit;
 
+      AFormField.FContentType := LFieldHeader['Content-Type'];
+
       LMatch := TRegEx.Match(LContentDisposition, '\bname="(.*?)"(?=;|$)', [TRegExOption.roIgnoreCase]);
       if LMatch.Success then
         AFormField.FName := LMatch.Groups[1].Value;
 
-      LMatch := TRegEx.Match(LContentDisposition, '\bfilename="(.*?)"(?=;|$)', [TRegExOption.roIgnoreCase]);
-      if LMatch.Success then
+      // 使用 Content-Type 来判断是否需要按文件保存更为准确
+      // 前端通过流的方式提交, 可能不会传递 filename 属性,
+      // 这种情况收到的 AHeader 是这样的:
+      //   Content-Disposition: form-data; name="test_content"
+      //   Content-Type: application/octet-stream
+      // 这种数据也可以当成文件来储存, 随机给它分配一个文件名即可
+      // 而普通的文本数据是不会有 Content-Type 的：
+      //   Content-Disposition: form-data; name="test_text"
+      if (AFormField.FContentType <> '') then
       begin
-        AFormField.FFileName := LMatch.Groups[1].Value;
-        AFormField.FFilePath := TPath.Combine(FStoragePath,
-          __NewFileID + TPath.GetExtension(AFormField.FFileName));
-        if TFile.Exists(AFormField.FFilePath) then
-          TFile.Delete(AFormField.FFilePath);
-        AFormField.FValue := TFile.Open(AFormField.FFilePath, TFileMode.fmOpenOrCreate, TFileAccess.faReadWrite, TFileShare.fsRead);
+        LMatch := TRegEx.Match(LContentDisposition, '\bfilename="(.*?)"(?=;|$)', [TRegExOption.roIgnoreCase]);
+        // 带 filename 属性的头:
+        //   Content-Disposition: form-data; name="content"; filename="test.json"
+        //   Content-Type: application/json
+        if LMatch.Success then
+        begin
+          AFormField.FFileName := LMatch.Groups[1].Value;
+          AFormField.FFilePath := TPath.Combine(FStoragePath,
+            __NewFileID + TPath.GetExtension(AFormField.FFileName));
+        end else
+        begin
+          AFormField.FFileName := __NewFileID + '.bin';
+          AFormField.FFilePath := TPath.Combine(FStoragePath,
+            AFormField.FFileName);
+        end;
+
+        AFormField.FValue := TFile.Create(AFormField.FFilePath);
       end else
         AFormField.FValue := TBytesStream.Create(nil);
 
-      AFormField.FContentType := LFieldHeader['Content-Type'];
       AFormField.FContentTransferEncoding := LFieldHeader['Content-Transfer-Encoding'];
     finally
       FreeAndNil(LFieldHeader);
@@ -1855,7 +1877,7 @@ end;
 
 { TSessionBase }
 
-constructor TSessionBase.Create(const AOwner: ISessions; const ASessionID: string);
+constructor TSessionBase.Create(const AOwner: TSessionsBase; const ASessionID: string);
 var
   LNow: TDateTime;
 begin
@@ -1885,7 +1907,7 @@ end;
 
 { TSession }
 
-constructor TSession.Create(const AOwner: ISessions; const ASessionID: string);
+constructor TSession.Create(const AOwner: TSessionsBase; const ASessionID: string);
 begin
   FValues := TDictionary<string, string>.Create;
 

@@ -53,6 +53,7 @@ type
     FLUSH_INTERVAL = 200;
   private
     FFilters: TLogTypeSets;
+    FLogName: string;
 
     class var FLogger: ILogger;
     class constructor Create;
@@ -74,7 +75,7 @@ type
   protected
     procedure _AppendLogToBuffer(const S: string; ALogType: TLogType);
   public
-    constructor Create; virtual;
+    constructor Create(const ALogName: string = ''); virtual;
     destructor Destroy; override;
 
     function GetLogDir: string;
@@ -115,10 +116,13 @@ class destructor TLogger.Destroy;
 begin
 end;
 
-constructor TLogger.Create;
+constructor TLogger.Create(const ALogName: string);
 var
   I: TLogType;
 begin
+  FLogName := ALogName;
+  if (FLogName = '') then
+    FLogName := TUtils.AppName;
   FFilters := [ltNormal, ltWarning, ltError, ltException];
 
   for I := Low(TLogType) to High(TLogType) do
@@ -164,11 +168,13 @@ begin
   else
     Result :=
       {$IFDEF MSWINDOWS}
-      TUtils.AppPath +
+      TUtils.AppPath
       {$ELSE}
-      TUtils.AppDocuments +
-      {$ENDIF}
-      TUtils.AppName + '.log' + PathDelim;
+      TUtils.AppDocuments
+      {$ENDIF};
+
+  Result := Result +
+      FLogName + '.log' + PathDelim;
 end;
 
 function TLogger.GetLogFileName(ALogType: TLogType; ADate: TDateTime): string;
