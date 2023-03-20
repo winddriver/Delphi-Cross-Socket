@@ -699,7 +699,8 @@ begin
                 Inc(FWsHeaderSize, 8);
               if FWsMask then
                 Inc(FWsHeaderSize, 4);
-            end else
+            end;
+
             if (FWsFrameHeader.Size = FWsHeaderSize) then
             begin
               FWsFrameState := wsBody;

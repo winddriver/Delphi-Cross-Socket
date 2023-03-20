@@ -1953,30 +1953,33 @@ type
 
     {$region '压缩发送'}
     procedure SendZCompress(const AChunkSource: TCrossHttpChunkDataFunc; const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback = nil); overload;
-    procedure SendZCompress(const ABody; const ACount: NativeInt; const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure SendZCompress(const ABody: Pointer; const ACount: NativeInt; const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure SendZCompress(const ABody; const ACount: NativeInt; const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback = nil); overload; inline;
     procedure SendZCompress(const ABody: TBytes; const AOffset, ACount: NativeInt; const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback = nil); overload;
-    procedure SendZCompress(const ABody: TBytes; const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure SendZCompress(const ABody: TBytes; const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback = nil); overload; inline;
     procedure SendZCompress(const ABody: TStream; const AOffset, ACount: Int64; const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback = nil); overload;
-    procedure SendZCompress(const ABody: TStream; const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure SendZCompress(const ABody: TStream; const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback = nil); overload; inline;
     procedure SendZCompress(const ABody: string; const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback = nil); overload;
     {$endregion}
 
     {$region '不压缩发送'}
     procedure SendNoCompress(const AChunkSource: TCrossHttpChunkDataFunc; const ACallback: TCrossConnectionCallback = nil); overload;
-    procedure SendNoCompress(const ABody; const ACount: NativeInt; const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure SendNoCompress(const ABody: Pointer; const ACount: NativeInt; const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure SendNoCompress(const ABody; const ACount: NativeInt; const ACallback: TCrossConnectionCallback = nil); overload; inline;
     procedure SendNoCompress(const ABody: TBytes; const AOffset, ACount: NativeInt; const ACallback: TCrossConnectionCallback = nil); overload;
-    procedure SendNoCompress(const ABody: TBytes; const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure SendNoCompress(const ABody: TBytes; const ACallback: TCrossConnectionCallback = nil); overload; inline;
     procedure SendNoCompress(const ABody: TStream; const AOffset, ACount: Int64; const ACallback: TCrossConnectionCallback = nil); overload;
-    procedure SendNoCompress(const ABody: TStream; const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure SendNoCompress(const ABody: TStream; const ACallback: TCrossConnectionCallback = nil); overload; inline;
     procedure SendNoCompress(const ABody: string; const ACallback: TCrossConnectionCallback = nil); overload;
     {$endregion}
 
     {$region '常规方法'}
-    procedure Send(const ABody; const ACount: NativeInt; const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure Send(const ABody: Pointer; const ACount: NativeInt; const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure Send(const ABody; const ACount: NativeInt; const ACallback: TCrossConnectionCallback = nil); overload; inline;
     procedure Send(const ABody: TBytes; const AOffset, ACount: NativeInt; const ACallback: TCrossConnectionCallback = nil); overload;
-    procedure Send(const ABody: TBytes; const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure Send(const ABody: TBytes; const ACallback: TCrossConnectionCallback = nil); overload; inline;
     procedure Send(const ABody: TStream; const AOffset, ACount: Int64; const ACallback: TCrossConnectionCallback = nil); overload;
-    procedure Send(const ABody: TStream; const ACallback: TCrossConnectionCallback = nil); overload;
+    procedure Send(const ABody: TStream; const ACallback: TCrossConnectionCallback = nil); overload; inline;
     procedure Send(const ABody: string; const ACallback: TCrossConnectionCallback = nil); overload;
 
     procedure Json(const AJson: string; const ACallback: TCrossConnectionCallback = nil);
@@ -3945,7 +3948,7 @@ begin
     TNetEncoding.URL.Encode(TPath.GetFileName(AFileName)) + '"';
 end;
 
-procedure TCrossHttpResponse.Send(const ABody; const ACount: NativeInt;
+procedure TCrossHttpResponse.Send(const ABody: Pointer; const ACount: NativeInt;
   const ACallback: TCrossConnectionCallback);
 var
   LCompressType: TCompressType;
@@ -3954,6 +3957,12 @@ begin
     SendZCompress(ABody, ACount, LCompressType, ACallback)
   else
     SendNoCompress(ABody, ACount, ACallback);
+end;
+
+procedure TCrossHttpResponse.Send(const ABody; const ACount: NativeInt;
+  const ACallback: TCrossConnectionCallback);
+begin
+  Send(@ABody, ACount, ACallback);
 end;
 
 procedure TCrossHttpResponse.Send(const ABody: TBytes;
@@ -3969,7 +3978,7 @@ begin
   LCount := ACount;
   _AdjustOffsetCount(Length(ABody), LOffset, LCount);
 
-  Send(LBody[LOffset], LCount,
+  Send(Pointer(PByte(LBody) + LOffset), LCount,
     // CALLBACK
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
@@ -4258,16 +4267,16 @@ begin
   // 偏移为正数, 从头部开始计算偏移
   if (AOffset >= 0) then
   begin
-    AOffset := AOffset;
     if (AOffset >= ABodySize) then
       AOffset := ABodySize - 1;
   end else
   // 偏移为负数, 从尾部开始计算偏移
   begin
     AOffset := ABodySize + AOffset;
-    if (AOffset < 0) then
-      AOffset := 0;
   end;
+
+  if (AOffset < 0) then
+    AOffset := 0;
   {$endregion}
 
   {$region '修正 ACount'}
@@ -4287,16 +4296,16 @@ begin
   // 偏移为正数, 从头部开始计算偏移
   if (AOffset >= 0) then
   begin
-    AOffset := AOffset;
     if (AOffset >= ABodySize) then
       AOffset := ABodySize - 1;
   end else
   // 偏移为负数, 从尾部开始计算偏移
   begin
     AOffset := ABodySize + AOffset;
-    if (AOffset < 0) then
-      AOffset := 0;
   end;
+
+  if (AOffset < 0) then
+    AOffset := 0;
   {$endregion}
 
   {$region '修正 ACount'}
@@ -4466,14 +4475,14 @@ begin
     ACallback);
 end;
 
-procedure TCrossHttpResponse.SendNoCompress(const ABody; const ACount: NativeInt;
-  const ACallback: TCrossConnectionCallback);
+procedure TCrossHttpResponse.SendNoCompress(const ABody: Pointer;
+  const ACount: NativeInt; const ACallback: TCrossConnectionCallback);
 var
   P: PByte;
   LSize: NativeInt;
   LHeaderBytes: TBytes;
 begin
-  P := @ABody;
+  P := ABody;
   LSize := ACount;
 
   _Send(
@@ -4514,6 +4523,12 @@ begin
     end);
 end;
 
+procedure TCrossHttpResponse.SendNoCompress(const ABody; const ACount: NativeInt;
+  const ACallback: TCrossConnectionCallback);
+begin
+  SendNoCompress(@ABody, ACount, ACallback);
+end;
+
 procedure TCrossHttpResponse.SendNoCompress(const ABody: TBytes;
   const AOffset, ACount: NativeInt; const ACallback: TCrossConnectionCallback);
 var
@@ -4527,7 +4542,7 @@ begin
   LCount := ACount;
   _AdjustOffsetCount(Length(ABody), LOffset, LCount);
 
-  SendNoCompress(LBody[LOffset], LCount,
+  SendNoCompress(Pointer(PByte(LBody) + LOffset), LCount,
     // CALLBACK
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
@@ -4750,13 +4765,14 @@ begin
     end);
 end;
 
-procedure TCrossHttpResponse.SendZCompress(const ABody; const ACount: NativeInt;
-  const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback);
+procedure TCrossHttpResponse.SendZCompress(const ABody: Pointer;
+  const ACount: NativeInt; const ACompressType: TCompressType;
+  const ACallback: TCrossConnectionCallback);
 var
   P: PByte;
   LSize: NativeInt;
 begin
-  P := @ABody;
+  P := ABody;
   LSize := ACount;
 
   SendZCompress(
@@ -4781,6 +4797,12 @@ begin
     ACallback);
 end;
 
+procedure TCrossHttpResponse.SendZCompress(const ABody; const ACount: NativeInt;
+  const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback);
+begin
+  SendZCompress(@ABody, ACount, ACompressType, ACallback);
+end;
+
 procedure TCrossHttpResponse.SendZCompress(const ABody: TBytes;
   const AOffset, ACount: NativeInt; const ACompressType: TCompressType;
   const ACallback: TCrossConnectionCallback);
@@ -4795,7 +4817,7 @@ begin
   LCount := ACount;
   _AdjustOffsetCount(Length(ABody), LOffset, LCount);
 
-  SendZCompress(LBody[LOffset], LCount, ACompressType,
+  SendZCompress(Pointer(PByte(LBody) + LOffset), LCount, ACompressType,
     // CALLBACK
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
