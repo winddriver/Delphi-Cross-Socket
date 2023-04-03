@@ -31,7 +31,7 @@ type
     procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); override;
   public
-    constructor Create(const AOwner: ICrossSocket; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
       const AConnectType: TConnectType); override;
     destructor Destroy; override;
   end;
@@ -47,7 +47,7 @@ type
     procedure TriggerReceived(const AConnection: ICrossConnection;
       const ABuf: Pointer; const ALen: Integer); override;
 
-    function CreateConnection(const AOwner: ICrossSocket;
+    function CreateConnection(const AOwner: TCrossSocketBase;
       const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection; override;
   public
     constructor Create(const AIoThreads: Integer; const ASsl: Boolean); reintroduce; virtual;
@@ -63,7 +63,7 @@ type
     const AIoThreads: Integer);
 
   TCrossConnectionCreate = procedure(Self: Pointer; Alloc: Boolean;
-    const AOwner: ICrossSocket; const AClientSocket: THandle;
+    const AOwner: TCrossSocketBase; const AClientSocket: THandle;
     const AConnectType: TConnectType);
 
   TDestroy = procedure(Self: Pointer; Free: Boolean);
@@ -78,7 +78,7 @@ type
 
 { TCrossServerConnection }
 
-constructor TCrossServerConnection.Create(const AOwner: ICrossSocket;
+constructor TCrossServerConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: THandle; const AConnectType: TConnectType);
 begin
   if (AOwner as TCrossServer).FSsl then
@@ -125,7 +125,7 @@ begin
     TDestroy(@TCrossSocket.Destroy)(Self, False);
 end;
 
-function TCrossServer.CreateConnection(const AOwner: ICrossSocket;
+function TCrossServer.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
 begin
   Result := TCrossServerConnection.Create(AOwner, AClientSocket, AConnectType);

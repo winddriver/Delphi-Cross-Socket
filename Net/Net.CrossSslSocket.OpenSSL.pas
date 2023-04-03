@@ -53,7 +53,7 @@ type
     procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); override;
   public
-    constructor Create(const AOwner: ICrossSocket; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
       const AConnectType: TConnectType); override;
     destructor Destroy; override;
   end;
@@ -75,7 +75,7 @@ type
     procedure TriggerConnected(const AConnection: ICrossConnection); override;
     procedure TriggerReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
 
-    function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
       const AConnectType: TConnectType): ICrossConnection; override;
   public
     constructor Create(const AIoThreads: Integer); override;
@@ -94,7 +94,7 @@ implementation
 
 { TCrossOpenSslConnection }
 
-constructor TCrossOpenSslConnection.Create(const AOwner: ICrossSocket;
+constructor TCrossOpenSslConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: THandle; const AConnectType: TConnectType);
 begin
   inherited;
@@ -306,7 +306,7 @@ begin
   TSSLTools.UnloadSSL;
 end;
 
-function TCrossOpenSslSocket.CreateConnection(const AOwner: ICrossSocket;
+function TCrossOpenSslSocket.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
 begin
   Result := TCrossOpenSslConnection.Create(AOwner, AClientSocket, AConnectType);
