@@ -3807,7 +3807,7 @@ begin
   end else
   begin
     FHostName := FRequestHost;
-    FHostPort := TCrossHttpServer(FConnection.Owner).Port;
+    FHostPort := GetConnection.Server.Port;
   end;
 
   FRequestConnection := FHeader['Connection'];
@@ -4325,7 +4325,7 @@ var
   LServer: ICrossHttpServer;
 begin
   LContType := GetContentType;
-  LServer := FConnection.Server;
+  LServer := GetConnection.Server;
 
   if Assigned(LServer)
     and LServer.Compressible
@@ -4392,12 +4392,14 @@ end;
 procedure TCrossHttpResponse._Send(const ASource: TCrossHttpChunkDataFunc;
   const ACallback: TCrossConnectionCallback);
 var
+  LHttpConnection: ICrossHttpConnection;
   LSender: TCrossConnectionCallback;
   LKeepAlive: Boolean;
   LStatusCode: Integer;
 begin
   AtomicIncrement(FSendStatus);
 
+  LHttpConnection := GetConnection;
   LKeepAlive := FRequest.KeepAlive;
   LStatusCode := FStatusCode;
 
@@ -4410,13 +4412,13 @@ begin
       if not ASuccess then
       begin
         if Assigned(ACallback) then
-          ACallback(AConnection, False);
+          ACallback(LHttpConnection, False);
 
-        if Assigned(FConnection)
-          and Assigned(FConnection.Server) then
-          TCrossHttpServer(FConnection.Server).DoOnRequestEnd(FConnection, False);
+        if Assigned(LHttpConnection)
+          and Assigned(LHttpConnection.Server) then
+          TCrossHttpServer(LHttpConnection.Server).DoOnRequestEnd(LHttpConnection, False);
 
-        AConnection.Close;
+        LHttpConnection.Close;
 
         LSender := nil;
 
@@ -4431,25 +4433,25 @@ begin
         or (LCount <= 0) then
       begin
         if Assigned(ACallback) then
-          ACallback(AConnection, True);
+          ACallback(LHttpConnection, True);
 
-        if Assigned(FConnection)
-          and Assigned(FConnection.Server) then
-          TCrossHttpServer(FConnection.Server).DoOnRequestEnd(FConnection, True);
+        if Assigned(LHttpConnection)
+          and Assigned(LHttpConnection.Server) then
+          TCrossHttpServer(LHttpConnection.Server).DoOnRequestEnd(LHttpConnection, True);
 
         if not LKeepAlive
           or (LStatusCode >= 400{如果发送的是出错状态码, 则发送完成之后断开连接}) then
-          AConnection.Disconnect;
+          LHttpConnection.Disconnect;
 
         LSender := nil;
 
         Exit;
       end;
 
-      AConnection.SendBuf(LData^, LCount, LSender);
+      LHttpConnection.SendBuf(LData^, LCount, LSender);
     end;
 
-  LSender(FConnection, True);
+  LSender(LHttpConnection, True);
 end;
 
 procedure TCrossHttpResponse._Send(const AHeaderSource,
@@ -4683,7 +4685,7 @@ begin
     Z_DEFLATED, WINDOW_BITS[ACompressType], 8, Z_DEFAULT_STRATEGY) <> Z_OK) then
   begin
     if Assigned(ACallback) then
-      ACallback(FConnection, False);
+      ACallback(GetConnection, False);
     Exit;
   end;
 

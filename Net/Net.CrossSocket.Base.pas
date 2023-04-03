@@ -1534,7 +1534,7 @@ begin
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
       if ASuccess then
-        (FOwner as TCrossSocketBase).TriggerSent(AConnection, LBuffer, ACount);
+        FOwner.TriggerSent(AConnection, LBuffer, ACount);
 
       if Assigned(ACallback) then
         ACallback(AConnection, ASuccess);
