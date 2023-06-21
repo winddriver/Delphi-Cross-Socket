@@ -116,6 +116,8 @@ type
       const AEncoding: TEncoding = nil): string; overload; static;
     class function GetString(const AStrBytes: TBytes;
       const AEncoding: TEncoding = nil): string; overload; static;
+    class function GetString(const AStrStream: TStream;
+      const AEncoding: TEncoding = nil): string; overload; static;
 
     class function ArrayOfToTArray<T>(const AValues: array of T): TArray<T>; static;
     class function IIF<T>(const ATrueFalse: Boolean; const ATrueValue, AFalseValue: T): T; static;
@@ -305,7 +307,10 @@ end;
 class function TUtils.GetString(const AStrBytes: TBytes; AIndex,
   ACount: Integer; const AEncoding: TEncoding): string;
 begin
-  Result := GetString(PByte(@AStrBytes[AIndex]), ACount);
+  if (AStrBytes = nil) or (ACount <= 0) then
+    Result := ''
+  else
+    Result := GetString(PByte(AStrBytes) + AIndex, ACount);
 end;
 
 class function TUtils.GetString(const AStrBytes: TBytes;
@@ -919,6 +924,20 @@ begin
       Dec(I);
     Result := S.SubString(0, I + 1);
   end;
+end;
+
+class function TUtils.GetString(const AStrStream: TStream;
+  const AEncoding: TEncoding): string;
+var
+  LBuf: TBytes;
+  LBufSize: Integer;
+begin
+  AStrStream.Position := 0;
+  LBufSize := AStrStream.Size;
+  SetLength(LBuf, LBufSize);
+  AStrStream.ReadBuffer(LBuf, LBufSize);
+
+  Result := GetString(LBuf);
 end;
 
 { TEncodingHelper }

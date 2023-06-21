@@ -29,7 +29,7 @@ type
     procedure SetPort(const Value: Word);
     procedure SetActive(const Value: Boolean);
 
-    procedure Start(const ACallback: TProc<Boolean> = nil);
+    procedure Start(const ACallback: TCrossListenCallback = nil);
     procedure Stop;
 
     property Addr: string read GetAddr write SetAddr;
@@ -54,7 +54,7 @@ type
   public
     constructor Create(const AIoThreads: Integer); override;
 
-    procedure Start(const ACallback: TProc<Boolean> = nil);
+    procedure Start(const ACallback: TCrossListenCallback = nil);
     procedure Stop;
 
     property Addr: string read GetAddr write SetAddr;
@@ -104,12 +104,23 @@ begin
   FPort := Value;
 end;
 
-procedure TCrossSslServer.Start(const ACallback: TProc<Boolean>);
+procedure TCrossSslServer.Start(const ACallback: TCrossListenCallback);
+var
+  LListenArr: TArray<ICrossListen>;
+  LListen: ICrossListen;
 begin
-  if (AtomicExchange(FStarted, 1) = 1) then
+  if (AtomicCmpExchange(FStarted, 0, 0) = 1) then
   begin
     if Assigned(ACallback) then
-      ACallback(False);
+    begin
+      LListenArr := LockListens.Values.ToArray;
+      try
+        for LListen in LListenArr do
+          ACallback(LListen, True);
+      finally
+        UnlockListens;
+      end;
+    end;
 
     Exit;
   end;
@@ -119,8 +130,8 @@ begin
   Listen(FAddr, FPort,
     procedure(const AListen: ICrossListen; const ASuccess: Boolean)
     begin
-      if not ASuccess then
-        AtomicExchange(FStarted, 0);
+      if ASuccess then
+        AtomicExchange(FStarted, 1);
 
       // 如果是监听的随机端口
       // 则在监听成功之后将实际的端口取出来
@@ -128,7 +139,7 @@ begin
         FPort := AListen.LocalPort;
 
       if Assigned(ACallback) then
-        ACallback(ASuccess);
+        ACallback(AListen, ASuccess);
     end);
 end;
 

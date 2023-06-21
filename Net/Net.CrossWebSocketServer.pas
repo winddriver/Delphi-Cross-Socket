@@ -78,6 +78,8 @@ type
   TWsOnMessage = reference to procedure(const AConnection: ICrossWebSocketConnection;
     const ARequestType: TWsRequestType; const ARequestData: TBytes);
   TWsOnClose = TWsOnOpen;
+  TWsOnPing = TWsOnOpen;
+  TWsOnPong = TWsOnOpen;
 
   /// <summary>
   ///   WebSocket连接接口
@@ -93,6 +95,11 @@ type
     ///   发送关闭握手
     /// </summary>
     procedure WsClose;
+
+    /// <summary>
+    ///   发送 Ping 包
+    /// </summary>
+    procedure WsPing;
 
     /// <summary>
     ///   发送无类型数据
@@ -238,6 +245,22 @@ type
     ///   hui'diaohanshu
     /// </param>
     function OnClose(const ACallback: TWsOnClose): ICrossWebSocketServer;
+
+    /// <summary>
+    ///   收到 Ping 包时触发
+    /// </summary>
+    /// <param name="ACallback">
+    ///   hui'diaohanshu
+    /// </param>
+    function OnPing(const ACallback: TWsOnPing): ICrossWebSocketServer;
+
+    /// <summary>
+    ///   收到 Pong 包时触发
+    /// </summary>
+    /// <param name="ACallback">
+    ///   hui'diaohanshu
+    /// </param>
+    function OnPong(const ACallback: TWsOnPong): ICrossWebSocketServer;
   end;
 
   TCrossWebSocketConnection = class(TCrossHttpConnection, ICrossWebSocketConnection)
@@ -291,6 +314,7 @@ type
 
     function IsWebSocket: Boolean;
     procedure WsClose;
+    procedure WsPing;
 
     procedure WsSend(const AData; const ACount: NativeInt; const ACallback: TCrossWsCallback = nil); overload;
     procedure WsSend(const AData: TBytes; const AOffset, ACount: NativeInt; const ACallback: TCrossWsCallback = nil); overload;
@@ -307,6 +331,8 @@ type
     FOnOpenEvents: TList<TWsOnOpen>;
     FOnMessageEvents: TList<TWsOnMessage>;
     FOnCloseEvents: TList<TWsOnClose>;
+    FOnPingEvents: TList<TWsOnPing>;
+    FOnPongEvents: TList<TWsOnPong>;
 
     procedure _WebSocketHandshake(const AConnection: ICrossWebSocketConnection;
       const ACallback: TCrossWsCallback);
@@ -315,6 +341,9 @@ type
     procedure _OnMessage(const AConnection: ICrossWebSocketConnection;
       const ARequestType: TWsRequestType; const ARequestData: TBytes);
     procedure _OnClose(const AConnection: ICrossWebSocketConnection);
+
+    procedure _OnPing(const AConnection: ICrossWebSocketConnection);
+    procedure _OnPong(const AConnection: ICrossWebSocketConnection);
   protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
       const AConnectType: TConnectType): ICrossConnection; override;
@@ -332,6 +361,9 @@ type
     function OnOpen(const ACallback: TWsOnOpen): ICrossWebSocketServer;
     function OnMessage(const ACallback: TWsOnMessage): ICrossWebSocketServer;
     function OnClose(const ACallback: TWsOnClose): ICrossWebSocketServer;
+
+    function OnPing(const ACallback: TWsOnPing): ICrossWebSocketServer;
+    function OnPong(const ACallback: TWsOnPong): ICrossWebSocketServer;
   end;
 
 implementation
@@ -517,6 +549,11 @@ begin
   _WsSend(WS_OP_CLOSE, True, nil, 0);
 end;
 
+procedure TCrossWebSocketConnection.WsPing;
+begin
+  _WsSend(WS_OP_PING, True, nil, 0);
+end;
+
 procedure TCrossWebSocketConnection._ResetRequest;
 begin
   FWsFrameState := wsHeader;
@@ -657,10 +694,15 @@ end;
 procedure TCrossWebSocketConnection._WebSocketRecv(ABuf: Pointer;
   ALen: Integer);
 var
+  LWsServer: TNetCrossWebSocketServer;
+  LConnection: ICrossWebSocketConnection;
   PBuf: PByte;
   LByte: Byte;
   LReqData: TBytes;
 begin
+  LConnection := Self;
+  LWsServer := Owner as TNetCrossWebSocketServer;
+
   PBuf := ABuf;
   while (ALen > 0) do
   begin
@@ -785,10 +827,18 @@ begin
 
         WS_OP_PING:
           begin
+            LWsServer._OnPing(LConnection);
+
+            // 收到 ping 帧后立即发回 pong 帧
             // pong 帧必须将 ping 帧发来的数据原封不动地返回
             LReqData := FWsRequestBody.Bytes;
             SetLength(LReqData, FWsRequestBody.Size);
             _RespondPong(LReqData);
+          end;
+
+        WS_OP_PONG:
+          begin
+            LWsServer._OnPong(LConnection);
           end;
 
         WS_OP_TEXT, WS_OP_BINARY:
@@ -893,6 +943,9 @@ begin
   FOnOpenEvents := TList<TWsOnOpen>.Create;
   FOnMessageEvents := TList<TWsOnMessage>.Create;
   FOnCloseEvents := TList<TWsOnClose>.Create;
+
+  FOnPingEvents := TList<TWsOnPing>.Create;
+  FOnPongEvents := TList<TWsOnPong>.Create;
 end;
 
 destructor TNetCrossWebSocketServer.Destroy;
@@ -900,6 +953,9 @@ begin
   FreeAndNil(FOnOpenEvents);
   FreeAndNil(FOnMessageEvents);
   FreeAndNil(FOnCloseEvents);
+
+  FreeAndNil(FOnPingEvents);
+  FreeAndNil(FOnPongEvents);
 
   inherited;
 end;
@@ -959,6 +1015,32 @@ begin
     FOnOpenEvents.Add(ACallback);
   finally
     System.TMonitor.Exit(FOnOpenEvents);
+  end;
+
+  Result := Self;
+end;
+
+function TNetCrossWebSocketServer.OnPing(
+  const ACallback: TWsOnPing): ICrossWebSocketServer;
+begin
+  System.TMonitor.Enter(FOnPingEvents);
+  try
+    FOnPingEvents.Add(ACallback);
+  finally
+    System.TMonitor.Exit(FOnPingEvents);
+  end;
+
+  Result := Self;
+end;
+
+function TNetCrossWebSocketServer.OnPong(
+  const ACallback: TWsOnPong): ICrossWebSocketServer;
+begin
+  System.TMonitor.Enter(FOnPongEvents);
+  try
+    FOnPongEvents.Add(ACallback);
+  finally
+    System.TMonitor.Exit(FOnPongEvents);
   end;
 
   Result := Self;
@@ -1024,6 +1106,42 @@ begin
   for LOnOpenEvent in LOnOpenEvents do
     if Assigned(LOnOpenEvent) then
       LOnOpenEvent(AConnection);
+end;
+
+procedure TNetCrossWebSocketServer._OnPing(
+  const AConnection: ICrossWebSocketConnection);
+var
+  LOnPingEvents: TArray<TWsOnPing>;
+  LOnPingEvent: TWsOnClose;
+begin
+  System.TMonitor.Enter(FOnPingEvents);
+  try
+    LOnPingEvents := FOnPingEvents.ToArray;
+  finally
+    System.TMonitor.Exit(FOnPingEvents);
+  end;
+
+  for LOnPingEvent in LOnPingEvents do
+    if Assigned(LOnPingEvent) then
+      LOnPingEvent(AConnection);
+end;
+
+procedure TNetCrossWebSocketServer._OnPong(
+  const AConnection: ICrossWebSocketConnection);
+var
+  LOnPongEvents: TArray<TWsOnPing>;
+  LOnPongEvent: TWsOnClose;
+begin
+  System.TMonitor.Enter(FOnPongEvents);
+  try
+    LOnPongEvents := FOnPongEvents.ToArray;
+  finally
+    System.TMonitor.Exit(FOnPongEvents);
+  end;
+
+  for LOnPongEvent in LOnPongEvents do
+    if Assigned(LOnPongEvent) then
+      LOnPongEvent(AConnection);
 end;
 
 procedure TNetCrossWebSocketServer._WebSocketHandshake(

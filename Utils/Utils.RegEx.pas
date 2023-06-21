@@ -34,10 +34,10 @@ type
   end;
 
   TRegExHelper = record helper for TRegEx
-    function Replace(const Input: string; Evaluator: TMatchEvaluatorProc): string; overload;
-    function Replace(const Input: string; Evaluator: TMatchEvaluatorProc; Count: Integer): string; overload;
-    class function Replace(const Input, Pattern: string; Evaluator: TMatchEvaluatorProc): string; overload; static;
-    class function Replace(const Input, Pattern: string; Evaluator: TMatchEvaluatorProc; Options: TRegExOptions): string; overload; static;
+    function Replace(const AInput: string; AEvaluator: TMatchEvaluatorProc): string; overload;
+    function Replace(const AInput: string; AEvaluator: TMatchEvaluatorProc; ACount: Integer): string; overload;
+    class function Replace(const AInput, APattern: string; AEvaluator: TMatchEvaluatorProc): string; overload; static;
+    class function Replace(const AInput, APattern: string; AEvaluator: TMatchEvaluatorProc; AOptions: TRegExOptions): string; overload; static;
   end;
 
 implementation
@@ -62,40 +62,40 @@ end;
 
 { TRegExHelper }
 
-function TRegExHelper.Replace(const Input: string;
-  Evaluator: TMatchEvaluatorProc; Count: Integer): string;
+function TRegExHelper.Replace(const AInput: string;
+  AEvaluator: TMatchEvaluatorProc; ACount: Integer): string;
 var
   LScopeEvaluator: IScopeEvaluator;
 begin
-  LScopeEvaluator := TScopeEvaluator.Create(Evaluator);
-  Result := Self.Replace(Input, LScopeEvaluator.MatchEvaluator, Count);
+  LScopeEvaluator := TScopeEvaluator.Create(AEvaluator);
+  Result := Self.Replace(AInput, LScopeEvaluator.MatchEvaluator, ACount);
 end;
 
-function TRegExHelper.Replace(const Input: string;
-  Evaluator: TMatchEvaluatorProc): string;
+function TRegExHelper.Replace(const AInput: string;
+  AEvaluator: TMatchEvaluatorProc): string;
 var
   LScopeEvaluator: IScopeEvaluator;
 begin
-  LScopeEvaluator := TScopeEvaluator.Create(Evaluator);
-  Result := Self.Replace(Input, LScopeEvaluator.MatchEvaluator);
+  LScopeEvaluator := TScopeEvaluator.Create(AEvaluator);
+  Result := Self.Replace(AInput, LScopeEvaluator.MatchEvaluator);
 end;
 
-class function TRegExHelper.Replace(const Input, Pattern: string;
-  Evaluator: TMatchEvaluatorProc; Options: TRegExOptions): string;
+class function TRegExHelper.Replace(const AInput, APattern: string;
+  AEvaluator: TMatchEvaluatorProc; AOptions: TRegExOptions): string;
 var
   LScopeEvaluator: IScopeEvaluator;
 begin
-  LScopeEvaluator := TScopeEvaluator.Create(Evaluator);
-  Result := Replace(Input, Pattern, LScopeEvaluator.MatchEvaluator, Options);
+  LScopeEvaluator := TScopeEvaluator.Create(AEvaluator);
+  Result := Replace(AInput, APattern, LScopeEvaluator.MatchEvaluator, AOptions);
 end;
 
-class function TRegExHelper.Replace(const Input, Pattern: string;
-  Evaluator: TMatchEvaluatorProc): string;
+class function TRegExHelper.Replace(const AInput, APattern: string;
+  AEvaluator: TMatchEvaluatorProc): string;
 var
   LScopeEvaluator: IScopeEvaluator;
 begin
-  LScopeEvaluator := TScopeEvaluator.Create(Evaluator);
-  Result := Replace(Input, Pattern, LScopeEvaluator.MatchEvaluator);
+  LScopeEvaluator := TScopeEvaluator.Create(AEvaluator);
+  Result := Replace(AInput, APattern, LScopeEvaluator.MatchEvaluator);
 end;
 
 end.

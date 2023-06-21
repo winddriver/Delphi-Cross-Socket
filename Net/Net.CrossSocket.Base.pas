@@ -98,8 +98,8 @@ type
     /// </summary>
     csClosed);
 
-  TCrossListenCallback = reference to procedure(const AListen: ICrossListen; const AResult: Boolean);
-  TCrossConnectionCallback = reference to procedure(const AConnection: ICrossConnection; const AResult: Boolean);
+  TCrossListenCallback = reference to procedure(const AListen: ICrossListen; const ASuccess: Boolean);
+  TCrossConnectionCallback = reference to procedure(const AConnection: ICrossConnection; const ASuccess: Boolean);
 
   /// <summary>
   ///   基础数据接口
@@ -112,10 +112,12 @@ type
     function GetLocalAddr: string;
     function GetLocalPort: Word;
     function GetIsClosed: Boolean;
+    function GetTag: string;
     function GetUserData: Pointer;
     function GetUserObject: TObject;
     function GetUserInterface: IInterface;
 
+    procedure SetTag(const AValue: string);
     procedure SetUserData(const AValue: Pointer);
     procedure SetUserObject(const AValue: TObject);
     procedure SetUserInterface(const AValue: IInterface);
@@ -162,6 +164,11 @@ type
     ///   是否已关闭
     /// </summary>
     property IsClosed: Boolean read GetIsClosed;
+
+    /// <summary>
+    ///   连接标签
+    /// </summary>
+    property Tag: string read GetTag write SetTag;
 
     /// <summary>
     ///   用户数据(可以用于存储用户自定义的数据结构)
@@ -620,6 +627,7 @@ type
     FSocket: THandle;
     FLocalAddr: string;
     FLocalPort: Word;
+    FTag: string;
     FUserData: Pointer;
     FUserObject: TObject;
     FUserInterface: IInterface;
@@ -631,10 +639,12 @@ type
     function GetLocalAddr: string;
     function GetLocalPort: Word;
     function GetIsClosed: Boolean; virtual; abstract;
+    function GetTag: string;
     function GetUserData: Pointer;
     function GetUserObject: TObject;
     function GetUserInterface: IInterface;
 
+    procedure SetTag(const AValue: string);
     procedure SetUserData(const AValue: Pointer);
     procedure SetUserObject(const AValue: TObject);
     procedure SetUserInterface(const AValue: IInterface);
@@ -1385,6 +1395,11 @@ begin
   Result := FSocket;
 end;
 
+function TCrossData.GetTag: string;
+begin
+  Result := FTag;
+end;
+
 function TCrossData.GetUID: UInt64;
 begin
   Result := FUID;
@@ -1408,6 +1423,11 @@ end;
 function TCrossData.GetUserObject: TObject;
 begin
   Result := FUserObject;
+end;
+
+procedure TCrossData.SetTag(const AValue: string);
+begin
+  FTag := AValue;
 end;
 
 procedure TCrossData.SetUserData(const AValue: Pointer);
