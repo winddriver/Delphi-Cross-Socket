@@ -8,20 +8,43 @@
       <Unit>
         <Filename Value="HttpClient.lpr"/>
         <IsPartOfProject Value="True"/>
-        <IsVisibleTab Value="True"/>
-        <CursorPos X="20" Y="19"/>
+        <CursorPos X="47" Y="15"/>
         <UsageCount Value="20"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="D:\Design\FreePascal\lazarus\components\lazutils\lazutf8.pas"/>
         <UnitName Value="LazUTF8"/>
+        <EditorIndex Value="4"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <IsVisibleTab Value="True"/>
         <EditorIndex Value="1"/>
+        <TopLine Value="1000"/>
+        <CursorPos X="69" Y="1027"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="D:\Design\FreePascal.Beta\fpcsrc\rtl\inc\dynlibh.inc"/>
+        <EditorIndex Value="2"/>
+        <TopLine Value="13"/>
+        <CursorPos X="10" Y="62"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="D:\Design\FreePascal.Beta\fpcsrc\rtl\win\sysdlh.inc"/>
+        <EditorIndex Value="3"/>
+        <CursorPos X="3" Y="17"/>
         <UsageCount Value="10"/>
         <Loaded Value="True"/>
       </Unit>
     </Units>
-    <JumpHistory HistoryIndex="5">
+    <JumpHistory HistoryIndex="21">
       <Position>
         <Filename Value="HttpClient.lpr"/>
         <Caret Line="23" Column="28"/>
@@ -45,6 +68,70 @@
       <Position>
         <Filename Value="HttpClient.lpr"/>
         <Caret Line="9" Column="7"/>
+      </Position>
+      <Position>
+        <Filename Value="HttpClient.lpr"/>
+        <Caret Line="19" Column="20"/>
+      </Position>
+      <Position>
+        <Filename Value="HttpClient.lpr"/>
+        <Caret Line="15" Column="47"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <Caret Line="1022" Column="105" TopLine="1000"/>
+      </Position>
+      <Position>
+        <Filename Value="D:\Design\FreePascal.Beta\fpcsrc\rtl\inc\dynlibh.inc"/>
+        <Caret Line="62" Column="10" TopLine="13"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <Caret Line="1026" Column="23" TopLine="1000"/>
+      </Position>
+      <Position>
+        <Filename Value="D:\Design\FreePascal.Beta\fpcsrc\rtl\inc\dynlibh.inc"/>
+        <Caret Line="62" Column="53" TopLine="13"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <Caret Line="1027" Column="41" TopLine="1000"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <Caret TopLine="16"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <Caret Line="1027" Column="42" TopLine="1000"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <Caret Line="563" Column="23" TopLine="534"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <Caret Line="1017" Column="3" TopLine="1015"/>
+      </Position>
+      <Position>
+        <Filename Value="D:\Design\FreePascal.Beta\fpcsrc\rtl\inc\dynlibh.inc"/>
+        <Caret Line="62" Column="10" TopLine="13"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <Caret Line="1027" Column="63" TopLine="1000"/>
+      </Position>
+      <Position>
+        <Filename Value="D:\Design\FreePascal.Beta\fpcsrc\rtl\inc\dynlibh.inc"/>
+        <Caret Line="62" Column="10" TopLine="13"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <Caret Line="1027" Column="63" TopLine="1000"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <Caret Line="547" Column="24" TopLine="566"/>
       </Position>
     </JumpHistory>
     <RunParams>

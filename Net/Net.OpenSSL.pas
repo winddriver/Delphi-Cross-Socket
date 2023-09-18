@@ -1024,7 +1024,7 @@ begin
   {$IFDEF DELPHI}
   Result := GetProcAddress(ALibHandle, PChar(AProcName));
   {$ELSE}
-  Result := GetProcAddress(ALibHandle, AnsiString(AProcName));
+  Result := GetProcedureAddress(ALibHandle, AnsiString(AProcName));
   {$ENDIF}
 
   if (Result = nil) then
