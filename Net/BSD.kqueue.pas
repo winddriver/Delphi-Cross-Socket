@@ -1,4 +1,4 @@
-{******************************************************************************}
+﻿{******************************************************************************}
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
@@ -9,10 +9,19 @@
 {******************************************************************************}
 unit BSD.kqueue;
 
+{$I zLib.inc}
+
 interface
 
 uses
-  Posix.Base, Posix.Time;
+  {$IFDEF DELPHI}
+  Posix.Base,
+  Posix.Time
+  {$ELSE}
+  BaseUnix,
+  Unix
+  {$ENDIF}
+  ;
 
 const
   EVFILT_READ     = -1;
@@ -84,14 +93,16 @@ type
     uData  : Pointer;    { opaque user data identifier }
   end;
 
+{$IF DEFINED(FPC)}
+{$LINKLIB c}
+{$ENDIF}
+
 function kqueue: Integer; cdecl;
-  external libc name _PU + 'kqueue';
-  {$EXTERNALSYM kqueue}
+  external {$IFDEF DELPHI}libc name _PU + 'kqueue'{$ENDIF};
 
 function kevent(kq: Integer; ChangeList: PKEvent; nChanged: Integer;
   EventList: PKevent; nEvents: Integer; Timeout: PTimeSpec): Integer; cdecl;
-  external libc name _PU + 'kevent';
-  {$EXTERNALSYM kevent}
+  external {$IFDEF DELPHI}libc name _PU + 'kevent'{$ENDIF};
 
 procedure EV_SET(kevp: PKEvent; const aIdent: UIntPtr; const aFilter: SmallInt;
   const aFlags: Word; const aFFlags: Cardinal; const aData: IntPtr;

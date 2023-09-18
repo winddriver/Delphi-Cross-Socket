@@ -1,5 +1,7 @@
 // General
 
+{$I zLib.inc}
+
 // Make this $DEFINE to use the 16 color icons required by Borland
 // or DEFINE to use the 256 color Indy versions
 {.$DEFINE Borland}
@@ -209,6 +211,7 @@
 {$ENDIF}
 
 //Delphi & CBuilder XE3 & Above
+{$IFNDEF FPC}
 {$if COMPILERVERSION >= 24}
   // DCC is now defined by the compiler
   {$DEFINE VCL_XE2}
@@ -218,6 +221,7 @@
     {$DEFINE DELPHI_XE2}
   {$ENDIF}
 {$ifend}
+{$ENDIF}
 
 // Delphi.NET
 // Covers D8+
@@ -287,7 +291,6 @@
 // FPC (2+)
 
 {$IFDEF FPC}
-  {$MODE Delphi}
   //note that we may need further defines for widget types depending on
   //what we do and what platforms we support in FPC.
   //I'll let Marco think about that one.

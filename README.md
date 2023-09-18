@@ -21,6 +21,14 @@
 
 ## 更新记录
 
+#### 2023.09.18
+- 支持 FPC 3.3.1
+- 支持 OpenSSL 3.x
+- 新增 HTTP 客户端 ICrossHttpClient
+- 新增 WebSocket 客户端 ICrossWebSocket
+- 部分代码重构
+- 一些小问题修正
+
 #### 2020.07.07
 - ICrossHttpServer 及 ICrossWebSocketServer 同时支持 http 和 https
   > 感谢 xlnron 的帮助
@@ -79,11 +87,33 @@
 ## 建议开发环境
 - 要发挥跨平台的完整功能请使用Delphi 10.2 Tokyo及以上的版本
 - 最低要求支持泛型和匿名函数的Delphi版本, 具体是从哪个版本开始支持泛型和匿名函数的我也不是太清楚
-
-## 已知问题
-- 非Windows平台下的SSL不稳定, 请勿用于生产环境
+- FPC 最好使用3.3.1及以上版本
 
 ## 部分测试截图
+
+- **HTTP Server**(Linux-aarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/14bc8b38-3ea3-4ae1-b781-488940024380)
+
+- **HTTP Server**(Linux-loongarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/048a6df0-3e97-4fc4-9cf8-7e48438e1ffa)
+
+- **HTTP Client**(Linux-aarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/5a4e0fca-0e12-4cfa-887c-9e0f20d03b7b)
+
+- **HTTP Client**(Linux-loongarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/93f0f78d-109f-4ec5-9acd-82168772a510)
+
+- **WebSocket Server**(Linux-aarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/30b835eb-eaa9-4c1e-8cc4-14bb165709ca)
+
+- **WebSocket Server**(Linux-loongarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/671942ef-9946-4609-a06d-2f6249b08ac4)
+
+- **WebSocket Client**(Linux-aarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/e3d2ddf9-e281-4471-b0df-7785a8a4c220)
+
+- **WebSocket Client**(Linux-loongarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/3d01e561-d682-4195-91e0-3758fac44467)
 
 - **HTTP**(服务端为ubuntu 16.04 desktop)
 ![20170607110011](https://user-images.githubusercontent.com/3221597/26860614-61b750b4-4b71-11e7-8afc-74c3ebf16f7e.png)

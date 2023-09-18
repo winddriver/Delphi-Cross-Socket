@@ -5,7 +5,7 @@ rem 第二步 生成 CA 证书
 cd "%~DP0"
 mkdir keys
 
-set OPENSSL_CONF=%~DP0openssl.cfg
+rem set OPENSSL_CONF=%~DP0openssl.cfg
 
 rem 生成 CA 私钥
 openssl genrsa -out keys\ca.key 2048

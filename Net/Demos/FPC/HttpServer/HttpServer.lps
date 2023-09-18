@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectSession>
+    <PathDelim Value="\"/>
+    <Version Value="12"/>
+    <BuildModes Active="Windows-X64"/>
+    <Units>
+      <Unit>
+        <Filename Value="HttpServer.lpr"/>
+        <IsPartOfProject Value="True"/>
+        <IsVisibleTab Value="True"/>
+        <CursorPos X="54" Y="11"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.CrossWebSocketServer.pas"/>
+        <EditorIndex Value="1"/>
+        <TopLine Value="211"/>
+        <CursorPos X="20" Y="231"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+    </Units>
+    <JumpHistory HistoryIndex="5">
+      <Position>
+        <Filename Value="..\..\..\Net.CrossWebSocketServer.pas"/>
+        <Caret Line="983" Column="62" TopLine="954"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossWebSocketServer.pas"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossWebSocketServer.pas"/>
+        <Caret Line="255" Column="53" TopLine="211"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossWebSocketServer.pas"/>
+      </Position>
+      <Position>
+        <Filename Value="HttpServer.lpr"/>
+        <Caret Line="27" Column="29"/>
+      </Position>
+      <Position>
+        <Filename Value="HttpServer.lpr"/>
+        <Caret Line="40" Column="27" TopLine="4"/>
+      </Position>
+    </JumpHistory>
+    <RunParams>
+      <FormatVersion Value="2"/>
+      <Modes ActiveMode=""/>
+    </RunParams>
+  </ProjectSession>
+</CONFIG>

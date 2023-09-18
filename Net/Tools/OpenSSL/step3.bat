@@ -5,7 +5,7 @@ rem 第三步 生成服务器端证书和客户端证书
 cd "%~DP0"
 mkdir keys
 
-set OPENSSL_CONF=%~DP0openssl.cfg
+rem set OPENSSL_CONF=%~DP0openssl.cfg
 
 rem 服务器端需要向 CA 机构申请签名证书，在申请签名证书之前依然是创建自己的 CSR 文件
 openssl req -new -key keys\server.key -out keys\server.csr -subj /C=CN/ST=BeiJing/L=BeiJing/O=DEMO/CN=www.ssldemo.com

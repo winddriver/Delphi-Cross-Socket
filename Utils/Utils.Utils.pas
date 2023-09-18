@@ -9,20 +9,32 @@
 {******************************************************************************}
 unit Utils.Utils;
 
+{$I zLib.inc}
+
 interface
 
 uses
-  System.SysUtils,
-  System.Classes,
-  System.Types,
+  SysUtils,
+  Classes,
+  Types,
+  Math,
   System.IOUtils,
-  System.Math,
+  {$IFDEF DELPHI}
   System.Diagnostics,
+  {$ELSE FPC}
+  DTF.Types,
+  DTF.Consts,
+  DTF.Character,
+  DTF.Diagnostics,
+  DTF.Generics,
+  {$ENDIF}
   System.TimeSpan,
-  System.Character,
-  System.SysConst,
-  System.Generics.Defaults,
-  System.Generics.Collections;
+  Character,
+  SysConst,
+  Generics.Defaults,
+  Generics.Collections,
+
+  Utils.AnonymousThread;
 
 type
   TConstProc = reference to procedure;
@@ -84,18 +96,21 @@ type
     class function CompareVersion(const V1, V2: string): Integer; static;
 
     // 内存数据转16进制字符串(由于系统自带的转出来是大写, 我希望转成小写的, 所以自己写了这个方法)
-    class procedure BinToHex(ABuffer: Pointer; ABufSize: Integer; AText: PChar); overload; static;
-    class function BinToHex(ABuffer: Pointer; ABufSize: Integer): string; overload; static; inline;
+    class procedure BinToHex(ABinBuf: Pointer; ABufSize: Integer; AText: PChar); overload; static;
+    class function BinToHex(ABinBuf: Pointer; ABufSize: Integer): string; overload; static; inline;
     class function BytesToHex(const ABytes: TBytes; AOffset, ACount: Integer): string; overload; static; inline;
     class function BytesToHex(const ABytes: TBytes): string; overload; static; inline;
 
-    class procedure HexToBin(AText: PChar; ABuffer: Pointer; ABufSize: Integer); overload; static; inline;
-    class procedure HexToBin(const AText: string; ABuffer: Pointer; ABufSize: Integer); overload; static; inline;
+    class function HexCharToByte(const AHexChar: Char; out AByte: Byte): Boolean; static;
+    class function HexToBin(AText: PChar; ABinBuf: Pointer; ABufSize: Integer): Integer; overload; static;
+    class function HexToBin(const AText: string; ABinBuf: Pointer; ABufSize: Integer): Integer; overload; static; inline;
     class function HexToBytes(AText: PChar): TBytes; overload; static;
     class function HexToBytes(const AText: string): TBytes; overload; static; inline;
 
     class function GetFullFileName(const AFileName: string): string; static;
     class function GetFileSize(const AFileName: string): Int64; static;
+
+    class function CopyFile(const ASrcFileName, ADstFileName: string): Boolean; static;
     class function MoveFile(const ASrcFileName, ADstFileName: string): Boolean; static;
     class function MoveDir(const ASrcDirName, ADstDirName: string): Boolean; static;
 
@@ -123,8 +138,8 @@ type
     class function IIF<T>(const ATrueFalse: Boolean; const ATrueValue, AFalseValue: T): T; static;
 
     class function IndexOfArray<T>(const AArray: array of T; const AItem: T;
-      const AComparison: TComparison<T> = nil; const AIndex: Integer = 0;
-      const ACount: Integer = 0): Integer; static;
+      const AComparison: {$IFDEF DELPHI}TComparison<T>{$ELSE}TComparisonAnonymousFunc<T>{$ENDIF} = nil;
+      const AIndex: Integer = 0; const ACount: Integer = 0): Integer; static;
     class function ExistsInArray<T>(const AArray: array of T; const AItem: T): Boolean; static;
 
     class property AppFile: string read FAppFile;
@@ -167,7 +182,7 @@ end;
 class function TUtils.DateTimeToStr(const D: TDateTime;
   const Fmt: string): string;
 begin
-  Result := FormatDateTime(Fmt, D, TFormatSettings.Create);
+  Result := FormatDateTime(Fmt, D);
 end;
 
 class function TUtils.DateTimeToStr(const D: TDateTime): string;
@@ -177,7 +192,7 @@ end;
 
 class procedure TUtils.DelayCall(ATick: Cardinal; AProc: TProc);
 begin
-  TThread.CreateAnonymousThread(
+  TAnonymousThread.Create(
     procedure
     begin
       Sleep(ATick);
@@ -205,7 +220,7 @@ end;
 class function TUtils.ExistsInArray<T>(const AArray: array of T;
   const AItem: T): Boolean;
 begin
-  Result := (IndexOfArray(AArray, AItem, nil, 0, 0) >= 0);
+  Result := (IndexOfArray<T>(AArray, AItem, nil, 0, 0) >= 0);
 end;
 
 class function TUtils.GetBufEncoding(const ABuf: Pointer; const ACount: Integer;
@@ -310,7 +325,7 @@ begin
   if (AStrBytes = nil) or (ACount <= 0) then
     Result := ''
   else
-    Result := GetString(PByte(AStrBytes) + AIndex, ACount);
+    Result := GetString(PByte(AStrBytes) + AIndex, ACount, AEncoding);
 end;
 
 class function TUtils.GetString(const AStrBytes: TBytes;
@@ -319,16 +334,77 @@ begin
   Result := GetString(AStrBytes, 0, Length(AStrBytes), AEncoding);
 end;
 
-class procedure TUtils.HexToBin(AText: PChar; ABuffer: Pointer;
-  ABufSize: Integer);
+class function TUtils.GetString(const AStrStream: TStream;
+  const AEncoding: TEncoding): string;
+var
+  LBuf: TBytes;
+  LBufSize: Integer;
 begin
-  System.Classes.HexToBin(AText, ABuffer, ABufSize);
+  AStrStream.Position := 0;
+  LBufSize := AStrStream.Size;
+  SetLength(LBuf, LBufSize);
+  AStrStream.ReadBuffer(LBuf, LBufSize);
+
+  Result := GetString(LBuf, AEncoding);
 end;
 
-class procedure TUtils.HexToBin(const AText: string; ABuffer: Pointer;
-  ABufSize: Integer);
+class function TUtils.HexToBin(AText: PChar; ABinBuf: Pointer;
+  ABufSize: Integer): Integer;
+{$IFDEF DELPHI}
 begin
-  HexToBin(PChar(AText), ABuffer, ABufSize);
+  Result := Classes.HexToBin(AText, ABinBuf, ABufSize);
+end;
+{$ELSE FPC}
+var
+  I: Integer;
+  H, L: Byte;
+  LHexValue: PChar;
+  LBinValue: PByte;
+begin
+  I := ABufSize;
+  LHexValue := AText;
+  LBinValue := ABinBuf;
+
+  while (I > 0) do
+  begin
+    if not HexCharToByte(LHexValue^, H) then Break;
+    Inc(LHexValue);
+    if not HexCharToByte(LHexValue^, L) then Break;
+    Inc(LHexValue);
+
+    LBinValue^ := Byte(L + (H shl 4));
+    Inc(LBinValue);
+
+    Dec(I);
+  end;
+
+  Result := ABufSize - I;
+end;
+{$ENDIF}
+
+class function TUtils.HexCharToByte(const AHexChar: Char; out AByte: Byte): Boolean;
+begin
+  case Ord(AHexChar) of
+    Ord('0')..Ord('9'):
+      begin
+        AByte := (Ord(AHexChar)) and 15;
+        Result := True;
+      end;
+
+    Ord('A')..Ord('F'), Ord('a')..Ord('f'):
+      begin
+        AByte := (Ord(AHexChar) + 9) and 15;
+        Result := True;
+      end;
+  else
+    Result := False;
+  end;
+end;
+
+class function TUtils.HexToBin(const AText: string; ABinBuf: Pointer;
+  ABufSize: Integer): Integer;
+begin
+  Result := HexToBin(PChar(AText), ABinBuf, ABufSize);
 end;
 
 class function TUtils.HexToBytes(AText: PChar): TBytes;
@@ -355,17 +431,25 @@ begin
 end;
 
 class function TUtils.IndexOfArray<T>(const AArray: array of T; const AItem: T;
-  const AComparison: TComparison<T>; const AIndex, ACount: Integer): Integer;
+  const AComparison: {$IFDEF DELPHI}TComparison<T>{$ELSE}TComparisonAnonymousFunc<T>{$ENDIF};
+  const AIndex, ACount: Integer): Integer;
 var
   LComparer: IComparer<T>;
   LIndex, LCount, I: Integer;
 begin
   if (Length(AArray) = 0) then Exit(-1);
 
+  {$IFDEF DELPHI}
   if Assigned(AComparison) then
     LComparer := TComparer<T>.Construct(AComparison)
   else
     LComparer := TComparer<T>.Default;
+	{$ELSE}
+  if Assigned(AComparison) then
+    LComparer := TDelegatedComparerAnonymousFunc<T>.Create(AComparison)
+  else
+    LComparer := TDelegatedComparerAnonymousFunc<T>.Default;
+  {$ENDIF}
 
   if (AIndex >= 0) then
     LIndex := AIndex
@@ -410,7 +494,7 @@ begin
   TDirectory.CreateDirectory(ADstDirName);
 
   TDirectory.GetFiles(ASrcDirName, '*', TSearchOption.soAllDirectories,
-    function(const ADirName: string; const AFileInfo: TSearchRec): Boolean
+    function(const ADirName: {$IFDEF DELPHI}string{$ELSE}AnsiString{$ENDIF}; const AFileInfo: TSearchRec): Boolean
     var
       LSrcFileName, LDstFileName: string;
     begin
@@ -419,10 +503,10 @@ begin
       LSrcFileName := TPath.Combine(ADirName, AFileInfo.Name);
       LDstFileName := TPath.Combine(ADstDirName, AFileInfo.Name);
 
-      if (AFileInfo.Attr and System.SysUtils.faDirectory = 0) then
+      if (AFileInfo.Attr and SysUtils.faDirectory = 0) then
       begin
         {$IFDEF MSWINDOWS}
-        FileSetAttr(LSrcFileName, System.SysUtils.faNormal);
+        FileSetAttr(LSrcFileName, SysUtils.faNormal);
         {$ENDIF MSWINDOWS}
 
         MoveFile(LSrcFileName, LDstFileName);
@@ -574,6 +658,25 @@ begin
   Result := CompareStringIncludeNumber(V1, V2, True);
 end;
 
+class function TUtils.CopyFile(const ASrcFileName,
+  ADstFileName: string): Boolean;
+var
+  LDstDirName: string;
+begin
+  if not TFile.Exists(ASrcFileName) then Exit(False);
+
+  LDstDirName := TPath.GetDirectoryName(ADstFileName);
+  if (LDstDirName <> '') then
+    TDirectory.CreateDirectory(LDstDirName);
+
+  if TFile.Exists(ADstFileName) then
+    TFile.Delete(ADstFileName);
+
+  TFile.Copy(ASrcFileName, ADstFileName, True);
+
+  Result := True;
+end;
+
 class function TUtils.StrSimilarity(const AStr1, AStr2: string): Single;
 // 算法来源:
 //   https://en.wikipedia.org/wiki/S%C3%B8rensen%E2%80%93Dice_coefficient
@@ -704,38 +807,36 @@ class function TUtils.StrToDateTime(const S, Fmt: string): TDateTime;
     Result := #0;
   end;
 var
-  Fms: TFormatSettings;
+  LFormatSettings: TFormatSettings;
   DateFmt, TimeFmt: string;
   p: Integer;
 begin
   p := Fmt.IndexOf(' ');
   DateFmt := Fmt.Substring(0, p);
   TimeFmt := Fmt.Substring(p + 1);
-  {$if COMPILERVERSION >= 20}
-  Fms := TFormatSettings.Create;
-  {$else}
-  GetLocaleFormatSettings(GetThreadLocale, Fms);
-  {$ifend}
-  Fms.DateSeparator := GetSeparator(DateFmt);
-  Fms.TimeSeparator := GetSeparator(TimeFmt);
-  Fms.ShortDateFormat := DateFmt;
-  Fms.LongDateFormat := DateFmt;
-  Fms.ShortTimeFormat := TimeFmt;
-  Fms.LongTimeFormat := TimeFmt;
-  Result := System.SysUtils.StrToDateTime(S, Fms);
+
+  LFormatSettings := FormatSettings;
+  LFormatSettings.DateSeparator := GetSeparator(DateFmt);
+  LFormatSettings.TimeSeparator := GetSeparator(TimeFmt);
+  LFormatSettings.ShortDateFormat := DateFmt;
+  LFormatSettings.LongDateFormat := DateFmt;
+  LFormatSettings.ShortTimeFormat := TimeFmt;
+  LFormatSettings.LongTimeFormat := TimeFmt;
+  Result := SysUtils.StrToDateTime(S, LFormatSettings);
 end;
 
-class procedure TUtils.BinToHex(ABuffer: Pointer; ABufSize: Integer;
+class procedure TUtils.BinToHex(ABinBuf: Pointer; ABufSize: Integer;
   AText: PChar);
 const
-  XD: array[0..15] of char = ('0', '1', '2', '3', '4', '5', '6', '7',
-                              '8', '9', 'a', 'b', 'c', 'd', 'e', 'f');
+  XD: array[0..15] of Char = (
+    '0', '1', '2', '3', '4', '5', '6', '7',
+    '8', '9', 'a', 'b', 'c', 'd', 'e', 'f');
 var
   I: Integer;
   PBuffer: PByte;
   PText: PChar;
 begin
-  PBuffer := ABuffer;
+  PBuffer := ABinBuf;
   PText := AText;
   for I := 0 to ABufSize - 1 do
   begin
@@ -754,10 +855,10 @@ begin
     Result[I] := AValues[I];
 end;
 
-class function TUtils.BinToHex(ABuffer: Pointer; ABufSize: Integer): string;
+class function TUtils.BinToHex(ABinBuf: Pointer; ABufSize: Integer): string;
 begin
   SetLength(Result, ABufSize * 2);
-  BinToHex(ABuffer, ABufSize, PChar(Result));
+  BinToHex(ABinBuf, ABufSize, PChar(Result));
 end;
 
 class function TUtils.BytesToHex(const ABytes: TBytes; AOffset,
@@ -804,8 +905,11 @@ end;
 
 class function TUtils.ThreadFormat(const Fmt: string;
   const Args: array of const): string;
+var
+  LFormatSettings: TFormatSettings;
 begin
-  Result := Format(Fmt, Args, TFormatSettings.Create);
+  LFormatSettings := FormatSettings;
+  Result := Format(Fmt, Args, LFormatSettings);
 end;
 
 class function TUtils.ToDBC(const AChar: Char): Char;
@@ -924,20 +1028,6 @@ begin
       Dec(I);
     Result := S.SubString(0, I + 1);
   end;
-end;
-
-class function TUtils.GetString(const AStrStream: TStream;
-  const AEncoding: TEncoding): string;
-var
-  LBuf: TBytes;
-  LBufSize: Integer;
-begin
-  AStrStream.Position := 0;
-  LBufSize := AStrStream.Size;
-  SetLength(LBuf, LBufSize);
-  AStrStream.ReadBuffer(LBuf, LBufSize);
-
-  Result := GetString(LBuf);
 end;
 
 { TEncodingHelper }

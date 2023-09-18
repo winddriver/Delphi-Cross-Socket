@@ -9,21 +9,37 @@
 {******************************************************************************}
 unit Net.CrossSocket.Epoll;
 
+{$I zLib.inc}
+
 interface
 
 uses
-  System.SysUtils,
-  System.Classes,
-  System.Generics.Collections,
+  SysUtils,
+  Classes,
+  Generics.Collections,
+
+  {$IFDEF DELPHI}
   Posix.SysSocket,
   Posix.NetinetIn,
   Posix.UniStd,
   Posix.NetDB,
   Posix.Pthread,
   Posix.Errno,
+  {$ELSE}
+  baseunix,
+  unix,
+  linux,
+  sockets,
+  netdb,
+  cnetdb,
+  DTF.RTL,
+  {$ENDIF DELPHI}
   Linux.epoll,
+
   Net.SocketAPI,
-  Net.CrossSocket.Base;
+  Net.CrossSocket.Base,
+
+  Utils.SyncObjs;
 
 type
   TIoEvent = (ieRead, ieWrite);
@@ -31,7 +47,7 @@ type
 
   TEpollListen = class(TCrossListenBase)
   private
-    FLock: TObject;
+    FLock: ILock;
     FIoEvents: TIoEvents;
     FOpCode: Integer;
 
@@ -60,10 +76,9 @@ type
 
   TEpollConnection = class(TCrossConnectionBase)
   private
-    FLock: TObject;
+    FLock: ILock;
     FSendQueue: TSendQueue;
     FIoEvents: TIoEvents;
-    FConnectCallback: TCrossConnectionCallback; // 用于 Connect 回调
     FOpCode: Integer;
 
     procedure _Lock; inline;
@@ -74,7 +89,7 @@ type
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
-      const AConnectType: TConnectType); override;
+      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
   end;
 
@@ -111,7 +126,7 @@ type
     FEpollHandle: THandle;
     FIoThreads: TArray<TIoEventThread>;
     FIdleHandle: THandle;
-    FIdleLock: TObject;
+    FIdleLock: ILock;
     FStopHandle: THandle;
 
     // 利用 eventfd 唤醒并退出IO线程
@@ -128,7 +143,7 @@ type
     procedure _HandleWrite(const AConnection: ICrossConnection);
   protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
-      const AConnectType: TConnectType): ICrossConnection; override;
+      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
     function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
       const AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
 
@@ -161,20 +176,19 @@ constructor TEpollListen.Create(const AOwner: TCrossSocketBase;
 begin
   inherited;
 
-  FLock := TObject.Create;
+  FLock := TLock.Create;
   FOpCode := EPOLL_CTL_ADD;
 end;
 
 destructor TEpollListen.Destroy;
 begin
-  FreeAndNil(FLock);
 
   inherited;
 end;
 
 procedure TEpollListen._Lock;
 begin
-  System.TMonitor.Enter(FLock);
+  FLock.Enter;
 end;
 
 function TEpollListen._ReadEnabled: Boolean;
@@ -184,7 +198,7 @@ end;
 
 procedure TEpollListen._Unlock;
 begin
-  System.TMonitor.Exit(FLock);
+  FLock.Leave;
 end;
 
 function TEpollListen._UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
@@ -233,12 +247,13 @@ end;
 { TEpollConnection }
 
 constructor TEpollConnection.Create(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType);
+  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AConnectCb: TCrossConnectionCallback);
 begin
-  inherited;
+  inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 
   FSendQueue := TSendQueue.Create;
-  FLock := TObject.Create;
+  FLock := TLock.Create;
 
   FOpCode := EPOLL_CTL_ADD;
 end;
@@ -252,15 +267,6 @@ begin
 
   _Lock;
   try
-    // 连接释放时, 调用连接回调, 告知连接失败
-    // 连接成功后 FConnectCallback 会被置为 nil,
-    // 所以如果这里 FConnectCallback 不等于 nil, 则表示连接释放时仍未连接成功
-    if Assigned(FConnectCallback) then
-    begin
-      FConnectCallback(LConnection, False);
-      FConnectCallback := nil;
-    end;
-
     // 连接释放时, 调用所有发送队列的回调, 告知发送失败
     if (FSendQueue.Count > 0) then
     begin
@@ -276,14 +282,12 @@ begin
     _Unlock;
   end;
 
-  FreeAndNil(FLock);
-
   inherited;
 end;
 
 procedure TEpollConnection._Lock;
 begin
-  System.TMonitor.Enter(FLock);
+  FLock.Enter;
 end;
 
 function TEpollConnection._ReadEnabled: Boolean;
@@ -293,7 +297,7 @@ end;
 
 procedure TEpollConnection._Unlock;
 begin
-  System.TMonitor.Exit(FLock);
+  FLock.Leave;
 end;
 
 function TEpollConnection._UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
@@ -338,13 +342,11 @@ constructor TEpollCrossSocket.Create(const AIoThreads: Integer);
 begin
   inherited;
 
-  FIdleLock := TObject.Create;
+  FIdleLock := TLock.Create;
 end;
 
 destructor TEpollCrossSocket.Destroy;
 begin
-  FreeAndNil(FIdleLock);
-
   inherited;
 end;
 
@@ -387,14 +389,14 @@ begin
       // 并立即将新到的连接关闭
       if (LError = EMFILE) then
       begin
-        System.TMonitor.Enter(FIdleLock);
+        FIdleLock.Enter;
         try
           _CloseIdleHandle;
           LSocket := TSocketAPI.Accept(LListenSocket, nil, nil);
           TSocketAPI.CloseSocket(LSocket);
           _OpenIdleHandle;
         finally
-          System.TMonitor.Exit(FIdleLock);
+          FIdleLock.Leave;
         end;
       end;
 
@@ -443,18 +445,7 @@ begin
 
   LEpConnection := LConnection as TEpollConnection;
 
-  LEpConnection._Lock;
-  try
-    LConnectCallback := LEpConnection.FConnectCallback;
-    LEpConnection.FConnectCallback := nil;
-  finally
-    LEpConnection._Unlock;
-  end;
-
   TriggerConnected(LConnection);
-
-  if Assigned(LConnectCallback) then
-    LConnectCallback(LConnection, True);
 end;
 
 procedure TEpollCrossSocket._HandleRead(const AConnection: ICrossConnection);
@@ -592,7 +583,8 @@ var
 begin
   LStuff := 1;
   // 往 FStopHandle 写入任意数据, 唤醒工作线程
-  Posix.UniStd.__write(FStopHandle, @LStuff, SizeOf(LStuff));
+  //Posix.UniStd.__write(FStopHandle, @LStuff, SizeOf(LStuff));
+  __write(FStopHandle, @LStuff, SizeOf(LStuff));
 end;
 
 procedure TEpollCrossSocket.StartLoop;
@@ -661,14 +653,13 @@ procedure TEpollCrossSocket.Connect(const AHost: string; const APort: Word;
     if (TSocketAPI.Connect(ASocket, AAddr.ai_addr, AAddr.ai_addrlen) = 0)
       or (GetLastError = EINPROGRESS) then
     begin
-      LConnection := CreateConnection(Self, ASocket, ctConnect);
+      LConnection := CreateConnection(Self, ASocket, ctConnect, ACallback);
       TriggerConnecting(LConnection);
       LEpConnection := LConnection as TEpollConnection;
 
       LEpConnection._Lock;
       try
         LEpConnection.ConnectStatus := csConnecting;
-        LEpConnection.FConnectCallback := ACallback;
         if not LEpConnection._UpdateIoEvent([ieWrite]) then
         begin
           if Assigned(ACallback) then
@@ -733,9 +724,10 @@ begin
 end;
 
 function TEpollCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
+  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
-  Result := TEpollConnection.Create(AOwner, AClientSocket, AConnectType);
+  Result := TEpollConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 end;
 
 function TEpollCrossSocket.CreateListen(const AOwner: TCrossSocketBase;

@@ -1,4 +1,4 @@
-{******************************************************************************}
+﻿{******************************************************************************}
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
@@ -9,10 +9,15 @@
 {******************************************************************************}
 unit Net.CrossHttpUtils;
 
+{$I zLib.inc}
+
 interface
 
 uses
-  System.SysUtils;
+  SysUtils,
+
+  Utils.Utils,
+  Utils.IOUtils;
 
 type
   THttpStatus = record
@@ -25,8 +30,80 @@ type
     Value: string;
   end;
 
+  {$REGION 'Documentation'}
+  /// <summary>
+  ///   HTTP版本信息
+  /// </summary>
+  {$ENDREGION}
+  THttpVersion = (hvHttp10, hvHttp11);
+
+  {$REGION 'Documentation'}
+  /// <summary>
+  ///   压缩类型
+  /// </summary>
+  {$ENDREGION}
+  TCompressType = (ctNone, ctGZip, ctDeflate);
+
 const
-  {$REGION 'STATUS CODE CONST'}
+  HTTP               = 'http';
+  HTTPS              = 'https';
+  HTTP_DEFAULT_PORT  = 80;
+  HTTPS_DEFAULT_PORT = 443;
+  WS                 = 'ws';
+  WSS                = 'wss';
+  WEBSOCKET          = 'websocket';
+  WEBSOCKET_VERSION  = '13';
+
+  HTTP_VER_STR: array [THttpVersion] of string = ('HTTP/1.0', 'HTTP/1.1');
+
+  {$REGION '常用 HTTP 头'}
+  HEADER_ACCEPT                = 'Accept';
+  HEADER_ACCEPT_CHARSET        = 'Accept-Charset';
+  HEADER_ACCEPT_ENCODING       = 'Accept-Encoding';
+  HEADER_ACCEPT_LANGUAGE       = 'Accept-Language';
+  HEADER_ACCEPT_RANGES         = 'Accept-Ranges';
+  HEADER_AUTHORIZATION         = 'Authorization';
+  HEADER_CACHE_CONTROL         = 'Cache-Control';
+  HEADER_CONNECTION            = 'Connection';
+  HEADER_CONTENT_DISPOSITION   = 'Content-Disposition';
+  HEADER_CONTENT_ENCODING      = 'Content-Encoding';
+  HEADER_CONTENT_LANGUAGE      = 'Content-Language';
+  HEADER_CONTENT_LENGTH        = 'Content-Length';
+  HEADER_CONTENT_RANGE         = 'Content-Range';
+  HEADER_CONTENT_TYPE          = 'Content-Type';
+  HEADER_COOKIE                = 'Cookie';
+  HEADER_CROSS_HTTP_CLIENT     = 'Client';
+  HEADER_CROSS_HTTP_SERVER     = 'Server';
+  HEADER_ETAG                  = 'ETag';
+  HEADER_HOST                  = 'Host';
+  HEADER_IF_MODIFIED_SINCE     = 'If-Modified-Since';
+  HEADER_IF_NONE_MATCH         = 'If-None-Match';
+  HEADER_IF_RANGE              = 'If-Range';
+  HEADER_LAST_MODIFIED         = 'Last-Modified';
+  HEADER_LOCATION              = 'Location';
+  HEADER_PRAGMA                = 'Pragma';
+  HEADER_PROXY_AUTHENTICATE    = 'Proxy-Authenticate';
+  HEADER_PROXY_AUTHORIZATION   = 'Proxy-Authorization';
+  HEADER_RANGE                 = 'Range';
+  HEADER_REFERER               = 'Referer';
+  HEADER_SEC_WEBSOCKET_ACCEPT  = 'Sec-WebSocket-Accept';
+  HEADER_SEC_WEBSOCKET_KEY     = 'Sec-WebSocket-Key';
+  HEADER_SEC_WEBSOCKET_VERSION = 'Sec-WebSocket-Version';
+  HEADER_SETCOOKIE             = 'Set-Cookie';
+  HEADER_TRANSFER_ENCODING     = 'Transfer-Encoding';
+  HEADER_UPGRADE               = 'Upgrade';
+  HEADER_USER_AGENT            = 'User-Agent';
+  HEADER_VARY                  = 'Vary';
+  HEADER_WWW_AUTHENTICATE      = 'WWW-Authenticate';
+  HEADER_X_METHOD_OVERRIDE     = 'x-method-override';
+  HEADER_X_FORWARDED_FOR       = 'X-Forwarded-For';
+  {$ENDREGION}
+
+  ZLIB_BUF_SIZE = 32768;
+  ZLIB_WINDOW_BITS: array [TCompressType] of Integer = (0, 15 + 16{gzip}, 15{deflate});
+  ZLIB_CONTENT_ENCODING: array [TCompressType] of string = ('', 'gzip', 'deflate');
+
+  {$REGION '常用状态码'}
   STATUS_CODES: array [0..56] of THttpStatus = (
     (Code: 100; Text: 'Continue'),
     (Code: 101; Text: 'Switching Protocols'),
@@ -1082,11 +1159,34 @@ const
   {$ENDREGION}
 
 type
+  THttpMethod = class
+  public const
+    GET      = 'GET';
+    POST     = 'POST';
+    PUT      = 'PUT';
+    DELETE   = 'DELETE';
+    HEAD     = 'HEAD';
+    OPTIONS  = 'OPTIONS';
+    TRACE    = 'TRACE';
+    CONNECT  = 'CONNECT';
+    PROPFIND = 'PROPFIND';
+    LOCK     = 'LOCK';
+    UNLOCK   = 'UNLOCK';
+    COPY     = 'COPY';
+    MOVE     = 'MOVE';
+    MKCOL    = 'MKCOL';
+  end;
+
+  {$REGION 'Documentation'}
+  /// <summary>
+  ///   常用媒体类型
+  /// </summary>
+  {$ENDREGION}
   TMediaType = class
   public const
-    DELIM_PARAMS = ';';
+    DELIM_PARAMS = '; ';
     CHARSET_NAME = 'charset';
-    CHARSET_UTF8 = 'utf-8';
+    CHARSET_UTF8 = 'UTF-8';
     CHARSET_UTF8_DEF = CHARSET_NAME + '=' +  CHARSET_UTF8;
 
     TEXT_PLAIN = 'text/plain';
@@ -1106,7 +1206,10 @@ type
 
     APPLICATION_OCTET_STREAM = 'application/octet-stream';
     APPLICATION_FORM_URLENCODED_TYPE = 'application/x-www-form-urlencoded';
+
     MULTIPART_FORM_DATA = 'multipart/form-data';
+    MULTIPART_FORM_DATA_BOUNDARY = MULTIPART_FORM_DATA + DELIM_PARAMS + 'boundary=';
+
     WILDCARD = '*/*';
   end;
 
@@ -1119,7 +1222,12 @@ type
     class function GetFileMIMEType(const AFileName: string): string; static;
     class function RFC1123_DateToStr(const ADate: TDateTime): string; static;
     class function RFC1123_StrToDate(const ADateStr: string): TDateTime; static;
-    class function CombinePath(const APath1, APath2: string): string; static;
+
+    class function ExtractUrl(const AUrl: string; out AProtocol, AHost: string;
+      out APort: Word; out APath: string): Boolean; static;
+    class function CombinePath(const APath1, APath2: string; const APathDelim: Char = '/'): string; static;
+    class function UrlEncode(const S: string; const ANoConversion: TSysCharSet = []): string; static;
+    class function UrlDecode(const S: string): string; static;
   end;
 
 implementation
@@ -1128,76 +1236,256 @@ implementation
 
 class function TCrossHttpUtils.GetHttpStatusText(const AStatusCode: Integer): string;
 var
-  LItem: THttpStatus;
+  LStatusItem: THttpStatus;
 begin
-  for LItem in STATUS_CODES do
-    if (LItem.Code = AStatusCode) then Exit(LItem.Text);
+  for LStatusItem in STATUS_CODES do
+    if (LStatusItem.Code = AStatusCode) then Exit(LStatusItem.Text);
   Result := AStatusCode.ToString;
 end;
 
 class function TCrossHttpUtils.CombinePath(const APath1,
-  APath2: string): string;
-var
-  LPath1Ends, LPath2Starts: string;
+  APath2: string; const APathDelim: Char): string;
 begin
-  if (APath1 = '') then Exit(APath2);
-  if (APath2 = '') then Exit(APath1);
+  Result := TPathUtils.Combine(APath1, APath2, APathDelim);
+end;
 
-  LPath1Ends := APath1.Substring(APath1.Length - 1, 1);
-  LPath2Starts := APath2.Substring(0, 1);
-  if (LPath1Ends = '/') and (LPath2Starts = '/') then
-    Result := APath1 + APath2.Substring(1)
-  else if (LPath1Ends = '/') and (LPath2Starts <> '/') then
-    Result := APath1 + APath2
-  else if (LPath1Ends <> '/') and (LPath2Starts = '/') then
-    Result := APath1 + APath2
-  else
-    Result := APath1 + '/' + APath2;
+class function TCrossHttpUtils.ExtractUrl(const AUrl: string; out AProtocol,
+  AHost: string; out APort: Word; out APath: string): Boolean;
+var
+  LProtocolIndex, LIPv6Index, LPortIndex, LPathIndex: Integer;
+  LPortStr: string;
+begin
+  // http://www.test.com/abc
+  // http://www.test.com:8080/abc
+  // https://www.test.com/abc
+  // https://www.test.com:8080/abc
+  // www.test.com:8080/abc
+  // www.test.com/abc
+  // www.test.com
+  // http://[aabb::20:80:5:2]:8080/abc
+  // [aabb::20:80:5:2]
+
+  // 找 :// 定位协议类型
+  LProtocolIndex := AUrl.IndexOf('://');
+  if (LProtocolIndex >= 0) then
+  begin
+    // 提取协议类型
+    AProtocol := AUrl.Substring(0, LProtocolIndex).Trim;
+    Inc(LProtocolIndex, 3);
+  end else
+  begin
+    // 默认协议 http
+    AProtocol := HTTP;
+    LProtocolIndex := 0;
+  end;
+
+  // 找 ] 定位IPv6地址
+  LIPv6Index := AUrl.IndexOf(']', LProtocolIndex);
+
+  if (LIPv6Index >= 0) then
+  begin
+    // 找 : 定位端口
+    LPortIndex := AUrl.IndexOf(':', LIPv6Index + 1);
+
+    // 找 / 定位路径
+    LPathIndex := AUrl.IndexOf('/', LIPv6Index + 1);
+  end else
+  begin
+    // 找 : 定位端口
+    LPortIndex := AUrl.IndexOf(':', LProtocolIndex);
+
+    // 找 / 定位路径
+    LPathIndex := AUrl.IndexOf('/', LProtocolIndex);
+  end;
+
+  if (LPathIndex < 0) then
+    LPathIndex := Length(AUrl);
+
+  if (LPortIndex >= 0) then
+  begin
+    // 提取主机地址
+    AHost := AUrl.Substring(LProtocolIndex, LPortIndex - LProtocolIndex);
+
+    // 提取主机端口
+    LPortStr := AUrl.Substring(LPortIndex + 1, LPathIndex - LPortIndex - 1);
+    APort := LPortStr.ToInteger;
+  end else
+  begin
+    // 提取主机地址
+    AHost := AUrl.Substring(LProtocolIndex, LPathIndex - LProtocolIndex);
+
+    // 根据协议类型决定默认端口
+    if SameText(AProtocol, HTTPS) then
+      APort := HTTPS_DEFAULT_PORT
+    else
+      APort := HTTP_DEFAULT_PORT;
+  end;
+
+  // 提取路径
+  APath := AUrl.Substring(LPathIndex, MaxInt);
+
+  Result := True;
 end;
 
 class function TCrossHttpUtils.GetFileMIMEType(const AFileName: string): string;
 var
-  I: Integer;
   LExt: string;
+  LMimeItem: TMimeValue;
 begin
   LExt := ExtractFileExt(AFileName).Substring(1);
-  for I := 0 to High(MIME_TYPES) do
-    if (CompareText(MIME_TYPES[I].Key, LExt) = 0) then
-      Exit(MIME_TYPES[I].Value);
+  for LMimeItem in MIME_TYPES do
+    if SameText(LMimeItem.Key, LExt) then
+      Exit(LMimeItem.Value);
   Result := TMediaType.APPLICATION_OCTET_STREAM;
 end;
 
 class function TCrossHttpUtils.RFC1123_DateToStr(const ADate: TDateTime): string;
 var
-  Year, Month, Day       : Word;
-  Hour, Min,   Sec, MSec : Word;
-  DayOfWeek              : Word;
+  LYear, LMonth, LDay        : Word;
+  LHour, LMin,   LSec, LMSec : Word;
+  LDayOfWeek                 : Word;
 begin
-  DecodeDate(ADate, Year, Month, Day);
-  DecodeTime(ADate, Hour, Min,   Sec, MSec);
-  DayOfWeek := ((Trunc(aDate) - 2) mod 7);
-  Result := Copy(RFC1123_StrWeekDay, 1 + DayOfWeek * 3, 3) + ', ' +
+  DecodeDate(ADate, LYear, LMonth, LDay);
+  DecodeTime(ADate, LHour, LMin,   LSec, LMSec);
+  LDayOfWeek := ((Trunc(aDate) - 2) mod 7);
+  Result := Copy(RFC1123_StrWeekDay, 1 + LDayOfWeek * 3, 3) + ', ' +
     Format('%2.2d %s %4.4d %2.2d:%2.2d:%2.2d GMT',
-      [Day, Copy(RFC1123_StrMonth, 1 + 3 * (Month - 1), 3),
-      Year, Hour, Min, Sec]);
+      [LDay, Copy(RFC1123_StrMonth, 1 + 3 * (LMonth - 1), 3),
+      LYear, LHour, LMin, LSec]);
 end;
 
 class function TCrossHttpUtils.RFC1123_StrToDate(const ADateStr: string) : TDateTime;
 var
-  Year, Month, Day : Word;
-  Hour, Min,   Sec : Word;
+  LYear, LMonth, LDay : Word;
+  LHour, LMin,   LSec : Word;
 begin
   if (ADateStr = '') then Exit(0);
 
   { Fri, 30 Jul 2004 10:10:35 GMT }
-  Day    := StrToIntDef(Copy(ADateStr, 6, 2), 0);
-  Month  := (Pos(Copy(ADateStr, 9, 3), RFC1123_StrMonth) + 2) div 3;
-  Year   := StrToIntDef(Copy(ADateStr, 13, 4), 0);
-  Hour   := StrToIntDef(Copy(ADateStr, 18, 2), 0);
-  Min    := StrToIntDef(Copy(ADateStr, 21, 2), 0);
-  Sec    := StrToIntDef(Copy(ADateStr, 24, 2), 0);
-  Result := EncodeDate(Year, Month, Day);
-  Result := Result + EncodeTime(Hour, Min, Sec, 0);
+  LDay    := StrToIntDef(Copy(ADateStr, 6, 2), 0);
+  LMonth  := (Pos(Copy(ADateStr, 9, 3), RFC1123_StrMonth) + 2) div 3;
+  LYear   := StrToIntDef(Copy(ADateStr, 13, 4), 0);
+  LHour   := StrToIntDef(Copy(ADateStr, 18, 2), 0);
+  LMin    := StrToIntDef(Copy(ADateStr, 21, 2), 0);
+  LSec    := StrToIntDef(Copy(ADateStr, 24, 2), 0);
+  Result := EncodeDate(LYear, LMonth, LDay);
+  Result := Result + EncodeTime(LHour, LMin, LSec, 0);
+end;
+
+class function TCrossHttpUtils.UrlDecode(const S: string): string;
+var
+  I, LStrLen: Integer;
+  LUTF8Bytes: TBytes;
+  P, PEnd: PChar;
+  H, L: Byte;
+begin
+  I := 0;
+  LStrLen := Length(S);
+  P := PChar(S);
+  PEnd := P + LStrLen;
+  SetLength(LUTF8Bytes, LStrLen);
+
+  while (P < PEnd) do
+  begin
+    case Ord(P^) of
+      Ord('+'):
+        begin
+          LUTF8Bytes[I] := Ord(' ');
+          Inc(P);
+        end;
+
+      Ord('%'):
+        begin
+          if (P + 2 < PEnd) then
+          begin
+            Inc(P);
+            if not TUtils.HexCharToByte(P^, H) then Break;
+            Inc(P);
+            if not TUtils.HexCharToByte(P^, L) then Break;
+            Inc(P);
+
+            LUTF8Bytes[I] := L + (H shl 4);
+          end else
+          begin
+            LUTF8Bytes[I] := Ord('?');
+            Inc(P);
+          end;
+        end;
+    else
+      if (Ord(P^) < 128) then
+        LUTF8Bytes[I] := Ord(P^)
+      else
+        LUTF8Bytes[I] := Ord('?');
+
+      Inc(P);
+    end;
+
+    Inc(I);
+  end;
+  SetLength(LUTF8Bytes, I);
+
+  Result := TEncoding.UTF8.GetString(LUTF8Bytes);
+end;
+
+class function TCrossHttpUtils.UrlEncode(const S: string; const ANoConversion: TSysCharSet): string;
+const
+  HEX_CHARS: array[0..15] of Char = (
+    '0', '1', '2', '3', '4', '5', '6', '7',
+    '8', '9', 'A', 'B', 'C', 'D', 'E', 'F');
+var
+  LUTF8Bytes: TBytes;
+  I: Integer;
+  C: Byte;
+  P: PChar;
+begin
+  // 先将 unicode 字符串编码为 utf8 字节数组
+  LUTF8Bytes := TEncoding.UTF8.GetBytes(S);
+
+  // 预分配编码字符串, 比一直累加效率高很多
+  // 预分配尺寸为 utf8 字节数组长度的 3 倍
+  // 之所以预分配 3 倍, 是因为每个 utf8 字节最长可能被编码为 %xy 这样的字符串
+  SetLength(Result, Length(LUTF8Bytes) * 3);
+  P := PChar(Result);
+
+  for I := 0 to High(LUTF8Bytes) do
+  begin
+    C := LUTF8Bytes[I];
+    case C of
+      Ord('0')..Ord('9'),
+      Ord('a')..Ord('z'),
+      Ord('A')..Ord('Z'),
+      Ord('_'), Ord('-'), Ord('.'), Ord('~'):
+        begin
+          P^ := Char(C);
+          Inc(P);
+        end;
+
+      Ord(' '):
+        begin
+          P^ := '+';
+          Inc(P);
+        end;
+    else
+      if CharInSet(Char(C), ANoConversion) then
+      begin
+        P^ := Char(C);
+        Inc(P);
+      end else
+      begin
+        P^ := '%';
+        Inc(P);
+
+        P^ := HEX_CHARS[C shr 4];
+        Inc(P);
+
+        P^ := HEX_CHARS[C and $F];
+        Inc(P);
+      end;
+    end;
+  end;
+
+  // 修正编码字符串的实际长度
+  SetLength(Result, P - PChar(Result));
 end;
 
 end.

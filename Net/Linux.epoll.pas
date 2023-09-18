@@ -1,4 +1,4 @@
-{******************************************************************************}
+﻿{******************************************************************************}
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
@@ -9,10 +9,19 @@
 {******************************************************************************}
 unit Linux.epoll;
 
+{$I zLib.inc}
+
 interface
 
 uses
-  Posix.Base, Posix.Signal;
+  {$IFDEF DELPHI}
+  Posix.Base,
+  Posix.Signal
+  {$ELSE}
+  BaseUnix,
+  Unix
+  {$ENDIF}
+  ;
 
 const
   EPOLLIN  = $01; { The associated file is available for read(2) operations. }
@@ -49,23 +58,22 @@ type
 
 { open an epoll file descriptor }
 function epoll_create(size: Integer): Integer; cdecl;
-  external libc name _PU + 'epoll_create';
-  {$EXTERNALSYM epoll_create}
+  external 'c' name 'epoll_create';
 
 { control interface for an epoll descriptor }
 function epoll_ctl(epfd, op, fd: Integer; event: pepoll_event): Integer; cdecl;
-  external libc name _PU + 'epoll_ctl';
-  {$EXTERNALSYM epoll_ctl}
+  external 'c' name 'epoll_ctl';
 
 { wait for an I/O event on an epoll file descriptor }
 function epoll_wait(epfd: Integer; events: pepoll_event; maxevents, timeout: Integer): Integer; cdecl;
-  external libc name _PU + 'epoll_wait';
-  {$EXTERNALSYM epoll_wait}
+  external 'c' name 'epoll_wait';
 
 { create a file descriptor for event notification }
 function eventfd(initval: Cardinal; flags: Integer): Integer; cdecl;
-  external libc name _PU + 'eventfd';
-  {$EXTERNALSYM eventfd}
+  external 'c' name 'eventfd';
+
+function __write(Handle: Integer; Buffer: Pointer; Count: size_t): ssize_t; cdecl;
+  external 'c' name 'write';
 
 implementation
 

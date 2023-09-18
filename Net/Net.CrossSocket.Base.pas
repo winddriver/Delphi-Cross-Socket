@@ -9,6 +9,8 @@
 {******************************************************************************}
 unit Net.CrossSocket.Base;
 
+{$I zLib.inc}
+
 // 是否将大块数据分成小块发送(仅IOCP下有效)
 // 注意: 开启该开关的情况下, 同一个连接不要在一次发送尚未结束时开始另一次发送
 //       否则会导致两块数据被分成小块后出现交错
@@ -21,11 +23,17 @@ unit Net.CrossSocket.Base;
 interface
 
 uses
-  System.SysUtils,
-  System.Classes,
-  System.Math,
-  System.Generics.Collections,
-  Net.SocketAPI;
+  SysUtils,
+  Classes,
+  Math,
+  Generics.Collections,
+
+  {$IFDEF FPC}
+  DTF.RTL,
+  {$ENDIF}
+
+  Net.SocketAPI,
+  Utils.SyncObjs;
 
 const
   // 唯一编号类别
@@ -107,8 +115,8 @@ type
   ICrossData = interface
   ['{988404A3-D297-4C6D-9A76-16E50553596E}']
     function GetOwner: TCrossSocketBase;
-    function GetUID: UInt64;
     function GetSocket: THandle;
+    function GetUID: UInt64;
     function GetLocalAddr: string;
     function GetLocalPort: Word;
     function GetIsClosed: Boolean;
@@ -141,14 +149,14 @@ type
     property Owner: TCrossSocketBase read GetOwner;
 
     /// <summary>
-    ///   唯一编号
-    /// </summary>
-    property UID: UInt64 read GetUID;
-
-    /// <summary>
     ///   套接字句柄
     /// </summary>
     property Socket: THandle read GetSocket;
+
+    /// <summary>
+    ///   唯一编号
+    /// </summary>
+    property UID: UInt64 read GetUID;
 
     /// <summary>
     ///   本地IP地址
@@ -498,69 +506,69 @@ type
     /// </summary>
     procedure UnlockListens;
 
-    /// <summary>
-    ///   创建连接对象(内部使用)
-    /// </summary>
-    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
-      const AConnectType: TConnectType): ICrossConnection;
-
-    /// <summary>
-    ///   创建监听对象(内部使用)
-    /// </summary>
-    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
-      const AFamily, ASockType, AProtocol: Integer): ICrossListen;
-
-    {$region '物理事件'}
-    /// <summary>
-    ///   监听成功后触发(内部使用)
-    /// </summary>
-    /// <param name="AListen">
-    ///   监听对象
-    /// </param>
-    procedure TriggerListened(const AListen: ICrossListen);
-
-    /// <summary>
-    ///   监听结束后触发(内部使用)
-    /// </summary>
-    /// <param name="AListen">
-    ///   监听对象
-    /// </param>
-    procedure TriggerListenEnd(const AListen: ICrossListen);
-
-    /// <summary>
-    ///   正在连接(内部使用)
-    /// </summary>
-    /// <param name="AConnection">
-    ///   连接对象
-    /// </param>
-    procedure TriggerConnecting(const AConnection: ICrossConnection);
-
-    /// <summary>
-    ///   连接成功后触发(内部使用)
-    /// </summary>
-    /// <param name="AConnection">
-    ///   连接对象
-    /// </param>
-    procedure TriggerConnected(const AConnection: ICrossConnection);
-
-    /// <summary>
-    ///   连接断开后触发(内部使用)
-    /// </summary>
-    /// <param name="AConnection">
-    ///   连接对象
-    /// </param>
-    procedure TriggerDisconnected(const AConnection: ICrossConnection);
-    {$endregion}
-
-    /// <summary>
-    ///   IO线程开始时触发(内部使用)
-    /// </summary>
-    procedure TriggerIoThreadBegin(const AIoThread: TIoEventThread);
-
-    /// <summary>
-    ///   IO线程结束时触发(内部使用)
-    /// </summary>
-    procedure TriggerIoThreadEnd(const AIoThread: TIoEventThread);
+//    /// <summary>
+//    ///   创建连接对象(内部使用)
+//    /// </summary>
+//    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+//      const AConnectType: TConnectType): ICrossConnection;
+//
+//    /// <summary>
+//    ///   创建监听对象(内部使用)
+//    /// </summary>
+//    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
+//      const AFamily, ASockType, AProtocol: Integer): ICrossListen;
+//
+//    {$region '物理事件'}
+//    /// <summary>
+//    ///   监听成功后触发(内部使用)
+//    /// </summary>
+//    /// <param name="AListen">
+//    ///   监听对象
+//    /// </param>
+//    procedure TriggerListened(const AListen: ICrossListen);
+//
+//    /// <summary>
+//    ///   监听结束后触发(内部使用)
+//    /// </summary>
+//    /// <param name="AListen">
+//    ///   监听对象
+//    /// </param>
+//    procedure TriggerListenEnd(const AListen: ICrossListen);
+//
+//    /// <summary>
+//    ///   正在连接(内部使用)
+//    /// </summary>
+//    /// <param name="AConnection">
+//    ///   连接对象
+//    /// </param>
+//    procedure TriggerConnecting(const AConnection: ICrossConnection);
+//
+//    /// <summary>
+//    ///   连接成功后触发(内部使用)
+//    /// </summary>
+//    /// <param name="AConnection">
+//    ///   连接对象
+//    /// </param>
+//    procedure TriggerConnected(const AConnection: ICrossConnection);
+//
+//    /// <summary>
+//    ///   连接断开后触发(内部使用)
+//    /// </summary>
+//    /// <param name="AConnection">
+//    ///   连接对象
+//    /// </param>
+//    procedure TriggerDisconnected(const AConnection: ICrossConnection);
+//    {$endregion}
+//
+//    /// <summary>
+//    ///   IO线程开始时触发(内部使用)
+//    /// </summary>
+//    procedure TriggerIoThreadBegin(const AIoThread: TIoEventThread);
+//
+//    /// <summary>
+//    ///   IO线程结束时触发(内部使用)
+//    /// </summary>
+//    procedure TriggerIoThreadEnd(const AIoThread: TIoEventThread);
 
     /// <summary>
     ///   IO线程数
@@ -623,8 +631,8 @@ type
     class var FCrossUID: UInt64;
   private
     FOwner: TCrossSocketBase;
-    FUID: UInt64;
     FSocket: THandle;
+    FUID: UInt64;
     FLocalAddr: string;
     FLocalPort: Word;
     FTag: string;
@@ -649,18 +657,20 @@ type
     procedure SetUserObject(const AValue: TObject);
     procedure SetUserInterface(const AValue: IInterface);
   public
-    constructor Create(const AOwner: TCrossSocketBase; const ASocket: THandle); virtual;
+    constructor Create(const AOwner: TCrossSocketBase;
+      const ASocket: THandle); virtual;
     destructor Destroy; override;
 
     procedure UpdateAddr; virtual;
     procedure Close; virtual; abstract;
 
     property Owner: TCrossSocketBase read GetOwner;
-    property UID: UInt64 read GetUID;
     property Socket: THandle read GetSocket;
+    property UID: UInt64 read GetUID;
     property LocalAddr: string read GetLocalAddr;
     property LocalPort: Word read GetLocalPort;
     property IsClosed: Boolean read GetIsClosed;
+    property Tag: string read GetTag write SetTag;
     property UserData: Pointer read GetUserData write SetUserData;
     property UserObject: TObject read GetUserObject write SetUserObject;
     property UserInterface: IInterface read GetUserInterface write SetUserInterface;
@@ -693,6 +703,7 @@ type
     FPeerPort: Word;
     FConnectType: TConnectType;
     FConnectStatus: Integer;
+    FConnectCb: TCrossConnectionCallback;
   protected
     function GetUIDTag: Byte; override;
     function GetPeerAddr: string;
@@ -708,7 +719,9 @@ type
       const ACallback: TCrossConnectionCallback = nil); virtual;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
-      const AConnectType: TConnectType); reintroduce; virtual;
+      const AConnectType: TConnectType;
+      const AConnectedCb: TCrossConnectionCallback); reintroduce; virtual;
+    destructor Destroy; override;
 
     procedure UpdateAddr; override;
     procedure Close; override;
@@ -752,10 +765,10 @@ type
     function SetKeepAlive(const ASocket: THandle): Integer;
   private
     FConnections: TCrossConnections;
-    FConnectionsLock: TObject;
+    FConnectionsLock: ILock;
 
     FListens: TCrossListens;
-    FListensLock: TObject;
+    FListensLock: ILock;
 
     FOnIoThreadBegin: TCrossIoThreadEvent;
     FOnIoThreadEnd: TCrossIoThreadEvent;
@@ -771,7 +784,7 @@ type
 
     procedure _LockListens; inline;
     procedure _UnlockListens; inline;
-
+  protected
     function GetConnectionsCount: Integer;
     function GetListensCount: Integer;
 
@@ -801,7 +814,9 @@ type
 
     // 创建连接对象
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
-      const AConnectType: TConnectType): ICrossConnection; virtual; abstract;
+      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; overload; virtual; abstract;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+      const AConnectType: TConnectType): ICrossConnection; overload;
 
     // 创建监听对象
     function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
@@ -924,13 +939,10 @@ begin
 end;
 
 procedure _LogLastOsError(const ATag: string);
-{$IFDEF __DEBUG__}
 var
   LError: Integer;
   LErrMsg: string;
-{$ENDIF}
 begin
-  {$IFDEF __DEBUG__}
   LError := GetLastError;
   if (ATag <> '') then
     LErrMsg := ATag + ' : '
@@ -939,7 +951,6 @@ begin
   LErrMsg := LErrMsg + Format('System Error: %0:d(0x%0:.4x), %1:s',
     [LError, SysErrorMessage(LError)]);
   _Log(LErrMsg);
-  {$ENDIF}
 end;
 
 { TIoEventThread }
@@ -969,7 +980,16 @@ begin
       except
         {$IFDEF __DEBUG__}
         on e: Exception do
-          _Log('%s Io线程ID %d, 异常 %s, %s', [FOwner.ClassName, Self.ThreadID, e.ClassName, e.Message]);
+        begin
+          _Log('%s Io线程ID %d, 异常 %s, %s', [
+            FOwner.ClassName, Self.ThreadID, e.ClassName, e.Message
+          ]);
+          {$IFDEF madExcept}
+          _Log('%s 异常调用堆栈:%s', [
+            FOwner.ClassName, e.StackTrace
+          ]);
+          {$ENDIF}
+        end;
         {$ENDIF}
       end;
       {$IFDEF __DEBUG__}
@@ -1029,19 +1049,23 @@ begin
   FIoThreads := AIoThreads;
 
   FListens := TCrossListens.Create;
-  FListensLock := TObject.Create;
+  FListensLock := TLock.Create;
 
   FConnections := TCrossConnections.Create;
-  FConnectionsLock := TObject.Create;
+  FConnectionsLock := TLock.Create;
+end;
+
+function TCrossSocketBase.CreateConnection(const AOwner: TCrossSocketBase;
+  const AClientSocket: THandle;
+  const AConnectType: TConnectType): ICrossConnection;
+begin
+  Result := CreateConnection(AOwner, AClientSocket, AConnectType, nil);
 end;
 
 destructor TCrossSocketBase.Destroy;
 begin
   FreeAndNil(FListens);
-  FreeAndNil(FListensLock);
-
   FreeAndNil(FConnections);
-  FreeAndNil(FConnectionsLock);
 
   inherited;
 end;
@@ -1227,11 +1251,20 @@ begin
 end;
 
 procedure TCrossSocketBase.TriggerConnected(const AConnection: ICrossConnection);
+var
+  LConnObj: TCrossConnectionBase;
 begin
+  LConnObj := AConnection as TCrossConnectionBase;
   AConnection.UpdateAddr;
   AConnection.ConnectStatus := csConnected;
 
   LogicConnected(AConnection);
+
+  if Assigned(LConnObj.FConnectCb) then
+  begin
+    LConnObj.FConnectCb(AConnection, True);
+    LConnObj.FConnectCb := nil;
+  end;
 
   if Assigned(FOnConnected) then
     FOnConnected(Self, AConnection);
@@ -1239,20 +1272,22 @@ end;
 
 procedure TCrossSocketBase.TriggerDisconnected(const AConnection: ICrossConnection);
 begin
-  AConnection.ConnectStatus := csClosed;
-
-  _LockConnections;
   try
-    FConnections.Remove(AConnection.UID);
-    FConnectionsCount := FConnections.Count;
+    AConnection.ConnectStatus := csClosed;
+
+    LogicDisconnected(AConnection);
+
+    if Assigned(FOnDisconnected) then
+      FOnDisconnected(Self, AConnection);
   finally
-    _UnlockConnections;
+    _LockConnections;
+    try
+      FConnections.Remove(AConnection.UID);
+      FConnectionsCount := FConnections.Count;
+    finally
+      _UnlockConnections;
+    end;
   end;
-
-  LogicDisconnected(AConnection);
-
-  if Assigned(FOnDisconnected) then
-    FOnDisconnected(Self, AConnection);
 end;
 
 procedure TCrossSocketBase.TriggerIoThreadBegin(const AIoThread: TIoEventThread);
@@ -1327,27 +1362,28 @@ end;
 
 procedure TCrossSocketBase._LockConnections;
 begin
-  System.TMonitor.Enter(FConnectionsLock);
+  FConnectionsLock.Enter;
 end;
 
 procedure TCrossSocketBase._LockListens;
 begin
-  System.TMonitor.Enter(FListensLock);
+  FListensLock.Enter;
 end;
 
 procedure TCrossSocketBase._UnlockConnections;
 begin
-  System.TMonitor.Exit(FConnectionsLock);
+  FConnectionsLock.Leave;
 end;
 
 procedure TCrossSocketBase._UnlockListens;
 begin
-  System.TMonitor.Exit(FListensLock);
+  FListensLock.Leave;
 end;
 
 { TCrossData }
 
-constructor TCrossData.Create(const AOwner: TCrossSocketBase; const ASocket: THandle);
+constructor TCrossData.Create(const AOwner: TCrossSocketBase;
+  const ASocket: THandle);
 begin
   // 理论上说62位的唯一编号永远也不可能用完
   // 所以也就不用考虑编号重置的问题了
@@ -1363,13 +1399,13 @@ end;
 
 destructor TCrossData.Destroy;
 begin
-  if (FSocket <> INVALID_HANDLE_VALUE) then
+  if (FSocket <> -1) then
   begin
     TSocketAPI.CloseSocket(FSocket);
     {$IFDEF __DEBUG__}
 //    _Log('close result %d', [GetLastError]);
     {$ENDIF}
-    FSocket := INVALID_HANDLE_VALUE;
+    FSocket := INVALID_SOCKET;
   end;
 
   inherited;
@@ -1476,11 +1512,11 @@ procedure TCrossListenBase.Close;
 begin
   if (AtomicExchange(FClosed, 1) = 1) then Exit;
 
-  if (FSocket <> INVALID_HANDLE_VALUE) then
+  if (FSocket <> INVALID_SOCKET) then
   begin
     TSocketAPI.CloseSocket(FSocket);
     FOwner.TriggerListenEnd(Self);
-    FSocket := INVALID_HANDLE_VALUE;
+    FSocket := INVALID_SOCKET;
   end;
 end;
 
@@ -1512,11 +1548,13 @@ end;
 { TCrossConnectionBase }
 
 constructor TCrossConnectionBase.Create(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType);
+  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AConnectedCb: TCrossConnectionCallback);
 begin
   inherited Create(AOwner, AClientSocket);
 
   FConnectType := AConnectType;
+  FConnectCb := AConnectedCb;
 end;
 
 procedure TCrossConnectionBase.SetConnectStatus(const AValue: TConnectStatus);
@@ -1528,12 +1566,26 @@ procedure TCrossConnectionBase.Close;
 begin
   if (_SetConnectStatus(csClosed) = csClosed) then Exit;
 
-  if (FSocket <> INVALID_HANDLE_VALUE) then
+  if (FSocket <> INVALID_SOCKET) then
   begin
     TSocketAPI.CloseSocket(FSocket);
     FOwner.TriggerDisconnected(Self);
-    FSocket := INVALID_HANDLE_VALUE;
+    FSocket := INVALID_SOCKET;
   end;
+end;
+
+destructor TCrossConnectionBase.Destroy;
+begin
+  // 连接释放时, 调用连接回调, 告知连接失败
+  // 连接成功后 FConnectCb 会被置为 nil,
+  // 所以如果这里 FConnectCb 不等于 nil, 则表示连接释放时仍未连接成功
+  if Assigned(FConnectCb) then
+  begin
+    FConnectCb(Self, False);
+    FConnectCb := nil;
+  end;
+
+  inherited;
 end;
 
 procedure TCrossConnectionBase.DirectSend(const ABuffer: Pointer;
@@ -1541,7 +1593,7 @@ procedure TCrossConnectionBase.DirectSend(const ABuffer: Pointer;
 var
   LBuffer: Pointer;
 begin
-  if (FSocket = INVALID_HANDLE_VALUE)
+  if (FSocket = -1)
     or IsClosed then
   begin
     if Assigned(ACallback) then

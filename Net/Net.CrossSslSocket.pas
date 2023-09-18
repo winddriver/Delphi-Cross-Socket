@@ -1,4 +1,6 @@
-unit Net.CrossSslSocket;
+﻿unit Net.CrossSslSocket;
+
+{$I zLib.inc}
 
 interface
 

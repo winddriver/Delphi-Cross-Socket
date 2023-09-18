@@ -9,8 +9,13 @@
 {******************************************************************************}
 unit Net.OpenSSL;
 
+{$I zLib.inc}
+
 {
+  本单元支持 openssl 1.1 及以上版本
+
   OpenSSL 下载:
+  https://wiki.openssl.org/index.php/Binaries
   https://indy.fulgan.com/SSL/
   https://github.com/leenjewel/openssl_for_ios_and_android
 
@@ -22,14 +27,23 @@ unit Net.OpenSSL;
 
   Linux下需要安装libssl开发包
   sudo apt-get install libssl-dev
+
+  补充说明:
+    由于不同的操作系统所带的 openssl 运行库版本并不相同,
+    所以本单元提供了几个变量用于自定义运行库的路径及名称
+    在首次加载 openssl 库之前指定即可
+
+    // 手动指定 ssl 库路径
+    TSSLTools.LibPath: string;
+
+    // 手动指定 libssl 库名称
+    TSSLTools.LibSSL: string;
+
+    // 手动指定 libcrypto 库名称
+    TSSLTools.LibCRYPTO: string;
 }
 
-// 使用 LibreSSL
-// LibreSSL 是 OpenSSL 的一个分支, 由 OpenBSD 维护, 接口与 OpenSSL 兼容
-// 目前(2.4.2) 执行效率比 OpenSSL(1.0.2h) 低
-{.$DEFINE __LIBRE_SSL__}
-
-// iOS真机必须用openssl的静态库
+// iOS真机必须用openssl的静态库(未验证)
 {$IF defined(IOS) and defined(CPUARM)}
   {$DEFINE __SSL_STATIC__}
 {$ENDIF}
@@ -38,47 +52,61 @@ interface
 
 uses
   {$IFDEF MSWINDOWS}
-  Winapi.Windows,
+  Windows,
   {$ENDIF}
+
   {$IFDEF POSIX}
-  Posix.Base, Posix.Pthread,
-  {$ENDIF}
-  System.SysUtils, System.SyncObjs;
+  {$IFDEF DELPHI}
+  Posix.Base,
+  Posix.Pthread,
+  {$ELSE}
+  baseunix,
+  unix,
+  {$ENDIF DELPHI}
+  {$ENDIF POSIX}
+
+  SysUtils;
 
 const
-  SSLEAY_DLL =
+  LIBSSL_NAME =
     {$IFDEF MSWINDOWS}
-      {$IFDEF __LIBRE_SSL__}
-        'libssl-39.dll'
-      {$ELSE}
-        'ssleay32.dll'
+      {$IFDEF CPUX86}
+      'libssl-3.dll'
+      {$ENDIF}
+      {$IFDEF CPUX64}
+      'libssl-3-x64.dll'
       {$ENDIF}
     {$ENDIF}
     {$IFDEF POSIX}
       {$IFDEF __SSL_STATIC__}
-        'libssl.a'
-      {$ELSEIF defined(MACOS)}
-        'libssl.dylib'
+      'libssl.a'
+      {$ELSEIF DEFINED(MACOS)}
+      'libssl.dylib'
+      {$ELSEIF DEFINED(CPULOONGARCH)}
+      'libssl.so.3'
       {$ELSE}
-        'libssl.so'
+      'libssl.so.1.1'
       {$ENDIF}
     {$ENDIF};
 
-  LIBEAY_DLL =
+  LIBCRYPTO_NAME =
     {$IFDEF MSWINDOWS}
-      {$IFDEF __LIBRE_SSL__}
-        'libcrypto-38.dll'
-      {$ELSE}
-        'libeay32.dll'
+      {$IFDEF CPUX86}
+      'libcrypto-3.dll'
+      {$ENDIF}
+      {$IFDEF CPUX64}
+      'libcrypto-3-x64.dll'
       {$ENDIF}
     {$ENDIF}
     {$IFDEF POSIX}
       {$IFDEF __SSL_STATIC__}
-        'libcrypto.a'
-      {$ELSEIF defined(MACOS)}
-        'libcrypto.dylib'
+      'libcrypto.a'
+      {$ELSEIF DEFINED(MACOS)}
+      'libcrypto.dylib'
+      {$ELSEIF DEFINED(CPULOONGARCH)}
+      'libcrypto.so.3'
       {$ELSE}
-        'libcrypto.so'
+      'libcrypto.so.1.1'
       {$ENDIF}
     {$ENDIF};
 
@@ -100,9 +128,6 @@ const
   SSL_ST_ACCEPT                               = $2000;
   SSL_ST_MASK                                 = $0FFF;
   SSL_ST_INIT                                 = (SSL_ST_CONNECT or SSL_ST_ACCEPT);
-  SSL_ST_BEFORE                               = $4000;
-  SSL_ST_OK                                   = $03;
-  SSL_ST_RENEGOTIATE                          = ($04 or SSL_ST_INIT);
 
   BIO_CTRL_EOF     = 2;
   BIO_CTRL_INFO		 = 3;
@@ -218,12 +243,12 @@ const
   SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION  = $00010000;
   SSL_OP_NO_COMPRESSION                       = $00020000;
   SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION    = $00040000;
-  SSL_OP_SINGLE_ECDH_USE                      = $00080000;
+  SSL_OP_SINGLE_ECDH_USE                      = $0;
   SSL_OP_SINGLE_DH_USE                        = $00100000;
   SSL_OP_EPHEMERAL_RSA                        = $00200000;
   SSL_OP_CIPHER_SERVER_PREFERENCE             = $00400000;
   SSL_OP_TLS_ROLLBACK_BUG                     = $00800000;
-  SSL_OP_NO_SSLv2                             = $01000000;
+  SSL_OP_NO_SSLv2                             = $0;
   SSL_OP_NO_SSLv3                             = $02000000;
   SSL_OP_NO_TLSv1                             = $04000000;
   SSL_OP_NO_TLSv1_2                           = $08000000;
@@ -273,7 +298,12 @@ const
   TLS1_2_VERSION_MAJOR                        = $03;
   TLS1_2_VERSION_MINOR                        = $03;
 
-  TLS_MAX_VERSION                             = TLS1_2_VERSION;
+  TLS1_3_VERSION                              = $0304;
+  TLS1_3_VERSION_MAJOR                        = $03;
+  TLS1_3_VERSION_MINOR                        = $04;
+
+  TLS_MAX_VERSION                             = TLS1_3_VERSION;
+  // Special value for method supporting multiple versions
   TLS_ANY_VERSION                             = $10000;
 
   DTLS1_VERSION                               = $FEFF;
@@ -284,336 +314,204 @@ const
   // Special value for method supporting multiple versions
   DTLS_ANY_VERSION                            = $1FFFF;
 
+  OPENSSL_INIT_NO_LOAD_SSL_STRINGS            = $00100000;
+  OPENSSL_INIT_LOAD_SSL_STRINGS               = $00200000;
+
+  TLS_ST_OK                                   = 1;
+
+  OPENSSL_INIT_NO_LOAD_CRYPTO_STRINGS = $00000001;
+  OPENSSL_INIT_LOAD_CRYPTO_STRINGS    = $00000002;
+  OPENSSL_INIT_ADD_ALL_CIPHERS        = $00000004;
+  OPENSSL_INIT_ADD_ALL_DIGESTS        = $00000008;
+  OPENSSL_INIT_NO_ADD_ALL_CIPHERS     = $00000010;
+  OPENSSL_INIT_NO_ADD_ALL_DIGESTS     = $00000020;
+  OPENSSL_INIT_LOAD_CONFIG            = $00000040;
+  OPENSSL_INIT_NO_LOAD_CONFIG         = $00000080;
+  OPENSSL_INIT_ASYNC                  = $00000100;
+  OPENSSL_INIT_ENGINE_RDRAND          = $00000200;
+  OPENSSL_INIT_ENGINE_DYNAMIC         = $00000400;
+  OPENSSL_INIT_ENGINE_OPENSSL         = $00000800;
+  OPENSSL_INIT_ENGINE_CRYPTODEV       = $00001000;
+  OPENSSL_INIT_ENGINE_CAPI            = $00002000;
+  OPENSSL_INIT_ENGINE_PADLOCK         = $00004000;
+  OPENSSL_INIT_ENGINE_AFALG           = $00008000;
+
 type
   size_t = NativeUInt;
 
   {$REGION 'SSL'}
-  TSSL_METHOD_st = packed record
-    Dummy: array [0..0] of Byte;
-  end;
-  PSSL_METHOD = ^TSSL_METHOD_st;
+  PSSL_CTX = Pointer;
+  PSSL = Pointer;
+  PSSL_METHOD = Pointer;
 
-  TSSL_CTX_st = packed record
-    Dummy: array [0..0] of Byte;
-  end;
-  PSSL_CTX = ^TSSL_CTX_st;
-
-  TBIO_st = packed record
-    Dummy: array [0..0] of Byte;
-  end;
-  PBIO = ^TBIO_st;
+  PBIO = Pointer;
   PPBIO = ^PBIO;
 
-  TSSL_st = packed record
-    Dummy: array [0..0] of Byte;
-  end;
-  PSSL = ^TSSL_st;
-
-  TX509_STORE_CTX_st = packed record
-    Dummy: array [0..0] of Byte;
-  end;
-  PX509_STORE_CTX = ^TX509_STORE_CTX_st;
-
-  TEVP_PKEY_st = packed record
-    Dummy: array [0..0] of Byte;
-  end;
-  PEVP_PKEY = ^TEVP_PKEY_st;
+  PEVP_PKEY = Pointer;
   PPEVP_PKEY = ^PEVP_PKEY;
 
-  TX509_st = packed record
-    Dummy: array [0..0] of Byte;
-  end;
-  PX509 = ^TX509_st;
+  PX509_STORE_CTX = Pointer;
+  PX509_STORE = Pointer;
+
+  PX509 = Pointer;
   PPX509 = ^PX509;
 
-  TX509_STORE_st = packed record
-      Dummy : array [0..0] of Byte;
-  end;
-  PX509_STORE = ^TX509_STORE_st;
-
-  // 0.9.7g, 0.9.8a, 0.9.8e, 1.0.0d
-  TASN1_STRING_st = record
-    length : Integer;
-    type_  : Integer;
-    data   : MarshaledAString;
-    //* The value of the following field depends on the type being
-    //* held.  It is mostly being used for BIT_STRING so if the
-    //* input data has a non-zero 'unused bits' value, it will be
-    //* handled correctly */
-    flags  : Longword;
-  end;
-  PASN1_STRING       = ^TASN1_STRING_st;
-  TASN1_OCTET_STRING = TASN1_STRING_st;
-  PASN1_OCTET_STRING = ^TASN1_OCTET_STRING;
-  TASN1_BIT_STRING   = TASN1_STRING_st;
-  PASN1_BIT_STRING   = ^TASN1_BIT_STRING;
-
-  TSetVerify_cb = function(Ok: Integer; StoreCtx: PX509_STORE_CTX): Integer; cdecl;
+  TSetVerifyCb = function(Ok: Integer; StoreCtx: PX509_STORE_CTX): Integer; cdecl;
   {$ENDREGION}
 
-  {$REGION 'LIBEAY'}
-  TCRYPTO_THREADID_st = packed record
-    Dummy: array [0..0] of Byte;
-  end;
-  PCRYPTO_THREADID = ^TCRYPTO_THREADID_st;
+  {$REGION 'LIBSSL'}
+  PCRYPTO_THREADID = Pointer;
+  PBIO_METHOD = Pointer;
+  PX509_NAME = Pointer;
+  PSTACK = Pointer;
+  PEC_KEY = Pointer;
 
-  TCRYPTO_dynlock_value_st = record
-    Mutex: TCriticalSection;
-  end;
-  PCRYPTO_dynlock_value = ^TCRYPTO_dynlock_value_st;
-  CRYPTO_dynlock_value  = TCRYPTO_dynlock_value_st;
-
-  TBIO_METHOD_st = packed record
-    Dummy: array [0..0] of Byte;
-  end;
-  PBIO_METHOD = ^TBIO_METHOD_st;
-
-  TX509_NAME_st = packed record
-    Dummy: array [0..0] of Byte;
-  end;
-  PX509_NAME = ^TX509_NAME_st;
-
-  TSTACK_st = packed record
-    Dummy : array [0..0] of Byte;
-  end;
-  PSTACK = ^TSTACK_st;
-
-  TASN1_OBJECT_st = packed record
-    Dummy : array [0..0] of Byte;
-  end;
-  PASN1_OBJECT = ^TASN1_OBJECT_st;
-
-  TEC_KEY_st = packed record
-    Dummy : array [0..0] of Byte;
-  end;
-  PEC_KEY = ^TEC_KEY_st;
-
-  TStatLockLockCallback   = procedure(Mode: Integer; N: Integer; const _File: MarshaledAString; Line: Integer); cdecl;
-  TStatLockIDCallback     = function: Longword; cdecl;
-  TCryptoThreadIDCallback = procedure(ID: PCRYPTO_THREADID) cdecl;
-
-  TDynLockCreateCallback  = function(const _file: MarshaledAString; Line: Integer): PCRYPTO_dynlock_value; cdecl;
-  TDynLockLockCallback    = procedure(Mode: Integer; L: PCRYPTO_dynlock_value; _File: MarshaledAString; Line: Integer); cdecl;
-  TDynLockDestroyCallback = procedure(L: PCRYPTO_dynlock_value; _File: MarshaledAString; Line: Integer); cdecl;
-  pem_password_cb         = function(buf: Pointer; size: Integer; rwflag: Integer; userdata: Pointer): Integer; cdecl;
+  TPemPasswordCb = function(buf: Pointer; size: Integer; rwflag: Integer; userdata: Pointer): Integer; cdecl;
   {$ENDREGION}
 
 {$IFDEF __SSL_STATIC__}
 
-{$REGION 'SSL-FUNC'}
-function SSL_library_init: Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_library_init';
-procedure SSL_load_error_strings; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_load_error_strings';
+{$REGION 'LIBSSL-FUNC'}
+function OPENSSL_init_ssl: Integer; cdecl;
+  external LIBSSL_NAME name _PU + 'OPENSSL_init_ssl';
 
-function SSLv23_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'SSLv23_method';
-function SSLv23_client_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'SSLv23_client_method';
-function SSLv23_server_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'SSLv23_server_method';
-
-function TLSv1_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'TLSv1_method';
-function TLSv1_client_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'TLSv1_client_method';
-function TLSv1_server_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'TLSv1_server_method';
-
-{$IF not(defined(MACOS) and not defined(IOS))}
-function TLSv1_2_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'TLSv1_2_method';
-{$ENDIF}
-function TLSv1_2_client_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'TLSv1_2_client_method';
-function TLSv1_2_server_method: PSSL_METHOD; cdecl;
-  external SSLEAY_DLL name _PU + 'TLSv1_2_server_method';
+function TLS_method: PSSL_METHOD; cdecl;
+  external LIBSSL_NAME name _PU + 'TLS_method';
+function TLS_client_method: PSSL_METHOD; cdecl;
+  external LIBSSL_NAME name _PU + 'TLS_client_method';
+function TLS_server_method: PSSL_METHOD; cdecl;
+  external LIBSSL_NAME name _PU + 'TLS_server_method';
 
 function SSL_CTX_new(meth: PSSL_METHOD): PSSL_CTX; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_new';
+  external LIBSSL_NAME name _PU + 'SSL_CTX_new';
 procedure SSL_CTX_free(ctx: PSSL_CTX); cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_free';
+  external LIBSSL_NAME name _PU + 'SSL_CTX_free';
 function SSL_CTX_ctrl(ctx: PSSL_CTX; Cmd: Integer; LArg: Integer; PArg: MarshaledAString): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_ctrl';
-procedure SSL_CTX_set_verify(ctx: PSSL_CTX; mode: Integer; callback: TSetVerify_cb); cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_set_verify';
+  external LIBSSL_NAME name _PU + 'SSL_CTX_ctrl';
+procedure SSL_CTX_set_verify(ctx: PSSL_CTX; mode: Integer; callback: TSetVerifyCb); cdecl;
+  external LIBSSL_NAME name _PU + 'SSL_CTX_set_verify';
 function SSL_CTX_set_cipher_list(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_set_cipher_list';
+  external LIBSSL_NAME name _PU + 'SSL_CTX_set_cipher_list';
 function SSL_CTX_use_PrivateKey(ctx: PSSL_CTX; pkey: PEVP_PKEY): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_use_PrivateKey';
+  external LIBSSL_NAME name _PU + 'SSL_CTX_use_PrivateKey';
 function SSL_CTX_use_certificate(ctx: PSSL_CTX; cert: PX509): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_use_certificate';
+  external LIBSSL_NAME name _PU + 'SSL_CTX_use_certificate';
 function SSL_CTX_check_private_key(ctx: PSSL_CTX): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_check_private_key';
+  external LIBSSL_NAME name _PU + 'SSL_CTX_check_private_key';
 
 function SSL_new(ctx: PSSL_CTX): PSSL; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_new';
+  external LIBSSL_NAME name _PU + 'SSL_new';
 procedure SSL_set_bio(s: PSSL; rbio, wbio: PBIO); cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_set_bio';
-function SSL_get_peer_certificate(s: PSSL): PX509; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_get_peer_certificate';
+  external LIBSSL_NAME name _PU + 'SSL_set_bio';
 function SSL_get_error(s: PSSL; ret_code: Integer): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_get_error';
+  external LIBSSL_NAME name _PU + 'SSL_get_error';
 
 function SSL_ctrl(S: PSSL; Cmd: Integer; LArg: Integer; PArg: Pointer): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_ctrl';
+  external LIBSSL_NAME name _PU + 'SSL_ctrl';
 
 function SSL_shutdown(s: PSSL): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_shutdown';
+  external LIBSSL_NAME name _PU + 'SSL_shutdown';
 procedure SSL_free(s: PSSL); cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_free';
+  external LIBSSL_NAME name _PU + 'SSL_free';
 
 procedure SSL_set_connect_state(s: PSSL); cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_set_connect_state';
+  external LIBSSL_NAME name _PU + 'SSL_set_connect_state';
 procedure SSL_set_accept_state(s: PSSL); cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_set_accept_state';
+  external LIBSSL_NAME name _PU + 'SSL_set_accept_state';
+function SSL_set_fd(s: PSSL; fd: Integer): Integer; cdecl;
+  external LIBSSL_NAME name _PU + 'SSL_set_fd';
 function SSL_accept(S: PSSL): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_accept';
+  external LIBSSL_NAME name _PU + 'SSL_accept';
 function SSL_connect(S: PSSL): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_connect';
+  external LIBSSL_NAME name _PU + 'SSL_connect';
 function SSL_do_handshake(S: PSSL): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_do_handshake';
+  external LIBSSL_NAME name _PU + 'SSL_do_handshake';
 function SSL_read(s: PSSL; buf: Pointer; num: Integer): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_read';
+  external LIBSSL_NAME name _PU + 'SSL_read';
 function SSL_write(s: PSSL; const buf: Pointer; num: Integer): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_write';
-function SSL_state(s: PSSL): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_state';
+  external LIBSSL_NAME name _PU + 'SSL_write';
 function SSL_pending(s: PSSL): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_pending';
+  external LIBSSL_NAME name _PU + 'SSL_pending';
+function SSL_is_init_finished(s: PSSL): Integer; cdecl;
+  external LIBSSL_NAME name _PU + 'SSL_is_init_finished';
 
 function SSL_CTX_get_cert_store(const Ctx: PSSL_CTX): PX509_STORE; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_get_cert_store';
+  external LIBSSL_NAME name _PU + 'SSL_CTX_get_cert_store';
 function SSL_CTX_add_client_CA(C: PSSL_CTX; CaCert: PX509): Integer; cdecl;
-  external SSLEAY_DLL name _PU + 'SSL_CTX_add_client_CA';
+  external LIBSSL_NAME name _PU + 'SSL_CTX_add_client_CA';
 {$ENDREGION}
 
-{$REGION 'LIBEAY-FUNC'}
-function SSLeay: Longword; cdecl;
-  external LIBEAY_DLL name _PU + 'SSLeay';
+{$REGION 'LIBCRYPTO-FUNC'}
+function OpenSSL_version_num: Longword; cdecl;
+  external LIBCRYPTO_NAME name _PU + 'OpenSSL_version_num';
+function OPENSSL_init_crypto(opts: UInt64; settings: Pointer): Integer; cdecl;
+  external LIBCRYPTO_NAME name _PU + 'OPENSSL_init_crypto';
+procedure OPENSSL_cleanup; cdecl;
+  external LIBCRYPTO_NAME name _PU + 'OPENSSL_cleanup';
 
-function CRYPTO_set_id_callback(callback: TStatLockIDCallback): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_set_id_callback';
-
-{$IF not(defined(MACOS) and not defined(IOS))}
-// MACOS 内置的 OpenSSL 库版本较低(0.9.x)
-// CRYPTO_THREADID_set_callback 只有 OpenSSL 1.0 以上版本才有
-function CRYPTO_THREADID_set_callback(callback: TCryptoThreadIDCallback): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_THREADID_set_callback';
-procedure CRYPTO_THREADID_set_numeric(id : PCRYPTO_THREADID; val: LongWord); cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_THREADID_set_numeric';
-procedure CRYPTO_THREADID_set_pointer(id : PCRYPTO_THREADID; ptr: Pointer); cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_THREADID_set_pointer';
-{$ENDIF}
-
-function CRYPTO_num_locks: Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_num_locks';
-procedure CRYPTO_set_locking_callback(callback: TStatLockLockCallback); cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_set_locking_callback';
-procedure CRYPTO_set_dynlock_create_callback(callback: TDynLockCreateCallBack); cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_set_dynlock_create_callback';
-procedure CRYPTO_set_dynlock_lock_callback(callback: TDynLockLockCallBack); cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_set_dynlock_lock_callback';
-procedure CRYPTO_set_dynlock_destroy_callback(callback: TDynLockDestroyCallBack); cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_set_dynlock_destroy_callback';
-procedure CRYPTO_cleanup_all_ex_data; cdecl;
-  external LIBEAY_DLL name _PU + 'CRYPTO_cleanup_all_ex_data';
-
-procedure ERR_remove_state(tid: Cardinal); cdecl;
-  external LIBEAY_DLL name _PU + 'ERR_remove_state';
-
-{$IF not(defined(MACOS) and not defined(IOS))}
-procedure ERR_remove_thread_state(tid: PCRYPTO_THREADID); cdecl;
-  external LIBEAY_DLL name _PU + 'ERR_remove_thread_state';
-{$ENDIF}
-
-procedure ERR_free_strings; cdecl;
-  external LIBEAY_DLL name _PU + 'ERR_free_strings';
 procedure ERR_error_string_n(err: Cardinal; buf: MarshaledAString; len: size_t); cdecl;
-  external LIBEAY_DLL name _PU + 'ERR_error_string_n';
+  external LIBCRYPTO_NAME name _PU + 'ERR_error_string_n';
 function ERR_get_error: Cardinal; cdecl;
-  external LIBEAY_DLL name _PU + 'ERR_get_error';
-procedure ERR_clear_error; cdecl;
-  external LIBEAY_DLL name _PU + 'ERR_clear_error';
+  external LIBCRYPTO_NAME name _PU + 'ERR_get_error';
 
-procedure EVP_cleanup; cdecl;
-  external LIBEAY_DLL name _PU + 'EVP_cleanup';
 procedure EVP_PKEY_free(pkey: PEVP_PKEY); cdecl;
-  external LIBEAY_DLL name _PU + 'EVP_PKEY_free';
+  external LIBCRYPTO_NAME name _PU + 'EVP_PKEY_free';
 
 function BIO_new(BioMethods: PBIO_METHOD): PBIO; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_new';
+  external LIBCRYPTO_NAME name _PU + 'BIO_new';
 function BIO_ctrl(bp: PBIO; cmd: Integer; larg: Longint; parg: Pointer): Longint; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_ctrl';
+  external LIBCRYPTO_NAME name _PU + 'BIO_ctrl';
 function BIO_new_mem_buf(buf: Pointer; len: Integer): PBIO; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_new_mem_buf';
+  external LIBCRYPTO_NAME name _PU + 'BIO_new_mem_buf';
 function BIO_free(b: PBIO): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_free';
+  external LIBCRYPTO_NAME name _PU + 'BIO_free';
 function BIO_s_mem: PBIO_METHOD; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_s_mem';
+  external LIBCRYPTO_NAME name _PU + 'BIO_s_mem';
 function BIO_read(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_read';
+  external LIBCRYPTO_NAME name _PU + 'BIO_read';
 function BIO_write(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'BIO_write';
+  external LIBCRYPTO_NAME name _PU + 'BIO_write';
 
 function EC_KEY_new_by_curve_name(nid: Integer): PEC_KEY; cdecl;
-  external LIBEAY_DLL name _PU + 'EC_KEY_new_by_curve_name';
+  external LIBCRYPTO_NAME name _PU + 'EC_KEY_new_by_curve_name';
 procedure EC_KEY_free(key: PEC_KEY); cdecl;
-  external LIBEAY_DLL name _PU + 'EC_KEY_free';
+  external LIBCRYPTO_NAME name _PU + 'EC_KEY_free';
 
 function X509_get_issuer_name(cert: PX509): PX509_NAME; cdecl;
-  external LIBEAY_DLL name _PU + 'X509_get_issuer_name';
+  external LIBCRYPTO_NAME name _PU + 'X509_get_issuer_name';
 function X509_get_subject_name(cert: PX509): PX509_NAME; cdecl;
-  external LIBEAY_DLL name _PU + 'X509_get_subject_name';
+  external LIBCRYPTO_NAME name _PU + 'X509_get_subject_name';
 procedure X509_free(cert: PX509); cdecl;
-  external LIBEAY_DLL name _PU + 'X509_free';
+  external LIBCRYPTO_NAME name _PU + 'X509_free';
 function X509_NAME_print_ex(bout: PBIO; nm: PX509_NAME; indent: Integer; flags: Cardinal): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'X509_NAME_print_ex';
+  external LIBCRYPTO_NAME name _PU + 'X509_NAME_print_ex';
 function X509_get_ext_d2i(x: PX509; nid: Integer; var crit, idx: Integer): Pointer; cdecl;
-  external LIBEAY_DLL name _PU + 'X509_get_ext_d2i';
+  external LIBCRYPTO_NAME name _PU + 'X509_get_ext_d2i';
 
 function X509_STORE_add_cert(Store: PX509_STORE; Cert: PX509): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'X509_STORE_add_cert';
+  external LIBCRYPTO_NAME name _PU + 'X509_STORE_add_cert';
 
-function sk_num(stack: PSTACK): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'sk_num';
-function sk_pop(stack: PSTACK): Pointer; cdecl;
-  external LIBEAY_DLL name _PU + 'sk_pop';
+function OPENSSL_sk_num(stack: PSTACK): Integer; cdecl;
+  external LIBCRYPTO_NAME name _PU + 'OPENSSL_sk_num';
+function OPENSSL_sk_pop(stack: PSTACK): Pointer; cdecl;
+  external LIBCRYPTO_NAME name _PU + 'OPENSSL_sk_pop';
 
-function ASN1_BIT_STRING_get_bit(a: PASN1_BIT_STRING; n: Integer): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'ASN1_BIT_STRING_get_bit';
-function OBJ_obj2nid(o: PASN1_OBJECT): Integer; cdecl;
-  external LIBEAY_DLL name _PU + 'OBJ_obj2nid';
-function OBJ_nid2sn(n: Integer): MarshaledAString; cdecl;
-  external LIBEAY_DLL name _PU + 'OBJ_nid2sn';
-function ASN1_STRING_data(x: PASN1_STRING): Pointer; cdecl;
-  external LIBEAY_DLL name _PU + 'ASN1_STRING_data';
-function PEM_read_bio_X509(bp: PBIO; x: PPX509; cb: pem_password_cb; u: Pointer): PX509; cdecl;
-  external LIBEAY_DLL name _PU + 'PEM_read_bio_X509';
-function PEM_read_bio_X509_AUX(bp: PBIO; x: PPX509; cb: pem_password_cb; u: Pointer): PX509; cdecl;
-  external LIBEAY_DLL name _PU + 'PEM_read_bio_X509_AUX';
-function PEM_read_bio_PrivateKey(bp: PBIO; x: PPEVP_PKEY; cb: pem_password_cb; u: Pointer): PEVP_PKEY; cdecl;
-  external LIBEAY_DLL name _PU + 'PEM_read_bio_PrivateKey';
-
-procedure OPENSSL_add_all_algorithms_noconf; cdecl;
-  external LIBEAY_DLL name _PU + 'OPENSSL_add_all_algorithms_noconf';
-procedure OPENSSL_add_all_algorithms_conf; cdecl;
-  external LIBEAY_DLL name _PU + 'OPENSSL_add_all_algorithms_conf';
-
-procedure OpenSSL_add_all_ciphers; cdecl;
-  external LIBEAY_DLL name _PU + 'OpenSSL_add_all_ciphers';
-procedure OpenSSL_add_all_digests; cdecl;
-  external LIBEAY_DLL name _PU + 'OpenSSL_add_all_digests';
+function PEM_read_bio_X509(bp: PBIO; x: PPX509; cb: TPemPasswordCb; u: Pointer): PX509; cdecl;
+  external LIBCRYPTO_NAME name _PU + 'PEM_read_bio_X509';
+function PEM_read_bio_X509_AUX(bp: PBIO; x: PPX509; cb: TPemPasswordCb; u: Pointer): PX509; cdecl;
+  external LIBCRYPTO_NAME name _PU + 'PEM_read_bio_X509_AUX';
+function PEM_read_bio_PrivateKey(bp: PBIO; x: PPEVP_PKEY; cb: TPemPasswordCb; u: Pointer): PEVP_PKEY; cdecl;
+  external LIBCRYPTO_NAME name _PU + 'PEM_read_bio_PrivateKey';
 {$ENDREGION}
 
-{$ENDIF}
+{$ENDIF __SSL_STATIC__}
 
-function SSL_CTX_need_tmp_RSA(ctx: PSSL_CTX): Integer; inline;
+function SSL_CTX_need_tmp_rsa(ctx: PSSL_CTX): Integer; inline;
 function SSL_CTX_set_tmp_rsa(ctx: PSSL_CTX; rsa: MarshaledAString): Integer; inline;
 function SSL_CTX_set_tmp_dh(ctx: PSSL_CTX; dh: MarshaledAString): Integer; inline;
 function SSL_CTX_set_tmp_ecdh(ctx: PSSL_CTX; ecdh: PEC_KEY): Integer; inline;
 function SSL_CTX_add_extra_chain_cert(ctx: PSSL_CTX; cert: PX509): Integer; inline;
-function SSL_need_tmp_RSA(ssl: PSSL): Integer; inline;
+function SSL_need_tmp_rsa(ssl: PSSL): Integer; inline;
 function SSL_set_tmp_rsa(ssl: PSSL; rsa: MarshaledAString): Integer; inline;
 function SSL_set_tmp_dh(ssl: PSSL; dh: MarshaledAString): Integer; inline;
 function SSL_set_tmp_ecdh(ssl: PSSL; ecdh: MarshaledAString): Integer; inline;
@@ -634,68 +532,94 @@ function BIO_get_mem_data(bp: PBIO; parg: Pointer): Integer; inline;
 function BIO_get_flags(b: PBIO): Integer; inline;
 function BIO_should_retry(b: PBIO): Boolean; inline;
 
-function SSL_is_init_finished(s: PSSL): Boolean; inline;
-
-function ssl_is_fatal_error(ssl_error: Integer): Boolean;
-function ssl_error_message(ssl_error: Integer): string;
-
-function sk_ASN1_OBJECT_num(stack: PSTACK): Integer; inline;
-function sk_GENERAL_NAME_num(stack: PSTACK): Integer; inline;
-function sk_GENERAL_NAME_pop(stack: PSTACK): Pointer; inline;
+function SSL_is_fatal_error(ssl_error: Integer): Boolean;
+function SSL_error_message(ssl_error: Integer): string;
 
 type
   ESsl = class(Exception);
   ESslInvalidLib = class(ESsl);
   ESslInvalidProc = class(ESsl);
 
+  // FPC 中 一定要用 TLibHandle 来保存动态库的句柄
+  // 否则在部分操作系统中调用 GetProcAddress 时会引发异常
+  // 目前测试发现在 Linux-LoongArch64 中会出现该异常
+  {$IFDEF DELPHI}
+  TLibHandle = THandle;
+  {$ENDIF}
+
   {$REGION 'SSLTools'}
   TSSLTools = class
-  private class var
-    FRef: Integer;
+  private
+    class var FRef: Integer;
+
+    {$IFNDEF __SSL_STATIC__}
+    class var FLibPath, FLibSSL, FLibCRYPTO: string;
+    class var FSslLibHandle, FCryptoLibHandle: TLibHandle;
+    class var FSslVersion: Longword;
+
+    class function GetSslLibPath: string; static;
+    class function GetSslLibProc(const ALibHandle: TLibHandle;
+      const AProcName: string): Pointer; static;
+    class function LoadSslLib(const ALibName: string): TLibHandle; static;
+    class procedure LoadSslLibs; static;
+    class procedure UnloadSslLibs; static;
+    {$ENDIF}
+
+    class procedure SslInit; static;
+    class procedure SslUninit; static;
   public
-    class procedure LoadSSL;
-    class procedure UnloadSSL;
-    class function SSLVersion: Longword;
-    class function NewCTX(meth: PSSL_METHOD = nil): PSSL_CTX;
-    class procedure FreeCTX(var AContext: PSSL_CTX);
+    // 加载 SSL 库
+    class procedure LoadSSL; static;
 
-    class procedure SetCertificate(AContext: PSSL_CTX; ACertBuf: Pointer; ACertBufSize: Integer); overload;
-    class procedure SetCertificate(AContext: PSSL_CTX; const ACertStr: string); overload;
-    class procedure SetCertificateFile(AContext: PSSL_CTX; const ACertFile: string);
+    // 卸载 SSL 库
+    class procedure UnloadSSL; static;
 
-    class procedure SetPrivateKey(AContext: PSSL_CTX; APKeyBuf: Pointer; APKeyBufSize: Integer); overload;
-    class procedure SetPrivateKey(AContext: PSSL_CTX; const APKeyStr: string); overload;
-    class procedure SetPrivateKeyFile(AContext: PSSL_CTX; const APKeyFile: string);
+    // SSL 版本号
+    class function SSLVersion: Longword; static;
+
+    // 新建 SSL 上下文对象
+    class function NewCTX(AMeth: PSSL_METHOD = nil): PSSL_CTX; static;
+
+    // 释放 SSL 上下文对象
+    class procedure FreeCTX(var AContext: PSSL_CTX); static;
+
+    // 加载证书
+    class procedure SetCertificate(AContext: PSSL_CTX; ACertBuf: Pointer; ACertBufSize: Integer); overload; static;
+    class procedure SetCertificate(AContext: PSSL_CTX; const ACertBytes: TBytes); overload; static;
+    class procedure SetCertificate(AContext: PSSL_CTX; const ACertStr: string); overload; static;
+    class procedure SetCertificateFile(AContext: PSSL_CTX; const ACertFile: string); static;
+
+    // 加载私钥
+    class procedure SetPrivateKey(AContext: PSSL_CTX; APKeyBuf: Pointer; APKeyBufSize: Integer); overload; static;
+    class procedure SetPrivateKey(AContext: PSSL_CTX; const APKeyBytes: TBytes); overload; static;
+    class procedure SetPrivateKey(AContext: PSSL_CTX; const APKeyStr: string); overload; static;
+    class procedure SetPrivateKeyFile(AContext: PSSL_CTX; const APKeyFile: string); static;
+
+    // 手动指定 ssl 库路径
+    class property LibPath: string read FLibPath write FLibPath;
+
+    // 手动指定 libssl 库名称
+    class property LibSSL: string read FLibSSL write FLibSSL;
+
+    // 手动指定 libcrypto 库名称
+    class property LibCRYPTO: string read FLibCRYPTO write FLibCRYPTO;
   end;
   {$ENDREGION}
 
 {$IFNDEF __SSL_STATIC__}
 
 var
-  _SslLibPath: string;
-  _SslLibHandle: THandle;
-  _CryptoLibHandle: THandle;
-
   {$REGION 'SSL-FUNC'}
-  SSL_library_init: function: Integer; cdecl;
-  SSL_load_error_strings: procedure; cdecl;
+  OPENSSL_init_ssl: function(opts: UInt64; settings: Pointer): Integer; cdecl;
 
-  SSLv23_method: function: PSSL_METHOD; cdecl;
-  SSLv23_client_method: function: PSSL_METHOD; cdecl;
-  SSLv23_server_method: function: PSSL_METHOD; cdecl;
-
-  TLSv1_method: function: PSSL_METHOD; cdecl;
-  TLSv1_client_method: function: PSSL_METHOD; cdecl;
-  TLSv1_server_method: function: PSSL_METHOD; cdecl;
-
-  TLSv1_2_method: function: PSSL_METHOD; cdecl;
-  TLSv1_2_client_method: function: PSSL_METHOD; cdecl;
-  TLSv1_2_server_method: function : PSSL_METHOD; cdecl;
+  TLS_method: function: PSSL_METHOD; cdecl;
+  TLS_client_method: function: PSSL_METHOD; cdecl;
+  TLS_server_method: function: PSSL_METHOD; cdecl;
 
   SSL_CTX_new: function(meth: PSSL_METHOD): PSSL_CTX; cdecl;
   SSL_CTX_free: procedure(ctx: PSSL_CTX); cdecl;
   SSL_CTX_ctrl: function(ctx: PSSL_CTX; Cmd: Integer; LArg: Integer; PArg: MarshaledAString): Integer; cdecl;
-  SSL_CTX_set_verify: procedure(ctx: PSSL_CTX; mode: Integer; callback: TSetVerify_cb); cdecl;
+  SSL_CTX_set_verify: procedure(ctx: PSSL_CTX; mode: Integer; callback: TSetVerifyCb); cdecl;
   SSL_CTX_set_cipher_list: function(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
   SSL_CTX_use_PrivateKey: function(ctx: PSSL_CTX; pkey: PEVP_PKEY): Integer; cdecl;
   SSL_CTX_use_certificate: function(ctx: PSSL_CTX; cert: PX509): Integer; cdecl;
@@ -703,7 +627,6 @@ var
 
   SSL_new: function(ctx: PSSL_CTX): PSSL; cdecl;
   SSL_set_bio: procedure(s: PSSL; rbio, wbio: PBIO); cdecl;
-  SSL_get_peer_certificate: function(s: PSSL): PX509; cdecl;
   SSL_get_error: function(s: PSSL; ret_code: Integer): Integer; cdecl;
 
   SSL_ctrl: function(S: PSSL; Cmd: Integer; LArg: Integer; PArg: Pointer): Integer; cdecl;
@@ -713,50 +636,27 @@ var
 
   SSL_set_connect_state: procedure(s: PSSL); cdecl;
   SSL_set_accept_state: procedure(s: PSSL); cdecl;
+  SSL_set_fd : function(s: PSSL; fd: Integer): Integer cdecl;
   SSL_accept: function(S: PSSL): Integer; cdecl;
   SSL_connect: function(S: PSSL): Integer; cdecl;
   SSL_do_handshake: function(S: PSSL): Integer; cdecl;
   SSL_read: function(s: PSSL; buf: Pointer; num: Integer): Integer; cdecl;
   SSL_write: function(s: PSSL; const buf: Pointer; num: Integer): Integer; cdecl;
-  SSL_state: function(s: PSSL): Integer; cdecl;
   SSL_pending: function(s: PSSL): Integer; cdecl;
+  SSL_is_init_finished: function (s: PSSL): Integer; cdecl;
 
   SSL_CTX_get_cert_store: function(const Ctx: PSSL_CTX): PX509_STORE; cdecl;
   SSL_CTX_add_client_CA: function(C: PSSL_CTX; CaCert: PX509): Integer; cdecl;
   {$ENDREGION}
 
-  {$REGION 'LIBEAY-FUNC'}
-  SSLeay: function: Longword; cdecl;
+  {$REGION 'LIBCRYPTO-FUNC'}
+  OpenSSL_version_num: function: Longword; cdecl;
+  OPENSSL_init_crypto: function(opts: UInt64; settings: Pointer): Integer; cdecl;
+  OPENSSL_cleanup: procedure; cdecl;
 
-  CRYPTO_set_id_callback: function(callback: TStatLockIDCallback): Integer; cdecl;
-
-  {$IF not(defined(MACOS) and not defined(IOS))}
-  // MACOS 内置的 OpenSSL 库版本较低(0.9.x)
-  // CRYPTO_THREADID_set_callback 只有 OpenSSL 1.0 以上版本才有
-  CRYPTO_THREADID_set_callback: function(callback: TCryptoThreadIDCallback): Integer; cdecl;
-  CRYPTO_THREADID_set_numeric: procedure(id : PCRYPTO_THREADID; val: LongWord); cdecl;
-  CRYPTO_THREADID_set_pointer: procedure(id : PCRYPTO_THREADID; ptr: Pointer); cdecl;
-  {$ENDIF}
-
-  CRYPTO_num_locks: function: Integer; cdecl;
-  CRYPTO_set_locking_callback: procedure(callback: TStatLockLockCallback); cdecl;
-  CRYPTO_set_dynlock_create_callback: procedure(callback: TDynLockCreateCallBack); cdecl;
-  CRYPTO_set_dynlock_lock_callback: procedure(callback: TDynLockLockCallBack); cdecl;
-  CRYPTO_set_dynlock_destroy_callback: procedure(callback: TDynLockDestroyCallBack); cdecl;
-  CRYPTO_cleanup_all_ex_data: procedure; cdecl;
-
-  ERR_remove_state: procedure(tid: Cardinal); cdecl;
-
-  {$IF not(defined(MACOS) and not defined(IOS))}
-  ERR_remove_thread_state: procedure(tid: PCRYPTO_THREADID); cdecl;
-  {$ENDIF}
-
-  ERR_free_strings: procedure; cdecl;
   ERR_error_string_n: procedure(err: Cardinal; buf: MarshaledAString; len: size_t); cdecl;
   ERR_get_error: function: Cardinal; cdecl;
-  ERR_clear_error: procedure; cdecl;
 
-  EVP_cleanup: procedure; cdecl;
   EVP_PKEY_free: procedure(pkey: PEVP_PKEY); cdecl;
 
   BIO_new: function(BioMethods: PBIO_METHOD): PBIO; cdecl;
@@ -778,22 +678,12 @@ var
 
   X509_STORE_add_cert: function(Store: PX509_STORE; Cert: PX509): Integer; cdecl;
 
-  sk_num: function(stack: PSTACK): Integer; cdecl;
-  sk_pop: function(stack: PSTACK): Pointer; cdecl;
+  OPENSSL_sk_num: function(stack: PSTACK): Integer; cdecl;
+  OPENSSL_sk_pop: function(stack: PSTACK): Pointer; cdecl;
 
-  ASN1_BIT_STRING_get_bit: function(a: PASN1_BIT_STRING; n: Integer): Integer; cdecl;
-  OBJ_obj2nid: function(o: PASN1_OBJECT): Integer; cdecl;
-  OBJ_nid2sn: function(n: Integer): MarshaledAString; cdecl;
-  ASN1_STRING_data: function(x: PASN1_STRING): Pointer; cdecl;
-  PEM_read_bio_X509: function(bp: PBIO; x: PPX509; cb: pem_password_cb; u: Pointer): PX509; cdecl;
-  PEM_read_bio_X509_AUX: function(bp: PBIO; x: PPX509; cb: pem_password_cb; u: Pointer): PX509; cdecl;
-  PEM_read_bio_PrivateKey: function(bp: PBIO; x: PPEVP_PKEY; cb: pem_password_cb; u: Pointer): PEVP_PKEY; cdecl;
-
-  OPENSSL_add_all_algorithms_noconf: procedure; cdecl;
-  OPENSSL_add_all_algorithms_conf: procedure; cdecl;
-
-  OpenSSL_add_all_ciphers: procedure; cdecl;
-  OpenSSL_add_all_digests: procedure; cdecl;
+  PEM_read_bio_X509: function(bp: PBIO; x: PPX509; cb: TPemPasswordCb; u: Pointer): PX509; cdecl;
+  PEM_read_bio_X509_AUX: function(bp: PBIO; x: PPX509; cb: TPemPasswordCb; u: Pointer): PX509; cdecl;
+  PEM_read_bio_PrivateKey: function(bp: PBIO; x: PPEVP_PKEY; cb: TPemPasswordCb; u: Pointer): PEVP_PKEY; cdecl;
   {$ENDREGION}
 
 {$ENDIF}
@@ -803,11 +693,7 @@ implementation
 uses
   System.IOUtils;
 
-var
-  _FSslLocks: TArray<TCriticalSection>;
-  _FSslVersion: Longword;
-
-function SSL_CTX_need_tmp_RSA(ctx: PSSL_CTX): Integer;
+function SSL_CTX_need_tmp_rsa(ctx: PSSL_CTX): Integer;
 begin
   Result := SSL_CTX_ctrl(ctx, SSL_CTRL_NEED_TMP_RSA, 0, nil);
 end;
@@ -832,7 +718,7 @@ begin
   Result := SSL_CTX_ctrl(ctx, SSL_CTRL_EXTRA_CHAIN_CERT, 0, MarshaledAString(cert));
 end;
 
-function SSL_need_tmp_RSA(ssl: PSSL): Integer;
+function SSL_need_tmp_rsa(ssl: PSSL): Integer;
 begin
   Result := SSL_ctrl(ssl, SSL_CTRL_NEED_TMP_RSA, 0, nil);
 end;
@@ -907,21 +793,6 @@ begin
   Result := BIO_ctrl(bp, BIO_CTRL_INFO, 0, parg);
 end;
 
-function sk_ASN1_OBJECT_num(stack: PSTACK): Integer;
-begin
-  Result := sk_num(stack);
-end;
-
-function sk_GENERAL_NAME_num(stack: PSTACK): Integer;
-begin
-  Result := sk_num(stack);
-end;
-
-function sk_GENERAL_NAME_pop(stack: PSTACK): Pointer;
-begin
-  Result := sk_pop(stack);
-end;
-
 function BIO_get_flags(b: PBIO): Integer;
 begin
   // This is a hack : BIO structure has not been defined. But I know
@@ -935,12 +806,7 @@ begin
   Result := ((BIO_get_flags(b) and BIO_FLAGS_SHOULD_RETRY) <> 0);
 end;
 
-function SSL_is_init_finished(s: PSSL): Boolean;
-begin
-  Result := (SSL_state(s) = SSL_ST_OK);
-end;
-
-function ssl_is_fatal_error(ssl_error: Integer): Boolean;
+function SSL_is_fatal_error(ssl_error: Integer): Boolean;
 begin
 	case ssl_error of
 		SSL_ERROR_NONE,
@@ -953,7 +819,7 @@ begin
 	end;
 end;
 
-function ssl_error_message(ssl_error: Integer): string;
+function SSL_error_message(ssl_error: Integer): string;
 var
   LPtr: TPtrWrapper;
 begin
@@ -966,281 +832,18 @@ begin
   end;
 end;
 
-function set_id_callback: Longword; cdecl;
-begin
-  Result := GetCurrentThreadID;
-end;
-
-{$IF not(defined(MACOS) and not defined(IOS))}
-procedure ssl_threadid_callback(ID : PCRYPTO_THREADID); cdecl;
-begin
-  CRYPTO_THREADID_set_numeric(ID, GetCurrentThreadId);
-end;
-{$ENDIF}
-
-procedure ssl_lock_callback(Mode, N: Integer;
-  const _File: MarshaledAString; Line: Integer); cdecl;
-begin
-	if(mode and CRYPTO_LOCK <> 0) then
-    _FSslLocks[N].Enter
-	else
-    _FSslLocks[N].Leave;
-end;
-
-procedure ssl_lock_dyn_callback(Mode: Integer;
-  L: PCRYPTO_dynlock_value; _File: MarshaledAString; Line: Integer); cdecl;
-begin
-  if (Mode and CRYPTO_LOCK <> 0) then
-    L.Mutex.Enter
-  else
-    L.Mutex.Leave;
-end;
-
-function ssl_lock_dyn_create_callback(
-  const _file: MarshaledAString; Line: Integer): PCRYPTO_dynlock_value; cdecl;
-begin
-  New(Result);
-  Result.Mutex := TCriticalSection.Create;
-end;
-
-procedure ssl_lock_dyn_destroy_callback(
-  L: PCRYPTO_dynlock_value; _File: MarshaledAString; Line: Integer); cdecl;
-begin
-  L.Mutex.Free;
-  Dispose(L);
-end;
-
-{$IFNDEF __SSL_STATIC__}
-
-function GetSslLibPath: string;
-begin
-  if (_SslLibPath <> '') then
-    Result := IncludeTrailingPathDelimiter(_SslLibPath)
-  else
-    Result := _SslLibPath;
-end;
-
-function LoadSslLib(const ALibName: string): THandle;
-begin
-  Result := SafeLoadLibrary(GetSslLibPath + ALibName);
-  if (Result = 0) then
-    raise ESslInvalidLib.CreateFmt('无效的SSL库: %s', [ALibName]);
-end;
-
-function GetSslLibProc(const ALibHandle: THandle; const AProcName: string): Pointer;
-begin
-  Result := GetProcAddress(ALibHandle, PChar(AProcName));
-  if (Result = nil) then
-    raise ESslInvalidProc.CreateFmt('无效的SSL接口函数: %s', [AProcName]);
-end;
-
-procedure LoadSslLibs;
-begin
-  if (_CryptoLibHandle = 0) then
-  begin
-    _CryptoLibHandle := LoadSslLib(LIBEAY_DLL);
-
-    @SSLeay := GetSslLibProc(_CryptoLibHandle, 'SSLeay');
-
-    @CRYPTO_set_id_callback := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_set_id_callback');
-
-    {$IF not(defined(MACOS) and not defined(IOS))}
-    // MACOS 内置的 OpenSSL 库版本较低(0.9.x)
-    // CRYPTO_THREADID_set_callback 只有 OpenSSL 1.0 以上版本才有
-    @CRYPTO_THREADID_set_callback := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_THREADID_set_callback');
-    @CRYPTO_THREADID_set_numeric := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_THREADID_set_numeric');
-    @CRYPTO_THREADID_set_pointer := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_THREADID_set_pointer');
-    {$ENDIF}
-
-    @CRYPTO_num_locks := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_num_locks');
-    @CRYPTO_set_locking_callback := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_set_locking_callback');
-    @CRYPTO_set_dynlock_create_callback := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_set_dynlock_create_callback');
-    @CRYPTO_set_dynlock_lock_callback := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_set_dynlock_lock_callback');
-    @CRYPTO_set_dynlock_destroy_callback := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_set_dynlock_destroy_callback');
-    @CRYPTO_cleanup_all_ex_data := GetSslLibProc(_CryptoLibHandle, 'CRYPTO_cleanup_all_ex_data');
-
-    @ERR_remove_state := GetSslLibProc(_CryptoLibHandle, 'ERR_remove_state');
-
-    {$IF not(defined(MACOS) and not defined(IOS))}
-    @ERR_remove_thread_state := GetSslLibProc(_CryptoLibHandle, 'ERR_remove_thread_state');
-    {$ENDIF}
-
-    @ERR_free_strings := GetSslLibProc(_CryptoLibHandle, 'ERR_free_strings');
-    @ERR_error_string_n := GetSslLibProc(_CryptoLibHandle, 'ERR_error_string_n');
-    @ERR_get_error := GetSslLibProc(_CryptoLibHandle, 'ERR_get_error');
-    @ERR_clear_error := GetSslLibProc(_CryptoLibHandle, 'ERR_clear_error');
-
-    @EVP_cleanup := GetSslLibProc(_CryptoLibHandle, 'EVP_cleanup');
-    @EVP_PKEY_free := GetSslLibProc(_CryptoLibHandle, 'EVP_PKEY_free');
-
-    @BIO_new := GetSslLibProc(_CryptoLibHandle, 'BIO_new');
-    @BIO_ctrl := GetSslLibProc(_CryptoLibHandle, 'BIO_ctrl');
-    @BIO_new_mem_buf := GetSslLibProc(_CryptoLibHandle, 'BIO_new_mem_buf');
-    @BIO_free := GetSslLibProc(_CryptoLibHandle, 'BIO_free');
-    @BIO_s_mem := GetSslLibProc(_CryptoLibHandle, 'BIO_s_mem');
-    @BIO_read := GetSslLibProc(_CryptoLibHandle, 'BIO_read');
-    @BIO_write := GetSslLibProc(_CryptoLibHandle, 'BIO_write');
-
-    @EC_KEY_new_by_curve_name := GetSslLibProc(_CryptoLibHandle, 'EC_KEY_new_by_curve_name');
-    @EC_KEY_free := GetSslLibProc(_CryptoLibHandle, 'EC_KEY_free');
-
-    @X509_get_issuer_name := GetSslLibProc(_CryptoLibHandle, 'X509_get_issuer_name');
-    @X509_get_subject_name := GetSslLibProc(_CryptoLibHandle, 'X509_get_subject_name');
-    @X509_free := GetSslLibProc(_CryptoLibHandle, 'X509_free');
-    @X509_NAME_print_ex := GetSslLibProc(_CryptoLibHandle, 'X509_NAME_print_ex');
-    @X509_get_ext_d2i := GetSslLibProc(_CryptoLibHandle, 'X509_get_ext_d2i');
-
-    @X509_STORE_add_cert := GetSslLibProc(_CryptoLibHandle, 'X509_STORE_add_cert');
-
-    @sk_num := GetSslLibProc(_CryptoLibHandle, 'sk_num');
-    @sk_pop := GetSslLibProc(_CryptoLibHandle, 'sk_pop');
-
-    @ASN1_BIT_STRING_get_bit := GetSslLibProc(_CryptoLibHandle, 'ASN1_BIT_STRING_get_bit');
-    @OBJ_obj2nid := GetSslLibProc(_CryptoLibHandle, 'OBJ_obj2nid');
-    @OBJ_nid2sn := GetSslLibProc(_CryptoLibHandle, 'OBJ_nid2sn');
-    @ASN1_STRING_data := GetSslLibProc(_CryptoLibHandle, 'ASN1_STRING_data');
-    @PEM_read_bio_X509 := GetSslLibProc(_CryptoLibHandle, 'PEM_read_bio_X509');
-    @PEM_read_bio_X509_AUX := GetSslLibProc(_CryptoLibHandle, 'PEM_read_bio_X509_AUX');
-    @PEM_read_bio_PrivateKey := GetSslLibProc(_CryptoLibHandle, 'PEM_read_bio_PrivateKey');
-
-    @OPENSSL_add_all_algorithms_noconf := GetSslLibProc(_CryptoLibHandle, 'OPENSSL_add_all_algorithms_noconf');
-    @OPENSSL_add_all_algorithms_conf := GetSslLibProc(_CryptoLibHandle, 'OPENSSL_add_all_algorithms_conf');
-
-    @OpenSSL_add_all_ciphers := GetSslLibProc(_CryptoLibHandle, 'OpenSSL_add_all_ciphers');
-    @OpenSSL_add_all_digests := GetSslLibProc(_CryptoLibHandle, 'OpenSSL_add_all_digests');
-  end;
-
-  if (_SslLibHandle = 0) then
-  begin
-    _SslLibHandle := LoadSslLib(SSLEAY_DLL);
-
-    @SSL_library_init := GetSslLibProc(_SslLibHandle, 'SSL_library_init');
-    @SSL_load_error_strings := GetSslLibProc(_SslLibHandle, 'SSL_load_error_strings');
-
-    @SSLv23_method := GetSslLibProc(_SslLibHandle, 'SSLv23_method');
-    @SSLv23_client_method := GetSslLibProc(_SslLibHandle, 'SSLv23_client_method');
-    @SSLv23_server_method := GetSslLibProc(_SslLibHandle, 'SSLv23_server_method');
-
-    @TLSv1_method := GetSslLibProc(_SslLibHandle, 'TLSv1_method');
-    @TLSv1_client_method := GetSslLibProc(_SslLibHandle, 'TLSv1_client_method');
-    @TLSv1_server_method := GetSslLibProc(_SslLibHandle, 'TLSv1_server_method');
-
-    {$IF not(defined(MACOS) and not defined(IOS))}
-    @TLSv1_2_method := GetSslLibProc(_SslLibHandle, 'TLSv1_2_method');
-    @TLSv1_2_client_method := GetSslLibProc(_SslLibHandle, 'TLSv1_2_client_method');
-    @TLSv1_2_server_method := GetSslLibProc(_SslLibHandle, 'TLSv1_2_server_method');
-    {$ENDIF}
-
-    @SSL_CTX_new := GetSslLibProc(_SslLibHandle, 'SSL_CTX_new');
-    @SSL_CTX_free := GetSslLibProc(_SslLibHandle, 'SSL_CTX_free');
-    @SSL_CTX_ctrl := GetSslLibProc(_SslLibHandle, 'SSL_CTX_ctrl');
-    @SSL_CTX_set_verify := GetSslLibProc(_SslLibHandle, 'SSL_CTX_set_verify');
-    @SSL_CTX_set_cipher_list := GetSslLibProc(_SslLibHandle, 'SSL_CTX_set_cipher_list');
-    @SSL_CTX_use_PrivateKey := GetSslLibProc(_SslLibHandle, 'SSL_CTX_use_PrivateKey');
-    @SSL_CTX_use_certificate := GetSslLibProc(_SslLibHandle, 'SSL_CTX_use_certificate');
-    @SSL_CTX_check_private_key := GetSslLibProc(_SslLibHandle, 'SSL_CTX_check_private_key');
-
-    @SSL_new := GetSslLibProc(_SslLibHandle, 'SSL_new');
-    @SSL_set_bio := GetSslLibProc(_SslLibHandle, 'SSL_set_bio');
-    @SSL_get_peer_certificate := GetSslLibProc(_SslLibHandle, 'SSL_get_peer_certificate');
-    @SSL_get_error := GetSslLibProc(_SslLibHandle, 'SSL_get_error');
-
-    @SSL_ctrl := GetSslLibProc(_SslLibHandle, 'SSL_ctrl');
-
-    @SSL_shutdown := GetSslLibProc(_SslLibHandle, 'SSL_shutdown');
-    @SSL_free := GetSslLibProc(_SslLibHandle, 'SSL_free');
-
-    @SSL_set_connect_state := GetSslLibProc(_SslLibHandle, 'SSL_set_connect_state');
-    @SSL_set_accept_state := GetSslLibProc(_SslLibHandle, 'SSL_set_accept_state');
-    @SSL_accept := GetSslLibProc(_SslLibHandle, 'SSL_accept');
-    @SSL_connect := GetSslLibProc(_SslLibHandle, 'SSL_connect');
-    @SSL_do_handshake := GetSslLibProc(_SslLibHandle, 'SSL_do_handshake');
-    @SSL_read := GetSslLibProc(_SslLibHandle, 'SSL_read');
-    @SSL_write := GetSslLibProc(_SslLibHandle, 'SSL_write');
-    @SSL_state := GetSslLibProc(_SslLibHandle, 'SSL_state');
-    @SSL_pending := GetSslLibProc(_SslLibHandle, 'SSL_pending');
-
-    @SSL_CTX_get_cert_store := GetSslLibProc(_SslLibHandle, 'SSL_CTX_get_cert_store');
-    @SSL_CTX_add_client_CA := GetSslLibProc(_SslLibHandle, 'SSL_CTX_add_client_CA');
-  end;
-end;
-
-procedure UnloadSslLibs;
-begin
-  if (_SslLibHandle <> 0) then
-  begin
-    FreeLibrary(_SslLibHandle);
-    _SslLibHandle := 0;
-  end;
-
-  if (_CryptoLibHandle <> 0) then
-  begin
-    FreeLibrary(_CryptoLibHandle);
-    _CryptoLibHandle := 0;
-  end;
-end;
-
-{$ENDIF}
-
-procedure SslInit;
-var
-  LNumberOfLocks, I: Integer;
-begin
-  SSL_library_init();
-  OPENSSL_add_all_algorithms_noconf;
-  SSL_load_error_strings();
-
-  _FSslVersion := SSLeay();
-
-  LNumberOfLocks := CRYPTO_num_locks();
-	if(LNumberOfLocks > 0) then
-  begin
-    SetLength(_FSslLocks, LNumberOfLocks);
-    for I := Low(_FSslLocks) to High(_FSslLocks) do
-      _FSslLocks[I] := TCriticalSection.Create;
-	end;
-
-	CRYPTO_set_locking_callback(ssl_lock_callback);
-  {$IF defined(MACOS) and not defined(IOS)}
-  CRYPTO_set_id_callback(set_id_callback);
-  {$ELSE}
-  CRYPTO_THREADID_set_callback(ssl_threadid_callback);
-  {$ENDIF}
-end;
-
-procedure SslUninit;
-var
-  I: Integer;
-begin
-	CRYPTO_set_locking_callback(nil);
-
-  CRYPTO_cleanup_all_ex_data();
-  {$IF defined(MACOS) and not defined(IOS)}
-  ERR_remove_state(0);
-  {$ELSE}
-  ERR_remove_thread_state(nil);
-  {$ENDIF}
-  ERR_clear_error();
-  ERR_free_strings();
-  EVP_cleanup();
-
-  for I := Low(_FSslLocks) to High(_FSslLocks) do
-    _FSslLocks[I].Free;
-  _FSslLocks := nil;
-end;
-
 { TSSLTools }
 
-class function TSSLTools.NewCTX(meth: PSSL_METHOD): PSSL_CTX;
+class function TSSLTools.NewCTX(AMeth: PSSL_METHOD): PSSL_CTX;
 begin
-  if (meth = nil) then
-    meth := SSLv23_method();
-  Result := SSL_CTX_new(meth);
+  if (AMeth = nil) then
+    AMeth := TLS_method();
+  Result := SSL_CTX_new(AMeth);
 end;
 
 class function TSSLTools.SSLVersion: Longword;
 begin
-  Result := _FSslVersion;
+  Result := FSslVersion;
 end;
 
 class procedure TSSLTools.FreeCTX(var AContext: PSSL_CTX);
@@ -1251,8 +854,7 @@ end;
 
 class procedure TSSLTools.LoadSSL;
 begin
-  if (TInterlocked.Increment(FRef) <> 1) then Exit;
-
+  if (AtomicIncrement(FRef) <> 1) then Exit;
   {$IFNDEF __SSL_STATIC__}
   LoadSslLibs;
   {$ENDIF}
@@ -1262,7 +864,7 @@ end;
 
 class procedure TSSLTools.UnloadSSL;
 begin
-  if (TInterlocked.Decrement(FRef) <> 0) then Exit;
+  if (AtomicDecrement(FRef) <> 0) then Exit;
 
   SslUninit;
 
@@ -1274,102 +876,273 @@ end;
 class procedure TSSLTools.SetCertificate(AContext: PSSL_CTX; ACertBuf: Pointer;
   ACertBufSize: Integer);
 var
-  bio_cert: PBIO;
-  ssl_cert: PX509;
-  store: PX509_STORE;
+  LBIOCert: PBIO;
+  LSSLCert: PX509;
+  LStore: PX509_STORE;
 begin
-	bio_cert := BIO_new_mem_buf(ACertBuf, ACertBufSize);
-  if (bio_cert = nil) then
+	LBIOCert := BIO_new_mem_buf(ACertBuf, ACertBufSize);
+  if (LBIOCert = nil) then
     raise ESsl.Create('分配证书缓存失败');
 
-	ssl_cert := PEM_read_bio_X509_AUX(bio_cert, nil, nil, nil);
-  if (ssl_cert = nil) then
+	LSSLCert := PEM_read_bio_X509_AUX(LBIOCert, nil, nil, nil);
+  if (LSSLCert = nil) then
     raise ESsl.Create('读取证书数据失败');
 
-	if (SSL_CTX_use_certificate(AContext, ssl_cert) <= 0) then
+	if (SSL_CTX_use_certificate(AContext, LSSLCert) <= 0) then
     raise ESsl.Create('使用证书失败');
 
-	X509_free(ssl_cert);
+	X509_free(LSSLCert);
 
-  store := SSL_CTX_get_cert_store(AContext);
-  if (store = nil) then
+  LStore := SSL_CTX_get_cert_store(AContext);
+  if (LStore = nil) then
     raise ESsl.Create('获取证书仓库失败');
 
   // 将证书链中剩余的证书添加到仓库中
   // 有完整证书链在 ssllabs.com 评分中才能评为 A
-  while not BIO_eof(bio_cert) do
+  while not BIO_eof(LBIOCert) do
   begin
-  	ssl_cert := PEM_read_bio_X509(bio_cert, nil, nil, nil);
-    if (ssl_cert = nil) then
+  	LSSLCert := PEM_read_bio_X509(LBIOCert, nil, nil, nil);
+    if (LSSLCert = nil) then
       raise ESsl.Create('读取证书数据失败');
 
-    if (X509_STORE_add_cert(store, ssl_cert) <= 0) then
+    if (X509_STORE_add_cert(LStore, LSSLCert) <= 0) then
       raise ESsl.Create('添加证书到仓库失败');
 
-  	X509_free(ssl_cert);
+  	X509_free(LSSLCert);
   end;
 
-	BIO_free(bio_cert);
+	BIO_free(LBIOCert);
+end;
+
+class procedure TSSLTools.SetCertificate(AContext: PSSL_CTX;
+  const ACertBytes: TBytes);
+begin
+  SetCertificate(AContext, Pointer(ACertBytes), Length(ACertBytes));
 end;
 
 class procedure TSSLTools.SetCertificate(AContext: PSSL_CTX;
   const ACertStr: string);
-var
-  LCertBytes: TBytes;
 begin
-  LCertBytes := TEncoding.ANSI.GetBytes(ACertStr);
-  SetCertificate(AContext, Pointer(LCertBytes), Length(LCertBytes));
+  SetCertificate(AContext, TEncoding.ANSI.GetBytes(ACertStr));
 end;
 
 class procedure TSSLTools.SetCertificateFile(AContext: PSSL_CTX;
   const ACertFile: string);
-var
-  LCertBytes: TBytes;
 begin
-  LCertBytes := TFile.ReadAllBytes(ACertFile);
-  SetCertificate(AContext, Pointer(LCertBytes), Length(LCertBytes));
+  SetCertificate(AContext, TFile.ReadAllBytes(ACertFile));
 end;
 
 class procedure TSSLTools.SetPrivateKey(AContext: PSSL_CTX; APKeyBuf: Pointer;
   APKeyBufSize: Integer);
 var
-  bio_pkey: PBIO;
-  ssl_pkey: PEVP_PKEY;
+  LBIOKey: PBIO;
+  LSSLPKey: PEVP_PKEY;
 begin
-	bio_pkey := BIO_new_mem_buf(APKeyBuf, APKeyBufSize);
-  if (bio_pkey = nil) then
+	LBIOKey := BIO_new_mem_buf(APKeyBuf, APKeyBufSize);
+  if (LBIOKey = nil) then
     raise ESsl.Create('分配私钥缓存失败');
 
-	ssl_pkey := PEM_read_bio_PrivateKey(bio_pkey, nil, nil, nil);
-  if (ssl_pkey = nil) then
+	LSSLPKey := PEM_read_bio_PrivateKey(LBIOKey, nil, nil, nil);
+  if (LSSLPKey = nil) then
     raise ESsl.Create('读取私钥数据失败');
 
-	if (SSL_CTX_use_PrivateKey(AContext, ssl_pkey) <= 0) then
+	if (SSL_CTX_use_PrivateKey(AContext, LSSLPKey) <= 0) then
     raise ESsl.Create('使用私钥失败');
 
-	EVP_PKEY_free(ssl_pkey);
-	BIO_free(bio_pkey);
+	EVP_PKEY_free(LSSLPKey);
+	BIO_free(LBIOKey);
 
   if (SSL_CTX_check_private_key(AContext) <= 0) then
     raise ESsl.Create('私钥与证书的公钥不匹配');
 end;
 
 class procedure TSSLTools.SetPrivateKey(AContext: PSSL_CTX;
-  const APKeyStr: string);
-var
-  LPKeyBytes: TBytes;
+  const APKeyBytes: TBytes);
 begin
-  LPKeyBytes := TEncoding.ANSI.GetBytes(APKeyStr);
-  SetPrivateKey(AContext, Pointer(LPKeyBytes), Length(LPKeyBytes));
+  SetPrivateKey(AContext, Pointer(APKeyBytes), Length(APKeyBytes));
+end;
+
+class procedure TSSLTools.SetPrivateKey(AContext: PSSL_CTX;
+  const APKeyStr: string);
+begin
+  SetPrivateKey(AContext, TEncoding.ANSI.GetBytes(APKeyStr));
 end;
 
 class procedure TSSLTools.SetPrivateKeyFile(AContext: PSSL_CTX;
   const APKeyFile: string);
-var
-  LPKeyBytes: TBytes;
 begin
-  LPKeyBytes := TFile.ReadAllBytes(APKeyFile);
-  SetPrivateKey(AContext, Pointer(LPKeyBytes), Length(LPKeyBytes));
+  SetPrivateKey(AContext, TFile.ReadAllBytes(APKeyFile));
 end;
+
+class procedure TSSLTools.SslInit;
+begin
+  if (FSslLibHandle = 0) or (FCryptoLibHandle = 0) then Exit;
+
+  // 初始化 OpenSSL 库的 SSL/TLS 部分
+  OPENSSL_init_ssl(
+    OPENSSL_INIT_LOAD_SSL_STRINGS,
+    nil);
+
+  // 初始化 OpenSSL 的加密和密码学库
+  OPENSSL_init_crypto(
+    OPENSSL_INIT_LOAD_CRYPTO_STRINGS or
+    OPENSSL_INIT_ADD_ALL_CIPHERS or
+    OPENSSL_INIT_ADD_ALL_DIGESTS,
+    nil);
+
+  // 获取 OpenSSL 版本号
+  FSslVersion := OpenSSL_version_num();
+end;
+
+class procedure TSSLTools.SslUninit;
+begin
+  if (FSslLibHandle = 0) or (FCryptoLibHandle = 0) then Exit;
+
+  // 回收资源
+  OPENSSL_cleanup();
+end;
+
+{$IFNDEF __SSL_STATIC__}
+
+class function TSSLTools.GetSslLibPath: string;
+begin
+  if (FLibPath <> '') then
+    Result := IncludeTrailingPathDelimiter(FLibPath)
+  else
+    Result := FLibPath;
+end;
+
+class function TSSLTools.LoadSslLib(const ALibName: string): TLibHandle;
+begin
+  Result := SafeLoadLibrary(GetSslLibPath + ALibName);
+  if (Result = 0) then
+    raise ESslInvalidLib.CreateFmt('无效的SSL库: %s', [ALibName]);
+end;
+
+class function TSSLTools.GetSslLibProc(const ALibHandle: TLibHandle; const AProcName: string): Pointer;
+begin
+  {$IFDEF DELPHI}
+  Result := GetProcAddress(ALibHandle, PChar(AProcName));
+  {$ELSE}
+  Result := GetProcAddress(ALibHandle, AnsiString(AProcName));
+  {$ENDIF}
+
+  if (Result = nil) then
+    raise ESslInvalidProc.CreateFmt('无效的SSL接口函数: %s', [AProcName]);
+end;
+
+class procedure TSSLTools.LoadSslLibs;
+var
+  LCryptoLibName, LSslLibName: string;
+begin
+  if (FCryptoLibHandle = 0) then
+  begin
+    if (FLibCRYPTO <> '') then
+      LCryptoLibName := FLibCRYPTO
+    else
+      LCryptoLibName := LIBCRYPTO_NAME;
+    FCryptoLibHandle := LoadSslLib(LCryptoLibName);
+
+    @OpenSSL_version_num := GetSslLibProc(FCryptoLibHandle, 'OpenSSL_version_num');
+    @OPENSSL_init_crypto := GetSslLibProc(FCryptoLibHandle, 'OPENSSL_init_crypto');
+    @OPENSSL_cleanup := GetSslLibProc(FCryptoLibHandle, 'OPENSSL_cleanup');
+
+    @ERR_error_string_n := GetSslLibProc(FCryptoLibHandle, 'ERR_error_string_n');
+    @ERR_get_error := GetSslLibProc(FCryptoLibHandle, 'ERR_get_error');
+
+    @EVP_PKEY_free := GetSslLibProc(FCryptoLibHandle, 'EVP_PKEY_free');
+
+    @BIO_new := GetSslLibProc(FCryptoLibHandle, 'BIO_new');
+    @BIO_ctrl := GetSslLibProc(FCryptoLibHandle, 'BIO_ctrl');
+    @BIO_new_mem_buf := GetSslLibProc(FCryptoLibHandle, 'BIO_new_mem_buf');
+    @BIO_free := GetSslLibProc(FCryptoLibHandle, 'BIO_free');
+    @BIO_s_mem := GetSslLibProc(FCryptoLibHandle, 'BIO_s_mem');
+    @BIO_read := GetSslLibProc(FCryptoLibHandle, 'BIO_read');
+    @BIO_write := GetSslLibProc(FCryptoLibHandle, 'BIO_write');
+
+    @EC_KEY_new_by_curve_name := GetSslLibProc(FCryptoLibHandle, 'EC_KEY_new_by_curve_name');
+    @EC_KEY_free := GetSslLibProc(FCryptoLibHandle, 'EC_KEY_free');
+
+    @X509_get_issuer_name := GetSslLibProc(FCryptoLibHandle, 'X509_get_issuer_name');
+    @X509_get_subject_name := GetSslLibProc(FCryptoLibHandle, 'X509_get_subject_name');
+    @X509_free := GetSslLibProc(FCryptoLibHandle, 'X509_free');
+    @X509_NAME_print_ex := GetSslLibProc(FCryptoLibHandle, 'X509_NAME_print_ex');
+    @X509_get_ext_d2i := GetSslLibProc(FCryptoLibHandle, 'X509_get_ext_d2i');
+
+    @X509_STORE_add_cert := GetSslLibProc(FCryptoLibHandle, 'X509_STORE_add_cert');
+
+    @OPENSSL_sk_num := GetSslLibProc(FCryptoLibHandle, 'OPENSSL_sk_num');
+    @OPENSSL_sk_pop := GetSslLibProc(FCryptoLibHandle, 'OPENSSL_sk_pop');
+
+    @PEM_read_bio_X509 := GetSslLibProc(FCryptoLibHandle, 'PEM_read_bio_X509');
+    @PEM_read_bio_X509_AUX := GetSslLibProc(FCryptoLibHandle, 'PEM_read_bio_X509_AUX');
+    @PEM_read_bio_PrivateKey := GetSslLibProc(FCryptoLibHandle, 'PEM_read_bio_PrivateKey');
+  end;
+
+  if (FSslLibHandle = 0) then
+  begin
+    if (FLibSSL <> '') then
+      LSslLibName := FLibSSL
+    else
+      LSslLibName := LIBSSL_NAME;
+
+    FSslLibHandle := LoadSslLib(LSslLibName);
+
+    @OPENSSL_init_ssl := GetSslLibProc(FSslLibHandle, 'OPENSSL_init_ssl');
+
+    @TLS_method := GetSslLibProc(FSslLibHandle, 'TLS_method');
+    @TLS_client_method := GetSslLibProc(FSslLibHandle, 'TLS_client_method');
+    @TLS_server_method := GetSslLibProc(FSslLibHandle, 'TLS_server_method');
+
+    @SSL_CTX_new := GetSslLibProc(FSslLibHandle, 'SSL_CTX_new');
+    @SSL_CTX_free := GetSslLibProc(FSslLibHandle, 'SSL_CTX_free');
+    @SSL_CTX_ctrl := GetSslLibProc(FSslLibHandle, 'SSL_CTX_ctrl');
+    @SSL_CTX_set_verify := GetSslLibProc(FSslLibHandle, 'SSL_CTX_set_verify');
+    @SSL_CTX_set_cipher_list := GetSslLibProc(FSslLibHandle, 'SSL_CTX_set_cipher_list');
+    @SSL_CTX_use_PrivateKey := GetSslLibProc(FSslLibHandle, 'SSL_CTX_use_PrivateKey');
+    @SSL_CTX_use_certificate := GetSslLibProc(FSslLibHandle, 'SSL_CTX_use_certificate');
+    @SSL_CTX_check_private_key := GetSslLibProc(FSslLibHandle, 'SSL_CTX_check_private_key');
+
+    @SSL_new := GetSslLibProc(FSslLibHandle, 'SSL_new');
+    @SSL_set_bio := GetSslLibProc(FSslLibHandle, 'SSL_set_bio');
+    @SSL_get_error := GetSslLibProc(FSslLibHandle, 'SSL_get_error');
+
+    @SSL_ctrl := GetSslLibProc(FSslLibHandle, 'SSL_ctrl');
+
+    @SSL_shutdown := GetSslLibProc(FSslLibHandle, 'SSL_shutdown');
+    @SSL_free := GetSslLibProc(FSslLibHandle, 'SSL_free');
+
+    @SSL_set_connect_state := GetSslLibProc(FSslLibHandle, 'SSL_set_connect_state');
+    @SSL_set_accept_state := GetSslLibProc(FSslLibHandle, 'SSL_set_accept_state');
+    @SSL_set_fd := GetSslLibProc(FSslLibHandle, 'SSL_set_fd');
+    @SSL_accept := GetSslLibProc(FSslLibHandle, 'SSL_accept');
+    @SSL_connect := GetSslLibProc(FSslLibHandle, 'SSL_connect');
+    @SSL_do_handshake := GetSslLibProc(FSslLibHandle, 'SSL_do_handshake');
+    @SSL_read := GetSslLibProc(FSslLibHandle, 'SSL_read');
+    @SSL_write := GetSslLibProc(FSslLibHandle, 'SSL_write');
+    @SSL_pending := GetSslLibProc(FSslLibHandle, 'SSL_pending');
+    @SSL_is_init_finished := GetSslLibProc(FSslLibHandle, 'SSL_is_init_finished');
+
+    @SSL_CTX_get_cert_store := GetSslLibProc(FSslLibHandle, 'SSL_CTX_get_cert_store');
+    @SSL_CTX_add_client_CA := GetSslLibProc(FSslLibHandle, 'SSL_CTX_add_client_CA');
+  end;
+end;
+
+class procedure TSSLTools.UnloadSslLibs;
+begin
+  if (FSslLibHandle <> 0) then
+  begin
+    FreeLibrary(FSslLibHandle);
+    FSslLibHandle := 0;
+  end;
+
+  if (FCryptoLibHandle <> 0) then
+  begin
+    FreeLibrary(FCryptoLibHandle);
+    FCryptoLibHandle := 0;
+  end;
+end;
+
+{$ENDIF}
 
 end.

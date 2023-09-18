@@ -22,9 +22,10 @@ unit Net.CrossSslSocket.MbedTls;
 interface
 
 uses
-  System.SysUtils,
-  System.Classes,
-  System.IOUtils,
+  SysUtils,
+  Classes,
+  IOUtils,
+
   Net.CrossSocket.Base,
   Net.CrossSocket,
   Net.CrossSslSocket.Base,
@@ -88,7 +89,7 @@ type
     property Code: Integer read FCode;
   end;
 
-  TCrossMbedTlsConnection = class(TCrossConnection)
+  TCrossMbedTlsConnection = class(TCrossSslConnectionBase)
   private
     FSsl: TMbedtls_SSL_Context;
     FSslBIO, FAppBIO: PBIO;
@@ -110,7 +111,7 @@ type
   /// <remarks>
   ///   若要继承该类, 请重载 LogicXXX, 而不是 TriggerXXX
   /// </remarks>
-  TCrossMbedTlsSocket = class(TCrossSocket, ICrossSslSocket)
+  TCrossMbedTlsSocket = class(TCrossSslSocketBase)
   private const
     SSL_BUF_SIZE = 32768;
   private class threadvar
@@ -135,16 +136,14 @@ type
     function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
       const AConnectType: TConnectType): ICrossConnection; override;
   public
-    constructor Create(AIoThreads: Integer); override;
+    constructor Create(const AIoThreads: Integer; const ASsl: Boolean); override;
     destructor Destroy; override;
 
-    procedure SetCertificate(const ACertBuf: Pointer; const ACertBufSize: Integer); overload;
-    procedure SetCertificate(const ACertStr: string); overload;
-    procedure SetCertificateFile(const ACertFile: string);
+    procedure SetCertificate(const ACertBuf: Pointer; const ACertBufSize: Integer); overload; override;
+    procedure SetCertificate(const ACertBytes: TBytes); overload; override;
 
-    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer); overload;
-    procedure SetPrivateKey(const APKeyStr: string); overload;
-    procedure SetPrivateKeyFile(const APKeyFile: string);
+    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer); overload; override;
+    procedure SetPrivateKey(const APKeyBytes: TBytes); overload; override;
   end;
 
 implementation
@@ -189,27 +188,33 @@ end;
 constructor TCrossMbedTlsConnection.Create(const AOwner: ICrossSocket;
   const AClientSocket: THandle; const AConnectType: TConnectType);
 begin
-  inherited;
+  inherited Create(AOwner, AClientSocket, AConnectType);
 
-  mbedtls_ssl_init(@FSsl);
+  if Ssl then
+  begin
+    mbedtls_ssl_init(@FSsl);
 
-  if (ConnectType = ctAccept) then
-    MbedCheck(mbedtls_ssl_setup(@Fssl, @TCrossMbedTlsSocket(Owner).FSrvConf), 'mbedtls_ssl_setup Accept:')
-  else
-    MbedCheck(mbedtls_ssl_setup(@Fssl, @TCrossMbedTlsSocket(Owner).FCliConf), 'mbedtls_ssl_setup Connect:');
+    if (ConnectType = ctAccept) then
+      MbedCheck(mbedtls_ssl_setup(@Fssl, @TCrossMbedTlsSocket(Owner).FSrvConf), 'mbedtls_ssl_setup Accept:')
+    else
+      MbedCheck(mbedtls_ssl_setup(@Fssl, @TCrossMbedTlsSocket(Owner).FCliConf), 'mbedtls_ssl_setup Connect:');
 
-  FSslBIO := SSL_BIO_new(BIO_BIO);
-  FAppBIO := SSL_BIO_new(BIO_BIO);
-  BIO_make_bio_pair(FSslBIO, FAppBIO);
+    FSslBIO := SSL_BIO_new(BIO_BIO);
+    FAppBIO := SSL_BIO_new(BIO_BIO);
+    BIO_make_bio_pair(FSslBIO, FAppBIO);
 
-  mbedtls_ssl_set_bio(@FSsl, FSslBIO, BIO_net_send, BIO_net_recv, nil);
+    mbedtls_ssl_set_bio(@FSsl, FSslBIO, BIO_net_send, BIO_net_recv, nil);
+  end;
 end;
 
 destructor TCrossMbedTlsConnection.Destroy;
 begin
-  mbedtls_ssl_free(@FSsl);
-  BIO_free_all(FSslBIO);
-  BIO_free_all(FAppBIO);
+  if Ssl then
+  begin
+    mbedtls_ssl_free(@FSsl);
+    BIO_free_all(FSslBIO);
+    BIO_free_all(FAppBIO);
+  end;
 
   inherited;
 end;
@@ -288,15 +293,19 @@ procedure TCrossMbedTlsConnection.DirectSend(const ABuffer: Pointer;
 var
   LRetCode: Integer;
 begin
-  LRetCode := mbedtls_ssl_write(@FSsl, ABuffer, ACount);
-  if (LRetCode <> ACount) then
+  if Ssl then
   begin
-    _Log('mbedtls_ssl_write, %d / %d', [LRetCode, ACount]);
-  end;
+    LRetCode := mbedtls_ssl_write(@FSsl, ABuffer, ACount);
+    if (LRetCode <> ACount) then
+    begin
+      _Log('mbedtls_ssl_write, %d / %d', [LRetCode, ACount]);
+    end;
 
-  // 将待发送数据加密后发送
-  if (MbedCheck(LRetCode, 'mbedtls_ssl_write DirectSend:') > 0) then
-    _SendBIOPendingData(ACallback);
+    // 将待发送数据加密后发送
+    if (MbedCheck(LRetCode, 'mbedtls_ssl_write DirectSend:') > 0) then
+      _SendBIOPendingData(ACallback);
+  end else
+    inherited DirectSend(ABuffer, ACount, ACallback);
 end;
 
 function TCrossMbedTlsConnection._SslHandshake: Boolean;
@@ -313,18 +322,20 @@ end;
 
 { TCrossMbedTlsSocket }
 
-constructor TCrossMbedTlsSocket.Create(AIoThreads: Integer);
+constructor TCrossMbedTlsSocket.Create(AIoThreads: Integer; const ASsl: Boolean);
 begin
-  inherited;
+  inherited Create(AIoThreads, ASsl);
 
-  _InitSslConf;
+  if Ssl then
+    _InitSslConf;
 end;
 
 destructor TCrossMbedTlsSocket.Destroy;
 begin
-  inherited;
+  inherited Destroy;
 
-  _FreeSslConf;
+  if Ssl then
+    _FreeSslConf;
 end;
 
 function TCrossMbedTlsSocket.CreateConnection(const AOwner: ICrossSocket;
@@ -336,57 +347,43 @@ end;
 procedure TCrossMbedTlsSocket.SetCertificate(const ACertBuf: Pointer;
   const ACertBufSize: Integer);
 begin
-  MbedCheck(mbedtls_x509_crt_parse(@FCert, ACertBuf, ACertBufSize), 'mbedtls_x509_crt_parse SetCertificate:');
-
-  _UpdateCert;
+  if Ssl then
+  begin
+    MbedCheck(mbedtls_x509_crt_parse(@FCert, ACertBuf, ACertBufSize), 'mbedtls_x509_crt_parse SetCertificate:');
+    _UpdateCert;
+  end;
 end;
 
-procedure TCrossMbedTlsSocket.SetCertificate(const ACertStr: string);
+procedure TCrossMbedTlsSocket.SetCertificate(const ACertBytes: TBytes);
 var
   LCertBytes: TBytes;
 begin
-  LCertBytes := TEncoding.ANSI.GetBytes(ACertStr);
-  LCertBytes := _MbedCert(LCertBytes);
-
-  SetCertificate(Pointer(LCertBytes), Length(LCertBytes));
-end;
-
-procedure TCrossMbedTlsSocket.SetCertificateFile(const ACertFile: string);
-var
-  LCertBytes: TBytes;
-begin
-  LCertBytes := TFile.ReadAllBytes(ACertFile);
-  LCertBytes := _MbedCert(LCertBytes);
-
-  SetCertificate(Pointer(LCertBytes), Length(LCertBytes));
+  if Ssl then
+  begin
+    LCertBytes := _MbedCert(ACertBytes);
+    SetCertificate(Pointer(LCertBytes), Length(LCertBytes));
+  end;
 end;
 
 procedure TCrossMbedTlsSocket.SetPrivateKey(const APKeyBuf: Pointer;
   const APKeyBufSize: Integer);
 begin
-  MbedCheck(mbedtls_pk_parse_key(@FPKey, APKeyBuf, APKeyBufSize, nil, 0), 'mbedtls_pk_parse_key SetPrivateKey:');
-
-  _UpdateCert;
+  if Ssl then
+  begin
+    MbedCheck(mbedtls_pk_parse_key(@FPKey, APKeyBuf, APKeyBufSize, nil, 0), 'mbedtls_pk_parse_key SetPrivateKey:');
+    _UpdateCert;
+  end;
 end;
 
-procedure TCrossMbedTlsSocket.SetPrivateKey(const APKeyStr: string);
+procedure TCrossMbedTlsSocket.SetPrivateKey(const APKeyBytes: TBytes);
 var
   LPKeyBytes: TBytes;
 begin
-  LPKeyBytes := TEncoding.ANSI.GetBytes(APKeyStr);
-  LPKeyBytes := _MbedCert(LPKeyBytes);
-
-  SetPrivateKey(Pointer(LPKeyBytes), Length(LPKeyBytes));
-end;
-
-procedure TCrossMbedTlsSocket.SetPrivateKeyFile(const APKeyFile: string);
-var
-  LPKeyBytes: TBytes;
-begin
-  LPKeyBytes := TFile.ReadAllBytes(APKeyFile);
-  LPKeyBytes := _MbedCert(LPKeyBytes);
-
-  SetPrivateKey(Pointer(LPKeyBytes), Length(LPKeyBytes));
+  if Ssl then
+  begin
+    LPKeyBytes := _MbedCert(APKeyBytes);
+    SetPrivateKey(Pointer(LPKeyBytes), Length(LPKeyBytes));
+  end;
 end;
 
 procedure TCrossMbedTlsSocket.TriggerConnected(const AConnection: ICrossConnection);
@@ -395,14 +392,18 @@ var
 begin
   LConnection := AConnection as TCrossMbedTlsConnection;
 
-  // 网络连接已建立, 等待握手
-  LConnection.ConnectStatus := csHandshaking;
-
-  if LConnection._SslHandshake then
+  if Ssl then
   begin
-    LConnection.ConnectStatus := csConnected;
-    inherited TriggerConnected(AConnection);
-  end;
+    // 网络连接已建立, 等待握手
+    LConnection.ConnectStatus := csHandshaking;
+
+    if LConnection._SslHandshake then
+    begin
+      LConnection.ConnectStatus := csConnected;
+      inherited TriggerConnected(LConnection);
+    end;
+  end else
+    inherited TriggerConnected(LConnection);
 end;
 
 procedure TCrossMbedTlsSocket.TriggerReceived(const AConnection: ICrossConnection;
@@ -413,56 +414,60 @@ var
 begin
   LConnection := AConnection as TCrossMbedTlsConnection;
 
-  LConnection._Lock;
-  try
-    // 将收到的加密数据写入 BIO
-    LRetCode := BIO_write(LConnection.FAppBIO, ABuf, ALen);
-    if (LRetCode <= 0) then
-    begin
-      _Log('BIO_write, error: %d', [LRetCode]);
-      LConnection.Close;
-      Exit;
-    end;
-
-    if (LRetCode <> ALen) then
-    begin
-      _Log('BIO_write, %d / %d', [LRetCode, ALen]);
-    end;
-
-    // 握手
-    if (LConnection.ConnectStatus = csHandshaking) then
-    begin
-      // 已完成握手才视为连接真正建立
-      if LConnection._SslHandshake then
+  if Ssl then
+  begin
+    LConnection._Lock;
+    try
+      // 将收到的加密数据写入 BIO
+      LRetCode := BIO_write(LConnection.FAppBIO, ABuf, ALen);
+      if (LRetCode <= 0) then
       begin
-        LConnection.ConnectStatus := csConnected;
-        inherited TriggerConnected(AConnection);
-      end else
+        _Log('BIO_write, error: %d', [LRetCode]);
+        LConnection.Close;
         Exit;
-    end;
-
-    while True do
-    begin
-      // 读取解密后的数据
-      LRetCode := mbedtls_ssl_read(@LConnection.FSsl, @FSslInBuf, SSL_BUF_SIZE);
-
-      if (LRetCode > 0) then
-      begin
-        inherited TriggerReceived(AConnection, @FSslInBuf, LRetCode);
-      end else
-      begin
-        case LRetCode of
-          MBEDTLS_ERR_SSL_WANT_READ, MBEDTLS_ERR_SSL_WANT_WRITE:;
-        else
-          _Log('mbedtls_ssl_read, error: %d', [LRetCode]);
-          LConnection.Close;
-        end;
-        Break;
       end;
+
+      if (LRetCode <> ALen) then
+      begin
+        _Log('BIO_write, %d / %d', [LRetCode, ALen]);
+      end;
+
+      // 握手
+      if (LConnection.ConnectStatus = csHandshaking) then
+      begin
+        // 已完成握手才视为连接真正建立
+        if LConnection._SslHandshake then
+        begin
+          LConnection.ConnectStatus := csConnected;
+          inherited TriggerConnected(AConnection);
+        end else
+          Exit;
+      end;
+
+      while True do
+      begin
+        // 读取解密后的数据
+        LRetCode := mbedtls_ssl_read(@LConnection.FSsl, @FSslInBuf, SSL_BUF_SIZE);
+
+        if (LRetCode > 0) then
+        begin
+          inherited TriggerReceived(AConnection, @FSslInBuf, LRetCode);
+        end else
+        begin
+          case LRetCode of
+            MBEDTLS_ERR_SSL_WANT_READ, MBEDTLS_ERR_SSL_WANT_WRITE:;
+          else
+            _Log('mbedtls_ssl_read, error: %d', [LRetCode]);
+            LConnection.Close;
+          end;
+          Break;
+        end;
+      end;
+    finally
+      LConnection._Unlock;
     end;
-  finally
-    LConnection._Unlock;
-  end;
+  end else
+    inherited TriggerReceived(AConnection, ABuf, ALen);
 end;
 
 procedure TCrossMbedTlsSocket._FreeSslConf;

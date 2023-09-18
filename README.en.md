@@ -13,6 +13,14 @@ If you find this project useful, please consider making a donation.
 
 ## Update list
 
+#### 2023.09.18
+- Supports FPC 3.3.1
+- Supports OpenSSL 3.x
+- Added HTTP client ICrossHttpClient
+- Added WebSocket client ICrossWebSocket
+- Partial code refactoring
+- Some minor bug fixes
+
 #### 2020.07.07
 - ICrossHttpServer and ICrossWebSocketServer support both http and https
   > Thanks to xlnron for his help
@@ -67,15 +75,38 @@ If you find this project useful, please consider making a donation.
   - Linux
 
 ## Suggested Development Environment
-  - To give full play to cross-platform functions, please use Delphi 10.2 Tokyo and above
+  - To give full play to cross-platform functions, please use Delphi 10.2 Tokyo or higher
   - The minimum requirement is to support the Delphi version of generic and anonymous functions. I am not sure from which version generic and anonymous functions are supported.
-  
-## Known Issues
-  - SSL under non - Windows platform is unstable, please do not use it in production environment
+  - It is recommended to use FPC version 3.3.1 or higher
   
 ## Some Test Screenshots
-- **HTTP**(ubuntu 16.04 desktop for server) 
+
+- **HTTP Server**(Linux-aarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/14bc8b38-3ea3-4ae1-b781-488940024380)
+
+- **HTTP Server**(Linux-loongarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/048a6df0-3e97-4fc4-9cf8-7e48438e1ffa)
+
+- **HTTP Client**(Linux-aarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/5a4e0fca-0e12-4cfa-887c-9e0f20d03b7b)
+
+- **HTTP Client**(Linux-loongarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/93f0f78d-109f-4ec5-9acd-82168772a510)
+
+- **WebSocket Server**(Linux-aarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/30b835eb-eaa9-4c1e-8cc4-14bb165709ca)
+
+- **WebSocket Server**(Linux-loongarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/671942ef-9946-4609-a06d-2f6249b08ac4)
+
+- **WebSocket Client**(Linux-aarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/e3d2ddf9-e281-4471-b0df-7785a8a4c220)
+
+- **WebSocket Client**(Linux-loongarch64)
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/3d01e561-d682-4195-91e0-3758fac44467)
+
+- **HTTP**(服务端为ubuntu 16.04 desktop)
 ![20170607110011](https://user-images.githubusercontent.com/3221597/26860614-61b750b4-4b71-11e7-8afc-74c3ebf16f7e.png)
-  
-- **HTTPS**(ubuntu 16.04 desktop for server)
+
+- **HTTPS**(服务端为ubuntu 16.04 desktop)
 ![20170607142650](https://user-images.githubusercontent.com/3221597/26868229-d8d79f40-4b9a-11e7-927c-bfb3d7e6e55d.png)

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectSession>
+    <PathDelim Value="\"/>
+    <Version Value="12"/>
+    <BuildModes Active="Windows-X64"/>
+    <Units>
+      <Unit>
+        <Filename Value="HttpClient.lpr"/>
+        <IsPartOfProject Value="True"/>
+        <IsVisibleTab Value="True"/>
+        <CursorPos X="20" Y="19"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="D:\Design\FreePascal\lazarus\components\lazutils\lazutf8.pas"/>
+        <UnitName Value="LazUTF8"/>
+        <EditorIndex Value="1"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+    </Units>
+    <JumpHistory HistoryIndex="5">
+      <Position>
+        <Filename Value="HttpClient.lpr"/>
+        <Caret Line="23" Column="28"/>
+      </Position>
+      <Position>
+        <Filename Value="HttpClient.lpr"/>
+        <Caret Line="3" Column="13"/>
+      </Position>
+      <Position>
+        <Filename Value="HttpClient.lpr"/>
+        <Caret Line="17" Column="11"/>
+      </Position>
+      <Position>
+        <Filename Value="HttpClient.lpr"/>
+        <Caret Line="9" Column="8"/>
+      </Position>
+      <Position>
+        <Filename Value="HttpClient.lpr"/>
+        <Caret Line="8" Column="33"/>
+      </Position>
+      <Position>
+        <Filename Value="HttpClient.lpr"/>
+        <Caret Line="9" Column="7"/>
+      </Position>
+    </JumpHistory>
+    <RunParams>
+      <FormatVersion Value="2"/>
+      <Modes ActiveMode=""/>
+    </RunParams>
+  </ProjectSession>
+</CONFIG>

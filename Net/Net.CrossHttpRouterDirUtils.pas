@@ -2,14 +2,22 @@
 
 interface
 
+{$I zLib.inc}
+
 uses
-  System.SysUtils,
-  System.Classes,
-  System.Generics.Collections,
-  System.Generics.Defaults,
-  System.NetEncoding,
-  System.IOUtils,
-  Utils.Utils;
+  SysUtils,
+  Classes,
+  Generics.Collections,
+  Generics.Defaults,
+
+  {$IFDEF FPC}
+  DTF.Types,
+  DTF.Generics,
+  {$ENDIF}
+
+  Net.CrossHttpUtils,
+  Utils.Utils,
+  Utils.IOUtils;
 
 function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
 
@@ -26,6 +34,8 @@ type
     SysFile: Boolean;
     Hidden: Boolean;
   end;
+
+  TPathComparer = {$IFDEF DELPHI}TDelegatedComparer{$ELSE}TDelegatedComparerAnonymousFunc{$ENDIF}<THttpFileEntry>;
 
 function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
   function SmartSizeToStr(const ABytes: Int64): string;
@@ -84,9 +94,9 @@ function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
       Attr[5] := 'h';
 
     if (APath[Length(APath)] = '/') then
-      Link := TNetEncoding.URL.Encode(F.Name)
+      Link := TCrossHttpUtils.UrlEncode(F.Name)
     else
-      Link := APath + '/' + TNetEncoding.URL.Encode(F.Name);
+      Link := APath + '/' + TCrossHttpUtils.UrlEncode(F.Name);
 
     Result :=
       '<TD WIDTH="55%" NOWRAP><A HREF="' + Link + '">' + NameString + '</A></TD>' +
@@ -155,16 +165,16 @@ var
   TotalBytes: Int64;
   HTML: string;
 begin
-  LComparer := TDelegatedComparer<THttpFileEntry>.Create(
-    function(const Left, Right: THttpFileEntry): Integer
+  LComparer := TPathComparer.Create(
+    function(const ALeft, ARight: THttpFileEntry): Integer
     begin
       Result := TUtils.CompareStringIncludeNumber(
-        Left.Name, Right.Name);
+        ALeft.Name, ARight.Name);
     end);
 
   DirList := TList<THttpFileEntry>.Create;
   FileList := TList<THttpFileEntry>.Create;
-  Status := FindFirst(TPath.Combine(ARealPath, '*.*'), faAnyFile, F);
+  Status := FindFirst(TPathUtils.Combine(ARealPath, '*.*'), faAnyFile, F);
   while Status = 0 do
   begin
     if (F.Name <> '.') and (F.Name <> '..') then

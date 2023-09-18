@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectSession>
+    <PathDelim Value="\"/>
+    <Version Value="12"/>
+    <BuildModes Active="Windows-X64"/>
+    <Units>
+      <Unit>
+        <Filename Value="HttpClient.lpr"/>
+        <IsPartOfProject Value="True"/>
+        <IsVisibleTab Value="True"/>
+        <CursorPos X="3" Y="28"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+      </Unit>
+    </Units>
+    <JumpHistory HistoryIndex="2">
+      <Position>
+        <Filename Value="HttpClient.lpr"/>
+        <Caret Line="23" Column="28"/>
+      </Position>
+      <Position>
+        <Filename Value="HttpClient.lpr"/>
+        <Caret Line="3" Column="13"/>
+      </Position>
+      <Position>
+        <Filename Value="HttpClient.lpr"/>
+        <Caret Line="17" Column="11"/>
+      </Position>
+    </JumpHistory>
+    <RunParams>
+      <FormatVersion Value="2"/>
+      <Modes ActiveMode=""/>
+    </RunParams>
+  </ProjectSession>
+</CONFIG>

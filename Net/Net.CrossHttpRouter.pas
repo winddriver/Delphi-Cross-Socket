@@ -9,6 +9,8 @@
 {******************************************************************************}
 unit Net.CrossHttpRouter;
 
+{$I zLib.inc}
+
 interface
 
 uses
@@ -57,11 +59,13 @@ type
 implementation
 
 uses
-  System.SysUtils,
-  System.Classes,
-  System.IOUtils,
+  SysUtils,
+  Classes,
+
   Net.CrossHttpRouterDirUtils,
-  Net.CrossHttpUtils;
+  Net.CrossHttpUtils,
+
+  Utils.IOUtils;
 
 { TNetCrossRouter }
 
@@ -95,7 +99,7 @@ begin
         for LDefMainFile in LDefIndexFiles do
         begin
           LFile := TCrossHttpUtils.CombinePath(LPath, LDefMainFile);
-          if TFile.Exists(LFile) then
+          if TFileUtils.Exists(LFile) then
           begin
             AResponse.SendFile(LFile);
             AHandled := True;
@@ -105,7 +109,7 @@ begin
       end else
       begin
         LFile := TCrossHttpUtils.CombinePath(LPath, LFile);
-        if TFile.Exists(LFile) then
+        if TFileUtils.Exists(LFile) then
         begin
           AResponse.SendFile(LFile);
           AHandled := True;
@@ -132,7 +136,7 @@ begin
         AHandled := False;
         Exit;
       end;
-      LFile := TPath.GetFullPath(LFile);
+      LFile := TPathUtils.GetFullPath(LFile);
       AResponse.SendFile(LFile);
     end;
 end;
@@ -154,10 +158,10 @@ begin
         Exit;
       end;
 
-      LFile := TPath.GetFullPath(LFile);
-      if (TDirectory.Exists(LFile)) then
+      LFile := TPathUtils.GetFullPath(LFile);
+      if (TDirectoryUtils.Exists(LFile)) then
         AResponse.Send(BuildDirList(LFile, ARequest.Path, APath))
-      else if TFile.Exists(LFile) then
+      else if TFileUtils.Exists(LFile) then
         AResponse.SendFile(LFile)
       else
         AHandled := False;

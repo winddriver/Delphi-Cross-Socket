@@ -9,10 +9,22 @@
 {******************************************************************************}
 unit Net.CrossHttpMiddleware;
 
+{$I zLib.inc}
+
 interface
 
 uses
-  System.SysUtils, Net.CrossHttpServer;
+  SysUtils,
+  Classes,
+  //System.Hash,
+  //System.NetEncoding,
+
+  Utils.Utils,
+  Utils.Base64,
+  Utils.Hash,
+
+  Net.CrossHttpParams,
+  Net.CrossHttpServer;
 
 type
   /// <summary>
@@ -73,9 +85,6 @@ type
 
 implementation
 
-uses
-  System.Hash, System.NetEncoding, Utils.Utils, Net.CrossHttpParams;
-
 { TNetCrossMiddleware }
 
 class function TNetCrossMiddleware.AuthenticateBasic(AAuthGetPasswordProc: TAuthGetPasswordProc;
@@ -102,7 +111,7 @@ begin
       LCorrectPassword := #0;
       if (LAuthStr <> '') then
       begin
-        LAuthStr := TNetEncoding.Base64.Decode(LAuthStr);
+        LAuthStr := TEncoding.UTF8.GetString(TBase64Utils.Decode(LAuthStr));
         LStrArr := LAuthStr.Split([':']);
 
         // 获取用户名对应的正确密码
@@ -148,9 +157,8 @@ begin
       LCorrectPassword := #0;
       if (LAuthStr <> '') then
       begin
-        LAuthParams := TDelimitParams.Create;
+        LAuthParams := TDelimitParams.Create(',', False);
         try
-          LAuthParams.Delimiter := ',';
           LAuthParams.Decode(LAuthStr);
 
           LUserName := LAuthParams['username'].Replace('"', '');
@@ -182,6 +190,8 @@ begin
       end;
 
       // 比对客户端与服务端的摘要是否匹配
+      // 当前端没有发送验证信息或者验证信息不匹配时
+      // 返回需要认证的报文
       if (LAuthStr = '') or (LUserResponse <> LCorrectResponse) then
       begin
         AHandled := True;
@@ -193,6 +203,7 @@ begin
         Exit;
       end;
 
+      // 前端的验证信息与服务端一致, 让路由继续处理
       AHandled := False;
     end;
 end;

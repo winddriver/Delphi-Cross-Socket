@@ -1,4 +1,4 @@
-{******************************************************************************}
+﻿{******************************************************************************}
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
@@ -9,153 +9,157 @@
 {******************************************************************************}
 unit Net.CrossServer;
 
+{$I zLib.inc}
+
 interface
 
 uses
+  SysUtils,
+
+  Net.SocketAPI,
   Net.CrossSocket.Base,
-  Net.CrossSocket,
-  Net.CrossSslSocket,
-  Net.CrossSslServer;
+  Net.CrossSslSocket.Base,
+  Net.CrossSslSocket;
 
 type
-  ICrossServer = interface(ICrossSslServer)
-  ['{15AF35E3-BD63-4604-BF4B-238E270FADE6}']
-    function GetSsl: Boolean;
-    procedure SetSsl(const AValue: Boolean);
-
-    property Ssl: Boolean read GetSsl write SetSsl;
+  ICrossServerConnection = interface(ICrossSslConnection)
+  ['{D25E96A4-57DC-40B1-B35B-C35550A29F62}']
   end;
 
-  TCrossServerConnection = class(TCrossSslConnection)
-  protected
-    procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
-      const ACallback: TCrossConnectionCallback = nil); override;
-  public
-    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
-      const AConnectType: TConnectType); override;
-    destructor Destroy; override;
+  ICrossServer = interface(ICrossSslSocket)
+  ['{DAEB2898-1EC4-4BCF-9BEB-078B582173AB}']
+    function GetAddr: string;
+    function GetPort: Word;
+    function GetActive: Boolean;
+
+    procedure SetAddr(const Value: string);
+    procedure SetPort(const Value: Word);
+    procedure SetActive(const Value: Boolean);
+
+    procedure Start(const ACallback: TCrossListenCallback = nil);
+    procedure Stop;
+
+    property Addr: string read GetAddr write SetAddr;
+    property Port: Word read GetPort write SetPort;
+
+    property Active: Boolean read GetActive write SetActive;
   end;
 
-  TCrossServer = class(TCrossSslServer, ICrossServer)
+  TCrossServerConnection = class(TCrossSslConnection, ICrossServerConnection);
+
+  TCrossServer = class(TCrossSslSocket, ICrossServer)
   private
-    FSsl: Boolean;
-
-    function GetSsl: Boolean;
-    procedure SetSsl(const AValue: Boolean);
+    FPort: Word;
+    FAddr: string;
+    FStarted: Integer;
   protected
-    procedure TriggerConnected(const AConnection: ICrossConnection); override;
-    procedure TriggerReceived(const AConnection: ICrossConnection;
-      const ABuf: Pointer; const ALen: Integer); override;
+    function GetAddr: string;
+    function GetPort: Word;
+    function GetActive: Boolean;
 
-    function CreateConnection(const AOwner: TCrossSocketBase;
-      const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection; override;
+    procedure SetAddr(const Value: string);
+    procedure SetPort(const Value: Word);
+    procedure SetActive(const Value: Boolean);
+  protected
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
   public
-    constructor Create(const AIoThreads: Integer; const ASsl: Boolean); reintroduce; virtual;
-    destructor Destroy; override;
+    procedure Start(const ACallback: TCrossListenCallback = nil);
+    procedure Stop;
 
-    property Ssl: Boolean read GetSsl write SetSsl;
+    property Addr: string read GetAddr write SetAddr;
+    property Port: Word read GetPort write SetPort;
+    property Active: Boolean read GetActive write SetActive;
   end;
 
 implementation
 
-type
-  TCrossSocketCreate = procedure(Self: Pointer; Alloc: Boolean;
-    const AIoThreads: Integer);
-
-  TCrossConnectionCreate = procedure(Self: Pointer; Alloc: Boolean;
-    const AOwner: TCrossSocketBase; const AClientSocket: THandle;
-    const AConnectType: TConnectType);
-
-  TDestroy = procedure(Self: Pointer; Free: Boolean);
-
-  TDirectSend = procedure(Self: Pointer; const ABuffer: Pointer;
-    const ACount: Integer; const ACallback: TCrossConnectionCallback = nil);
-  TTriggerConnected = procedure(Self: Pointer;
-    const AConnection: ICrossConnection);
-  TTriggerReceived = procedure(Self: Pointer;
-    const AConnection: ICrossConnection; const ABuf: Pointer;
-    const ALen: Integer);
-
-{ TCrossServerConnection }
-
-constructor TCrossServerConnection.Create(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType);
-begin
-  if (AOwner as TCrossServer).FSsl then
-    inherited Create(AOwner, AClientSocket, AConnectType)
-  else
-    TCrossConnectionCreate(@TCrossConnection.Create)(Self, False, AOwner,
-      AClientSocket, AConnectType);
-end;
-
-destructor TCrossServerConnection.Destroy;
-begin
-  if (Owner as TCrossServer).FSsl then
-    inherited Destroy
-  else
-    TDestroy(@TCrossConnection.Destroy)(Self, False);
-end;
-
-procedure TCrossServerConnection.DirectSend(const ABuffer: Pointer;
-  const ACount: Integer; const ACallback: TCrossConnectionCallback);
-begin
-  if (Owner as TCrossServer).FSsl then
-    inherited DirectSend(ABuffer, ACount, ACallback)
-  else
-    TDirectSend(@TCrossConnection.DirectSend)(Self, ABuffer, ACount, ACallback);
-end;
-
 { TCrossServer }
 
-constructor TCrossServer.Create(const AIoThreads: Integer; const ASsl: Boolean);
-begin
-  if ASsl then
-    inherited Create(AIoThreads)
-  else
-    TCrossSocketCreate(@TCrossSocket.Create)(Self, False, AIoThreads);
-
-  FSsl := ASsl;
-end;
-
-destructor TCrossServer.Destroy;
-begin
-  if FSsl then
-    inherited Destroy
-  else
-    TDestroy(@TCrossSocket.Destroy)(Self, False);
-end;
-
 function TCrossServer.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
+  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
-  Result := TCrossServerConnection.Create(AOwner, AClientSocket, AConnectType);
+  Result := TCrossServerConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 end;
 
-function TCrossServer.GetSsl: Boolean;
+function TCrossServer.GetActive: Boolean;
 begin
-  Result := FSsl;
+  Result := (AtomicCmpExchange(FStarted, 0, 0) = 1);
 end;
 
-procedure TCrossServer.SetSsl(const AValue: Boolean);
+function TCrossServer.GetAddr: string;
 begin
-  FSsl := AValue;
+  Result := FAddr;
 end;
 
-procedure TCrossServer.TriggerConnected(const AConnection: ICrossConnection);
+function TCrossServer.GetPort: Word;
 begin
-  if FSsl then
-    inherited TriggerConnected(AConnection)
+  Result := FPort;
+end;
+
+procedure TCrossServer.SetActive(const Value: Boolean);
+begin
+  if Value then
+    Start
   else
-    TTriggerConnected(@TCrossSocket.TriggerConnected)(Self, AConnection);
+    Stop;
 end;
 
-procedure TCrossServer.TriggerReceived(const AConnection: ICrossConnection;
-  const ABuf: Pointer; const ALen: Integer);
+procedure TCrossServer.SetAddr(const Value: string);
 begin
-  if FSsl then
-    inherited TriggerReceived(AConnection, ABuf, ALen)
-  else
-    TTriggerReceived(@TCrossSocket.TriggerReceived)(Self, AConnection, ABuf, ALen);
+  FAddr := Value;
+end;
+
+procedure TCrossServer.SetPort(const Value: Word);
+begin
+  FPort := Value;
+end;
+
+procedure TCrossServer.Start(const ACallback: TCrossListenCallback);
+var
+  LListenArr: TArray<ICrossListen>;
+  LListen: ICrossListen;
+begin
+  if (AtomicCmpExchange(FStarted, 0, 0) = 1) then
+  begin
+    if Assigned(ACallback) then
+    begin
+      LListenArr := LockListens.Values.ToArray;
+      try
+        for LListen in LListenArr do
+          ACallback(LListen, True);
+      finally
+        UnlockListens;
+      end;
+    end;
+
+    Exit;
+  end;
+
+  StartLoop;
+
+  Listen(FAddr, FPort,
+    procedure(const AListen: ICrossListen; const ASuccess: Boolean)
+    begin
+      if ASuccess then
+        AtomicExchange(FStarted, 1);
+
+      // 如果是监听的随机端口
+      // 则在监听成功之后将实际的端口取出来
+      if (FPort = 0) then
+        FPort := AListen.LocalPort;
+
+      if Assigned(ACallback) then
+        ACallback(AListen, ASuccess);
+    end);
+end;
+
+procedure TCrossServer.Stop;
+begin
+  CloseAll;
+  StopLoop;
+  AtomicExchange(FStarted, 0);
 end;
 
 end.
