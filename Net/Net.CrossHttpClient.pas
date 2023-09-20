@@ -1585,7 +1585,6 @@ procedure TCrossHttpClientResponse.ParseRecvData(const ABuf: Pointer;
   ALen: Integer);
 var
   LHttpConnection: ICrossHttpClientConnection;
-  LRequest: ICrossHttpClientRequest;
   pch: PByte;
   LChunkSize: Integer;
   LLineStr: string;
@@ -1609,7 +1608,6 @@ begin
   \r\n
   }
   LHttpConnection := FConnection;
-  LRequest := FConnection.FRequest;
 
   try
     // 在这里解析服务端发送过来的响应数据
@@ -2254,7 +2252,7 @@ begin
     if (ARequestBody is TCustomMemoryStream) then
     begin
       DoRequest(AMethod, AUrl, AHttpHeaders,
-        Pointer(IntPtr(TCustomMemoryStream(ARequestBody).Memory) + LOffset), LCount,
+        (PByte(TCustomMemoryStream(ARequestBody).Memory) + LOffset), LCount,
         AResponseStream,
         AInitProc,
         ACallback);

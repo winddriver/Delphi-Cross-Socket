@@ -611,7 +611,7 @@ begin
 
   if (AData is TCustomMemoryStream) then
   begin
-    WsSend(Pointer(IntPtr(TCustomMemoryStream(AData).Memory) + LOffset)^, LCount, ACallback);
+    WsSend((PByte(TCustomMemoryStream(AData).Memory) + LOffset)^, LCount, ACallback);
     Exit;
   end;
 
@@ -760,13 +760,13 @@ var
 begin
   LData := AData;
 
-  if (AData <> nil) and (ACount > 0) then
+  if (LData <> nil) and (ACount > 0) then
   begin
     LOffset := AOffset;
     LCount := ACount;
-    _AdjustOffsetCount(Length(AData), LOffset, LCount);
+    _AdjustOffsetCount(Length(LData), LOffset, LCount);
 
-    P := PByte(@AData[0]) + LOffset;
+    P := PByte(@LData[0]) + LOffset;
   end else
   begin
     P := nil;
@@ -827,6 +827,8 @@ end;
 
 function TCrossWebSocket.Close: ICrossWebSocket;
 begin
+  Result := Self;
+
   if (GetStatus = wsConnected) then
     FConnection.WsClose;
 end;
@@ -954,6 +956,8 @@ function TCrossWebSocket.Open: ICrossWebSocket;
 var
   LSecWebSocketKey, LSecWebSocketAccept: string;
 begin
+  Result := Self;
+
   if (GetStatus in [wsConnecting, wsConnected]) then Exit;
 
   _SetStatus(wsConnecting);
