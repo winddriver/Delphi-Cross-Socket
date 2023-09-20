@@ -30,15 +30,37 @@ uses
   Net.CrossSocket.Base,
   Net.CrossSocket,
   Net.CrossSslSocket.Base,
-  Net.OpenSSL;
+  Net.OpenSSL,
+
+  Utils.SyncObjs,
+  Utils.Utils;
 
 type
+
+  { TCrossOpenSslConnection }
+
   TCrossOpenSslConnection = class(TCrossSslConnectionBase)
   private
     FSslData: PSSL;
     FBIOIn, FBIOOut: PBIO;
+    FLock: ILock;
 
-    function _GetSslError(const ARetCode: Integer): Integer;
+    procedure _Lock; inline;
+    procedure _Unlock; inline;
+
+    function _BIO_pending: Integer; inline;
+    function _BIO_read(Buf: Pointer; Len: Integer): Integer; inline;
+    function _BIO_write(Buf: Pointer; Len: Integer): Integer; inline;
+
+    function _SSL_pending: Integer; inline;
+    function _SSL_read(Buf: Pointer; Len: Integer): Integer; inline;
+    function _SSL_write(Buf: Pointer; Len: Integer): Integer; inline;
+
+    function _SSL_do_handshake: Integer; inline;
+    function _SSL_is_init_finished: Integer; inline;
+
+    function _SSL_get_error(const ARetCode: Integer): Integer; inline;
+    function _SSL_print_error(const ARetCode: Integer; const ATitle: string): Boolean;
 
     procedure _Send(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil);
@@ -55,6 +77,9 @@ type
   /// <remarks>
   ///   若要继承该类, 请重载 LogicXXX, 而不是 TriggerXXX
   /// </remarks>
+
+  { TCrossOpenSslSocket }
+
   TCrossOpenSslSocket = class(TCrossSslSocketBase)
   private const
     SSL_BUF_SIZE = 32768;
@@ -93,6 +118,7 @@ begin
 
   if Ssl then
   begin
+    FLock := TLock.Create;
     FSslData := SSL_new(TCrossOpenSslSocket(Owner).FSslCtx);
     FBIOIn := BIO_new(BIO_s_mem());
     FBIOOut := BIO_new(BIO_s_mem());
@@ -125,75 +151,149 @@ var
 begin
   if Ssl then
   begin
-    LConnection := Self;
+    _Lock;
+    try
+      LConnection := Self;
 
-    // 将待发送数据加密
-    // SSL_write 默认会将全部数据写入成功才返回,
-    // 除非调用 SSL_CTX_set_mode 设置了 SSL_MODE_ENABLE_PARTIAL_WRITE 参数
-    // 才会出现部分写入成功即返回的情况。这里并没有设置该参数，所以无需做
-    // 部分数据的处理，只需要一次 SSL_Write 调用即可。
-    LRetCode := SSL_write(FSslData, ABuffer, ACount);
-    if (LRetCode <= 0) then
-    begin
-      if Assigned(ACallback) then
-        ACallback(LConnection, False);
-      Exit;
+      // 将待发送数据加密
+      // SSL_write 默认会将全部数据写入成功才返回,
+      // 除非调用 SSL_CTX_set_mode 设置了 SSL_MODE_ENABLE_PARTIAL_WRITE 参数
+      // 才会出现部分写入成功即返回的情况。这里并没有设置该参数，所以无需做
+      // 部分数据的处理，只需要一次 SSL_Write 调用即可。
+      LRetCode := _SSL_write(ABuffer, ACount);
+      if (LRetCode <= 0) then
+      begin
+        _SSL_print_error(LRetCode, 'SSL_write');
+
+        if Assigned(ACallback) then
+          ACallback(LConnection, False);
+        Exit;
+      end;
+
+      _ReadBIOAndSend(ACallback);
+    finally
+      _Unlock;
     end;
-
-    _ReadBIOAndSend(ACallback);
   end else
     _Send(ABuffer, ACount, ACallback);
 end;
 
-function TCrossOpenSslConnection._GetSslError(const ARetCode: Integer): Integer;
+procedure TCrossOpenSslConnection._Lock;
+begin
+  FLock.Enter;
+end;
+
+procedure TCrossOpenSslConnection._Unlock;
+begin
+  FLock.Leave;
+end;
+
+function TCrossOpenSslConnection._BIO_pending: Integer;
+begin
+  Result := BIO_pending(FBIOOut);
+end;
+
+function TCrossOpenSslConnection._BIO_read(Buf: Pointer; Len: Integer): Integer;
+begin
+  Result := BIO_read(FBIOOut, Buf, Len);
+end;
+
+function TCrossOpenSslConnection._BIO_write(Buf: Pointer; Len: Integer
+  ): Integer;
+begin
+  Result := BIO_write(FBIOIn, Buf, Len);
+end;
+
+function TCrossOpenSslConnection._SSL_pending: Integer;
+begin
+  Result := SSL_pending(FSslData);
+end;
+
+function TCrossOpenSslConnection._SSL_read(Buf: Pointer; Len: Integer): Integer;
+begin
+  Result := SSL_read(FSslData, Buf, Len);
+end;
+
+function TCrossOpenSslConnection._SSL_write(Buf: Pointer; Len: Integer
+  ): Integer;
+begin
+  Result := SSL_write(FSslData, Buf, Len);
+end;
+
+function TCrossOpenSslConnection._SSL_do_handshake: Integer;
+begin
+  Result := SSL_do_handshake(FSslData);
+end;
+
+function TCrossOpenSslConnection._SSL_is_init_finished: Integer;
+begin
+  Result := SSL_is_init_finished(FSslData);
+end;
+
+function TCrossOpenSslConnection._SSL_get_error(const ARetCode: Integer): Integer;
 begin
   Result := SSL_get_error(FSslData, ARetCode);
 end;
 
+function TCrossOpenSslConnection._SSL_print_error(const ARetCode: Integer; const ATitle: string): Boolean;
+var
+  LError: Integer;
+begin
+  LError := _SSL_get_error(ARetCode);
+  Result := SSL_is_fatal_error(LError);
+  if Result and IsConsole then
+    Writeln(Format(ATitle + ' error %d %s', [LError, ssl_error_message(LError)]));
+end;
+
 procedure TCrossOpenSslConnection._ReadBIOAndSend(
   const ACallback: TCrossConnectionCallback);
-const
-  BUF_BLOCK_SIZE = 16384;
 var
-  LRetCode, LError: Integer;
-  LBuffer: TBytesStream;
+  LRetCode: Integer;
+  LBuffer: TBytes;
   P: PByte;
   LCount: Integer;
 begin
-  LBuffer := TBytesStream.Create;
-  LBuffer.Size := BUF_BLOCK_SIZE;
+  LCount := _BIO_pending;
+  if (LCount <= 0) then
+  begin
+    if Assigned(ACallback) then
+      ACallback(Self, False);
+    Exit;
+  end;
+
+  SetLength(LBuffer, LCount);
+  P := PByte(@LBuffer[0]);
   LCount := 0;
 
   while True do
   begin
-    P := PByte(LBuffer.Memory) + LCount;
-
     // 从内存 BIO 读取加密后的数据
-    LRetCode := BIO_read(FBIOOut, P, BUF_BLOCK_SIZE);
+    LRetCode := _BIO_read(P, Length(LBuffer) - LCount);
     if (LRetCode <= 0) then
     begin
-      LError := _GetSslError(LRetCode);
+      _SSL_print_error(LRetCode, 'BIO_read');
       Break;
     end;
 
     Inc(LCount, LRetCode);
-    LBuffer.Size := LBuffer.Size + BUF_BLOCK_SIZE;
+    if (LCount >= Length(LBuffer)) then Break;
+
+    Inc(P, LRetCode);
   end;
 
   // 如果 BIO 中有需要发出的数据, 则调用 _Send 发送
   if (LCount > 0) then
   begin
-    _Send(LBuffer.Memory, LCount,
+    _Send(@LBuffer[0], LCount,
       procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
       begin
-        FreeAndNil(LBuffer);
+        LBuffer := nil;
 
         if Assigned(ACallback) then
           ACallback(AConnection, ASuccess);
       end);
   end else
   begin
-    FreeAndNil(LBuffer);
     if Assigned(ACallback) then
       ACallback(Self, False);
   end;
@@ -343,31 +443,27 @@ end;
 procedure TCrossOpenSslSocket.TriggerConnected(const AConnection: ICrossConnection);
 var
   LConnection: TCrossOpenSslConnection;
-  LRetCode, LError: Integer;
+  LRetCode: Integer;
 begin
   LConnection := AConnection as TCrossOpenSslConnection;
 
   if Ssl then
   begin
-    LConnection.ConnectStatus := csHandshaking;
+    LConnection._Lock;
+    try
+      LConnection.ConnectStatus := csHandshaking;
 
-    // 开始握手
-    // 通常, 客户端连接在这里调用 SSL_do_handshake 就会生成握手数据
-    // 而服务端连接, 即便在这里调用了 SSL_do_handshake 也不会生成握手数据
-    // 只会返回 SSL_ERROR_WANT_READ, 后面再调用 BIO_read 也会继续返回 SSL_ERROR_WANT_READ
-    // 需要在 TriggerReceived 中检查握手状态, 握手没完成就还需要调用 SSL_do_handshake
-    LRetCode := SSL_do_handshake(LConnection.FSslData);
-
-    // 这里基本不存在直接返回 1 的情况
-    // 因为 SSL 是与内存 BIO 关联的, 而不是 SOCKET
-    // 这时候, SSL_do_handshake 会将握手数据写入内存 BIO
-    // 后面需要调用 _ReadBIOAndSend 将握手数据发出去
-    if (LRetCode = 1) then
-      _Connected(AConnection)
-    else
-    begin
-      LError := LConnection._GetSslError(LRetCode);
-      LConnection._ReadBIOAndSend(nil);
+      // 开始握手
+      // 通常, 客户端连接在这里调用 SSL_do_handshake 就会生成握手数据
+      // 而服务端连接, 即便在这里调用了 SSL_do_handshake 也不会生成握手数据
+      // 只会返回 SSL_ERROR_WANT_READ, 后面再调用 BIO_read 也会继续返回 SSL_ERROR_WANT_READ
+      // 需要在 TriggerReceived 中检查握手状态, 握手没完成就还需要调用 SSL_do_handshake
+      LRetCode := LConnection._SSL_do_handshake;
+      if (LRetCode <> 1) then
+        LConnection._SSL_print_error(LRetCode, 'SSL_do_handshake(TriggerConnected)');
+      LConnection._ReadBIOAndSend;
+    finally
+      LConnection._Unlock;
     end;
   end else
     _Connected(LConnection);
@@ -375,60 +471,63 @@ end;
 
 procedure TCrossOpenSslSocket.TriggerReceived(const AConnection: ICrossConnection;
   const ABuf: Pointer; const ALen: Integer);
-const
-  BUF_BLOCK_SIZE = 16384;
 var
   LConnection: TCrossOpenSslConnection;
-  LRetCode, LError: Integer;
+  LRetCode, LCount: Integer;
 begin
   LConnection := AConnection as TCrossOpenSslConnection;
 
   if Ssl then
   begin
-    // 将收到的加密数据写入内存 BIO, 让 OpenSSL 对其解密
-    // 最初收到的数据是握手数据
-    // 需要判断握手状态, 然后决定如何使用收到的数据
-    LRetCode := BIO_write(LConnection.FBIOIn, ABuf, ALen);
-    if (LRetCode <> ALen) then
-    begin
-      LError := LConnection._GetSslError(LRetCode);
-      if SSL_is_fatal_error(LError) then
+    LConnection._Lock;
+    try
+      // 将收到的加密数据写入内存 BIO, 让 OpenSSL 对其解密
+      // 最初收到的数据是握手数据
+      // 需要判断握手状态, 然后决定如何使用收到的数据
+      LRetCode := LConnection._BIO_write(ABuf, ALen);
+      if (LRetCode <> ALen) then
       begin
-        {$IFDEF DEBUG}
-        _Log('BIO_write error %d %s', [LError, ssl_error_message(LError)]);
-        {$ENDIF}
-        LConnection.Close;
+        if LConnection._SSL_print_error(LRetCode, 'BIO_write') then
+          LConnection.Close;
+        Exit;
       end;
-      Exit;
-    end;
-
-    // 握手尚未完成
-    if not (SSL_is_init_finished(LConnection.FSslData) = TLS_ST_OK) then
-    begin
-      // 继续握手
-      LRetCode := SSL_do_handshake(LConnection.FSslData);
-
-      // 即便上面的 SSL_do_handshake 返回 1
-      // BIO 里可能还会有握手的收尾数据需要发送
-      // 所以这里无论如何都需要调用一下 _ReadBIOAndSend
-      LConnection._ReadBIOAndSend;
 
       // 握手完成
-      if (LRetCode = 1) and (LConnection.ConnectStatus = csHandshaking) then
-        _Connected(LConnection);
-    end;
+      if (LConnection._SSL_is_init_finished = TLS_ST_OK) then
+      begin
+        if (LConnection.ConnectStatus = csHandshaking) then
+          _Connected(LConnection);
 
-    while True do
-    begin
-      // 读取解密后的数据
-      // 如果握手未完成, SSL_read 始终返回 -1
-      LRetCode := SSL_read(LConnection.FSslData, @FSslInBuf[0], SSL_BUF_SIZE);
+        LCount := LConnection._SSL_pending;
 
-      // 收到了解密后的数据
-      if (LRetCode > 0) then
-        inherited TriggerReceived(LConnection, @FSslInBuf[0], LRetCode)
-      else
-        Break;
+        // 读取解密后的数据
+        while True do
+        begin
+          // 如果握手未完成, SSL_read 始终返回 -1
+          LRetCode := LConnection._SSL_read(@FSslInBuf[0], SSL_BUF_SIZE);
+
+          if (LRetCode <= 0) then
+          begin
+            LConnection._SSL_print_error(LRetCode, 'SSL_read');
+            Break;
+          end;
+
+          // 收到了解密后的数据
+          inherited TriggerReceived(LConnection, @FSslInBuf[0], LRetCode)
+        end;
+      end else
+      if (LConnection.ConnectStatus = csHandshaking) then
+      begin
+        // 继续握手
+        LRetCode := LConnection._SSL_do_handshake;
+        if (LRetCode <> 1) then
+          LConnection._SSL_print_error(LRetCode, 'SSL_do_handshake(TriggerReceived)');
+
+        // 发送握手数据
+        LConnection._ReadBIOAndSend;
+      end;
+    finally
+      LConnection._Unlock;
     end;
   end else
     inherited TriggerReceived(LConnection, ABuf, ALen);
