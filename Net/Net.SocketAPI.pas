@@ -58,7 +58,7 @@ uses
 const
   SOCKET_ERROR         = -1;
   INVALID_HANDLE_VALUE = THandle(-1);
-  INVALID_SOCKET       = TSocket(-1);
+  INVALID_SOCKET       = INVALID_HANDLE_VALUE;
 
   {$IF DEFINED(FPC) AND NOT DEFINED(MSWINDOWS)}
   NI_MAXHOST = 1025;
@@ -131,7 +131,11 @@ const
   {$ENDIF NOT (CPUSPARC OR CPUSPARC64)}
   {$ENDIF LINUX}
 
-{$ENDIF}
+  {$ENDIF}
+
+  {$IFDEF LINUX}
+  SO_REUSEPORT = 15;
+  {$ENDIF}
 
 type
   {$IF DEFINED(FPC) AND NOT DEFINED(MSWINDOWS)}
@@ -960,7 +964,7 @@ begin
     LOptVal := 1
   else
     LOptVal := 0;
-  {$IF Defined(POSIX) and not Defined(ANDROID)}
+  {$IFDEF LINUX}
   Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, SO_REUSEPORT, LOptVal, SizeOf(Integer));
   {$ELSE}
   Result := -1;

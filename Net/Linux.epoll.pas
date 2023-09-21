@@ -16,6 +16,8 @@ interface
 uses
   {$IFDEF DELPHI}
   Posix.Base,
+  Posix.StdDef,
+  Posix.SysTypes,
   Posix.Signal
   {$ELSE}
   BaseUnix,
