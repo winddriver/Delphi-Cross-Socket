@@ -24,8 +24,9 @@
 #### 2023.09.18
 - 支持 FPC 3.3.1
 - 支持 OpenSSL 3.x
-- 新增 HTTP 客户端 ICrossHttpClient
+- 新增 HTTP 客户端 ICrossHttpClient (支持 gzip/deflate 压缩发送)
 - 新增 WebSocket 客户端 ICrossWebSocket
+- HTTP 服务端支持收取 gzip/deflate 压缩数据
 - 部分代码重构
 - 一些小问题修正
 

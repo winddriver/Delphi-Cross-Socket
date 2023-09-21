@@ -16,8 +16,9 @@ If you find this project useful, please consider making a donation.
 #### 2023.09.18
 - Supports FPC 3.3.1
 - Supports OpenSSL 3.x
-- Added HTTP client ICrossHttpClient
+- Added HTTP client ICrossHttpClient (Supports sending data compressed with gzip/deflate)
 - Added WebSocket client ICrossWebSocket
+- The HTTP server supports receiving gzip/deflate compressed data
 - Partial code refactoring
 - Some minor bug fixes
 
