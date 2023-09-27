@@ -50,6 +50,8 @@ type
 
   TSearchOption = (soTopDirectoryOnly, soAllDirectories);
 
+  TSearchRec = SysUtils.{$IFDEF DELPHI}TSearchRec{$ELSE}TUnicodeSearchRec{$ENDIF};
+
   TFilterPredicate = reference to function(const APath: string;
       const ASearchRec: TSearchRec): Boolean;
 

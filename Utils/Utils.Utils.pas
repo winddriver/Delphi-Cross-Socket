@@ -228,7 +228,8 @@ class function TUtils.GetBufEncoding(const ABuf: Pointer; const ACount: Integer;
 
   function ContainsPreamble(const APreamble: TBytes; out APreambleSize: Integer): Boolean;
   begin
-    if (ACount < Length(APreamble)) then Exit(False);
+    if (Length(APreamble) <= 0)
+      or (ACount < Length(APreamble)) then Exit(False);
 
     Result := CompareMem(ABuf, @APreamble[0], Length(APreamble));
 

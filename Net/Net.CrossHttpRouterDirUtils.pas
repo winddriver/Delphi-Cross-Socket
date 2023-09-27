@@ -11,11 +11,11 @@ uses
   Generics.Defaults,
 
   {$IFDEF FPC}
-  DTF.Types,
   DTF.Generics,
   {$ENDIF}
 
   Net.CrossHttpUtils,
+  Utils.StrUtils,
   Utils.Utils,
   Utils.IOUtils;
 
@@ -136,7 +136,7 @@ function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
     while True do
     begin
       if (I >= Length(LPathArr)) or (I >= Length(LHomeArr))
-        or not SameText(LPathArr[I], LHomeArr[I]) then Break;
+        or not TStrUtils.SameText(LPathArr[I], LHomeArr[I]) then Break;
       Inc(I);
     end;
 

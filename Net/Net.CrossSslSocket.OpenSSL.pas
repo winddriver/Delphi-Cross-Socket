@@ -549,12 +549,14 @@ procedure TCrossOpenSslSocket.TriggerReceived(const AConnection: ICrossConnectio
 var
   LConnection: TCrossOpenSslConnection;
   LRetCode: Integer;
+  LTriggerConnected: Boolean;
   LDecryptedData, LHandshakeData: TBytes;
 begin
   LConnection := AConnection as TCrossOpenSslConnection;
 
   if Ssl then
   begin
+    LTriggerConnected := False;
     LDecryptedData := nil;
     LHandshakeData := nil;
 
@@ -575,7 +577,7 @@ begin
       if (LConnection._SSL_is_init_finished = TLS_ST_OK) then
       begin
         if (LConnection.ConnectStatus = csHandshaking) then
-          _Connected(LConnection);
+          LTriggerConnected := True;
 
         // 读取解密后的数据
         LDecryptedData := LConnection._SSL_read;
@@ -596,6 +598,10 @@ begin
     finally
       LConnection._Unlock;
     end;
+
+    // 握手完成, 触发已连接事件
+    if LTriggerConnected then
+      _Connected(LConnection);
 
     // 收到了解密后的数据
     if (LDecryptedData <> nil) then

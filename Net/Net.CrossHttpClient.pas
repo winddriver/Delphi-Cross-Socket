@@ -16,29 +16,23 @@ interface
 uses
   Classes,
   SysUtils,
-  StrUtils,
   Math,
-  Generics.Collections,
   ZLib,
 
   {$IFDEF DELPHI}
   Diagnostics,
   {$ELSE}
-  DTF.Types,
   DTF.Diagnostics,
   {$ENDIF}
 
-  Net.SocketAPI,
   Net.CrossSocket.Base,
-  Net.CrossSocket,
   Net.CrossSslSocket.Base,
   Net.CrossSslSocket,
   Net.CrossHttpParams,
   Net.CrossHttpUtils,
 
+  Utils.StrUtils,
   Utils.IOUtils,
-  Utils.Hash,
-  Utils.RegEx,
   Utils.SyncObjs,
   Utils.EasyTimer,
   Utils.Logger;
@@ -698,7 +692,7 @@ type
     procedure _SetStatus(const AStatusCode: Integer; const AStatusText: string = '');
   protected
     function ParseHeader: Boolean;
-    procedure ParseRecvData(const ABuf: Pointer; ALen: Integer);
+    procedure ParseRecvData(const ABuf: Pointer; const ALen: Integer);
 
     procedure TriggerResponseDataBegin; virtual;
     procedure TriggerResponseData(const ABuf: Pointer; const ALen: Integer); virtual;
@@ -1558,7 +1552,7 @@ begin
   // 解析 Set-Cookie
   for LHeader in FHeader do
   begin
-    if SameText(LHeader.Name, HEADER_SETCOOKIE) then
+    if TStrUtils.SameText(LHeader.Name, HEADER_SETCOOKIE) then
       FCookies.Add(TResponseCookie.Create(LHeader.Value, FConnection.FHost));
   end;
 
@@ -1571,7 +1565,7 @@ begin
   // 理论上 Transfer-Encoding 和 Content-Length 只应该存在其中一个
   FTransferEncoding := FHeader[HEADER_TRANSFER_ENCODING];
 
-  FIsChunked := SameText(FTransferEncoding, 'chunked');
+  FIsChunked := TStrUtils.SameText(FTransferEncoding, 'chunked');
 
   // 数据的压缩方式
   // 可能的值为: gzip deflate br 其中之一
@@ -1582,10 +1576,10 @@ begin
 end;
 
 procedure TCrossHttpClientResponse.ParseRecvData(const ABuf: Pointer;
-  ALen: Integer);
+  const ALen: Integer);
 var
   LHttpConnection: ICrossHttpClientConnection;
-  pch: PByte;
+  LPtr, LPtrEnd: PByte;
   LChunkSize: Integer;
   LLineStr: string;
 begin
@@ -1611,16 +1605,17 @@ begin
 
   try
     // 在这里解析服务端发送过来的响应数据
-    pch := ABuf;
-    while (ALen > 0) do
+    LPtr := ABuf;
+    LPtrEnd := LPtr + ALen;
+    while (LPtr < LPtrEnd) do
     begin
       // 使用循环处理粘包, 比递归调用节省资源
-      while (ALen > 0) and (FParseState <> psDone) do
+      while (LPtr < LPtrEnd) and (FParseState <> psDone) do
       begin
         case FParseState of
           psHeader:
             begin
-              case pch^ of
+              case LPtr^ of
                 13{\r}: Inc(FCRCount);
                 10{\n}: Inc(FLFCount);
               else
@@ -1629,9 +1624,8 @@ begin
               end;
 
               // 写入请求数据
-              FRawRequest.Write(pch^, 1);
-              Dec(ALen);
-              Inc(pch);
+              FRawRequest.Write(LPtr^, 1);
+              Inc(LPtr);
 
               // HTTP头已接收完毕(\r\n\r\n是HTTP头结束的标志)
               if (FCRCount = 2) and (FLFCount = 2) then
@@ -1669,12 +1663,11 @@ begin
           // 非Chunked编码的Post数据(有 ContentLength)
           psBodyData:
             begin
-              LChunkSize := Min((FContentLength - FResponseBodySize), ALen);
-              TriggerResponseData(pch, LChunkSize);
+              LChunkSize := Min((FContentLength - FResponseBodySize), LPtrEnd - LPtr);
+              TriggerResponseData(LPtr, LChunkSize);
 
               Inc(FResponseBodySize, LChunkSize);
-              Inc(pch, LChunkSize);
-              Dec(ALen, LChunkSize);
+              Inc(LPtr, LChunkSize);
 
               if (FResponseBodySize >= FContentLength) then
               begin
@@ -1687,16 +1680,15 @@ begin
           // Chunked编码: 块尺寸
           psChunkSize:
             begin
-              case pch^ of
+              case LPtr^ of
                 13{\r}: Inc(FCRCount);
                 10{\n}: Inc(FLFCount);
               else
                 FCRCount := 0;
                 FLFCount := 0;
-                FChunkSizeStream.Write(pch^, 1);
+                FChunkSizeStream.Write(LPtr^, 1);
               end;
-              Dec(ALen);
-              Inc(pch);
+              Inc(LPtr);
 
               if (FCRCount = 1) and (FLFCount = 1) then
               begin
@@ -1712,13 +1704,12 @@ begin
             begin
               if (FChunkLeftSize > 0) then
               begin
-                LChunkSize := Min(FChunkLeftSize, ALen);
-                TriggerResponseData(pch, LChunkSize);
+                LChunkSize := Min(FChunkLeftSize, LPtrEnd - LPtr);
+                TriggerResponseData(LPtr, LChunkSize);
 
                 Inc(FResponseBodySize, LChunkSize);
                 Dec(FChunkLeftSize, LChunkSize);
-                Inc(pch, LChunkSize);
-                Dec(ALen, LChunkSize);
+                Inc(LPtr, LChunkSize);
               end;
 
               if (FChunkLeftSize <= 0) then
@@ -1732,15 +1723,14 @@ begin
           // Chunked编码: 块结束符\r\n
           psChunkEnd:
             begin
-              case pch^ of
+              case LPtr^ of
                 13{\r}: Inc(FCRCount);
                 10{\n}: Inc(FLFCount);
               else
                 FCRCount := 0;
                 FLFCount := 0;
               end;
-              Dec(ALen);
-              Inc(pch);
+              Inc(LPtr);
 
               if (FCRCount = 1) and (FLFCount = 1) then
               begin
@@ -1881,12 +1871,12 @@ begin
   // 初始化解压库
   if (FContentEncoding <> '') then
   begin
-    if SameText(FContentEncoding, 'gzip') then
+    if TStrUtils.SameText(FContentEncoding, 'gzip') then
     begin
       LCompressType := ctGZip;
       FZCompressed := True;
     end else
-    if SameText(FContentEncoding, 'deflate') then
+    if TStrUtils.SameText(FContentEncoding, 'deflate') then
     begin
       LCompressType := ctDeflate;
       FZCompressed := True;
@@ -2035,7 +2025,7 @@ end;
 function TCrossHttpClientSocket.ReUseConnection(
   const AProtocol: string): Boolean;
 begin
-  Result := SameText(AProtocol, HTTP) or SameText(AProtocol, HTTPS);
+  Result := TStrUtils.SameText(AProtocol, HTTP) or TStrUtils.SameText(AProtocol, HTTPS);
 end;
 
 { TCrossHttpClient }
@@ -2056,14 +2046,14 @@ end;
 
 function TCrossHttpClient.CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket;
 begin
-  if SameText(AProtocol, HTTP) then
+  if TStrUtils.SameText(AProtocol, HTTP) then
   begin
     if (FHttpCli = nil) then
       FHttpCli := TCrossHttpClientSocket.Create(FIoThreads, False);
 
     Result := FHttpCli;
   end else
-  if SameText(AProtocol, HTTPS) then
+  if TStrUtils.SameText(AProtocol, HTTPS) then
   begin
     if (FHttpsCli = nil) then
       FHttpsCli := TCrossHttpClientSocket.Create(FIoThreads, True);

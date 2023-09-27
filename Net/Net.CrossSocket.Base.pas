@@ -33,6 +33,7 @@ uses
   {$ENDIF}
 
   Net.SocketAPI,
+  Utils.StrUtils,
   Utils.SyncObjs;
 
 const
@@ -935,7 +936,7 @@ end;
 
 procedure _Log(const Fmt: string; const Args: array of const); overload;
 begin
-  _Log(Format(Fmt, Args));
+  _Log(TStrUtils.Format(Fmt, Args));
 end;
 
 procedure _LogLastOsError(const ATag: string);
@@ -948,7 +949,7 @@ begin
     LErrMsg := ATag + ' : '
   else
     LErrMsg := '';
-  LErrMsg := LErrMsg + Format('System Error: %0:d(0x%0:.4x), %1:s',
+  LErrMsg := LErrMsg + TStrUtils.Format('System Error: %0:d(0x%0:.4x), %1:s',
     [LError, SysErrorMessage(LError)]);
   _Log(LErrMsg);
 end;
@@ -997,7 +998,7 @@ begin
       {$ENDIF};
     end;
     {$IFDEF __DEBUG__}
-  //  _Log('%s Io线程ID %d, 被调用了 %d 次', [LCrossSocketObj.ClassName, Self.ThreadID, LRunCount]);
+    _Log('%s Io线程ID %d, 被调用了 %d 次', [FOwner.ClassName, Self.ThreadID, LRunCount]);
     {$ENDIF}
   finally
     FOwner.TriggerIoThreadEnd(Self);
@@ -1708,7 +1709,7 @@ begin
         Exit;
       end;
 
-      TCrossConnectionBase(AConnection).DirectSend(LData, LCount, LSender);
+      (AConnection as TCrossConnectionBase).DirectSend(LData, LCount, LSender);
     end;
 
   LSender(Self, True);
@@ -1799,7 +1800,7 @@ begin
         Exit;
       end;
 
-      TCrossConnectionBase(AConnection).DirectSend(LData, LCount, LSender);
+      (AConnection as TCrossConnectionBase).DirectSend(LData, LCount, LSender);
     end;
 
   LSender(Self, True);

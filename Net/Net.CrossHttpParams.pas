@@ -35,6 +35,7 @@ uses
   Utils.RegEx,
   Utils.IOUtils,
   Utils.DateTime,
+  Utils.StrUtils,
   Utils.Utils;
 
 type
@@ -50,7 +51,18 @@ type
   /// <summary>
   ///   参数基础类
   /// </summary>
-  TBaseParams = class(TEnumerable<TNameValue>)
+  TBaseParams = class
+  private type
+    TEnumerator = class
+    private
+      FIndex: Integer;
+      FParams: TBaseParams;
+    public
+      constructor Create(const AParams: TBaseParams);
+      function GetCurrent: TNameValue; inline;
+      function MoveNext: Boolean; inline;
+      property Current: TNameValue read GetCurrent;
+    end;
   private
     FParams: TList<TNameValue>;
 
@@ -60,23 +72,15 @@ type
     function GetCount: Integer;
     function GetItem(AIndex: Integer): TNameValue;
     procedure SetItem(AIndex: Integer; const AValue: TNameValue);
-  protected
-    function DoGetEnumerator: TEnumerator<TNameValue>; override;
-  public type
-    TEnumerator = class(TEnumerator<TNameValue>)
-    private
-      FList: TList<TNameValue>;
-      FIndex: Integer;
-    protected
-      function DoGetCurrent: TNameValue; override;
-      function DoMoveNext: Boolean; override;
-    public
-      constructor Create(const AList: TList<TNameValue>);
-    end;
   public
     constructor Create; overload; virtual;
     constructor Create(const AEncodedParams: string); overload; virtual;
     destructor Destroy; override;
+
+    /// <summary>
+    ///   枚举器
+    /// </summary>
+    function GetEnumerator: TEnumerator; inline;
 
     /// <summary>
     ///   添加参数
@@ -460,7 +464,18 @@ type
   /// <summary>
   ///   MultiPartFormData类
   /// </summary>
-  THttpMultiPartFormData = class(TEnumerable<TFormField>)
+  THttpMultiPartFormData = class
+  private type
+    TEnumerator = class
+    private
+      FList: TList<TFormField>;
+      FIndex: Integer;
+    public
+      constructor Create(const AList: TList<TFormField>);
+      function GetCurrent: TFormField; inline;
+      function MoveNext: Boolean; inline;
+      property Current: TFormField read GetCurrent;
+    end;
   public type
     TDecodeState = (dsBoundary, dsDetect, dsPartHeader, dsPartData);
   private const
@@ -485,22 +500,14 @@ type
     function GetDataSize: Integer;
     function GetField(const AName: string): TFormField;
     procedure SetBoundary(const AValue: string);
-  protected
-    function DoGetEnumerator: TEnumerator<TFormField>; override;
-  public type
-    TEnumerator = class(TEnumerator<TFormField>)
-    private
-      FList: TList<TFormField>;
-      FIndex: Integer;
-    protected
-      function DoGetCurrent: TFormField; override;
-      function DoMoveNext: Boolean; override;
-    public
-      constructor Create(const AList: TList<TFormField>);
-    end;
   public
     constructor Create; virtual;
     destructor Destroy; override;
+
+    /// <summary>
+    ///   枚举器
+    /// </summary>
+    function GetEnumerator: TEnumerator; inline;
 
     /// <summary>
     /// 初始化Boundary(Decode之前调用)
@@ -1049,24 +1056,21 @@ end;
 
 { TBaseParams.TEnumerator }
 
-constructor TBaseParams.TEnumerator.Create(const AList: TList<TNameValue>);
+constructor TBaseParams.TEnumerator.Create(const AParams: TBaseParams);
 begin
-  inherited Create;
-  FList := AList;
+  FParams := AParams;
   FIndex := -1;
 end;
 
-function TBaseParams.TEnumerator.DoGetCurrent: TNameValue;
+function TBaseParams.TEnumerator.GetCurrent: TNameValue;
 begin
-  Result := FList[FIndex];
+  Result := FParams.Items[FIndex];
 end;
 
-function TBaseParams.TEnumerator.DoMoveNext: Boolean;
+function TBaseParams.TEnumerator.MoveNext: Boolean;
 begin
-  if (FIndex >= FList.Count) then
-    Exit(False);
   Inc(FIndex);
-  Result := (FIndex < FList.Count);
+  Result := (FIndex < FParams.Count);
 end;
 
 { TBaseParams }
@@ -1120,7 +1124,7 @@ var
   I: Integer;
 begin
   for I := 0 to FParams.Count - 1 do
-    if SameText(FParams[I].Name, AName) then Exit(I);
+    if TStrUtils.SameText(FParams[I].Name, AName) then Exit(I);
   Result := -1;
 end;
 
@@ -1158,14 +1162,14 @@ begin
   Result := FParams.Count;
 end;
 
+function TBaseParams.GetEnumerator: TEnumerator;
+begin
+  Result := TEnumerator.Create(Self);
+end;
+
 function TBaseParams.GetItem(AIndex: Integer): TNameValue;
 begin
   Result := FParams.Items[AIndex];
-end;
-
-function TBaseParams.DoGetEnumerator: TEnumerator<TNameValue>;
-begin
-  Result := TEnumerator.Create(FParams);
 end;
 
 function TBaseParams.ExistsParam(const AName: string): Boolean;
@@ -1227,7 +1231,7 @@ end;
 
 procedure THttpUrlParams.Decode(const AEncodedParams: string; AClear: Boolean);
 var
-  p, q: PChar;
+  p, pEnd, q: PChar;
   LName, LValue: string;
   LSize: Integer;
 begin
@@ -1235,11 +1239,12 @@ begin
     FParams.Clear;
 
   p := PChar(AEncodedParams);
-  while (p^ <> #0) do
+  pEnd := p + Length(AEncodedParams);
+  while (p < pEnd) do
   begin
     q := p;
     LSize := 0;
-    while (p^ <> #0) and (p^ <> '=') and (p^ <> '&') do
+    while (p < pEnd) and (p^ <> '=') and (p^ <> '&') do
     begin
       Inc(LSize);
       Inc(p);
@@ -1248,12 +1253,12 @@ begin
     Move(q^, Pointer(LName)^, LSize * SizeOf(Char));
     LName := TCrossHttpUtils.UrlDecode(LName);
     // 跳过多余的'='
-    while (p^ <> #0) and (p^ = '=') do
+    while (p < pEnd) and (p^ = '=') do
       Inc(p);
 
     q := p;
     LSize := 0;
-    while (p^ <> #0) and (p^ <> '&') do
+    while (p < pEnd) and (p^ <> '&') do
     begin
       Inc(LSize);
       Inc(p);
@@ -1262,7 +1267,7 @@ begin
     Move(q^, Pointer(LValue)^, LSize * SizeOf(Char));
     LValue := TCrossHttpUtils.UrlDecode(LValue);
     // 跳过多余的'&'
-    while (p^ <> #0) and (p^ = '&') do
+    while (p < pEnd) and (p^ = '&') do
       Inc(p);
 
     Add(LName, LValue);
@@ -1293,7 +1298,7 @@ end;
 
 procedure THttpHeader.Decode(const AEncodedParams: string; AClear: Boolean);
 var
-  p, q: PChar;
+  p, pEnd, q: PChar;
   LName, LValue: string;
   LSize: Integer;
 begin
@@ -1301,11 +1306,12 @@ begin
     FParams.Clear;
 
   p := PChar(AEncodedParams);
-  while (p^ <> #0) do
+  pEnd := p + Length(AEncodedParams);
+  while (p < pEnd) do
   begin
     q := p;
     LSize := 0;
-    while (p^ <> #0) and (p^ <> ':') do
+    while (p < pEnd) and (p^ <> ':') do
     begin
       Inc(LSize);
       Inc(p);
@@ -1313,12 +1319,12 @@ begin
     SetLength(LName, LSize);
     Move(q^, Pointer(LName)^, LSize * SizeOf(Char));
     // 跳过多余的':'
-    while (p^ <> #0) and ((p^ = ':') or (p^ = ' ')) do
+    while (p < pEnd) and ((p^ = ':') or (p^ = ' ')) do
       Inc(p);
 
     q := p;
     LSize := 0;
-    while (p^ <> #0) and (p^ <> #13) do
+    while (p < pEnd) and (p^ <> #13) do
     begin
       Inc(LSize);
       Inc(p);
@@ -1326,7 +1332,7 @@ begin
     SetLength(LValue, LSize);
     Move(q^, Pointer(LValue)^, LSize * SizeOf(Char));
     // 跳过多余的#13#10
-    while (p^ <> #0) and ((p^ = #13) or (p^ = #10)) do
+    while (p < pEnd) and ((p^ = #13) or (p^ = #10)) do
       Inc(p);
 
     Add(LName, LValue);
@@ -1367,7 +1373,7 @@ end;
 
 procedure TDelimitParams.Decode(const AEncodedParams: string; AClear: Boolean);
 var
-  p, q: PChar;
+  p, pEnd, q: PChar;
   LName, LValue: string;
   LSize: Integer;
 begin
@@ -1375,11 +1381,12 @@ begin
     FParams.Clear;
 
   p := PChar(AEncodedParams);
-  while (p^ <> #0) do
+  pEnd := p + Length(AEncodedParams);
+  while (p < pEnd) do
   begin
     q := p;
     LSize := 0;
-    while (p^ <> #0) and (p^ <> '=') do
+    while (p < pEnd) and (p^ <> '=') do
     begin
       Inc(LSize);
       Inc(p);
@@ -1387,12 +1394,12 @@ begin
     SetLength(LName, LSize);
     Move(q^, Pointer(LName)^, LSize * SizeOf(Char));
     // 跳过多余的'='
-    while (p^ <> #0) and (p^ = '=') do
+    while (p < pEnd) and (p^ = '=') do
       Inc(p);
 
     q := p;
     LSize := 0;
-    while (p^ <> #0) and (p^ <> FDelimiter) do
+    while (p < pEnd) and (p^ <> FDelimiter) do
     begin
       Inc(LSize);
       Inc(p);
@@ -1402,7 +1409,7 @@ begin
     if FUrlEncode then
       LValue := TCrossHttpUtils.UrlDecode(LValue);
     // 跳过多余的';'
-    while (p^ <> #0) and ((p^ = FDelimiter) or (p^ = ' ')) do
+    while (p < pEnd) and ((p^ = FDelimiter) or (p^ = ' ')) do
       Inc(p);
 
     Add(LName, LValue);
@@ -1430,7 +1437,7 @@ end;
 
 procedure TRequestCookies.Decode(const AEncodedParams: string; AClear: Boolean);
 var
-  p, q: PChar;
+  p, pEnd, q: PChar;
   LName, LValue: string;
   LSize: Integer;
 begin
@@ -1438,11 +1445,12 @@ begin
     FParams.Clear;
 
   p := PChar(AEncodedParams);
-  while (p^ <> #0) do
+  pEnd := p + Length(AEncodedParams);
+  while (p < pEnd) do
   begin
     q := p;
     LSize := 0;
-    while (p^ <> #0) and (p^ <> '=') do
+    while (p < pEnd) and (p^ <> '=') do
     begin
       Inc(LSize);
       Inc(p);
@@ -1450,12 +1458,12 @@ begin
     SetLength(LName, LSize);
     Move(q^, Pointer(LName)^, LSize * SizeOf(Char));
     // 跳过多余的'='
-    while (p^ <> #0) and (p^ = '=') do
+    while (p < pEnd) and (p^ = '=') do
       Inc(p);
 
     q := p;
     LSize := 0;
-    while (p^ <> #0) and (p^ <> ';') do
+    while (p < pEnd) and (p^ <> ';') do
     begin
       Inc(LSize);
       Inc(p);
@@ -1464,7 +1472,7 @@ begin
     Move(q^, Pointer(LValue)^, LSize * SizeOf(Char));
     LValue := TCrossHttpUtils.UrlDecode(LValue);
     // 跳过多余的';'
-    while (p^ <> #0) and ((p^ = ';') or (p^ = ' ')) do
+    while (p < pEnd) and ((p^ = ';') or (p^ = ' ')) do
       Inc(p);
 
     Add(LName, LValue);
@@ -1562,17 +1570,17 @@ begin
       LValue := '';
     end;
 
-    if SameText(LName, 'Max-Age') then
+    if TStrUtils.SameText(LName, 'Max-Age') then
       SetMaxAge(LValue)
-    else if SameText(LName, 'Expires') then
+    else if TStrUtils.SameText(LName, 'Expires') then
       SetExpires(LValue)
-    else if SameText(LName, 'Path') then
+    else if TStrUtils.SameText(LName, 'Path') then
       SetPath(LValue)
-    else if SameText(LName, 'Domain') then
+    else if TStrUtils.SameText(LName, 'Domain') then
       SetDomain(LValue)
-    else if SameText(LName, 'HttpOnly') then
+    else if TStrUtils.SameText(LName, 'HttpOnly') then
       Self.HttpOnly := True
-    else if SameText(LName, 'Secure') then
+    else if TStrUtils.SameText(LName, 'Secure') then
       Self.Secure := True;
   end;
 end;
@@ -1656,15 +1664,13 @@ begin
   FIndex := -1;
 end;
 
-function THttpMultiPartFormData.TEnumerator.DoGetCurrent: TFormField;
+function THttpMultiPartFormData.TEnumerator.GetCurrent: TFormField;
 begin
   Result := FList[FIndex];
 end;
 
-function THttpMultiPartFormData.TEnumerator.DoMoveNext: Boolean;
+function THttpMultiPartFormData.TEnumerator.MoveNext: Boolean;
 begin
-  if (FIndex >= FList.Count) then
-    Exit(False);
   Inc(FIndex);
   Result := (FIndex < FList.Count);
 end;
@@ -1746,11 +1752,6 @@ begin
   FPartFields.Clear;
 end;
 
-function THttpMultiPartFormData.DoGetEnumerator: TEnumerator<TFormField>;
-begin
-  Result := TEnumerator.Create(FPartFields);
-end;
-
 function THttpMultiPartFormData.FindField(const AFieldName: string;
   out AField: TFormField): Boolean;
 var
@@ -1776,7 +1777,7 @@ var
   I: Integer;
 begin
   for I := 0 to FPartFields.Count - 1 do
-    if SameText(FPartFields[I].Name, AName) then Exit(I);
+    if TStrUtils.SameText(FPartFields[I].Name, AName) then Exit(I);
   Result := -1;
 end;
 
@@ -1792,6 +1793,11 @@ begin
   Result := 0;
   for LPartField in FPartFields do
     Inc(Result, LPartField.FValue.Size);
+end;
+
+function THttpMultiPartFormData.GetEnumerator: TEnumerator;
+begin
+  Result := TEnumerator.Create(FPartFields);
 end;
 
 function THttpMultiPartFormData.GetField(const AName: string): TFormField;
@@ -2380,7 +2386,7 @@ var
   I: Integer;
 begin
   for I := 0 to Count - 1 do
-    if SameText(Items[I].Name, AName) then Exit(I);
+    if TStrUtils.SameText(Items[I].Name, AName) then Exit(I);
   Result := -1;
 end;
 

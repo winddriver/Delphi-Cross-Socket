@@ -16,6 +16,7 @@ interface
 uses
   SysUtils,
 
+  Utils.StrUtils,
   Utils.Utils,
   Utils.IOUtils;
 
@@ -1315,7 +1316,7 @@ begin
     AHost := AUrl.Substring(LProtocolIndex, LPathIndex - LProtocolIndex);
 
     // 根据协议类型决定默认端口
-    if SameText(AProtocol, HTTPS) then
+    if TStrUtils.SameText(AProtocol, HTTPS) then
       APort := HTTPS_DEFAULT_PORT
     else
       APort := HTTP_DEFAULT_PORT;
@@ -1334,7 +1335,7 @@ var
 begin
   LExt := ExtractFileExt(AFileName).Substring(1);
   for LMimeItem in MIME_TYPES do
-    if SameText(LMimeItem.Key, LExt) then
+    if TStrUtils.SameText(LMimeItem.Key, LExt) then
       Exit(LMimeItem.Value);
   Result := TMediaType.APPLICATION_OCTET_STREAM;
 end;

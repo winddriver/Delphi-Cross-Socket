@@ -631,7 +631,7 @@ class function TDateTimeHelper.TryStrToDateTime(const AStr: string;
   end;
 
 var
-  P: PChar;
+  P, PEnd: PChar;
   LMSecsSince1970: Int64;
   LYear, LMonth, LDay, LHour, LMin, LSec, LMSec: Integer;
   LOffsetHour, LOffsetMin: Integer;
@@ -642,11 +642,12 @@ begin
   if (AStr = '') then Exit(False);
 
   P := PChar(AStr);
+  PEnd := P + Length(AStr);
   if (P^ = '/') and (StrLComp('Date(', P + 1, 5) = 0) then  // .NET: milliseconds since 1970-01-01
   begin
     Inc(P, 6);
     LMSecsSince1970 := 0;
-    while (P^ <> #0) and (P^ in ['0'..'9']) do
+    while (P < PEnd) and (P^ in ['0'..'9']) do
     begin
       LMSecsSince1970 := LMSecsSince1970 * 10 + (Ord(P^) - Ord('0'));
       Inc(P);
@@ -654,10 +655,10 @@ begin
     if (P^ = '+') or (P^ = '-') then // timezone information
     begin
       Inc(P);
-      while (P^ <> #0) and (P^ in ['0'..'9']) do
+      while (P < PEnd) and (P^ in ['0'..'9']) do
         Inc(P);
     end;
-    if (P[0] = ')') and (P[1] = '/') and (P[2] = #0) then
+    if (P + 2 = PEnd) and (P[0] = ')') and (P[1] = '/') then
       ADateTime := TDateTime(UnixDateDelta + (LMSecsSince1970 / MSecsPerDay))
     else
       Exit(False); // invalid format
@@ -739,7 +740,7 @@ begin
       if not TryEncodeTime(LHour, LMin, LSec, LMSec, LTime) then Exit(False);
       ADateTime := ADateTime + LTime;
     end else
-    if (P^ <> #0) then
+    if (P < PEnd) then
       Exit(False);
   end;
 

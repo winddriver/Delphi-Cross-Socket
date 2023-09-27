@@ -24,6 +24,7 @@ uses
   Net.CrossHttpUtils,
   Net.CrossWebSocketParser,
 
+  Utils.StrUtils,
   Utils.SyncObjs,
   Utils.Utils;
 
@@ -1186,14 +1187,14 @@ end;
 function TCrossWebSocketMgr.CreateHttpCli(
   const AProtocol: string): ICrossHttpClientSocket;
 begin
-  if SameText(AProtocol, WS) then
+  if TStrUtils.SameText(AProtocol, WS) then
   begin
     if (FHttpCli = nil) then
       FHttpCli := TCrossWebSocketClient.Create(FIoThreads, False);
 
     Result := FHttpCli;
   end else
-  if SameText(AProtocol, WSS) then
+  if TStrUtils.SameText(AProtocol, WSS) then
   begin
     if (FHttpsCli = nil) then
       FHttpsCli := TCrossWebSocketClient.Create(FIoThreads, True);
