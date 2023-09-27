@@ -20,6 +20,8 @@ procedure TestCrossHttpServer;
 var
   LResponseStr: string;
 begin
+  LResponseStr := TOSVersion.ToString + '<br>Hello World!';
+
   __HttpServer := TCrossHttpServer.Create(2, True);
   if __HttpServer.Ssl then
   begin
@@ -43,7 +45,6 @@ begin
   __HttpServer.Get('/',
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     begin
-      LResponseStr := TOSVersion.ToString + '<br>Hello World!';
       AResponse.Send(LResponseStr);
       AHandled := True;
     end);
