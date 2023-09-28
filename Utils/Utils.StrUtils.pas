@@ -24,18 +24,18 @@ implementation
 class function TStrUtils.Format(const AFmt: string;
   const AArgs: array of const; const AFormatSettings: TFormatSettings): string;
 begin
-  SysUtils.{$IFDEF DELPHI}Format{$ELSE}UnicodeFormat{$ENDIF}(AFmt, AArgs, AFormatSettings);
+  Result := SysUtils.{$IFDEF DELPHI}Format{$ELSE}UnicodeFormat{$ENDIF}(AFmt, AArgs, AFormatSettings);
 end;
 
 class function TStrUtils.Format(const AFmt: string;
   const AArgs: array of const): string;
 begin
-  SysUtils.{$IFDEF DELPHI}Format{$ELSE}UnicodeFormat{$ENDIF}(AFmt, AArgs);
+  Result := SysUtils.{$IFDEF DELPHI}Format{$ELSE}UnicodeFormat{$ENDIF}(AFmt, AArgs);
 end;
 
 class function TStrUtils.SameText(const AStr1, AStr2: string): Boolean;
 begin
-  SysUtils.{$IFDEF DELPHI}SameText{$ELSE}UnicodeSameText{$ENDIF}(AStr1, AStr2);
+  Result := SysUtils.{$IFDEF DELPHI}SameText{$ELSE}UnicodeSameText{$ENDIF}(AStr1, AStr2);
 end;
 
 end.

@@ -10,10 +10,7 @@
   {$WARN 06058 OFF}// Call to subroutine "$1" marked as inline is not inlined}
 
   {$H+}
-
-  {$IFNDEF MSWINDOWS}
-    {$DEFINE POSIX}
-  {$ENDIF}
+  {$INLINE ON}
 
   {$IFDEF CPU32}
     {$DEFINE CPU32BITS}
@@ -21,6 +18,14 @@
 
   {$IFDEF CPU64}
     {$DEFINE CPU64BITS}
+  {$ENDIF}
+
+  {$IFNDEF MSWINDOWS}
+    {$DEFINE POSIX}
+  {$ENDIF}
+
+  {$IFDEF DARWIN}
+    {$DEFINE MACOS}
   {$ENDIF}
 
   {$IFDEF ANDROID}

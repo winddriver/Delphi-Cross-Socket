@@ -253,6 +253,7 @@ const
   SSL_OP_NO_TLSv1                             = $04000000;
   SSL_OP_NO_TLSv1_2                           = $08000000;
   SSL_OP_NO_TLSv1_1                           = $10000000;
+  SSL_OP_NO_TLSv1_3                           = $20000000;
   SSL_OP_PKCS1_CHECK_1                        = $00000000;
   SSL_OP_PKCS1_CHECK_2                        = $00000000;
   SSL_OP_NETSCAPE_CA_DN_BUG                   = $20000000;
@@ -285,6 +286,10 @@ const
   OSSL_VER_1001  = $10001000;
   OSSL_VER_1002  = $10002000;
   OSSL_VER_1100  = $10100000;
+
+  SSL3_VERSION                                = $0300;
+  SSL3_VERSION_MAJOR                          = $03;
+  SSL3_VERSION_MINOR                          = $00;
 
   TLS1_VERSION                                = $0301;
   TLS1_VERSION_MAJOR                          = $03;
@@ -855,6 +860,7 @@ end;
 class procedure TSSLTools.LoadSSL;
 begin
   if (AtomicIncrement(FRef) <> 1) then Exit;
+
   {$IFNDEF __SSL_STATIC__}
   LoadSslLibs;
   {$ENDIF}
