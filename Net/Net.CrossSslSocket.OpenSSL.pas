@@ -162,7 +162,8 @@ begin
       // 才会出现部分写入成功即返回的情况。这里并没有设置该参数，所以无需做
       // 部分数据的处理，只需要一次 SSL_Write 调用即可。
       LRetCode := _SSL_write(ABuffer, ACount);
-      if (LRetCode <= 0) then
+//      if (LRetCode <= 0) then
+      if (LRetCode <> ACount) then
       begin
         _SSL_print_error(LRetCode, 'SSL_write');
 
@@ -203,7 +204,7 @@ end;
 
 function TCrossOpenSslConnection._BIO_read: TBytes;
 const
-  BLOCK_SIZE = 16384;
+  BLOCK_SIZE = 4096;
 var
   LReadedCount, LBlockSize, LRetCode: Integer;
   P: PByte;
@@ -280,7 +281,7 @@ end;
 
 function TCrossOpenSslConnection._SSL_read: TBytes;
 const
-  BLOCK_SIZE = 16384;
+  BLOCK_SIZE = 4096;
 var
   LReadedCount, LBlockSize, LRetCode: Integer;
   P: PByte;
@@ -584,32 +585,52 @@ begin
       end else
       if (LConnection.ConnectStatus = csHandshaking) then
       begin
-        // 读取解密后的数据
-        LDecryptedData := LConnection._SSL_read;
-
         // 继续握手
         LRetCode := LConnection._SSL_do_handshake;
+
         if (LRetCode <> 1) then
           LConnection._SSL_print_error(LRetCode, 'SSL_do_handshake(TriggerReceived)');
 
         // 读取握手数据
         LHandshakeData := LConnection._BIO_read;
+
+        // 如果握手完成
+        // 读取解密后的数据
+        if (LRetCode = 1) then
+        begin
+          LTriggerConnected := True;
+          LDecryptedData := LConnection._SSL_read;
+        end;
       end;
     finally
       LConnection._Unlock;
     end;
 
-    // 握手完成, 触发已连接事件
-    if LTriggerConnected then
-      _Connected(LConnection);
-
-    // 收到了解密后的数据
-    if (LDecryptedData <> nil) then
-      inherited TriggerReceived(LConnection, @LDecryptedData[0], Length(LDecryptedData));
-
     // 有握手数据
     if (LHandshakeData <> nil) then
-      LConnection._Send(LHandshakeData);
+    begin
+      // 先把握手数据发出去再触发连接事件和数据接收事件
+      LConnection._Send(LHandshakeData,
+        procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+        begin
+          // 握手完成, 触发已连接事件
+          if LTriggerConnected then
+            _Connected(LConnection);
+
+          // 收到了解密后的数据
+          if (LDecryptedData <> nil) then
+            inherited TriggerReceived(LConnection, @LDecryptedData[0], Length(LDecryptedData));
+        end);
+    end else
+    begin
+      // 握手完成, 触发已连接事件
+      if LTriggerConnected then
+        _Connected(LConnection);
+
+      // 收到了解密后的数据
+      if (LDecryptedData <> nil) then
+        inherited TriggerReceived(LConnection, @LDecryptedData[0], Length(LDecryptedData));
+    end;
   end else
     inherited TriggerReceived(LConnection, ABuf, ALen);
 end;
