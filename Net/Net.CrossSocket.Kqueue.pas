@@ -64,7 +64,6 @@ type
   public
     constructor Create(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
       const AFamily, ASockType, AProtocol: Integer); override;
-    destructor Destroy; override;
   end;
 
   PSendItem = ^TSendItem;
@@ -210,13 +209,6 @@ begin
   FLock := TLock.Create;
 end;
 
-destructor TKqueueListen.Destroy;
-begin
-  FreeAndNil(FLock);
-
-  inherited;
-end;
-
 procedure TKqueueListen._Lock;
 begin
   FLock.Enter;
@@ -317,8 +309,6 @@ begin
   finally
     _Unlock;
   end;
-
-  FreeAndNil(FLock);
 
   inherited;
 end;

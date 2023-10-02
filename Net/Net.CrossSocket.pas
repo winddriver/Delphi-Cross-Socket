@@ -17,7 +17,7 @@ uses
   Net.CrossSocket.Base,
   {$IFDEF MSWINDOWS}
   Net.CrossSocket.Iocp
-  {$ELSEIF defined(BSD)}
+  {$ELSEIF defined(MACOS)}
   Net.CrossSocket.Kqueue
   {$ELSEIF defined(LINUX) or defined(ANDROID)}
   Net.CrossSocket.Epoll
@@ -27,7 +27,7 @@ type
   TCrossListen =
     {$IFDEF MSWINDOWS}
     TIocpListen
-    {$ELSEIF defined(BSD)}
+    {$ELSEIF defined(MACOS)}
     TKqueueListen
     {$ELSEIF defined(LINUX) or defined(ANDROID)}
     TEpollListen
@@ -36,7 +36,7 @@ type
   TCrossConnection =
     {$IFDEF MSWINDOWS}
     TIocpConnection
-    {$ELSEIF defined(BSD)}
+    {$ELSEIF defined(MACOS)}
     TKqueueConnection
     {$ELSEIF defined(LINUX) or defined(ANDROID)}
     TEpollConnection
@@ -45,7 +45,7 @@ type
   TCrossSocket =
     {$IFDEF MSWINDOWS}
     TIocpCrossSocket
-    {$ELSEIF defined(BSD)}
+    {$ELSEIF defined(MACOS)}
     TKqueueCrossSocket
     {$ELSEIF defined(LINUX) or defined(ANDROID)}
     TEpollCrossSocket
