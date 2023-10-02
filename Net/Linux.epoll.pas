@@ -58,24 +58,28 @@ type
   TEPoll_Event =  Epoll_Event;
   PEpoll_Event = ^Epoll_Event;
 
+{$IF DEFINED(FPC)}
+{$LINKLIB c}
+{$ENDIF}
+
 { open an epoll file descriptor }
 function epoll_create(size: Integer): Integer; cdecl;
-  external 'c' name 'epoll_create';
+  external {$IFDEF DELPHI}libc name 'epoll_create'{$ENDIF};
 
 { control interface for an epoll descriptor }
 function epoll_ctl(epfd, op, fd: Integer; event: pepoll_event): Integer; cdecl;
-  external 'c' name 'epoll_ctl';
+  external {$IFDEF DELPHI}libc name 'epoll_ctl'{$ENDIF};
 
 { wait for an I/O event on an epoll file descriptor }
 function epoll_wait(epfd: Integer; events: pepoll_event; maxevents, timeout: Integer): Integer; cdecl;
-  external 'c' name 'epoll_wait';
+  external {$IFDEF DELPHI}libc name 'epoll_wait'{$ENDIF};
 
 { create a file descriptor for event notification }
 function eventfd(initval: Cardinal; flags: Integer): Integer; cdecl;
-  external 'c' name 'eventfd';
+  external {$IFDEF DELPHI}libc name 'eventfd'{$ENDIF};
 
 function __write(Handle: Integer; Buffer: Pointer; Count: size_t): ssize_t; cdecl;
-  external 'c' name 'write';
+  external {$IFDEF DELPHI}libc name 'write'{$ENDIF};
 
 implementation
 
