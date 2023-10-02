@@ -82,6 +82,9 @@ If you find this project useful, please consider making a donation.
   
 ## Some Test Screenshots
 
+- **HTTPS Benchmark**
+![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/482c19c1-8808-4c93-91da-f8ed2389c2a7)
+
 - **HTTP Server**(Linux-aarch64)
 ![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/14bc8b38-3ea3-4ae1-b781-488940024380)
 
