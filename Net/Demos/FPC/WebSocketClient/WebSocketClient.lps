@@ -3,84 +3,253 @@
   <ProjectSession>
     <PathDelim Value="\"/>
     <Version Value="12"/>
-    <BuildModes Active="Windows-X64"/>
+    <BuildModes Active="Linux-ARM64"/>
     <Units>
       <Unit>
         <Filename Value="WebSocketClient.lpr"/>
         <IsPartOfProject Value="True"/>
-        <CursorPos X="73" Y="30"/>
-        <UsageCount Value="43"/>
+        <IsVisibleTab Value="True"/>
+        <TopLine Value="44"/>
+        <CursorPos X="36" Y="67"/>
+        <UsageCount Value="277"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\Net.CrossWebSocketClient.pas"/>
-        <EditorIndex Value="3"/>
-        <TopLine Value="371"/>
-        <CursorPos X="46" Y="400"/>
-        <UsageCount Value="22"/>
+        <EditorIndex Value="1"/>
+        <TopLine Value="8"/>
+        <CursorPos X="70" Y="37"/>
+        <UsageCount Value="132"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\Net.CrossWebSocketServer.pas"/>
-        <EditorIndex Value="2"/>
+        <EditorIndex Value="-1"/>
         <TopLine Value="449"/>
-        <UsageCount Value="22"/>
-        <Loaded Value="True"/>
+        <UsageCount Value="24"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\Net.CrossHttpClient.pas"/>
-        <IsVisibleTab Value="True"/>
-        <EditorIndex Value="1"/>
+        <EditorIndex Value="8"/>
         <TopLine Value="3"/>
-        <CursorPos X="46" Y="39"/>
-        <UsageCount Value="10"/>
+        <CursorPos X="106" Y="9"/>
+        <UsageCount Value="120"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <EditorIndex Value="7"/>
+        <TopLine Value="580"/>
+        <CursorPos Y="603"/>
+        <UsageCount Value="118"/>
+        <Bookmarks Count="3">
+          <Item0 Y="563" ID="2"/>
+          <Item1 X="5" Y="263" ID="3"/>
+          <Item2 X="8" Y="373" ID="9"/>
+        </Bookmarks>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <EditorIndex Value="9"/>
+        <TopLine Value="1015"/>
+        <CursorPos X="3" Y="1017"/>
+        <UsageCount Value="124"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.CrossSocket.Base.pas"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="74"/>
+        <CursorPos X="11" Y="99"/>
+        <UsageCount Value="9"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.CrossSslSocket.Base.pas"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="97"/>
+        <CursorPos X="17" Y="123"/>
+        <UsageCount Value="7"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\packages\rtl-generics\src\generics.collections.pas"/>
+        <UnitName Value="Generics.Collections"/>
+        <EditorIndex Value="5"/>
+        <TopLine Value="1262"/>
+        <CursorPos X="20" Y="1287"/>
+        <UsageCount Value="53"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.CrossWebSocketParser.pas"/>
+        <EditorIndex Value="6"/>
+        <TopLine Value="256"/>
+        <CursorPos X="32" Y="186"/>
+        <UsageCount Value="53"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <EditorIndex Value="2"/>
+        <CursorPos X="43" Y="286"/>
+        <UsageCount Value="53"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\inc\dynlib.inc"/>
+        <EditorIndex Value="10"/>
+        <TopLine Value="36"/>
+        <CursorPos X="28" Y="61"/>
+        <UsageCount Value="100"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\inc\astrings.inc"/>
+        <EditorIndex Value="11"/>
+        <TopLine Value="888"/>
+        <CursorPos X="10" Y="888"/>
+        <UsageCount Value="100"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\objpas\sysutils\sysstr.inc"/>
+        <EditorIndex Value="4"/>
+        <TopLine Value="2242"/>
+        <CursorPos X="2" Y="2269"/>
+        <UsageCount Value="53"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\cnvcl\Source\Crypto\CnSHA2.pas"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="809"/>
+        <CursorPos X="64" Y="812"/>
+        <UsageCount Value="1"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\zLib.inc"/>
+        <EditorIndex Value="3"/>
+        <UsageCount Value="53"/>
         <Loaded Value="True"/>
       </Unit>
     </Units>
-    <JumpHistory HistoryIndex="10">
+    <JumpHistory HistoryIndex="29">
       <Position>
-        <Filename Value="WebSocketClient.lpr"/>
-        <Caret Line="49" Column="34" TopLine="24"/>
+        <Filename Value="..\..\..\Net.CrossHttpClient.pas"/>
+        <Caret Line="21" Column="3"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossHttpClient.pas"/>
+        <Caret Line="19" Column="3"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossHttpClient.pas"/>
+        <Caret Line="20"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossHttpClient.pas"/>
+        <Caret Line="29" Column="3" TopLine="4"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossHttpClient.pas"/>
+        <Caret Line="31" Column="3" TopLine="6"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossHttpClient.pas"/>
+        <Caret Line="25"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossHttpClient.pas"/>
+        <Caret Line="9" Column="106" TopLine="3"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossWebSocketClient.pas"/>
+        <Caret Line="410" Column="26" TopLine="386"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossWebSocketClient.pas"/>
+        <Caret Line="1189" Column="34" TopLine="1164"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossWebSocketClient.pas"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossWebSocketClient.pas"/>
+        <Caret Line="1196" Column="24" TopLine="1171"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\objpas\sysutils\sysstr.inc"/>
+        <Caret Line="301" Column="3" TopLine="289"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\objpas\sysutils\sysstr.inc"/>
+        <Caret Line="292" Column="10" TopLine="283"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\objpas\sysutils\sysstr.inc"/>
+        <Caret Line="1927" Column="21" TopLine="1885"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\objpas\sysutils\sysstr.inc"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\objpas\sysutils\sysstr.inc"/>
+        <Caret Line="1927" Column="21" TopLine="1885"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\objpas\sysutils\sysstr.inc"/>
+        <Caret Line="2269" Column="2" TopLine="2242"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossWebSocketClient.pas"/>
+        <Caret Line="747" Column="21" TopLine="722"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="752" Column="46" TopLine="733"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="437" Column="49" TopLine="412"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="380" Column="43" TopLine="355"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="517" Column="3" TopLine="515"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="39" Column="20" TopLine="14"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="517" Column="3" TopLine="515"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="39" Column="20" TopLine="2"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\zLib.inc"/>
       </Position>
       <Position>
         <Filename Value="WebSocketClient.lpr"/>
-        <Caret Line="14"/>
+        <Caret Line="30" Column="35"/>
       </Position>
       <Position>
         <Filename Value="WebSocketClient.lpr"/>
-        <Caret Line="3" Column="13"/>
+        <Caret Line="49" Column="38" TopLine="30"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossWebSocketClient.pas"/>
+        <Caret Line="192" Column="66" TopLine="166"/>
       </Position>
       <Position>
         <Filename Value="WebSocketClient.lpr"/>
-        <Caret Line="58" Column="41" TopLine="22"/>
-      </Position>
-      <Position>
-        <Filename Value="WebSocketClient.lpr"/>
-        <Caret Line="15"/>
-      </Position>
-      <Position>
-        <Filename Value="WebSocketClient.lpr"/>
-        <Caret Line="65" Column="23" TopLine="29"/>
-      </Position>
-      <Position>
-        <Filename Value="WebSocketClient.lpr"/>
-        <Caret Line="21" Column="30" TopLine="4"/>
-      </Position>
-      <Position>
-        <Filename Value="WebSocketClient.lpr"/>
-        <Caret Line="41" Column="25" TopLine="27"/>
-      </Position>
-      <Position>
-        <Filename Value="WebSocketClient.lpr"/>
-        <Caret Line="57" Column="79" TopLine="31"/>
-      </Position>
-      <Position>
-        <Filename Value="WebSocketClient.lpr"/>
-        <Caret Line="64" Column="70" TopLine="35"/>
-      </Position>
-      <Position>
-        <Filename Value="WebSocketClient.lpr"/>
-        <Caret Line="30" Column="73"/>
+        <Caret Line="68" Column="54" TopLine="38"/>
       </Position>
     </JumpHistory>
     <RunParams>

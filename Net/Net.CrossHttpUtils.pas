@@ -1324,6 +1324,8 @@ begin
 
   // 提取路径
   APath := AUrl.Substring(LPathIndex, MaxInt);
+  if (APath = '') then
+    APath := '/';
 
   Result := True;
 end;

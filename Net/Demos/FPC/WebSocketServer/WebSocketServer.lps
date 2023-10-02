@@ -3,44 +3,238 @@
   <ProjectSession>
     <PathDelim Value="\"/>
     <Version Value="12"/>
-    <BuildModes Active="Windows-X64"/>
+    <BuildModes Active="Linux-ARM64"/>
     <Units>
       <Unit>
         <Filename Value="WebSocketServer.lpr"/>
         <IsPartOfProject Value="True"/>
         <IsVisibleTab Value="True"/>
-        <TopLine Value="23"/>
-        <CursorPos X="31" Y="33"/>
-        <UsageCount Value="20"/>
+        <TopLine Value="56"/>
+        <CursorPos X="91" Y="96"/>
+        <UsageCount Value="58"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\Net.CrossWebSocketServer.pas"/>
+        <EditorIndex Value="8"/>
+        <UsageCount Value="28"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
         <EditorIndex Value="1"/>
-        <TopLine Value="211"/>
-        <CursorPos X="20" Y="231"/>
+        <TopLine Value="534"/>
+        <CursorPos X="40" Y="578"/>
+        <UsageCount Value="28"/>
+        <Bookmarks Count="2">
+          <Item0 X="3" Y="251" ID="2"/>
+          <Item1 X="15" Y="520" ID="1"/>
+        </Bookmarks>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
+        <EditorIndex Value="3"/>
+        <TopLine Value="88"/>
+        <CursorPos X="16" Y="118"/>
+        <UsageCount Value="28"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.CrossSocket.Base.pas"/>
+        <EditorIndex Value="7"/>
+        <TopLine Value="71"/>
+        <CursorPos X="13" Y="99"/>
+        <UsageCount Value="28"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.CrossSocket.Epoll.pas"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="65"/>
+        <CursorPos X="17" Y="91"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="D:\GitHub\openssl\ssl\ssl_lib.c"/>
+        <EditorIndex Value="4"/>
+        <TopLine Value="4653"/>
+        <CursorPos X="30" Y="4697"/>
+        <UsageCount Value="17"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="C++"/>
+      </Unit>
+      <Unit>
+        <Filename Value="D:\GitHub\openssl\ssl\statem\statem.c"/>
+        <EditorIndex Value="6"/>
+        <TopLine Value="65"/>
+        <CursorPos X="25" Y="91"/>
+        <UsageCount Value="17"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="C++"/>
+      </Unit>
+      <Unit>
+        <Filename Value="D:\GitHub\openssl\ssl\statem\statem_lib.c"/>
+        <EditorIndex Value="5"/>
+        <TopLine Value="1427"/>
+        <CursorPos X="51" Y="1471"/>
+        <UsageCount Value="17"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="C++"/>
+      </Unit>
+      <Unit>
+        <Filename Value="D:\GitHub\openssl\util\other.syms"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="645"/>
+        <CursorPos X="12" Y="213"/>
+        <UsageCount Value="10"/>
+        <DefaultSyntaxHighlighter Value="None"/>
+      </Unit>
+      <Unit>
+        <Filename Value="D:\GitHub\openssl\doc\man3\BIO_ctrl.pod"/>
+        <EditorIndex Value="9"/>
+        <CursorPos X="12" Y="7"/>
+        <UsageCount Value="12"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="None"/>
+      </Unit>
+      <Unit>
+        <Filename Value="D:\GitHub\openssl\include\openssl\bio.h.in"/>
+        <EditorIndex Value="10"/>
+        <TopLine Value="558"/>
+        <CursorPos X="66" Y="604"/>
+        <UsageCount Value="12"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="None"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.CrossSslSocket.Base.pas"/>
+        <EditorIndex Value="2"/>
+        <CursorPos X="3" Y="17"/>
         <UsageCount Value="10"/>
         <Loaded Value="True"/>
       </Unit>
     </Units>
-    <JumpHistory HistoryIndex="4">
+    <JumpHistory HistoryIndex="29">
       <Position>
-        <Filename Value="WebSocketServer.lpr"/>
-        <Caret Line="52" Column="22" TopLine="29"/>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="53" Column="14" TopLine="32"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="214" Column="3" TopLine="209"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="220" TopLine="202"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="600" Column="35" TopLine="576"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="58" Column="22" TopLine="48"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="293" TopLine="282"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="53" Column="14" TopLine="32"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="217" Column="3" TopLine="207"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="58" Column="14" TopLine="27"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="296" Column="61" TopLine="284"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="53" Column="14" TopLine="32"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="220" Column="52" TopLine="201"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="58" Column="14" TopLine="27"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="291" Column="3" TopLine="284"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="90" Column="17" TopLine="62"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="92" Column="38" TopLine="62"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="547" Column="32" TopLine="513"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="105" Column="53" TopLine="75"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.Base.pas"/>
+        <Caret Line="117" Column="3" TopLine="91"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.Base.pas"/>
+        <Caret Line="44" Column="3" TopLine="18"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="105" Column="53" TopLine="36"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.Base.pas"/>
+        <Caret Line="110" Column="3" TopLine="84"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.Base.pas"/>
+        <Caret Line="17" Column="3"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="105" Column="53" TopLine="66"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="101" Column="23" TopLine="66"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="591" Column="44" TopLine="571"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.CrossSocket.Base.pas"/>
+        <Caret Line="744" Column="14" TopLine="728"/>
       </Position>
       <Position>
         <Filename Value="..\..\..\Net.CrossWebSocketServer.pas"/>
-        <Caret Line="983" Column="62" TopLine="954"/>
+        <Caret Line="974" Column="89" TopLine="968"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.CrossWebSocketServer.pas"/>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="575" Column="83" TopLine="562"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.CrossWebSocketServer.pas"/>
-        <Caret Line="255" Column="53" TopLine="211"/>
-      </Position>
-      <Position>
-        <Filename Value="..\..\..\Net.CrossWebSocketServer.pas"/>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <Caret Line="324" Column="16" TopLine="319"/>
       </Position>
     </JumpHistory>
     <RunParams>

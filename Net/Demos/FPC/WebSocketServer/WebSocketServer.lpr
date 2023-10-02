@@ -95,7 +95,7 @@ __HttpServer.OnPing(
       AConnection.WsSend('<response>' + LMessage,
         procedure(const AWsConnection: ICrossWebSocketConnection; const ASuccess: Boolean)
         begin
-            //Writeln('ws server send response: ', ASuccess);
+          Writeln(LMessage, ASuccess);
         end);
     end);
 end;
