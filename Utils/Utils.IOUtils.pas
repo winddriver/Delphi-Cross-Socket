@@ -204,7 +204,8 @@ end;
 
 class function TFileUtils.OpenCreate(const AFileName: string): TFileStream;
 begin
-  TDirectoryUtils.CreateDirectory(ExtractFilePath(AFileName));
+  if not FileExists(AFileName) then
+    TDirectoryUtils.CreateDirectory(ExtractFilePath(AFileName));
   Result := TFileStream.Create(AFileName, fmCreate or fmShareDenyWrite);
 end;
 
