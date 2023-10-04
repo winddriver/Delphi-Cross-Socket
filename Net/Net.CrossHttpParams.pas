@@ -2044,35 +2044,42 @@ begin
       dsPartData:
         begin
           // 如果这是一个新的数据块, 需要保存数据块起始位置
-          if (FPartDataBegin < 0) and (FPrevBoundaryIndex = 0) then
+          if (FPartDataBegin < 0) then
             FPartDataBegin := I;
 
           // 检测Boundary
           if (C = FBoundaryBytes[FBoundaryIndex]) then
-            Inc(FBoundaryIndex)
-          else
           begin
-            FBoundaryIndex := 0;
+            Inc(FBoundaryIndex);
 
-            if (FPartDataBegin < 0) then
-              FPartDataBegin := I;
-          end;
-
-          // 上一个内存块结尾有部分有点像Boundary的数据, 进一步判断
-          if (FPrevBoundaryIndex > 0) then
-          begin
-            // 如果当前字节依然能跟Boundary匹配, 继续将其保存以作进一步分析
-            if (FBoundaryIndex > 0) then
+            if (FPrevBoundaryIndex > 0) then
             begin
               FLookbehind[FPrevBoundaryIndex] := C;
               Inc(FPrevBoundaryIndex);
-            end else
-            // 当前字节与Boundary不匹配, 那么说明之前保存的有点像Boundary的数据
-            // 并不是Boundary, 而是数据块中的数据, 将其存入Field中
+            end;
+          end else
+          begin
+            // 上一个内存块结尾有部分有点像Boundary的数据,
+            // 进一步判断之后确定不是Boundary, 需要把这部分数据写入Field中
+            if (FPrevBoundaryIndex > 0) then
             begin
               FCurrentPartField.FValue.Write(FLookbehind[0], FPrevBoundaryIndex);
               FPrevBoundaryIndex := 0;
               FPartDataBegin := I;
+            end;
+
+            if (FBoundaryIndex > 0) then
+            begin
+              // 之前检测到有一部分数据跟Boundary有点像, 但是到这个字节可以确定之前
+              // 这部分数据并不是Boundary, 需要把这部分数据写入Field中
+              FCurrentPartField.FValue.Write(P[FPartDataBegin], I - FPartDataBegin);
+              FPartDataBegin := I;
+
+              FBoundaryIndex := 0;
+
+              // 再次检测Boundary
+              if (C = FBoundaryBytes[FBoundaryIndex]) then
+                Inc(FBoundaryIndex);
             end;
           end;
 
