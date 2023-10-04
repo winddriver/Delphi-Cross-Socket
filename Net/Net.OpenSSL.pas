@@ -82,10 +82,8 @@ const
       'libssl.a'
       {$ELSEIF DEFINED(MACOS)}
       'libssl.dylib'
-      {$ELSEIF DEFINED(CPULOONGARCH)}
-      'libssl.so.3'
       {$ELSE}
-      'libssl.so.1.1'
+      ''
       {$ENDIF}
     {$ENDIF};
 
@@ -103,10 +101,8 @@ const
       'libcrypto.a'
       {$ELSEIF DEFINED(MACOS)}
       'libcrypto.dylib'
-      {$ELSEIF DEFINED(CPULOONGARCH)}
-      'libcrypto.so.3'
       {$ELSE}
-      'libcrypto.so.1.1'
+      ''
       {$ENDIF}
     {$ENDIF};
 
@@ -1040,14 +1036,25 @@ end;
 class procedure TSSLTools.LoadSslLibs;
 var
   LCryptoLibName, LSslLibName: string;
+  LCryptoLibs, LSslLibs: TArray<string>;
 begin
   if (FCryptoLibHandle = 0) then
   begin
     if (FLibCRYPTO <> '') then
-      LCryptoLibName := FLibCRYPTO
+      LCryptoLibs := [FLibCRYPTO]
+    else if (LIBCRYPTO_NAME <> '') then
+      LCryptoLibs := [LIBCRYPTO_NAME]
     else
-      LCryptoLibName := LIBCRYPTO_NAME;
-    FCryptoLibHandle := LoadSslLib(LCryptoLibName);
+      LCryptoLibs := ['libcrypto.so.3', 'libcrypto.so.1.1', 'libcrypto.so'];
+
+    FCryptoLibHandle := 0;
+    for LCryptoLibName in LCryptoLibs do
+    begin
+      FCryptoLibHandle := LoadSslLib(LCryptoLibName);
+      if (FCryptoLibHandle > 0) then Break;
+    end;
+    if (FCryptoLibHandle = 0) then
+      raise ESslInvalidLib.Create('没有可用的libcrypto库');
 
     @OpenSSL_version_num := GetSslLibProc(FCryptoLibHandle, 'OpenSSL_version_num');
     @OPENSSL_init_crypto := GetSslLibProc(FCryptoLibHandle, 'OPENSSL_init_crypto');
@@ -1088,11 +1095,20 @@ begin
   if (FSslLibHandle = 0) then
   begin
     if (FLibSSL <> '') then
-      LSslLibName := FLibSSL
+      LSslLibs := [FLibSSL]
+    else if (LIBCRYPTO_NAME <> '') then
+      LSslLibs := [LIBSSL_NAME]
     else
-      LSslLibName := LIBSSL_NAME;
+      LSslLibs := ['libssl.so.3', 'libssl.so.1.1', 'libssl.so'];
 
-    FSslLibHandle := LoadSslLib(LSslLibName);
+    FSslLibHandle := 0;
+    for LSslLibName in LSslLibs do
+    begin
+      FSslLibHandle := LoadSslLib(LSslLibName);
+      if (FSslLibHandle > 0) then Break;
+    end;
+    if (FSslLibHandle = 0) then
+      raise ESslInvalidLib.Create('没有可用的libssl库');
 
     @OPENSSL_init_ssl := GetSslLibProc(FSslLibHandle, 'OPENSSL_init_ssl');
 
