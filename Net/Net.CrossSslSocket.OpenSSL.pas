@@ -149,27 +149,39 @@ end;
 procedure TCrossOpenSslConnection.DirectSend(const ABuffer: Pointer;
   const ACount: Integer; const ACallback: TCrossConnectionCallback);
 var
-  LRetCode: Integer;
+  P: PByte;
+  LCount, LRetCode: Integer;
   LEncryptedData: TBytes;
 begin
   if Ssl then
   begin
+    P := PByte(ABuffer);
+    LCount := ACount;
+
     _Lock;
     try
       // 将待发送数据加密
-      // SSL_write 默认会将全部数据写入成功才返回,
-      // 除非调用 SSL_CTX_set_mode 设置了 SSL_MODE_ENABLE_PARTIAL_WRITE 参数
-      // 才会出现部分写入成功即返回的情况。这里并没有设置该参数，所以无需做
-      // 部分数据的处理，只需要一次 SSL_Write 调用即可。
-      LRetCode := _SSL_write(ABuffer, ACount);
-//      if (LRetCode <= 0) then
-      if (LRetCode <> ACount) then
+      while (LCount > 0) do
       begin
-        _SSL_print_error(LRetCode, 'SSL_write');
+        // 如果调用 SSL_write 时写入的数据大小超过了SSL记录的大小限制，
+        // SSL库会尽力将尽可能多的数据写入到记录中，但仅限于单个记录的最大大小
+        // 所以如果数据比较大, 需要分多次写入
+        // TLS1.2 记录大小限制为16K
+        // TLS1.3 记录大小限制为1.5K
+        LRetCode := _SSL_write(P, LCount);
+        if (LRetCode <= 0) then
+        begin
+          if _SSL_print_error(LRetCode, 'SSL_write') then
+          begin
+            if Assigned(ACallback) then
+              ACallback(Self, False);
+            Exit;
+          end else
+            Continue;
+        end;
 
-        if Assigned(ACallback) then
-          ACallback(Self, False);
-        Exit;
+        Dec(LCount, LRetCode);
+        Inc(P, LRetCode);
       end;
 
       LEncryptedData := _BIO_read;
