@@ -3490,20 +3490,20 @@ begin
 
   case LRequest.GetBodyType of
     btUrlEncoded:
-    begin
-      SetString(LUrlEncodedStr,
-        MarshaledAString((LRequest.Body as TBytesStream).Memory),
-        (LRequest.Body as TBytesStream).Size);
-      LUrlEncodedBody := THttpUrlParams.Create;
-      LUrlEncodedBody.Decode(LUrlEncodedStr);
-      FreeAndNil(LRequest.FBody);
-      LRequest.FBody := LUrlEncodedBody;
-    end;
+      begin
+        SetString(LUrlEncodedStr,
+          MarshaledAString((LRequest.Body as TBytesStream).Memory),
+          (LRequest.Body as TBytesStream).Size);
+        LUrlEncodedBody := THttpUrlParams.Create;
+        LUrlEncodedBody.Decode(LUrlEncodedStr);
+        FreeAndNil(LRequest.FBody);
+        LRequest.FBody := LUrlEncodedBody;
+      end;
 
     btBinary:
-    begin
-      (LRequest.Body as TStream).Position := 0;
-    end;
+      begin
+        (LRequest.Body as TStream).Position := 0;
+      end;
   end;
 
   if Assigned(FOnPostDataEnd) then

@@ -754,6 +754,8 @@ type
     constructor Create(const AOwner: TCrossSocketBase); reintroduce;
   end;
 
+  { TCrossSocketBase }
+
   TCrossSocketBase = class abstract(TInterfacedObject, ICrossSocket)
   protected const
     RCV_BUF_SIZE = 32768;

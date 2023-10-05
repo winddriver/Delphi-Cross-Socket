@@ -1944,13 +1944,11 @@ begin
         begin
           // 第一块数据是紧跟着 HTTP HEADER 的, 前面没有多余的 #13#10
           // 所以这里检测时要跳过 2 个字节
-//          if (C = FBoundaryBytes[2{#13#10} + FBoundaryIndex]) then
           if (C = FFirstBoundaryBytes[FBoundaryIndex]) then
             Inc(FBoundaryIndex)
           else
             FBoundaryIndex := 0;
           // --Boundary
-//          if (2{#13#10} + FBoundaryIndex >= Length(FBoundaryBytes)) then
           if (FBoundaryIndex >= Length(FFirstBoundaryBytes)) then
           begin
             FDecodeState := dsDetect;
