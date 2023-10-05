@@ -94,7 +94,11 @@ type
     procedure _InitSslCtx;
     procedure _FreeSslCtx;
 
+    // https://gitlab.com/freepascal.org/fpc/source/-/issues/40403
+    // FPC编译器有BUG: 无法在匿名函数中使用 inherited 正确访问到 Self 上下文对象
+    // 不过可以单独定义一个方法去绕过这个BUG, 下面的 _Connected 和 _Received 就是为此定义的
     procedure _Connected(const AConnection: ICrossConnection);
+    procedure _Received(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer);
   protected
     procedure TriggerConnected(const AConnection: ICrossConnection); override;
     procedure TriggerReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
@@ -500,6 +504,12 @@ begin
   inherited TriggerConnected(AConnection);
 end;
 
+procedure TCrossOpenSslSocket._Received(const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer);
+begin
+  inherited TriggerReceived(AConnection, ABuf, ALen);
+end;
+
 procedure TCrossOpenSslSocket._FreeSslCtx;
 begin
   if (FSslCtx = nil) then Exit;
@@ -631,7 +641,7 @@ begin
 
           // 收到了解密后的数据
           if (LDecryptedData <> nil) then
-            inherited TriggerReceived(LConnection, @LDecryptedData[0], Length(LDecryptedData));
+            _Received(LConnection, @LDecryptedData[0], Length(LDecryptedData));
         end);
     end else
     begin
@@ -641,7 +651,7 @@ begin
 
       // 收到了解密后的数据
       if (LDecryptedData <> nil) then
-        inherited TriggerReceived(LConnection, @LDecryptedData[0], Length(LDecryptedData));
+        _Received(LConnection, @LDecryptedData[0], Length(LDecryptedData));
     end;
   end else
     inherited TriggerReceived(LConnection, ABuf, ALen);

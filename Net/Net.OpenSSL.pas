@@ -1017,8 +1017,6 @@ end;
 class function TSSLTools.LoadSslLib(const ALibName: string): TLibHandle;
 begin
   Result := SafeLoadLibrary(GetSslLibPath + ALibName);
-  if (Result = 0) then
-    raise ESslInvalidLib.CreateFmt('无效的SSL库: %s', [ALibName]);
 end;
 
 class function TSSLTools.GetSslLibProc(const ALibHandle: TLibHandle; const AProcName: string): Pointer;
@@ -1051,7 +1049,11 @@ begin
     for LCryptoLibName in LCryptoLibs do
     begin
       FCryptoLibHandle := LoadSslLib(LCryptoLibName);
-      if (FCryptoLibHandle > 0) then Break;
+      if (FCryptoLibHandle > 0) then
+      begin
+        FLibCRYPTO := LCryptoLibName;
+        Break;
+      end;
     end;
     if (FCryptoLibHandle = 0) then
       raise ESslInvalidLib.Create('没有可用的libcrypto库');
@@ -1105,7 +1107,11 @@ begin
     for LSslLibName in LSslLibs do
     begin
       FSslLibHandle := LoadSslLib(LSslLibName);
-      if (FSslLibHandle > 0) then Break;
+      if (FSslLibHandle > 0) then
+      begin
+        FLibSSL := LSslLibName;
+        Break;
+      end;
     end;
     if (FSslLibHandle = 0) then
       raise ESslInvalidLib.Create('没有可用的libssl库');
