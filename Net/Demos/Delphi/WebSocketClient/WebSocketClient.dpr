@@ -44,15 +44,29 @@ begin
     procedure
     begin
       Writeln('Pong');
-      __WebSocket.Send('你好AAA！');
-      __WebSocket.Send('你好BBB！');
-      __WebSocket.Send('你好CCC！');
-      __WebSocket.Send('你好DDD！');
-      //__WebSocket.Send('Hello World!',
-      //  procedure(const ASuccess: Boolean)
-      //  begin
-      //    __WebSocket.Send('你好中国！');
-      //  end);
+      __WebSocket.Send('你好AAA！',
+        procedure(const ASuccess: Boolean)
+        begin
+          Writeln('你好AAA！ ', ASuccess);
+        end);
+
+      __WebSocket.Send('你好BBB！',
+        procedure(const ASuccess: Boolean)
+        begin
+          Writeln('你好BBB！ ', ASuccess);
+        end);
+
+      __WebSocket.Send('你好CCC！',
+      procedure(const ASuccess: Boolean)
+        begin
+          Writeln('你好CCC！ ', ASuccess);
+        end);
+
+      __WebSocket.Send('你好DDD！',
+        procedure(const ASuccess: Boolean)
+        begin
+          Writeln('你好DDD！ ', ASuccess);
+        end);
     end);
 
   __WebSocket.OnMessage(
@@ -75,8 +89,8 @@ end;
 
 begin
   // 如果 openssl 运行库名称与默认名称不一致, 请自行用以下代码修改
-  // TSSLTools.LibSSL := 'libssl.so';
-  // TSSLTools.LibCRYPTO := 'libcrypto.so';
+//  TSSLTools.LibSSL := 'libssl.so';
+//  TSSLTools.LibCRYPTO := 'libcrypto.so';
 
   TestWebSocketClient;
   Readln;

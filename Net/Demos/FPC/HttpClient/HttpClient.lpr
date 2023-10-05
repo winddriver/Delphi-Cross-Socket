@@ -22,7 +22,7 @@ var
   LUrl: string;
 begin
   if (__HttpCli = nil) then
-    __HttpCli := TCrossHttpClient.Create;;
+    __HttpCli := TCrossHttpClient.Create;
 
   LUrl := 'https://www.bilibili.com/';
 

@@ -299,6 +299,8 @@ var
   LBuffer: TBytes;
   LBytesRead: NativeInt;
 begin
+  AStream.Position := 0;
+
   LHash := CreateHash;
   try
     SetLength(LBuffer, BUFFERSIZE);
@@ -1002,3 +1004,4 @@ begin
 end;
 
 end.
+

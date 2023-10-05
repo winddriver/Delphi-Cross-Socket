@@ -41,7 +41,7 @@ begin
         if ASuccess then
         begin
           if __HttpServer.Ssl then
-            Writeln('WebSocket server(ssl) listen on [', AListen.LocalAddr, ':' , AListen.LocalPort, ']')
+            Writeln('WebSocket server(ssl: ' + TSSLTools.LibSSL + ' & ' + TSSLTools.LibCRYPTO + ') listen on [', AListen.LocalAddr, ':' , AListen.LocalPort, ']')
           else
             Writeln('WebSocket server listen on [', AListen.LocalAddr, ':' , AListen.LocalPort, ']');
         end;

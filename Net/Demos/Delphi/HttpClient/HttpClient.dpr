@@ -8,6 +8,7 @@ uses
   SysUtils
   ,Classes
   ,Net.CrossHttpClient
+  ,Net.CrossHttpParams
   ,Net.OpenSSL
   ,Utils.Utils
   ;
@@ -18,23 +19,41 @@ var
 procedure TestHttpCli;
 var
   LUrl: string;
+  LMultiPart: THttpMultiPartFormData;
 begin
   if (__HttpCli = nil) then
     __HttpCli := TCrossHttpClient.Create;;
 
-  LUrl := 'https://www.bilibili.com/';
+//  LUrl := 'https://www.bilibili.com/';
+//
+//  __HttpCli.DoRequest('GET', LUrl, nil, TBytes(nil),
+//    nil,
+//    nil,
+//    procedure(const AResponse: ICrossHttpClientResponse)
+//    begin
+//      if (AResponse <> nil) and (AResponse.Content <> nil) then
+//      begin
+//        Writeln('HTTP GET success');
+//        Writeln(TUtils.GetString(AResponse.Content));
+//      end else
+//        Writeln('HTTP GET failed');
+//    end);
 
-  __HttpCli.DoRequest('GET', LUrl, nil, TBytes(nil),
+  LMultiPart := THttpMultiPartFormData.Create;
+  LMultiPart.AddFile('testfile', 'E:\books_chinese_withisbn.sql');
+
+  __HttpCli.DoRequest('POST', 'http://192.168.230.220:8080/upload', nil, LMultiPart,
     nil,
     nil,
     procedure(const AResponse: ICrossHttpClientResponse)
     begin
+      FreeAndNil(LMultiPart);
       if (AResponse <> nil) and (AResponse.Content <> nil) then
       begin
-        Writeln('HTTP GET success');
+        Writeln('HTTP POST success');
         Writeln(TUtils.GetString(AResponse.Content));
       end else
-        Writeln('HTTP GET failed');
+        Writeln('HTTP POST failed');
     end);
 end;
 

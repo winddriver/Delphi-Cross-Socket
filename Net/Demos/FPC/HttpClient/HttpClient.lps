@@ -9,132 +9,318 @@
         <Filename Value="HttpClient.lpr"/>
         <IsPartOfProject Value="True"/>
         <IsVisibleTab Value="True"/>
-        <CursorPos X="12" Y="36"/>
-        <UsageCount Value="21"/>
+        <CursorPos X="69" Y="14"/>
+        <UsageCount Value="33"/>
         <Loaded Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="D:\Design\FreePascal\lazarus\components\lazutils\lazutf8.pas"/>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\lazarus\components\lazutils\lazutf8.pas"/>
         <UnitName Value="LazUTF8"/>
         <EditorIndex Value="-1"/>
         <UsageCount Value="10"/>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\Net.OpenSSL.pas"/>
-        <EditorIndex Value="2"/>
-        <TopLine Value="1000"/>
-        <CursorPos X="32" Y="1027"/>
-        <UsageCount Value="10"/>
-        <Loaded Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="D:\Design\FreePascal.Beta\fpcsrc\rtl\inc\dynlibh.inc"/>
         <EditorIndex Value="-1"/>
-        <TopLine Value="13"/>
-        <CursorPos X="10" Y="62"/>
+        <TopLine Value="999"/>
+        <CursorPos X="59" Y="1028"/>
         <UsageCount Value="10"/>
-      </Unit>
-      <Unit>
-        <Filename Value="D:\Design\FreePascal.Beta\fpcsrc\rtl\win\sysdlh.inc"/>
-        <EditorIndex Value="-1"/>
-        <CursorPos X="3" Y="17"/>
-        <UsageCount Value="10"/>
-      </Unit>
-      <Unit>
-        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
-        <EditorIndex Value="-1"/>
-        <CursorPos X="15" Y="16"/>
-        <UsageCount Value="10"/>
+        <Bookmarks Count="1">
+          <Item0 X="17" Y="1038" ID="1"/>
+        </Bookmarks>
       </Unit>
       <Unit>
         <Filename Value="..\..\..\Net.CrossHttpClient.pas"/>
-        <EditorIndex Value="1"/>
-        <TopLine Value="185"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="186"/>
         <CursorPos X="3" Y="212"/>
         <UsageCount Value="10"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.CrossSslSocket.OpenSSL.pas"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="209"/>
+        <CursorPos Y="218"/>
+        <UsageCount Value="10"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal.Beta\fpcsrc\rtl\inc\dynlib.inc"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="96"/>
+        <CursorPos X="24" Y="116"/>
+        <UsageCount Value="10"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\objpas\sysutils\sysutilh.inc"/>
+        <EditorIndex Value="-1"/>
+        <CursorPos X="4" Y="47"/>
+        <UsageCount Value="10"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\inc\dynlibs.pas"/>
+        <EditorIndex Value="-1"/>
+        <CursorPos X="3" Y="26"/>
+        <UsageCount Value="9"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\objpas\sysutils\sysutils.inc"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="743"/>
+        <CursorPos Y="759"/>
+        <UsageCount Value="9"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\namespaced\common\System.SysUtils.pp"/>
+        <EditorIndex Value="-1"/>
+        <CursorPos X="13"/>
+        <UsageCount Value="9"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\unix\sysutils.pp"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="25"/>
+        <UsageCount Value="9"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\inc\dynlib.inc"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="101"/>
+        <CursorPos X="3" Y="118"/>
+        <UsageCount Value="9"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\unix\sysdlh.inc"/>
+        <EditorIndex Value="-1"/>
+        <CursorPos X="13" Y="18"/>
+        <UsageCount Value="9"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\objpas\classes\classesh.inc"/>
+        <EditorIndex Value="-1"/>
+        <CursorPos X="4" Y="29"/>
+        <UsageCount Value="9"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\namespaced\common\System.Classes.pp"/>
+        <EditorIndex Value="-1"/>
+        <CursorPos X="13"/>
+        <UsageCount Value="9"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\inc\dynlibh.inc"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="16"/>
+        <CursorPos X="10" Y="54"/>
+        <UsageCount Value="9"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\win\sysdlh.inc"/>
+        <EditorIndex Value="-1"/>
+        <CursorPos X="3" Y="17"/>
+        <UsageCount Value="9"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\win\sysosh.inc"/>
+        <EditorIndex Value="-1"/>
+        <CursorPos X="48" Y="29"/>
+        <UsageCount Value="9"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal.Beta\fpcsrc\packages\hash\tests\tsha1test.pp"/>
+        <UnitName Value="sha1test"/>
+        <EditorIndex Value="9"/>
+        <CursorPos X="16" Y="10"/>
+        <UsageCount Value="15"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\packages\hash\src\sha1.pp"/>
+        <EditorIndex Value="10"/>
+        <TopLine Value="271"/>
+        <CursorPos X="7" Y="24"/>
+        <UsageCount Value="15"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\packages\hash\src\md5.pp"/>
+        <EditorIndex Value="11"/>
+        <UsageCount Value="15"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <EditorIndex Value="5"/>
+        <CursorPos Y="78"/>
+        <UsageCount Value="15"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\cnvcl\Source\Crypto\CnSHA1.pas"/>
+        <EditorIndex Value="8"/>
+        <TopLine Value="16"/>
+        <UsageCount Value="15"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\cnvcl\Source\Crypto\CnSHA2.pas"/>
+        <EditorIndex Value="7"/>
+        <TopLine Value="1487"/>
+        <UsageCount Value="15"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="F:\Download\source-main\source-main\packages\fcl-hash\src\fphashutils.pp"/>
+        <EditorIndex Value="6"/>
+        <TopLine Value="19"/>
+        <UsageCount Value="15"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Net.SocketAPI.pas"/>
+        <EditorIndex Value="1"/>
+        <TopLine Value="688"/>
+        <CursorPos X="88" Y="702"/>
+        <UsageCount Value="15"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\objpas\sysutils\sysmarshalh.inc"/>
+        <EditorIndex Value="4"/>
+        <CursorPos X="3" Y="3"/>
+        <UsageCount Value="15"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\inc\objpash.inc"/>
+        <EditorIndex Value="3"/>
+        <TopLine Value="601"/>
+        <CursorPos X="19" Y="627"/>
+        <UsageCount Value="15"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\..\..\..\..\FreePascal\fpcsrc\rtl\win\sysutils.pp"/>
+        <EditorIndex Value="2"/>
+        <UsageCount Value="15"/>
         <Loaded Value="True"/>
       </Unit>
     </Units>
-    <JumpHistory HistoryIndex="19">
+    <JumpHistory HistoryIndex="28">
       <Position>
-        <Filename Value="HttpClient.lpr"/>
-        <Caret Line="23" Column="28"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="57" Column="21" TopLine="25"/>
       </Position>
       <Position>
-        <Filename Value="HttpClient.lpr"/>
-        <Caret Line="3" Column="13"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="456" Column="23" TopLine="452"/>
       </Position>
       <Position>
-        <Filename Value="HttpClient.lpr"/>
-        <Caret Line="17" Column="11"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="58" Column="14" TopLine="31"/>
       </Position>
       <Position>
-        <Filename Value="HttpClient.lpr"/>
-        <Caret Line="9" Column="8"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="465" Column="3" TopLine="463"/>
       </Position>
       <Position>
-        <Filename Value="HttpClient.lpr"/>
-        <Caret Line="8" Column="33"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="57" Column="14" TopLine="32"/>
       </Position>
       <Position>
-        <Filename Value="HttpClient.lpr"/>
-        <Caret Line="9" Column="7"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="454" Column="3" TopLine="452"/>
       </Position>
       <Position>
-        <Filename Value="HttpClient.lpr"/>
-        <Caret Line="19" Column="20"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="41" Column="21" TopLine="26"/>
       </Position>
       <Position>
-        <Filename Value="HttpClient.lpr"/>
-        <Caret Line="15" Column="47"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="291" Column="3" TopLine="289"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
-        <Caret Line="1022" Column="105" TopLine="1000"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="113" Column="17" TopLine="67"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
-        <Caret Line="1026" Column="23" TopLine="1000"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="616" Column="3" TopLine="614"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
-        <Caret Line="1027" Column="41" TopLine="1000"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="66" Column="26" TopLine="50"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
-        <Caret TopLine="16"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="270" Column="3" TopLine="263"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
-        <Caret Line="1027" Column="42" TopLine="1000"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="67" Column="20" TopLine="42"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
-        <Caret Line="563" Column="23" TopLine="534"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="281" Column="3" TopLine="277"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
-        <Caret Line="1017" Column="3" TopLine="1015"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="66" Column="20" TopLine="43"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
-        <Caret Line="1027" Column="63" TopLine="1000"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="270" Column="3" TopLine="263"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
-        <Caret Line="1027" Column="63" TopLine="1000"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="72" Column="20" TopLine="42"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
-        <Caret Line="547" Column="24" TopLine="566"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="334" Column="3" TopLine="319"/>
       </Position>
       <Position>
-        <Filename Value="..\..\..\Net.OpenSSL.pas"/>
-        <Caret Line="1027" Column="69" TopLine="1000"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="69" Column="20" TopLine="48"/>
       </Position>
       <Position>
-        <Filename Value="HttpClient.lpr"/>
-        <Caret Line="36" Column="12"/>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="302" Column="3" TopLine="292"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="69" Column="20" TopLine="45"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="304" Column="3" TopLine="291"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="75" Column="40" TopLine="45"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="349" Column="3" TopLine="345"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="75" Column="20" TopLine="51"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="349" Column="3" TopLine="345"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="78" Column="27" TopLine="54"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\..\Utils\Utils.Hash.pas"/>
+        <Caret Line="365" Column="3" TopLine="354"/>
+      </Position>
+      <Position>
+        <Filename Value="..\..\..\Net.SocketAPI.pas"/>
+        <Caret Line="15" Column="20"/>
       </Position>
     </JumpHistory>
     <RunParams>

@@ -33,7 +33,7 @@
             <TargetCPU Value="x86_64"/>
             <TargetOS Value="linux"/>
             <Optimizations>
-              <OptimizationLevel Value="3"/>
+              <OptimizationLevel Value="2"/>
             </Optimizations>
             <SmallerCode Value="True"/>
           </CodeGeneration>
@@ -49,6 +49,7 @@
             <ConfigFile>
               <WriteConfigFilePath Value=""/>
             </ConfigFile>
+            <CustomOptions Value="-d__DEBUG__"/>
           </Other>
         </CompilerOptions>
       </Item>
@@ -69,7 +70,7 @@
             <TargetCPU Value="aarch64"/>
             <TargetOS Value="linux"/>
             <Optimizations>
-              <OptimizationLevel Value="3"/>
+              <OptimizationLevel Value="2"/>
             </Optimizations>
             <SmallerCode Value="True"/>
           </CodeGeneration>
@@ -105,7 +106,43 @@
             <TargetCPU Value="loongarch64"/>
             <TargetOS Value="linux"/>
             <Optimizations>
-              <OptimizationLevel Value="3"/>
+              <OptimizationLevel Value="2"/>
+            </Optimizations>
+            <SmallerCode Value="True"/>
+          </CodeGeneration>
+          <Linking>
+            <Debugging>
+              <GenerateDebugInfo Value="False"/>
+              <RunWithoutDebug Value="True"/>
+              <StripSymbols Value="True"/>
+            </Debugging>
+            <LinkSmart Value="True"/>
+          </Linking>
+          <Other>
+            <ConfigFile>
+              <WriteConfigFilePath Value=""/>
+            </ConfigFile>
+          </Other>
+        </CompilerOptions>
+      </Item>
+      <Item Name="MacOS-ARM64">
+        <CompilerOptions>
+          <Version Value="11"/>
+          <PathDelim Value="\"/>
+          <Target>
+            <Filename Value="bin\$(TargetCPU)-$(TargetOS)\HttpServer"/>
+          </Target>
+          <SearchPaths>
+            <IncludeFiles Value="$(ProjOutDir);..\..\..\.."/>
+            <OtherUnitFiles Value="..\..\..\..\Net;..\..\..\..\Utils;..\..\..\..\DelphiToFPC"/>
+            <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
+          </SearchPaths>
+          <CodeGeneration>
+            <SmartLinkUnit Value="True"/>
+            <TargetCPU Value="aarch64"/>
+            <TargetOS Value="darwin"/>
+            <Optimizations>
+              <OptimizationLevel Value="2"/>
             </Optimizations>
             <SmallerCode Value="True"/>
           </CodeGeneration>
@@ -155,7 +192,7 @@
       <TargetCPU Value="x86_64"/>
       <TargetOS Value="win64"/>
       <Optimizations>
-        <OptimizationLevel Value="3"/>
+        <OptimizationLevel Value="2"/>
       </Optimizations>
       <SmallerCode Value="True"/>
     </CodeGeneration>
@@ -171,6 +208,10 @@
       <ConfigFile>
         <WriteConfigFilePath Value=""/>
       </ConfigFile>
+      <CustomOptions Value="-d__DEBUG__"/>
+      <OtherDefines Count="1">
+        <Define0 Value="__DEBUG__"/>
+      </OtherDefines>
     </Other>
   </CompilerOptions>
   <Debugging>

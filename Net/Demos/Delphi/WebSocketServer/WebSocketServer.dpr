@@ -36,7 +36,7 @@ begin
         if ASuccess then
         begin
           if __HttpServer.Ssl then
-            Writeln('WebSocket server(ssl) listen on [', AListen.LocalAddr, ':' , AListen.LocalPort, ']')
+            Writeln('WebSocket server(ssl: ' + TSSLTools.LibSSL + ' & ' + TSSLTools.LibCRYPTO + ') listen on [', AListen.LocalAddr, ':' , AListen.LocalPort, ']')
           else
             Writeln('WebSocket server listen on [', AListen.LocalAddr, ':' , AListen.LocalPort, ']');
         end;
@@ -62,7 +62,7 @@ begin
       Writeln(Format('[%s : %d]Close', [AConnection.PeerAddr, AConnection.PeerPort]));
     end);
 
-__HttpServer.OnPing(
+  __HttpServer.OnPing(
     procedure(const AConnection: ICrossWebSocketConnection)
     begin
       Writeln(Format('[%s : %d]Ping', [AConnection.PeerAddr, AConnection.PeerPort]));
@@ -97,8 +97,8 @@ end;
 
 begin
   // 如果 openssl 运行库名称与默认名称不一致, 请自行用以下代码修改
-  // TSSLTools.LibSSL := 'libssl.so';
-  // TSSLTools.LibCRYPTO := 'libcrypto.so';
+// TSSLTools.LibSSL := 'libssl.so';
+// TSSLTools.LibCRYPTO := 'libcrypto.so';
 
   TestCrossHttpServer;
   Readln;

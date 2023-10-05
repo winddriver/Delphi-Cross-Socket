@@ -9,8 +9,10 @@ uses
   ,Classes
   ,Net.CrossSocket.Base
   ,Net.CrossHttpServer
+  ,Net.CrossHttpParams
   ,Net.OpenSSL
   ,Utils.Utils
+  ,Utils.Hash
   ;
 
 var
@@ -22,7 +24,7 @@ var
 begin
   LResponseStr := TOSVersion.ToString + '<br>Hello World!';
 
-  __HttpServer := TCrossHttpServer.Create(2, True);
+  __HttpServer := TCrossHttpServer.Create(0, True);
   if __HttpServer.Ssl then
   begin
     __HttpServer.SetCertificateFile('server.crt');
@@ -36,7 +38,7 @@ begin
         if ASuccess then
         begin
           if __HttpServer.Ssl then
-            Writeln('HTTP server(ssl) listen on [', AListen.LocalAddr, ':' , AListen.LocalPort, ']')
+            Writeln('HTTP server(ssl: ' + TSSLTools.LibSSL + ' & ' + TSSLTools.LibCRYPTO + ') listen on [', AListen.LocalAddr, ':' , AListen.LocalPort, ']')
           else
             Writeln('HTTP server listen on [', AListen.LocalAddr, ':' , AListen.LocalPort, ']');
         end;
@@ -46,6 +48,33 @@ begin
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     begin
       AResponse.Send(LResponseStr);
+      AHandled := True;
+    end);
+
+  __HttpServer.Post('/upload',
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
+    var
+      LHashStr: string;
+      LFormField: TFormField;
+    begin
+      LHashStr := '';
+      if (ARequest.BodyType = btMultiPart) then
+      begin
+        for LFormField in (ARequest.Body as THttpMultiPartFormData) do
+        begin
+          if (LFormField.ContentType <> '') then
+          begin
+            if (LHashStr <> '') then
+              LHashStr := LHashStr + sLineBreak;
+
+            LHashStr := LHashStr + 'FileName: ' + LFormField.FileName + sLineBreak;
+            LHashStr := LHashStr + 'MD5: ' + THashMD5.GetHashString(LFormField.Value) + sLineBreak;
+            LHashStr := LHashStr + 'SHA1: ' + THashSHA1.GetHashString(LFormField.Value) + sLineBreak;
+          end;
+        end;
+      end;
+
+      AResponse.Send(LHashStr);
       AHandled := True;
     end);
 end;
