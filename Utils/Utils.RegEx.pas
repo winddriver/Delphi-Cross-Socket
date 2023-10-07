@@ -573,7 +573,7 @@ begin
   {$IFDEF DELPHI}
   Result := FRegEx.RegEx;
   {$ELSE}
-  Result := FRegEx.InputString;
+  Result := FRegEx.Expression;
   {$ENDIF}
 end;
 
@@ -872,7 +872,7 @@ begin
   {$IFDEF DELPHI}
   FRegEx.RegEx := AValue;
   {$ELSE}
-  FRegEx.InputString := AValue;
+  FRegEx.Expression := AValue;
   {$ENDIF}
 end;
 
