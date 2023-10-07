@@ -57,7 +57,7 @@ type
     function _ReadEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
   public
-    constructor Create(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer); override;
     destructor Destroy; override;
   end;
@@ -88,7 +88,7 @@ type
     function _WriteEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
   public
-    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
   end;
@@ -123,7 +123,7 @@ type
   private class threadvar
     FEventList: array [0..MAX_EVENT_COUNT-1] of TEPoll_Event;
   private
-    FEpollHandle: THandle;
+    FEpollHandle: Integer;
     FIoThreads: TArray<TIoEventThread>;
     FIdleHandle: THandle;
     FIdleLock: ILock;
@@ -142,9 +142,9 @@ type
     procedure _HandleRead(const AConnection: ICrossConnection);
     procedure _HandleWrite(const AConnection: ICrossConnection);
   protected
-    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
-    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
+    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
 
     procedure StartLoop; override;
@@ -172,7 +172,7 @@ implementation
 { TEpollListen }
 
 constructor TEpollListen.Create(const AOwner: TCrossSocketBase;
-  const AListenSocket: THandle; const AFamily, ASockType, AProtocol: Integer);
+  const AListenSocket: TSocket; const AFamily, ASockType, AProtocol: Integer);
 begin
   inherited;
 
@@ -247,7 +247,7 @@ end;
 { TEpollConnection }
 
 constructor TEpollConnection.Create(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback);
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
@@ -365,8 +365,8 @@ var
   LListen: ICrossListen;
   LConnection: ICrossConnection;
   LEpConnection: TEpollConnection;
-  LSocket, LError: Integer;
-  LListenSocket, LClientSocket: THandle;
+  LError: Integer;
+  LSocket, LListenSocket, LClientSocket: TSocket;
   LSuccess: Boolean;
 begin
   LListen := AListen;
@@ -645,7 +645,7 @@ procedure TEpollCrossSocket.Connect(const AHost: string; const APort: Word;
       ACallback(nil, False);
   end;
 
-  function _Connect(ASocket: THandle; AAddr: PRawAddrInfo): Boolean;
+  function _Connect(ASocket: TSocket; AAddr: PRawAddrInfo): Boolean;
   var
     LConnection: ICrossConnection;
     LEpConnection: TEpollConnection;
@@ -684,7 +684,7 @@ procedure TEpollCrossSocket.Connect(const AHost: string; const APort: Word;
 var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
-  LSocket: THandle;
+  LSocket: TSocket;
 begin
   FillChar(LHints, SizeOf(TRawAddrInfo), 0);
   LHints.ai_family := AF_UNSPEC;
@@ -703,7 +703,7 @@ begin
     begin
       LSocket := TSocketAPI.NewSocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
         LAddrInfo.ai_protocol);
-      if (LSocket = INVALID_HANDLE_VALUE) then
+      if (LSocket = INVALID_SOCKET) then
       begin
         _Failed1;
         Exit;
@@ -724,14 +724,14 @@ begin
 end;
 
 function TEpollCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
   Result := TEpollConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 end;
 
 function TEpollCrossSocket.CreateListen(const AOwner: TCrossSocketBase;
-  const AListenSocket: THandle; const AFamily, ASockType, AProtocol: Integer): ICrossListen;
+  const AListenSocket: TSocket; const AFamily, ASockType, AProtocol: Integer): ICrossListen;
 begin
   Result := TEpollListen.Create(AOwner, AListenSocket, AFamily, ASockType, AProtocol);
 end;
@@ -741,7 +741,7 @@ procedure TEpollCrossSocket.Listen(const AHost: string; const APort: Word;
 var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
-  LListenSocket: THandle;
+  LListenSocket: TSocket;
   LListen: ICrossListen;
   LEpListen: TEpollListen;
   LSuccess: Boolean;
@@ -772,7 +772,7 @@ begin
     begin
       LListenSocket := TSocketAPI.NewSocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
         LAddrInfo.ai_protocol);
-      if (LListenSocket = INVALID_HANDLE_VALUE) then
+      if (LListenSocket = INVALID_SOCKET) then
       begin
         _Failed;
         Exit;

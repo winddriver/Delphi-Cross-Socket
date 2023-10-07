@@ -27,6 +27,7 @@ uses
   SysUtils,
   Classes,
 
+  Net.SocketAPI,
   Net.CrossSocket.Base,
   Net.CrossSocket,
   Net.CrossSslSocket.Base,
@@ -72,7 +73,7 @@ type
     procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); override;
   public
-    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectedCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
   end;
@@ -103,7 +104,7 @@ type
     procedure TriggerConnected(const AConnection: ICrossConnection); override;
     procedure TriggerReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
 
-    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
   public
     constructor Create(const AIoThreads: Integer; const ASsl: Boolean); override;
@@ -118,7 +119,7 @@ implementation
 { TCrossOpenSslConnection }
 
 constructor TCrossOpenSslConnection.Create(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectedCb: TCrossConnectionCallback);
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectedCb);
@@ -415,7 +416,7 @@ begin
 end;
 
 function TCrossOpenSslSocket.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
   Result := TCrossOpenSslConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
@@ -654,7 +655,7 @@ begin
         _Received(LConnection, @LDecryptedData[0], Length(LDecryptedData));
     end;
   end else
-    inherited TriggerReceived(LConnection, ABuf, ALen);
+    _Received(LConnection, ABuf, ALen);
 end;
 
 end.

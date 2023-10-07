@@ -62,7 +62,7 @@ type
     function _ReadEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
   public
-    constructor Create(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer); override;
   end;
 
@@ -91,7 +91,7 @@ type
     function _WriteEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
   public
-    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
   end;
@@ -141,7 +141,7 @@ type
   private class threadvar
     FEventList: array [0..MAX_EVENT_COUNT-1] of TKEvent;
   private
-    FKqueueHandle: THandle;
+    FKqueueHandle: Integer;
     FIoThreads: TArray<TIoEventThread>;
     FIdleHandle: THandle;
     FIdleLock: ILock;
@@ -158,16 +158,16 @@ type
     // 在向一个已经关闭的套接字发送数据时系统会直接抛出EPIPE异常导致程序非正常退出
     // LINUX下可以在send时带上MSG_NOSIGNAL参数就能避免这种情况的发生
     // OSX中可以通过设置套接字的SO_NOSIGPIPE参数达到同样的目的
-    procedure _SetNoSigPipe(ASocket: THandle); inline;
+    procedure _SetNoSigPipe(ASocket: TSocket); inline;
 
     procedure _HandleAccept(const AListen: ICrossListen);
     procedure _HandleConnect(const AConnection: ICrossConnection);
     procedure _HandleRead(const AConnection: ICrossConnection);
     procedure _HandleWrite(const AConnection: ICrossConnection);
   protected
-    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
-    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
+    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
 
     procedure StartLoop; override;
@@ -202,7 +202,7 @@ function __close(Handle: Integer): Integer; cdecl; external 'c' name 'close';
 { TKqueueListen }
 
 constructor TKqueueListen.Create(const AOwner: TCrossSocketBase;
-  const AListenSocket: THandle; const AFamily, ASockType, AProtocol: Integer);
+  const AListenSocket: TSocket; const AFamily, ASockType, AProtocol: Integer);
 begin
   inherited;
 
@@ -277,7 +277,7 @@ end;
 { TKqueueConnection }
 
 constructor TKqueueConnection.Create(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback);
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
@@ -425,8 +425,8 @@ var
   LKqListen: TKqueueListen;
   LConnection: ICrossConnection;
   LKqConnection: TKqueueConnection;
-  LSocket, LError: Integer;
-  LListenSocket, LClientSocket: THandle;
+  LError: Integer;
+  LSocket, LListenSocket, LClientSocket: TSocket;
   LSuccess: Boolean;
 begin
   LListen := AListen;
@@ -682,7 +682,7 @@ begin
   __write(FStopHandle.WriteDes, @LStuff, SizeOf(LStuff));
 end;
 
-procedure TKqueueCrossSocket._SetNoSigPipe(ASocket: THandle);
+procedure TKqueueCrossSocket._SetNoSigPipe(ASocket: TSocket);
 begin
   TSocketAPI.SetSockOpt<Integer>(ASocket, SOL_SOCKET, SO_NOSIGPIPE, 1);
 end;
@@ -741,7 +741,7 @@ procedure TKqueueCrossSocket.Connect(const AHost: string; const APort: Word;
       ACallback(nil, False);
   end;
 
-  function _Connect(const ASocket: THandle; const AAddr: PRawAddrInfo): Boolean;
+  function _Connect(const ASocket: LSocket; const AAddr: PRawAddrInfo): Boolean;
   var
     LConnection: ICrossConnection;
     LKqConnection: TKqueueConnection;
@@ -780,7 +780,7 @@ procedure TKqueueCrossSocket.Connect(const AHost: string; const APort: Word;
 var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
-  LSocket: THandle;
+  LSocket: LSocket;
 begin
   FillChar(LHints, SizeOf(TRawAddrInfo), 0);
   LHints.ai_family := AF_UNSPEC;
@@ -821,14 +821,14 @@ begin
 end;
 
 function TKqueueCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
   Result := TKqueueConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 end;
 
 function TKqueueCrossSocket.CreateListen(const AOwner: TCrossSocketBase;
-  const AListenSocket: THandle; const AFamily, ASockType, AProtocol: Integer): ICrossListen;
+  const AListenSocket: TSocket; const AFamily, ASockType, AProtocol: Integer): ICrossListen;
 begin
   Result := TKqueueListen.Create(AOwner, AListenSocket, AFamily, ASockType, AProtocol);
 end;
@@ -838,7 +838,7 @@ procedure TKqueueCrossSocket.Listen(const AHost: string; const APort: Word;
 var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
-  LListenSocket: THandle;
+  LListenSocket: TSocket;
   LListen: ICrossListen;
   LKqListen: TKqueueListen;
   LSuccess: Boolean;

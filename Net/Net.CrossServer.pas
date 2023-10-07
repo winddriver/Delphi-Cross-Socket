@@ -61,7 +61,7 @@ type
     procedure SetPort(const Value: Word);
     procedure SetActive(const Value: Boolean);
   protected
-    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
   public
     procedure Start(const ACallback: TCrossListenCallback = nil);
@@ -77,7 +77,7 @@ implementation
 { TCrossServer }
 
 function TCrossServer.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
   Result := TCrossServerConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);

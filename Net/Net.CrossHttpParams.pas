@@ -144,7 +144,7 @@ type
     /// <param name="AClear">
     ///   是否清除现有数据
     /// </param>
-    procedure Decode(const AEncodedParams: string; AClear: Boolean = True); virtual; abstract;
+    function Decode(const AEncodedParams: string; AClear: Boolean = True): Boolean; virtual; abstract;
 
     /// <summary>
     ///   编码为字符串
@@ -196,7 +196,7 @@ type
     /// <param name="AClear">
     ///   是否清除现有数据
     /// </param>
-    procedure Decode(const AEncodedParams: string; AClear: Boolean = True); override;
+    function Decode(const AEncodedParams: string; AClear: Boolean = True): Boolean; override;
 
     /// <summary>
     ///   编码为字符串
@@ -228,7 +228,7 @@ type
     /// <param name="AClear">
     ///   是否清除现有数据
     /// </param>
-    procedure Decode(const AEncodedParams: string; AClear: Boolean = True); override;
+    function Decode(const AEncodedParams: string; AClear: Boolean = True): Boolean; override;
 
     /// <summary>
     ///   编码为字符串
@@ -263,7 +263,7 @@ type
     /// <param name="AClear">
     ///   是否清除现有数据
     /// </param>
-    procedure Decode(const AEncodedParams: string; AClear: Boolean = True); override;
+    function Decode(const AEncodedParams: string; AClear: Boolean = True): Boolean; override;
 
     /// <summary>
     ///   编码为字符串
@@ -305,7 +305,7 @@ type
     /// <param name="AClear">
     ///   是否清除现有数据
     /// </param>
-    procedure Decode(const AEncodedParams: string; AClear: Boolean = True); override;
+    function Decode(const AEncodedParams: string; AClear: Boolean = True): Boolean; override;
 
     /// <summary>
     ///   编码为字符串
@@ -1229,7 +1229,7 @@ begin
   FEncodeValue := True;
 end;
 
-procedure THttpUrlParams.Decode(const AEncodedParams: string; AClear: Boolean);
+function THttpUrlParams.Decode(const AEncodedParams: string; AClear: Boolean): Boolean;
 var
   p, pEnd, q: PChar;
   LName, LValue: string;
@@ -1272,6 +1272,8 @@ begin
 
     Add(LName, LValue);
   end;
+
+  Result := (Self.Count > 0);
 end;
 
 function THttpUrlParams.Encode: string;
@@ -1296,7 +1298,7 @@ end;
 
 { THttpHeader }
 
-procedure THttpHeader.Decode(const AEncodedParams: string; AClear: Boolean);
+function THttpHeader.Decode(const AEncodedParams: string; AClear: Boolean): Boolean;
 var
   p, pEnd, q: PChar;
   LName, LValue: string;
@@ -1337,6 +1339,8 @@ begin
 
     Add(LName, LValue);
   end;
+
+  Result := (Self.Count > 0);
 end;
 
 function THttpHeader.Encode: string;
@@ -1371,7 +1375,7 @@ begin
   inherited Create(AEncodedParams);
 end;
 
-procedure TDelimitParams.Decode(const AEncodedParams: string; AClear: Boolean);
+function TDelimitParams.Decode(const AEncodedParams: string; AClear: Boolean): Boolean;
 var
   p, pEnd, q: PChar;
   LName, LValue: string;
@@ -1414,6 +1418,8 @@ begin
 
     Add(LName, LValue);
   end;
+
+  Result := (Self.Count > 0);
 end;
 
 function TDelimitParams.Encode: string;
@@ -1435,7 +1441,7 @@ end;
 
 { TRequestCookies }
 
-procedure TRequestCookies.Decode(const AEncodedParams: string; AClear: Boolean);
+function TRequestCookies.Decode(const AEncodedParams: string; AClear: Boolean): Boolean;
 var
   p, pEnd, q: PChar;
   LName, LValue: string;
@@ -1477,6 +1483,8 @@ begin
 
     Add(LName, LValue);
   end;
+
+  Result := (Self.Count > 0);
 end;
 
 function TRequestCookies.Encode: string;
@@ -1901,7 +1909,7 @@ function THttpMultiPartFormData.Decode(const ABuf: Pointer; ALen: Integer): Inte
 var
   C: Byte;
   I: Integer;
-  P: PByteArray;
+  P: PByte;
   LPartHeader: string;
 begin
   if (FBoundaryBytes = nil) then Exit(0);

@@ -64,7 +64,7 @@ type
       Overlapped: TWSAOverlapped;
       Buffer: TPerIoBufUnion;
       Action: TIocpAction;
-      Socket: THandle;
+      Socket: TSocket;
       CrossData: ICrossData;
       Callback: TCrossConnectionCallback;
     end;
@@ -84,9 +84,9 @@ type
     procedure _HandleRead(const APerIoData: PPerIoData);
     procedure _HandleWrite(const APerIoData: PPerIoData);
   protected
-    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
+    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
-    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
 
     procedure StartLoop; override;
@@ -129,7 +129,7 @@ end;
 
 procedure TIocpCrossSocket._NewAccept(const AListen: ICrossListen);
 var
-  LClientSocket: THandle;
+  LClientSocket: TSocket;
   LPerIoData: PPerIoData;
   LBytes: Cardinal;
 begin
@@ -194,7 +194,7 @@ procedure TIocpCrossSocket._HandleAccept(const APerIoData: PPerIoData);
 var
   LListen: ICrossListen;
   LConnection: ICrossConnection;
-  LClientSocket, LListenSocket: THandle;
+  LClientSocket, LListenSocket: TSocket;
 begin
   if (APerIoData.CrossData = nil) then Exit;
 
@@ -206,7 +206,7 @@ begin
   LListenSocket := LListen.Socket;
 
   // 不设置该参数, 会导致 getpeername 调用失败
-  if (TSocketAPI.SetSockOpt<THandle>(LClientSocket, SOL_SOCKET,
+  if (TSocketAPI.SetSockOpt<TSocket>(LClientSocket, SOL_SOCKET,
     SO_UPDATE_ACCEPT_CONTEXT, LListenSocket) < 0) then
   begin
     {$IFDEF DEBUG}
@@ -235,7 +235,7 @@ end;
 
 procedure TIocpCrossSocket._HandleConnect(const APerIoData: PPerIoData);
 var
-  LClientSocket: THandle;
+  LClientSocket: TSocket;
   LConnection: ICrossConnection;
   LSuccess: Boolean;
 
@@ -368,7 +368,7 @@ procedure TIocpCrossSocket.StopLoop;
   procedure _FreeMissingPerIoDatas;
   var
     LBytes: Cardinal;
-    LSocket: THandle;
+    LSocket: TSocket;
     LPerIoData: PPerIoData;
     LConnection: ICrossConnection;
   begin
@@ -432,7 +432,7 @@ procedure TIocpCrossSocket.Connect(const AHost: string; const APort: Word;
 var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
-  LSocket: THandle;
+  LSocket: TSocket;
 
   procedure _Failed1;
   begin
@@ -440,7 +440,7 @@ var
       ACallback(nil, False);
   end;
 
-  function _Connect(ASocket: THandle; AAddr: PRawAddrInfo): Boolean;
+  function _Connect(ASocket: TSocket; AAddr: PRawAddrInfo): Boolean;
     procedure _Failed2;
     begin
       if Assigned(ACallback) then
@@ -552,14 +552,14 @@ begin
 end;
 
 function TIocpCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
   Result := TIocpConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 end;
 
 function TIocpCrossSocket.CreateListen(const AOwner: TCrossSocketBase;
-  const AListenSocket: THandle; const AFamily, ASockType, AProtocol: Integer): ICrossListen;
+  const AListenSocket: TSocket; const AFamily, ASockType, AProtocol: Integer): ICrossListen;
 begin
   Result := TIocpListen.Create(AOwner, AListenSocket, AFamily, ASockType, AProtocol);
 end;
@@ -569,7 +569,7 @@ procedure TIocpCrossSocket.Listen(const AHost: string; const APort: Word;
 var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
-  LListenSocket: THandle;
+  LListenSocket: TSocket;
   LListen: ICrossListen;
   I: Integer;
 
@@ -716,7 +716,7 @@ end;
 function TIocpCrossSocket.ProcessIoEvent: Boolean;
 var
   LBytes: Cardinal;
-  LSocket: THandle;
+  LSocket: TSocket;
   LPerIoData: PPerIoData;
   LConnection: ICrossConnection;
   {$IFDEF DEBUG}

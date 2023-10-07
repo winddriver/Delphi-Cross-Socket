@@ -116,7 +116,7 @@ type
   ICrossData = interface
   ['{988404A3-D297-4C6D-9A76-16E50553596E}']
     function GetOwner: TCrossSocketBase;
-    function GetSocket: THandle;
+    function GetSocket: TSocket;
     function GetUID: UInt64;
     function GetLocalAddr: string;
     function GetLocalPort: Word;
@@ -152,7 +152,7 @@ type
     /// <summary>
     ///   套接字句柄
     /// </summary>
-    property Socket: THandle read GetSocket;
+    property Socket: TSocket read GetSocket;
 
     /// <summary>
     ///   唯一编号
@@ -510,13 +510,13 @@ type
 //    /// <summary>
 //    ///   创建连接对象(内部使用)
 //    /// </summary>
-//    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+//    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
 //      const AConnectType: TConnectType): ICrossConnection;
 //
 //    /// <summary>
 //    ///   创建监听对象(内部使用)
 //    /// </summary>
-//    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
+//    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
 //      const AFamily, ASockType, AProtocol: Integer): ICrossListen;
 //
 //    {$region '物理事件'}
@@ -632,7 +632,7 @@ type
     class var FCrossUID: UInt64;
   private
     FOwner: TCrossSocketBase;
-    FSocket: THandle;
+    FSocket: TSocket;
     FUID: UInt64;
     FLocalAddr: string;
     FLocalPort: Word;
@@ -644,7 +644,7 @@ type
     function GetOwner: TCrossSocketBase;
     function GetUIDTag: Byte; virtual;
     function GetUID: UInt64;
-    function GetSocket: THandle;
+    function GetSocket: TSocket;
     function GetLocalAddr: string;
     function GetLocalPort: Word;
     function GetIsClosed: Boolean; virtual; abstract;
@@ -659,14 +659,14 @@ type
     procedure SetUserInterface(const AValue: IInterface);
   public
     constructor Create(const AOwner: TCrossSocketBase;
-      const ASocket: THandle); virtual;
+      const ASocket: TSocket); virtual;
     destructor Destroy; override;
 
     procedure UpdateAddr; virtual;
     procedure Close; virtual; abstract;
 
     property Owner: TCrossSocketBase read GetOwner;
-    property Socket: THandle read GetSocket;
+    property Socket: TSocket read GetSocket;
     property UID: UInt64 read GetUID;
     property LocalAddr: string read GetLocalAddr;
     property LocalPort: Word read GetLocalPort;
@@ -690,7 +690,7 @@ type
     function GetProtocol: Integer;
     function GetIsClosed: Boolean; override;
   public
-    constructor Create(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer); reintroduce; virtual;
 
     procedure Close; override;
@@ -719,7 +719,7 @@ type
     procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); virtual;
   public
-    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType;
       const AConnectedCb: TCrossConnectionCallback); reintroduce; virtual;
     destructor Destroy; override;
@@ -765,7 +765,7 @@ type
     FIoThreads: Integer;
 
     // 设置套接字心跳参数, 用于处理异常断线(拔网线, 主机异常掉电等造成的网络异常)
-    function SetKeepAlive(const ASocket: THandle): Integer;
+    function SetKeepAlive(const ASocket: TSocket): Integer;
   private
     FConnections: TCrossConnections;
     FConnectionsLock: ILock;
@@ -816,13 +816,13 @@ type
     function GetIoThreads: Integer; virtual;
 
     // 创建连接对象
-    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; overload; virtual; abstract;
-    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType): ICrossConnection; overload;
 
     // 创建监听对象
-    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: THandle;
+    function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer): ICrossListen; virtual; abstract;
 
     {$region '物理事件'}
@@ -1059,7 +1059,7 @@ begin
 end;
 
 function TCrossSocketBase.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle;
+  const AClientSocket: TSocket;
   const AConnectType: TConnectType): ICrossConnection;
 begin
   Result := CreateConnection(AOwner, AClientSocket, AConnectType, nil);
@@ -1193,7 +1193,7 @@ begin
 
 end;
 
-function TCrossSocketBase.SetKeepAlive(const ASocket: THandle): Integer;
+function TCrossSocketBase.SetKeepAlive(const ASocket: TSocket): Integer;
 begin
   Result := TSocketAPI.SetKeepAlive(ASocket, 5, 3, 5);
 end;
@@ -1386,7 +1386,7 @@ end;
 { TCrossData }
 
 constructor TCrossData.Create(const AOwner: TCrossSocketBase;
-  const ASocket: THandle);
+  const ASocket: TSocket);
 begin
   // 理论上说62位的唯一编号永远也不可能用完
   // 所以也就不用考虑编号重置的问题了
@@ -1429,7 +1429,7 @@ begin
   Result := FOwner;
 end;
 
-function TCrossData.GetSocket: THandle;
+function TCrossData.GetSocket: TSocket;
 begin
   Result := FSocket;
 end;
@@ -1500,7 +1500,7 @@ end;
 { TCrossListenBase }
 
 constructor TCrossListenBase.Create(const AOwner: TCrossSocketBase;
-  const AListenSocket: THandle; const AFamily, ASockType, AProtocol: Integer);
+  const AListenSocket: TSocket; const AFamily, ASockType, AProtocol: Integer);
 begin
   inherited Create(AOwner, AListenSocket);
 
@@ -1551,7 +1551,7 @@ end;
 { TCrossConnectionBase }
 
 constructor TCrossConnectionBase.Create(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectedCb: TCrossConnectionCallback);
 begin
   inherited Create(AOwner, AClientSocket);
