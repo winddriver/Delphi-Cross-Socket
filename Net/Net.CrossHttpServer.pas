@@ -25,6 +25,7 @@ uses
   Generics.Collections,
   ZLib,
 
+  Net.SocketAPI,
   Net.CrossSocket.Base,
   Net.CrossSocket,
   Net.CrossServer,
@@ -1761,7 +1762,7 @@ type
     function GetResponse: ICrossHttpResponse;
     function GetServer: ICrossHttpServer;
   public
-    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
 
     property Request: ICrossHttpRequest read GetRequest;
@@ -2109,7 +2110,7 @@ type
     procedure SetOnPostData(const Value: TCrossHttpDataEvent);
     procedure SetOnPostDataEnd(const Value: TCrossHttpConnEvent);
   protected
-    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
 
     function CreateRouter(const AMethod, APath: string;
@@ -2256,7 +2257,7 @@ end;
 { TCrossHttpConnection }
 
 constructor TCrossHttpConnection.Create(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback);
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
@@ -2555,7 +2556,7 @@ begin
 end;
 
 function TCrossHttpServer.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
   Result := TCrossHttpConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
@@ -2656,6 +2657,7 @@ begin
   LHandled := False;
 
   try
+    try
     {$region 'Session'}
     if (FSessions <> nil) and (FSessionIDCookieName <> '') then
     begin
@@ -2695,7 +2697,15 @@ begin
       end;
     end;
     {$endregion}
+    except
+      on e: Exception do
+      begin
+        _Log('FUCK 111: %s, %s', [e.ClassName, e.Message]);
+        raise;
+      end;
+    end;
 
+    try
     {$region '路由'}
     FRoutersLock.BeginRead;
     try
@@ -2723,7 +2733,15 @@ begin
       end;
     end;
     {$endregion}
+    except
+      on e: Exception do
+      begin
+        _Log('FUCK 222: %s, %s', [e.ClassName, e.Message]);
+        raise;
+      end;
+    end;
 
+    try
     {$region '响应请求事件'}
     if Assigned(FOnRequest)
       and not (LHandled or LResponse.Sent) then
@@ -2738,15 +2756,24 @@ begin
     // 如果该请求没有被任何中间件、事件、路由响应, 返回 404
     if not (LHandled or LResponse.Sent) then
       LResponse.SendStatus(404);
+    except
+      on e: Exception do
+      begin
+        _Log('FUCK 333: %s, %s', [e.ClassName, e.Message]);
+        raise;
+      end;
+    end;
+
   except
     on e: Exception do
     begin
+      _Log('FUCK 444: %s, %s', [e.ClassName, e.Message]);
       if Assigned(FOnRequestException) then
         FOnRequestException(Self, LRequest, LResponse, e)
       else if (e is ECrossHttpException) then
-        LResponse.SendStatus(ECrossHttpException(e).StatusCode, ECrossHttpException(e).Message)
+        LResponse.SendStatus(ECrossHttpException(e).StatusCode, 'SHIT 111:' + ECrossHttpException(e).Message)
       else
-        LResponse.SendStatus(500, e.Message);
+        LResponse.SendStatus(500, 'SHIT 222:' + e.Message);
     end;
   end;
 end;
@@ -3000,6 +3027,7 @@ begin
         case LRequest.FParseState of
           psHeader:
             begin
+            try
               case LPtr^ of
                 13{\r}: Inc(LRequest.CR);
                 10{\n}: Inc(LRequest.LF);
@@ -3068,11 +3096,19 @@ begin
                   Break;
                 end;
               end;
+            except
+              on e: Exception do
+              begin
+                _Log('FUCK psHeader: %s, %s', [e.ClassName, e.Message]);
+                raise;
+              end;
+            end;
             end;
 
           // 非Chunked编码的Post数据(有RequestContentLength)
           psPostData:
             begin
+            try
               LChunkSize := Min((LRequest.ContentLength - LRequest.FPostDataSize), LPtrEnd - LPtr);
               // Post数据尺寸超标, 直接断开连接
               if (FMaxPostDataSize > 0) and (LRequest.FPostDataSize + LChunkSize > FMaxPostDataSize) then
@@ -3080,8 +3116,25 @@ begin
                 _Error(400, 'Post data too large.');
                 Exit;
               end;
-              TriggerPostData(LHttpConnection, LPtr, LChunkSize);
+            except
+              on e: Exception do
+              begin
+                _Log('FUCK psPostData 111: %s, %s', [e.ClassName, e.Message]);
+                raise;
+              end;
+            end;
 
+            try
+              TriggerPostData(LHttpConnection, LPtr, LChunkSize);
+            except
+              on e: Exception do
+              begin
+                _Log('FUCK psPostData 222: %s, %s', [e.ClassName, e.Message]);
+                raise;
+              end;
+            end;
+
+            try
               Inc(LRequest.FPostDataSize, LChunkSize);
               Inc(LPtr, LChunkSize);
 
@@ -3091,11 +3144,19 @@ begin
                 TriggerPostDataEnd(LHttpConnection);
                 Break;
               end;
+            except
+              on e: Exception do
+              begin
+                _Log('FUCK psPostData 333: %s, %s', [e.ClassName, e.Message]);
+                raise;
+              end;
+            end;
             end;
 
           // Chunked编码: 块尺寸
           psChunkSize:
             begin
+            try
               case LPtr^ of
                 13{\r}: Inc(LRequest.CR);
                 10{\n}: Inc(LRequest.LF);
@@ -3113,11 +3174,20 @@ begin
                 LRequest.FChunkSize := StrToIntDef('$' + Trim(LLineStr), -1);
                 LRequest.FChunkLeftSize := LRequest.FChunkSize;
               end;
+            except
+              on e: Exception do
+              begin
+                _Log('FUCK psChunkSize: %s, %s', [e.ClassName, e.Message]);
+                raise;
+              end;
+            end;
+
             end;
 
           // Chunked编码: 块数据
           psChunkData:
             begin
+            try
               if (LRequest.FChunkLeftSize > 0) then
               begin
                 LChunkSize := Min(LRequest.FChunkLeftSize, LPtrEnd - LPtr);
@@ -3140,11 +3210,19 @@ begin
                 LRequest.CR := 0;
                 LRequest.LF := 0;
               end;
+            except
+              on e: Exception do
+              begin
+                _Log('FUCK psChunkData: %s, %s', [e.ClassName, e.Message]);
+                raise;
+              end;
+            end;
             end;
 
           // Chunked编码: 块结束符\r\n
           psChunkEnd:
             begin
+            try
               case LPtr^ of
                 13{\r}: Inc(LRequest.CR);
                 10{\n}: Inc(LRequest.LF);
@@ -3171,6 +3249,13 @@ begin
                   Break;
                 end;
               end;
+            except
+              on e: Exception do
+              begin
+                _Log('FUCK psChunkEnd: %s, %s', [e.ClassName, e.Message]);
+                raise;
+              end;
+            end;
             end;
         end;
       end;
@@ -3185,7 +3270,7 @@ begin
     end;
   except
     on e: Exception do
-      _Error(500, e.Message);
+      _Error(500, 'SHIT 999:' + e.Message);
   end;
 end;
 
@@ -3433,6 +3518,7 @@ begin
   // 如果数据是压缩的, 进行解压
   if LRequest.FZCompressed then
   begin
+  try
     // 往输入缓冲区填入新数据
     // 对于使用 inflate 函数解压缩数据, 通常不需要使用 Z_FINISH 进行收尾。
     // Z_FINISH 选项通常在压缩时使用, 以表示已经完成了压缩的数据块。
@@ -3471,9 +3557,24 @@ begin
       if (LRequest.FZOutSize > 0) then
         _WritePostData(@LRequest.FZBuffer[0], LRequest.FZOutSize);
     until ((LRequest.FZResult = Z_STREAM_END) or (LRequest.FZStream.avail_in = 0));
+  except
+    on e: Exception do
+    begin
+      _Log('FUCK TriggerPostData 111: %s, %s', [e.ClassName, e.Message]);
+      raise;
+    end;
+  end;
   end else
   {$endregion}
+  try
     _WritePostData(ABuf, ALen);
+  except
+    on e: Exception do
+    begin
+      _Log('FUCK TriggerPostData 222: %s, %s', [e.ClassName, e.Message]);
+      raise;
+    end;
+  end;
 end;
 
 procedure TCrossHttpServer.TriggerPostDataEnd(
@@ -3495,9 +3596,15 @@ begin
           MarshaledAString((LRequest.Body as TBytesStream).Memory),
           (LRequest.Body as TBytesStream).Size);
         LUrlEncodedBody := THttpUrlParams.Create;
-        LUrlEncodedBody.Decode(LUrlEncodedStr);
-        FreeAndNil(LRequest.FBody);
-        LRequest.FBody := LUrlEncodedBody;
+        if LUrlEncodedBody.Decode(LUrlEncodedStr) then
+        begin
+          FreeAndNil(LRequest.FBody);
+          LRequest.FBody := LUrlEncodedBody;
+        end else
+        begin
+          FreeAndNil(LUrlEncodedBody);
+          LRequest.FBodyType := btBinary;
+        end;
       end;
 
     btBinary:
