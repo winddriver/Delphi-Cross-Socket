@@ -390,6 +390,8 @@ var
   LBuffer: TBytes;
   LBytesRead: NativeInt;
 begin
+  AStream.Position := 0;
+
   LHash := CreateHash;
   try
     LHash.HMACStart(AKey);

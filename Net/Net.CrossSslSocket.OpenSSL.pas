@@ -85,10 +85,6 @@ type
   { TCrossOpenSslSocket }
 
   TCrossOpenSslSocket = class(TCrossSslSocketBase)
-  private const
-    SSL_BUF_SIZE = 32768;
-  private class threadvar
-    FSslInBuf: array [0..SSL_BUF_SIZE-1] of Byte;
   private
     FSslCtx: PSSL_CTX;
 
