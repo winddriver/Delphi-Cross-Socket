@@ -20,6 +20,7 @@ uses
   Math,
   Generics.Collections,
 
+  Net.SocketAPI,
   Net.CrossSocket.Base,
   Net.CrossHttpServer,
   Net.CrossHttpUtils,
@@ -293,7 +294,7 @@ type
     procedure TriggerWsRequest(ARequestType: TWsMessageType;
       const ARequestData: TBytes); virtual;
   public
-    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
 
@@ -368,7 +369,7 @@ type
     procedure _OnPing(const AConnection: ICrossWebSocketConnection);
     procedure _OnPong(const AConnection: ICrossWebSocketConnection);
   protected
-    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
     procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
@@ -394,7 +395,7 @@ implementation
 { TCrossWebSocketConnection }
 
 constructor TCrossWebSocketConnection.Create(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback);
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
@@ -989,7 +990,7 @@ begin
 end;
 
 function TCrossWebSocketServer.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
   Result := TCrossWebSocketConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);

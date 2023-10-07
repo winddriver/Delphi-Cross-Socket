@@ -19,6 +19,7 @@ uses
   Generics.Collections,
   Math,
 
+  Net.SocketAPI,
   Net.CrossSocket.Base,
   Net.CrossHttpClient,
   Net.CrossHttpUtils,
@@ -311,7 +312,7 @@ type
       ACallback: TWsClientCallback = nil); overload;
     {$endregion}
   public
-    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
 
@@ -330,7 +331,7 @@ type
 
   TCrossWebSocketClient = class(TCrossHttpClientSocket)
   protected
-    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
     procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
@@ -451,7 +452,7 @@ implementation
 { TCrossWebSocketClientConnection }
 
 constructor TCrossWebSocketClientConnection.Create(
-  const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+  const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
   const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback);
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
@@ -792,7 +793,7 @@ end;
 { TCrossWebSocketClient }
 
 function TCrossWebSocketClient.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
   Result := TCrossWebSocketClientConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);

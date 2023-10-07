@@ -25,6 +25,7 @@ uses
   DTF.Diagnostics,
   {$ENDIF}
 
+  Net.SocketAPI,
   Net.CrossSocket.Base,
   Net.CrossSslSocket.Base,
   Net.CrossSslSocket,
@@ -589,7 +590,7 @@ type
     function GetProtocol: string;
     function GetRequestStatus: TRequestStatus;
   public
-    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
 
     property Protocol: string read GetProtocol;
@@ -724,7 +725,7 @@ type
 
   TCrossHttpClientSocket = class(TCrossSslSocket, ICrossHttpClientSocket)
   protected
-    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: THandle;
+    function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
     procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
 
@@ -882,7 +883,7 @@ end;
 { TCrossHttpClientConnection }
 
 constructor TCrossHttpClientConnection.Create(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback);
 begin
   // 肯定是要发起请求才会新建连接
@@ -1947,7 +1948,7 @@ end;
 { TCrossHttpClientSocket }
 
 function TCrossHttpClientSocket.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: THandle; const AConnectType: TConnectType;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
   Result := TCrossHttpClientConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
