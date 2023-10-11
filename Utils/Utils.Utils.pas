@@ -234,12 +234,12 @@ class function TUtils.GetBufEncoding(const ABuf: Pointer; const ACount: Integer;
     Result := CompareMem(ABuf, @APreamble[0], Length(APreamble));
 
     if Result then
-      APreambleSize := Length(APreamble)
-    else
-      APreambleSize := 0;
+      APreambleSize := Length(APreamble);
   end;
 
 begin
+  Result := 0;
+
   if (AEncoding = nil) then
   begin
     if ContainsPreamble(TEncoding.UTF8.GetPreamble, Result) then

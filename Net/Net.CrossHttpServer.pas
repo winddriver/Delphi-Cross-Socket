@@ -4560,6 +4560,7 @@ begin
     end;
   end;
 
+  ACompressType := ctNone;
   Result := False;
 end;
 

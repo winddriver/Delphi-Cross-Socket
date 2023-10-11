@@ -23,6 +23,7 @@ uses
   {$ENDIF}
   Generics.Collections,
 
+  Utils.StrUtils,
   Utils.Utils,
   Utils.DateTime,
   Utils.AnonymousThread,
@@ -343,10 +344,13 @@ begin
   if not (ALogType in FFilters) then Exit;
 
   if (CRLF <> '') then
-    LText := StringReplace(ALog, sLineBreak, CRLF, [rfReplaceAll])
+    LText := ALog.Replace(sLineBreak, CRLF)
   else
     LText := ALog;
   LText := TUtils.DateTimeToStr(Now, ATimeFormat) + ' ' + LText + sLineBreak;
+
+  if IsConsole then
+    Write(LText);
 
   _AppendLogToBuffer(LText, ALogType);
 end;
@@ -358,12 +362,12 @@ end;
 
 procedure TLogger.AppendLog(const AFmt: string; const AArgs: array of const; const ATimeFormat: string; ALogType: TLogType; const CRLF: string);
 begin
-  AppendLog(TUtils.ThreadFormat(AFmt, AArgs), ATimeFormat, ALogType, CRLF);
+  AppendLog(TStrUtils.Format(AFmt, AArgs), ATimeFormat, ALogType, CRLF);
 end;
 
 procedure TLogger.AppendLog(const AFmt: string; const AArgs: array of const; ALogType: TLogType; const CRLF: string);
 begin
-  AppendLog(TUtils.ThreadFormat(AFmt, AArgs), ALogType, CRLF);
+  AppendLog(TStrUtils.Format(AFmt, AArgs), ALogType, CRLF);
 end;
 
 procedure TLogger._AppendLogToBuffer(const S: string; ALogType: TLogType);

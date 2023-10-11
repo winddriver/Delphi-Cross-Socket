@@ -36,6 +36,7 @@ uses
   Utils.IOUtils,
   Utils.DateTime,
   Utils.StrUtils,
+  Utils.SyncObjs,
   Utils.Utils;
 
 type
@@ -744,9 +745,8 @@ type
   TSessionBase = class abstract(TInterfacedObject, ISession)
   private
     FOwner: TSessionsBase;
-
-    function GetOwner: ISessions;
   protected
+    function GetOwner: ISessions;
     function GetSessionID: string; virtual; abstract;
     function GetCreateTime: TDateTime; virtual; abstract;
     function GetLastAccessTime: TDateTime; virtual; abstract;
@@ -1000,10 +1000,12 @@ type
   TSessions = class(TSessionsBase)
   private
     FNewGUIDFunc: TFunc<string>;
-    FLocker: TMultiReadExclusiveWriteSynchronizer;
+    FLocker: IReadWriteLock;
     FSessionClass: TSessionClass;
     FExpire: Integer;
     FShutdown, FExpiredProcRunning: Boolean;
+
+    procedure _ClearExpiredSessions;
   protected
     FSessions: TDictionary<string, ISession>;
 
@@ -1140,6 +1142,7 @@ begin
     Exit(True);
   end;
 
+  AValue := '';
   Result := False;
 end;
 
@@ -1772,6 +1775,7 @@ begin
     Exit(True);
   end;
 
+  AField := nil;
   Result := False;
 end;
 
@@ -2579,7 +2583,7 @@ constructor TSessions.Create(ANewGUIDFunc: TFunc<string>);
 begin
   FNewGUIDFunc := ANewGUIDFunc;
   FSessions := TDictionary<string, ISession>.Create;
-  FLocker := TMultiReadExclusiveWriteSynchronizer.Create;
+  FLocker := TReadWriteLock.Create;
   FSessionClass := TSession;
   CreateExpiredProcThread;
 end;
@@ -2602,7 +2606,6 @@ begin
   BeginWrite;
   FSessions.Clear;
   EndWrite;
-  FreeAndNil(FLocker);
   FreeAndNil(FSessions);
 
   inherited;
@@ -2657,30 +2660,6 @@ procedure TSessions.CreateExpiredProcThread;
 begin
   TAnonymousThread.Create(
     procedure
-      procedure _ClearExpiredSessions;
-      var
-        LPair: TPair<string, ISession>;
-        LDelSessions: TArray<ISession>;
-      begin
-        BeginWrite;
-        try
-          BeforeClearExpiredSessions;
-
-          LDelSessions := nil;
-          for LPair in FSessions do
-          begin
-            if FShutdown then Break;
-
-            if OnCheckExpiredSession(LPair.Value) then
-              LDelSessions := LDelSessions + [LPair.Value];
-          end;
-          RemoveSessions(LDelSessions);
-
-          AfterClearExpiredSessions;
-        finally
-          EndWrite;
-        end;
-      end;
     var
       LWatch: TStopwatch;
     begin
@@ -2689,7 +2668,7 @@ begin
         LWatch := TStopwatch.StartNew;
         while not FShutdown do
         begin
-          // 每 5 分钟清理一次超时 Session
+          // 每 1 分钟清理一次超时 Session
           if (FExpire > 0) and (LWatch.Elapsed.TotalMinutes >= 1) then
           begin
             _ClearExpiredSessions;
@@ -2789,6 +2768,31 @@ end;
 procedure TSessions.SetSessionClass(const Value: TSessionClass);
 begin
   FSessionClass := Value;
+end;
+
+procedure TSessions._ClearExpiredSessions;
+var
+  LPair: TPair<string, ISession>;
+  LDelSessions: TArray<ISession>;
+begin
+  BeginWrite;
+  try
+    BeforeClearExpiredSessions;
+
+    LDelSessions := nil;
+    for LPair in FSessions do
+    begin
+      if FShutdown then Break;
+
+      if OnCheckExpiredSession(LPair.Value) then
+        LDelSessions := LDelSessions + [LPair.Value];
+    end;
+    RemoveSessions(LDelSessions);
+
+    AfterClearExpiredSessions;
+  finally
+    EndWrite;
+  end;
 end;
 
 end.
