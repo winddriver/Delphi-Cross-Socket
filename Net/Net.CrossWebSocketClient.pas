@@ -112,7 +112,14 @@ type
     ///   已断开连接
     /// </summary>
     {$ENDREGION}
-    wsDisconnected);
+    wsDisconnected,
+
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   已关闭
+    /// </summary>
+    {$ENDREGION}
+    wsShutdown);
 
   {$REGION 'Documentation'}
   /// <summary>
@@ -371,22 +378,17 @@ type
     FUrl: string;
     FMgr: TCrossWebSocketMgr;
     FConnection: TCrossWebSocketClientConnection;
-    FStatus: Integer; // TWsStatus;
+    FStatus: TWsStatus;
+    FLock: ILock;
 
     FOnOpenEvents: TList<TWsClientOnOpen>;
-    FOnOpenEventsLock: ILock;
-
     FOnMessageEvents: TList<TWsClientOnMessage>;
-    FOnMessageEventsLock: ILock;
-
     FOnCloseEvents: TList<TWsClientOnClose>;
-    FOnCloseEventsLock: ILock;
-
     FOnPingEvents: TList<TWsClientOnPing>;
-    FOnPingEventsLock: ILock;
-
     FOnPongEvents: TList<TWsClientOnPong>;
-    FOnPongEventsLock: ILock;
+
+    procedure _Lock; inline;
+    procedure _Unlock; inline;
 
     procedure _OnOpen;
     procedure _OnMessage(const AMessageType: TWsMessageType; const AMessageData: TBytes);
@@ -394,8 +396,6 @@ type
 
     procedure _OnPing;
     procedure _OnPong;
-
-    function _SetStatus(const AStatus: TWsStatus): TWsStatus;
   protected
     function GetStatus: TWsStatus;
     function GetUrl: string;
@@ -431,8 +431,8 @@ type
 
   TCrossWebSocketMgr = class(TCrossHttpClient, ICrossWebSocketMgr)
   private
-    FHttpCli, FHttpsCli: ICrossHttpClientSocket;
     FIoThreads: Integer;
+    FWsCli, FWssCli: ICrossHttpClientSocket;
 
     class var FDefault: ICrossWebSocketMgr;
     class function GetDefault: ICrossWebSocketMgr; static;
@@ -831,7 +831,7 @@ function TCrossWebSocket.Close: ICrossWebSocket;
 begin
   Result := Self;
 
-  if (GetStatus = wsConnected) then
+  if (FStatus = wsConnected) then
     FConnection.WsClose;
 end;
 
@@ -841,20 +841,13 @@ begin
   FMgr := AMgr;
   FUrl := AUrl;
 
+  FLock := TLock.Create;
+
   FOnOpenEvents := TList<TWsClientOnOpen>.Create;
-  FOnOpenEventsLock := TLock.Create;
-
   FOnMessageEvents := TList<TWsOnMessage>.Create;
-  FOnMessageEventsLock := TLock.Create;
-
   FOnCloseEvents := TList<TWsClientOnClose>.Create;
-  FOnCloseEventsLock := TLock.Create;
-
   FOnPingEvents := TList<TWsClientOnPing>.Create;
-  FOnPingEventsLock := TLock.Create;
-
   FOnPongEvents := TList<TWsClientOnPong>.Create;
-  FOnPongEventsLock := TLock.Create;
 end;
 
 constructor TCrossWebSocket.Create(const AUrl: string);
@@ -864,26 +857,33 @@ end;
 
 destructor TCrossWebSocket.Destroy;
 begin
-  if (FConnection <> nil) then
-  begin
-    FConnection.FWebSocket := nil;
-    FConnection.Close;
-    FConnection := nil;
+  FStatus := wsShutdown;
+
+  _Lock;
+  try
+    if (FConnection <> nil) then
+    begin
+      FConnection.FWebSocket := nil;
+      FConnection.Close;
+      FConnection := nil;
+    end;
+
+    FreeAndNil(FOnOpenEvents);
+    FreeAndNil(FOnMessageEvents);
+    FreeAndNil(FOnCloseEvents);
+
+    FreeAndNil(FOnPingEvents);
+    FreeAndNil(FOnPongEvents);
+  finally
+    _Unlock;
   end;
-
-  FreeAndNil(FOnOpenEvents);
-  FreeAndNil(FOnMessageEvents);
-  FreeAndNil(FOnCloseEvents);
-
-  FreeAndNil(FOnPingEvents);
-  FreeAndNil(FOnPongEvents);
 
   inherited;
 end;
 
 function TCrossWebSocket.GetStatus: TWsStatus;
 begin
-  Result := TWsStatus(AtomicCmpExchange(FStatus, 0, 0));
+  Result := FStatus;
 end;
 
 function TCrossWebSocket.GetUrl: string;
@@ -893,11 +893,11 @@ end;
 
 function TCrossWebSocket.OnClose(const ACallback: TWsClientOnClose): ICrossWebSocket;
 begin
-  FOnCloseEventsLock.Enter;
+  _Lock;
   try
     FOnCloseEvents.Add(ACallback);
   finally
-    FOnCloseEventsLock.Leave;
+    _Unlock;
   end;
 
   FConnection := nil;
@@ -908,11 +908,11 @@ end;
 function TCrossWebSocket.OnMessage(
   const ACallback: TWsClientOnMessage): ICrossWebSocket;
 begin
-  FOnMessageEventsLock.Enter;
+  _Lock;
   try
     FOnMessageEvents.Add(ACallback);
   finally
-    FOnMessageEventsLock.Leave;
+    _Unlock;
   end;
 
   Result := Self;
@@ -920,11 +920,11 @@ end;
 
 function TCrossWebSocket.OnOpen(const ACallback: TWsClientOnOpen): ICrossWebSocket;
 begin
-  FOnOpenEventsLock.Enter;
+  _Lock;
   try
     FOnOpenEvents.Add(ACallback);
   finally
-    FOnOpenEventsLock.Leave;
+    _Unlock;
   end;
 
   Result := Self;
@@ -932,11 +932,11 @@ end;
 
 function TCrossWebSocket.OnPing(const ACallback: TWsClientOnPing): ICrossWebSocket;
 begin
-  FOnPingEventsLock.Enter;
+  _Lock;
   try
     FOnPingEvents.Add(ACallback);
   finally
-    FOnPingEventsLock.Leave;
+    _Unlock;
   end;
 
   Result := Self;
@@ -944,11 +944,11 @@ end;
 
 function TCrossWebSocket.OnPong(const ACallback: TWsClientOnPong): ICrossWebSocket;
 begin
-  FOnPongEventsLock.Enter;
+  _Lock;
   try
     FOnPongEvents.Add(ACallback);
   finally
-    FOnPongEventsLock.Leave;
+    _Unlock;
   end;
 
   Result := Self;
@@ -960,9 +960,13 @@ var
 begin
   Result := Self;
 
-  if (GetStatus in [wsConnecting, wsConnected]) then Exit;
-
-  _SetStatus(wsConnecting);
+  _Lock;
+  try
+    if (FStatus in [wsConnecting, wsConnected]) then Exit;
+    FStatus := wsConnecting;
+  finally
+    _Unlock;
+  end;
 
   LSecWebSocketKey := TWebSocketParser.NewSecWebSocketKey;
   LSecWebSocketAccept := TWebSocketParser.MakeSecWebSocketAccept(LSecWebSocketKey);
@@ -1073,18 +1077,24 @@ begin
     FConnection.WsSend(AData, ACallback);
 end;
 
+procedure TCrossWebSocket._Lock;
+begin
+  FLock.Enter;
+end;
+
 procedure TCrossWebSocket._OnClose;
 var
   LOnCloseEvents: TArray<TWsClientOnClose>;
   LOnCloseEvent: TWsClientOnClose;
 begin
-  _SetStatus(wsDisconnected);
+  if (FStatus = wsShutdown) then Exit;
 
-  FOnCloseEventsLock.Enter;
+  _Lock;
   try
+    FStatus := wsDisconnected;
     LOnCloseEvents := FOnCloseEvents.ToArray;
   finally
-    FOnCloseEventsLock.Leave;
+    _Unlock;
   end;
 
   try
@@ -1106,11 +1116,13 @@ var
   LOnMessageEvents: TArray<TWsOnMessage>;
   LOnMessageEvent: TWsOnMessage;
 begin
-  FOnMessageEventsLock.Enter;
+  if (FStatus = wsShutdown) then Exit;
+
+  _Lock;
   try
     LOnMessageEvents := FOnMessageEvents.ToArray;
   finally
-    FOnMessageEventsLock.Leave;
+    _Unlock;
   end;
 
   for LOnMessageEvent in LOnMessageEvents do
@@ -1123,13 +1135,14 @@ var
   LOnOpenEvents: TArray<TWsClientOnOpen>;
   LOnOpenEvent: TWsClientOnOpen;
 begin
-  _SetStatus(wsConnected);
+  if (FStatus = wsShutdown) then Exit;
 
-  FOnOpenEventsLock.Enter;
+  _Lock;
   try
+    FStatus := wsConnected;
     LOnOpenEvents := FOnOpenEvents.ToArray;
   finally
-    FOnOpenEventsLock.Leave;
+    _Unlock;
   end;
 
   for LOnOpenEvent in LOnOpenEvents do
@@ -1142,11 +1155,13 @@ var
   LOnPingEvents: TArray<TWsClientOnPing>;
   LOnPingEvent: TWsClientOnClose;
 begin
-  FOnPingEventsLock.Enter;
+  if (FStatus = wsShutdown) then Exit;
+
+  _Lock;
   try
     LOnPingEvents := FOnPingEvents.ToArray;
   finally
-    FOnPingEventsLock.Leave;
+    _Unlock;
   end;
 
   for LOnPingEvent in LOnPingEvents do
@@ -1159,11 +1174,13 @@ var
   LOnPongEvents: TArray<TWsClientOnPing>;
   LOnPongEvent: TWsClientOnClose;
 begin
-  FOnPongEventsLock.Enter;
+  if (FStatus = wsShutdown) then Exit;
+
+  _Lock;
   try
     LOnPongEvents := FOnPongEvents.ToArray;
   finally
-    FOnPongEventsLock.Leave;
+    _Unlock;
   end;
 
   for LOnPongEvent in LOnPongEvents do
@@ -1171,9 +1188,9 @@ begin
       LOnPongEvent();
 end;
 
-function TCrossWebSocket._SetStatus(const AStatus: TWsStatus): TWsStatus;
+procedure TCrossWebSocket._Unlock;
 begin
-  Result := TWsStatus(AtomicExchange(FStatus, Integer(AStatus)));
+  FLock.Leave;
 end;
 
 { TCrossWebSocketMgr }
@@ -1190,17 +1207,17 @@ function TCrossWebSocketMgr.CreateHttpCli(
 begin
   if TStrUtils.SameText(AProtocol, WS) then
   begin
-    if (FHttpCli = nil) then
-      FHttpCli := TCrossWebSocketClient.Create(FIoThreads, False);
+    if (FWsCli = nil) then
+      FWsCli := TCrossWebSocketClient.Create(FIoThreads, False);
 
-    Result := FHttpCli;
+    Result := FWsCli;
   end else
   if TStrUtils.SameText(AProtocol, WSS) then
   begin
-    if (FHttpsCli = nil) then
-      FHttpsCli := TCrossWebSocketClient.Create(FIoThreads, True);
+    if (FWssCli = nil) then
+      FWssCli := TCrossWebSocketClient.Create(FIoThreads, True);
 
-    Result := FHttpsCli;
+    Result := FWssCli;
   end else
     Result := inherited CreateHttpCli(AProtocol);
 end;
@@ -1217,6 +1234,11 @@ end;
 
 destructor TCrossWebSocketMgr.Destroy;
 begin
+  if (FWsCli <> nil) then
+    FWsCli.StopLoop;
+
+  if (FWssCli <> nil) then
+    FWssCli.StopLoop;
 
   inherited;
 end;

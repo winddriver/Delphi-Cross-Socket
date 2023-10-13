@@ -8,17 +8,44 @@ uses
   SysUtils,
   Classes,
   Masks,
+  {$IFDEF MSWINDOWS}
+  Windows,
+  {$ELSE}
+    {$IFDEF DELPHI}
+    Posix.SysTypes,
+    Posix.Errno,
+    Posix.Unistd,
+    Posix.Base,
+    Posix.Stdio,
+    Posix.Stdlib,
+    Posix.SysStat,
+    Posix.Time,
+    Posix.Utime,
+    {$ELSE}
+    baseunix,
+    unix,
+    linux,
+    {$ENDIF}
+  {$ENDIF}
 
   {$IFDEF FPC}
   DTF.RTL,
   {$ENDIF}
 
+  Utils.DateTime,
+  Utils.StrUtils,
   Utils.Utils;
 
 type
   { TFileUtils }
 
   TFileUtils = class
+  private
+    {$IFDEF MSWINDOWS}
+    class function ConvertDateTimeToFileTime(const ADateTime: TDateTime): TFileTime; static;
+    {$ELSE}
+    class function ConvertDateTimeToFileTime(const ADateTime: TDateTime): time_t; static;
+    {$ENDIF}
   public
     class function OpenCreate(const AFileName: string): TFileStream; static;
     class function OpenRead(const AFileName: string): TFileStream; static;
@@ -42,10 +69,19 @@ type
     class function GetLastAccessTime(const APath: string): TDateTime; static;
     class function GetLastWriteTime(const APath: string): TDateTime; static;
 
+    class function SetDateTimeInfo(const APath: string; const ACreationTime,
+        ALastAccessTime, ALastWriteTime: PDateTime): Boolean; static;
+    class function SetCreationTime(const APath: string;
+        const ACreationTime: TDateTime): Boolean; inline; static;
+    class function SetLastAccessTime(const APath: string;
+        const ALastAccessTime: TDateTime): Boolean; inline; static;
+    class function SetLastWriteTime(const APath: string;
+        const ALastWriteTime: TDateTime): Boolean; inline; static;
+
     class function Exists(const AFileName: string): Boolean; static; inline;
     class function Delete(const AFileName: string): Boolean; static;
-    class function CopyFile(const ASrcFileName, ADstFileName: string): Boolean; static;
-    class function MoveFile(const ASrcFileName, ADstFileName: string): Boolean; static;
+    class function Copy(const ASrcFileName, ADstFileName: string): Boolean; static;
+    class function Move(const ASrcFileName, ADstFileName: string): Boolean; static;
   end;
 
   TSearchOption = (soTopDirectoryOnly, soAllDirectories);
@@ -68,15 +104,41 @@ type
     class function Exists(const APath: string): Boolean; inline; static;
 
     class function Delete(const APath: string; const ARecursive: Boolean = False): Boolean; static;
+    class function Move(const ASourceDirName, ADestDirName: string): Boolean; static;
+
+    class function GetLogicalDrives: TArray<string>; static;
 
     class function GetFiles(const APath, ASearchPattern: string;
         const ASearchOption: TSearchOption;
-        const APredicate: TFilterPredicate = nil): TArray<string>; static;
+        const APredicate: TFilterPredicate = nil): TArray<string>; overload; static;
+    class function GetFiles(const APath, ASearchPattern: string;
+        const APredicate: TFilterPredicate = nil): TArray<string>; overload; static;
+    class function GetFiles(const APath: string;
+        const ASearchOption: TSearchOption;
+        const APredicate: TFilterPredicate = nil): TArray<string>; overload; static;
+    class function GetFiles(const APath: string;
+        const APredicate: TFilterPredicate = nil): TArray<string>; overload; static;
+
     class function GetDirectories(const APath, ASearchPattern: string;
         const ASearchOption: TSearchOption;
-        const APredicate: TFilterPredicate = nil): TArray<string>; static;
+        const APredicate: TFilterPredicate = nil): TArray<string>; overload; static;
+    class function GetDirectories(const APath, ASearchPattern: string;
+        const APredicate: TFilterPredicate = nil): TArray<string>; overload; static;
+    class function GetDirectories(const APath: string;
+        const ASearchOption: TSearchOption;
+        const APredicate: TFilterPredicate = nil): TArray<string>; overload; static;
+    class function GetDirectories(const APath: string;
+        const APredicate: TFilterPredicate = nil): TArray<string>; overload; static;
+
     class function GetFileSystemEntries(const APath, ASearchPattern: string;
         const ASearchOption: TSearchOption;
+        const APredicate: TFilterPredicate = nil): TArray<string>; overload; static;
+    class function GetFileSystemEntries(const APath, ASearchPattern: string;
+        const APredicate: TFilterPredicate = nil): TArray<string>; overload; static;
+    class function GetFileSystemEntries(const APath: string;
+        const ASearchOption: TSearchOption;
+        const APredicate: TFilterPredicate = nil): TArray<string>; overload; static;
+    class function GetFileSystemEntries(const APath: string;
         const APredicate: TFilterPredicate = nil): TArray<string>; overload; static;
   end;
 
@@ -86,7 +148,11 @@ type
     PARENT_DIR: string = '..';
     EXTENDED_PREFIX: string = '\\?\';
     EXTENDED_UNC_PREFIX: string = '\\?\UNC\';
+    DIRECTORY_SEPARATOR_CHAR: Char = {$IFDEF MSWINDOWS}'\'{$ELSE}'/'{$ENDIF};
+    EXTENSION_SEPARATOR_CHAR: Char = '.';
   public
+    class function ChangeExtension(const APath, AExtension: string): string; static;
+
     class function Combine(const APath1, APath2: string; const APathDelim: Char): string; overload; static;
     class function Combine(const APath1, APath2: string): string; overload; static; inline;
 
@@ -111,9 +177,33 @@ type
 
 implementation
 
+{$IF DEFINED(MSWINDOWS) AND DEFINED(FPC)}
+function GetLogicalDriveStrings(nBufferLength: DWORD; lpBuffer: LPWSTR): DWORD; stdcall;
+  external 'kernel32' name 'GetLogicalDriveStringsW';
+{$ENDIF}
+
 { TFileUtils }
 
-class function TFileUtils.CopyFile(const ASrcFileName,
+{$IFDEF MSWINDOWS}
+class function TFileUtils.ConvertDateTimeToFileTime(const ADateTime: TDateTime): TFileTime;
+var
+  LSysTime: TSystemTime;
+begin
+  Result.dwLowDateTime := 0;
+  Result.dwHighDateTime := 0;
+  ADateTime.Decode(LSysTime.wYear, LSysTime.wMonth, LSysTime.wDay,
+    LSysTime.wHour, LSysTime.wMinute, LSysTime.wSecond, LSysTime.wMilliseconds);
+
+  SystemTimeToFileTime(LSysTime, Result);
+end;
+{$ELSE}
+class function TFileUtils.ConvertDateTimeToFileTime(const ADateTime: TDateTime): time_t;
+begin
+  Result := DateTimeToFileDate(ADateTime);
+end;
+{$ENDIF}
+
+class function TFileUtils.Copy(const ASrcFileName,
   ADstFileName: string): Boolean;
 var
   LSrcStream, LDstStream: TStream;
@@ -137,12 +227,12 @@ end;
 
 class function TFileUtils.Delete(const AFileName: string): Boolean;
 begin
-  Result := DeleteFile(AFileName);
+  Result := SysUtils.DeleteFile(AFileName);
 end;
 
 class function TFileUtils.Exists(const AFileName: string): Boolean;
 begin
-  Result := FileExists(AFileName);
+  Result := SysUtils.FileExists(AFileName);
 end;
 
 class function TFileUtils.GetCreationTime(const APath: string): TDateTime;
@@ -185,7 +275,7 @@ begin
   GetDateTimeInfo(APath, LTemp1, LTemp2, Result);
 end;
 
-class function TFileUtils.MoveFile(const ASrcFileName,
+class function TFileUtils.Move(const ASrcFileName,
   ADstFileName: string): Boolean;
 var
   LDstDirName: string;
@@ -250,6 +340,140 @@ begin
 
   Result := TUtils.GetString(LBytes, AEncoding);
 end;
+
+class function TFileUtils.SetCreationTime(const APath: string;
+  const ACreationTime: TDateTime): Boolean;
+begin
+  Result := SetDateTimeInfo(APath, @ACreationTime, nil, nil);
+end;
+
+class function TFileUtils.SetLastAccessTime(const APath: string;
+  const ALastAccessTime: TDateTime): Boolean;
+begin
+  Result := SetDateTimeInfo(APath, nil, @ALastAccessTime, nil);
+end;
+
+class function TFileUtils.SetLastWriteTime(const APath: string;
+  const ALastWriteTime: TDateTime): Boolean;
+begin
+  Result := SetDateTimeInfo(APath, nil, nil, @ALastWriteTime);
+end;
+
+class function TFileUtils.SetDateTimeInfo(const APath: string;
+  const ACreationTime, ALastAccessTime, ALastWriteTime: PDateTime): Boolean;
+{$IFDEF MSWINDOWS}
+var
+  LFileHnd: THandle;
+  LFileAttr: Cardinal;
+  LFileCreationTime: PFileTime;
+  LFileLastAccessTime: PFileTime;
+  LFileLastWriteTime: PFileTime;
+begin
+  Result := False;
+
+  // establish what date-times must be set to the directory
+  LFileHnd := 0;
+  LFileCreationTime := nil;
+  LFileLastAccessTime := nil;
+  LFileLastWriteTime := nil;
+
+  try
+    try
+      if Assigned(ACreationTime) then
+      begin
+        New(LFileCreationTime);
+        LFileCreationTime^ := ConvertDateTimeToFileTime(ACreationTime^);
+      end;
+      if Assigned(ALastAccessTime) then
+      begin
+        New(LFileLastAccessTime);
+        LFileLastAccessTime^ := ConvertDateTimeToFileTime(ALastAccessTime^);
+      end;
+      if Assigned(ALastWriteTime) then
+      begin
+        New(LFileLastWriteTime);
+        LFileLastWriteTime^ := ConvertDateTimeToFileTime(ALastWriteTime^);
+      end;
+
+      // determine if APath points to a directory or a file
+      SetLastError(ERROR_SUCCESS);
+      LFileAttr := FileGetAttr(APath);
+      if LFileAttr and SysUtils.faDirectory <> 0 then
+        LFileAttr := FILE_FLAG_BACKUP_SEMANTICS
+      else
+        LFileAttr := FILE_ATTRIBUTE_NORMAL;
+
+      // set the new date-times to the directory or file
+      LFileHnd := CreateFileW(PChar(APath), GENERIC_WRITE, FILE_SHARE_WRITE, nil,
+        OPEN_EXISTING, LFileAttr, 0);
+
+      if LFileHnd <> INVALID_HANDLE_VALUE then
+        Result := SetFileTime(LFileHnd, LFileCreationTime, LFileLastAccessTime, LFileLastWriteTime);
+    except
+      on E: EConvertError do
+        raise EArgumentOutOfRangeException.Create(E.Message); {?}
+    end;
+  finally
+    CloseHandle(LFileHnd);
+    SetLastError(ERROR_SUCCESS);
+
+    Dispose(LFileCreationTime);
+    Dispose(LFileLastAccessTime);
+    Dispose(LFileLastWriteTime);
+  end;
+end;
+{$ENDIF}
+{$IFDEF POSIX}
+var
+  LFileName: Pointer;
+  LStatBuf: {$IFDEF DELPHI}_stat{$ELSE}Stat{$ENDIF};
+  LBuf: utimbuf;
+  ErrCode: Integer;
+  M: TMarshaller;
+begin
+  Result := False;
+
+  { Do nothing if no date/time passed. Ignore ACreationTime. Unixes do not support creation times for files. }
+  if (ALastAccessTime = nil) and (ALastWriteTime = nil) then
+    Exit;
+
+  LFileName := M.AsAnsi(APath, CP_UTF8).ToPointer;
+
+  { Obtain the file times. lstat may fail }
+  if ((ALastAccessTime = nil) or (ALastWriteTime = nil)) then
+  begin
+    ErrCode := {$IFDEF DELPHI}Stat{$ELSE}fpStat{$ENDIF}(LFileName, LStatBuf);
+
+    { Fail if we can't access the file properly }
+    if ErrCode <> 0 then
+      Exit; // Fail here prematurely. Do not chnage file times if we failed to fetch the old ones.
+  end;
+
+  try
+    { Preserve of set the new value }
+    if ALastAccessTime <> nil then
+      LBuf.actime := ConvertDateTimeToFileTime(ALastAccessTime^)
+    else
+      LBuf.actime := LStatBuf.st_atime;
+
+    { Preserve of set the new value }
+    if ALastWriteTime <> nil then
+      LBuf.modtime := ConvertDateTimeToFileTime(ALastWriteTime^)
+    else
+      LBuf.modtime := LStatBuf.st_mtime;
+
+    { Call utime to set the file times }
+    {$IFDEF DELPHI}
+    Result := (utime(LFileName, LBuf) = 0);
+    {$ELSE}
+    Result := (fpUTime(LFileName, @LBuf) = 0);
+    {$ENDIF}
+  except
+    on E: EConvertError do // May rise in ConvertDateTimeToFileTime
+      raise EArgumentOutOfRangeException.Create(E.Message); {?}
+  end;
+end;
+{$ENDIF}
 
 class procedure TFileUtils.WriteAllBytes(const AFileName: string;
   const ABytes: TBytes);
@@ -386,7 +610,7 @@ begin
             faDirectory: // remove empty directories
               RemoveDir(LCompletePath);
             0: // remove files
-              DeleteFile(LCompletePath);
+              SysUtils.DeleteFile(LCompletePath);
           end;
         end;
       end;
@@ -452,6 +676,25 @@ begin
   Result := LResultArray;
 end;
 
+class function TDirectoryUtils.GetDirectories(const APath,
+  ASearchPattern: string; const APredicate: TFilterPredicate): TArray<string>;
+begin
+  Result := GetDirectories(APath, ASearchPattern, TSearchOption.soTopDirectoryOnly, APredicate);
+end;
+
+class function TDirectoryUtils.GetDirectories(const APath: string;
+  const ASearchOption: TSearchOption;
+  const APredicate: TFilterPredicate): TArray<string>;
+begin
+  Result := GetDirectories(APath, '*', ASearchOption, APredicate);
+end;
+
+class function TDirectoryUtils.GetDirectories(const APath: string;
+  const APredicate: TFilterPredicate): TArray<string>;
+begin
+  Result := GetDirectories(APath, '*', TSearchOption.soTopDirectoryOnly, APredicate);
+end;
+
 class function TDirectoryUtils.GetFiles(const APath, ASearchPattern: string;
   const ASearchOption: TSearchOption;
   const APredicate: TFilterPredicate): TArray<string>;
@@ -494,6 +737,25 @@ begin
   SetLength(LResultArray, I);
 
   Result := LResultArray;
+end;
+
+class function TDirectoryUtils.GetFiles(const APath, ASearchPattern: string;
+  const APredicate: TFilterPredicate): TArray<string>;
+begin
+  Result := GetFiles(APath, ASearchPattern, TSearchOption.soTopDirectoryOnly, APredicate);
+end;
+
+class function TDirectoryUtils.GetFiles(const APath: string;
+  const ASearchOption: TSearchOption;
+  const APredicate: TFilterPredicate): TArray<string>;
+begin
+  Result := GetFiles(APath, '*', ASearchOption, APredicate);
+end;
+
+class function TDirectoryUtils.GetFiles(const APath: string;
+  const APredicate: TFilterPredicate): TArray<string>;
+begin
+  Result := GetFiles(APath, '*', TSearchOption.soTopDirectoryOnly, APredicate);
 end;
 
 class function TDirectoryUtils.GetFileSystemEntries(const APath,
@@ -540,6 +802,158 @@ begin
   Result := LResultArray;
 end;
 
+class function TDirectoryUtils.GetFileSystemEntries(const APath,
+  ASearchPattern: string; const APredicate: TFilterPredicate): TArray<string>;
+begin
+  Result := GetFileSystemEntries(APath, ASearchPattern, TSearchOption.soTopDirectoryOnly, APredicate);
+end;
+
+class function TDirectoryUtils.GetFileSystemEntries(const APath: string;
+  const ASearchOption: TSearchOption;
+  const APredicate: TFilterPredicate): TArray<string>;
+begin
+  Result := GetFileSystemEntries(APath, '*', ASearchOption, APredicate);
+end;
+
+class function TDirectoryUtils.GetFileSystemEntries(const APath: string;
+  const APredicate: TFilterPredicate): TArray<string>;
+begin
+  Result := GetFileSystemEntries(APath, '*', TSearchOption.soTopDirectoryOnly, APredicate);
+end;
+
+class function TDirectoryUtils.GetLogicalDrives: TArray<string>;
+{$IFDEF MSWINDOWS}
+var
+  LBuff: string;
+  LCurrDrive: PChar;
+  LBuffLen: Integer;
+  LErrCode: Cardinal;
+begin
+  Result := nil;
+
+  // get the drive strings in a PChar buffer
+  SetLastError(ERROR_SUCCESS);
+  LBuffLen := GetLogicalDriveStrings(0, nil);
+  SetLength(LBuff, LBuffLen);
+  LErrCode := GetLogicalDriveStrings(LBuffLen, PChar(LBuff));
+
+  // extract the drive strings from the PChar buffer into the Result array
+  if (LErrCode <> 0) then
+  begin
+    LCurrDrive := PChar(LBuff);
+    repeat
+      SetLength(Result, Length(Result) + 1);
+      Result[Length(Result) - 1] := LCurrDrive;
+
+      LCurrDrive := StrEnd(LCurrDrive) + 1;
+    until (LCurrDrive^ = #0);
+  end;
+end;
+{$ELSE}
+begin
+  { Posix does not support file drives }
+  SetLength(Result, 0);
+end;
+{$ENDIF}
+
+class function TDirectoryUtils.Move(const ASourceDirName,
+  ADestDirName: string): Boolean;
+var
+  LPreCallback: TDirectoryWalkProc;
+  LPostCallback: TDirectoryWalkProc;
+begin
+  Result := False;
+
+  LPreCallback :=
+    function (const APath: string; const AFileInfo: TSearchRec): Boolean
+    var
+      LCompletePath: string;
+    begin
+      Result := True;
+
+      // mirror each directory at the destination
+      if (AFileInfo.Attr and SysUtils.faDirectory <> 0) and
+         (AFileInfo.Name <> TPathUtils.CURRENT_DIR) and (AFileInfo.Name <> TPathUtils.PARENT_DIR) then
+      begin
+        // the destination is the one given by ADestDirName
+        if SameFileName(ASourceDirName, APath) then
+          LCompletePath := ADestDirName
+        // get the difference between APath and ASourceDirName
+        else
+          LCompletePath := TPathUtils.Combine(ADestDirName,
+            TStrUtils.StuffString(APath, 1, Length(ASourceDirName) + Length(TPathUtils.DIRECTORY_SEPARATOR_CHAR), ''));
+        LCompletePath := TPathUtils.Combine(LCompletePath, AFileInfo.Name);
+
+        CreateDir(LCompletePath);
+      end;
+    end;
+
+  LPostCallback :=
+    function (const APath: string; const AFileInfo: TSearchRec): Boolean
+    var
+      LCompleteSrc: string;
+      LCompleteDest: string;
+    begin
+      Result := True;
+
+      if (AFileInfo.Name <> TPathUtils.CURRENT_DIR) and (AFileInfo.Name <> TPathUtils.PARENT_DIR) then
+      begin
+        case AFileInfo.Attr and SysUtils.faDirectory of
+          SysUtils.faDirectory: // remove directories at source
+            begin
+              LCompleteSrc := TPathUtils.Combine(APath, AFileInfo.Name);
+
+              // clear read-only, system and hidden attributes that can compromise
+              // the deletion and then remove the directory at source
+{$IFDEF MSWINDOWS}
+              FileSetAttr(LCompleteSrc, SysUtils.faNormal);
+{$ENDIF}
+              RemoveDir(LCompleteSrc);
+            end;
+
+          0: // move files from source to destination
+            begin
+              // determine the complete source and destination paths
+              LCompleteSrc := TPathUtils.Combine(APath, AFileInfo.Name);
+
+              // the destination is the one given by ADestDirName
+              if SameFileName(ASourceDirName, APath) then
+                LCompleteDest := ADestDirName
+              // get the difference between APath and ASourceDirName
+              else
+                LCompleteDest := TPathUtils.Combine(ADestDirName,
+                  TStrUtils.StuffString(APath, 1, Length(ASourceDirName) + Length(TPathUtils.DIRECTORY_SEPARATOR_CHAR), ''));
+              // add the file name to the destination
+              LCompleteDest := TPathUtils.Combine(LCompleteDest, AFileInfo.Name);
+
+              // clear read-only, system and hidden attributes that can compromise
+              // the file displacement, move the file and reset the original
+              // file attributes
+{$IFDEF MSWINDOWS}
+              FileSetAttr(LCompleteSrc, SysUtils.faNormal);
+{$ENDIF MSWINDOWS}
+              RenameFile(LCompleteSrc, LCompleteDest);
+{$IFDEF MSWINDOWS}
+              FileSetAttr(LCompleteDest, AFileInfo.Attr);
+{$ENDIF MSWINDOWS}
+            end;
+        end;
+      end;
+    end;
+
+    // create the destination directory
+    TDirectoryUtils.CreateDirectory(ADestDirName);
+
+    // move all directories and files
+    WalkThroughDirectory(ASourceDirName, '*', LPreCallback, LPostCallback, True); // DO NOT LOCALIZE
+
+    // delete the remaining source directory
+{$IFDEF MSWINDOWS}
+    FileSetAttr(ASourceDirName, SysUtils.faDirectory);
+{$ENDIF MSWINDOWS}
+    RemoveDir(ASourceDirName);
+end;
+
 class procedure TDirectoryUtils.WalkThroughDirectory(const APath,
   APattern: string; const APreCallback, APostCallback: TDirectoryWalkProc;
   const ARecursive: Boolean);
@@ -548,7 +962,7 @@ var
   LMatch: Boolean;
   LStop: Boolean;
 begin
-  if FindFirst(TPathUtils.Combine(APath, '*'), faAnyFile, LSearchRec) = 0 then // DO NOT LOCALIZE
+  if SysUtils.FindFirst(TPathUtils.Combine(APath, '*'), faAnyFile, LSearchRec) = 0 then // DO NOT LOCALIZE
   try
     LStop := False;
 
@@ -572,9 +986,9 @@ begin
         if LMatch and Assigned(APostCallback) then
           LStop := not APostCallback(APath, LSearchRec);
       end;
-    until LStop or (FindNext(LSearchRec) <> 0);
+    until LStop or (SysUtils.FindNext(LSearchRec) <> 0);
   finally
-    FindClose(LSearchRec);
+    SysUtils.FindClose(LSearchRec);
   end;
 end;
 
@@ -600,9 +1014,31 @@ begin
     Result := APath1 + APathDelim + APath2;
 end;
 
+class function TPathUtils.ChangeExtension(const APath,
+  AExtension: string): string;
+var
+  LSeparatorIdx: Integer;
+begin
+  if (APath = '') then Exit('');
+
+  LSeparatorIdx := GetExtensionSeparatorPos(APath);
+
+  if (LSeparatorIdx <= 0) then
+    Result := APath
+  else
+    Result := System.Copy(APath, 1, LSeparatorIdx - 1);
+
+  if (AExtension = '') then Exit;
+
+  if (AExtension[1] <> EXTENSION_SEPARATOR_CHAR) then
+    Result := Result + EXTENSION_SEPARATOR_CHAR;
+
+  Result := Result + AExtension;
+end;
+
 class function TPathUtils.Combine(const APath1, APath2: string): string;
 begin
-  Result := Combine(APath1, APath2, PathDelim);
+  Result := Combine(APath1, APath2, DIRECTORY_SEPARATOR_CHAR);
 end;
 
 class function TPathUtils.GetDirectoryName(const AFileName: string): string;
@@ -622,7 +1058,7 @@ var
 begin
   for I := Length(AFileName) downto 1 do
   begin
-    if (AFileName[I] = '.') then
+    if (AFileName[I] = EXTENSION_SEPARATOR_CHAR) then
       Exit(I);
   end;
 

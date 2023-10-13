@@ -1327,7 +1327,7 @@ begin
   if (APath = '') then
     APath := '/';
 
-  Result := True;
+  Result := (AHost <> '');
 end;
 
 class function TCrossHttpUtils.GetFileMIMEType(const AFileName: string): string;

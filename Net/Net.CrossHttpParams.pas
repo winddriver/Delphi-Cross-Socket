@@ -2290,7 +2290,7 @@ var
   I: Integer;
   LFormFieldEx: TFormFieldEx;
   LContentType, LPartHeaderStr: string;
-  LBoundary: TBytes;
+  LPartHeaderBytes, LBoundary: TBytes;
   LOffset: Int64;
 begin
   {
@@ -2375,8 +2375,10 @@ begin
     end;
     LPartHeaderStr := LPartHeaderStr + #13#10;
 
+    LPartHeaderBytes := TEncoding.UTF8.GetBytes(LPartHeaderStr);
+
     LFormFieldEx.Header := LBoundary + [13, 10]
-      + TEncoding.UTF8.GetBytes(LPartHeaderStr);
+      + LPartHeaderBytes;
 
     Inc(FSize, LFormFieldEx.HeaderSize);
     Inc(FSize, LFormFieldEx.DataSize);

@@ -36,7 +36,7 @@ uses
   Utils.IOUtils,
   Utils.SyncObjs,
   Utils.EasyTimer,
-  Utils.Logger;
+  Utils.Utils;
 
 const
   CROSS_HTTP_CLIENT_NAME = 'CrossHttpClient/1.0';
@@ -738,10 +738,10 @@ type
   TCrossHttpClient = class(TInterfacedObject, ICrossHttpClient)
   private
     FCompressType: TCompressType;
-    FHttpCli, FHttpsCli: ICrossHttpClientSocket;
     FIoThreads: Integer;
     FLock: ILock;
     FTimer: IEasyTimer;
+    FHttpCli, FHttpsCli: ICrossHttpClientSocket;
 
     procedure _Lock; inline;
     procedure _Unlock; inline;
@@ -752,6 +752,7 @@ type
   public
     constructor Create(const AIoThreads: Integer = 2;
       const ACompressType: TCompressType = ctNone);
+    destructor Destroy; override;
 
     {$region '裸数据请求'}
     // 所有请求方法的核心
@@ -1095,6 +1096,8 @@ begin
     end,
     // BODY
     function(const AData: PPointer; const ADataSize: PNativeInt): Boolean
+    var
+      LChunkSizeBytes: TBytes;
     begin
       if not LChunked then Exit(False);
 
@@ -1127,7 +1130,8 @@ begin
               LChunkHeader := [13, 10];
             end;
 
-            LChunkHeader := LChunkHeader + TEncoding.ANSI.GetBytes(IntToHex(LChunkSize, 0)) + [13, 10];
+            LChunkSizeBytes := TEncoding.ANSI.GetBytes(IntToHex(LChunkSize, 0));
+            LChunkHeader := LChunkHeader + LChunkSizeBytes + [13, 10];
 
             LChunkState := csBody;
 
@@ -2045,6 +2049,17 @@ begin
     5000);
 end;
 
+destructor TCrossHttpClient.Destroy;
+begin
+  if (FHttpCli <> nil) then
+    FHttpCli.StopLoop;
+
+  if (FHttpsCli <> nil) then
+    FHttpsCli.StopLoop;
+
+  inherited;
+end;
+
 function TCrossHttpClient.CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket;
 begin
   if TStrUtils.SameText(AProtocol, HTTP) then
@@ -2357,7 +2372,6 @@ begin
     LReqBytes := TEncoding.ANSI.GetBytes(ARequestBody.Encode)
   else
     LReqBytes := nil;
-
   DoRequest(AMethod, AUrl, AHttpHeaders,
     LReqBytes,
     AResponseStream,
