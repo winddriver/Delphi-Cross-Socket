@@ -37,6 +37,7 @@ uses
   Utils.Hash,
   Utils.RegEx,
   Utils.SyncObjs,
+  Utils.ArrayUtils,
   Utils.Logger;
 
 const
@@ -2328,7 +2329,7 @@ begin
   // 通配符*转正则表达式
   LPattern := TRegEx.Replace(LPattern, '(?<!\.)\*', '.*');
 
-  if not LPattern.StartsWith('^') then
+  if not LPattern.StartsWith('^', True) then
     LPattern := '^' + LPattern;
   if not LPattern.EndsWith('$') then
     LPattern := LPattern + '$';
@@ -2411,7 +2412,7 @@ begin
   // 通配符*转正则表达式
   LPattern := TRegEx.Replace(LPattern, '(?<!\.)\*', '.*');
 
-  if not LPattern.StartsWith('^') then
+  if not LPattern.StartsWith('^', True) then
     LPattern := '^' + LPattern;
   if not LPattern.EndsWith('$') then
     LPattern := LPattern + '$';
@@ -4157,66 +4158,85 @@ const
   CHUNK_END: array [0..6] of Byte = (13, 10, 48, 13, 10, 13, 10); // \r\n0\r\n\r\n
 var
   LHeaderBytes, LChunkHeader: TBytes;
-  LIsFirstChunk: Boolean;
+  LChunked, LIsFirstChunk: Boolean;
   LChunkState: TChunkState;
   LChunkData: Pointer;
   LChunkSize: NativeInt;
 begin
+  // 先取出第一个数据块
+  // 如果有数据才需要使用 chunked 方式发送数据
+  if Assigned(AChunkSource) then
+  begin
+    LChunked := AChunkSource(@LChunkData, @LChunkSize)
+      and (LChunkData <> nil)
+      and (LChunkSize > 0);
+  end else
+    LChunked := False;
+
   LIsFirstChunk := True;
   LChunkState := csHead;
 
   _Send(
     // HEADER
-    function(const AData: PPointer; const ACount: PNativeInt): Boolean
+    function(const AData: PPointer; const ADataSize: PNativeInt): Boolean
     begin
-      LHeaderBytes := _CreateHeader(0, True);
+      LHeaderBytes := _CreateHeader(0, LChunked);
 
       AData^ := @LHeaderBytes[0];
-      ACount^ := Length(LHeaderBytes);
+      ADataSize^ := Length(LHeaderBytes);
 
-      Result := (ACount^ > 0);
+      Result := (ADataSize^ > 0);
     end,
     // BODY
-    function(const AData: PPointer; const ACount: PNativeInt): Boolean
-    var
-      LChunkSizeBytes: TBytes;
+    function(const AData: PPointer; const ADataSize: PNativeInt): Boolean
     begin
+      if not LChunked then Exit(False);
+
       case LChunkState of
         csHead:
           begin
-            LChunkData := nil;
-            LChunkSize := 0;
-            if not Assigned(AChunkSource)
-              or not AChunkSource(@LChunkData, @LChunkSize)
-              or (LChunkData = nil)
-              or (LChunkSize <= 0) then
+            if LIsFirstChunk then
             begin
-              LChunkState := csDone;
+              LIsFirstChunk := False;
+              LChunkHeader := [];
+            end else
+            begin
+              LChunkData := nil;
+              LChunkSize := 0;
+              if not Assigned(AChunkSource)
+                or not AChunkSource(@LChunkData, @LChunkSize)
+                or (LChunkData = nil)
+                or (LChunkSize <= 0) then
+              begin
+                LChunkState := csDone;
 
-              AData^ := @CHUNK_END[0];
-              ACount^ := Length(CHUNK_END);
+                AData^ := @CHUNK_END[0];
+                ADataSize^ := Length(CHUNK_END);
 
-              Result := (ACount^ > 0);
+                Result := (ADataSize^ > 0);
 
-              Exit;
+                Exit;
+              end;
+
+              LChunkHeader := [13, 10];
             end;
 
             // FPC编译器在Linux下有BUG(FPC 3.3.1)
             // 无法将函数返回的字节数组直接与其它字节数组使用加号拼接
-            // 必须借助中间变量才行, 否则拼接的结果是错的, 相当无语
-            LChunkSizeBytes := TEncoding.ANSI.GetBytes(IntToHex(LChunkSize, 0));
-            LChunkHeader := LChunkSizeBytes + [13, 10];
-            if LIsFirstChunk then
-              LIsFirstChunk := False
-            else
-              LChunkHeader := [13, 10] + LChunkHeader;
+            // 实际上使用加号拼接字节数组还有其它各种异常
+            // 所以改用我的TArrayUtils.Concat进行拼接
+            LChunkHeader := TArrayUtils<Byte>.Concat([
+              LChunkHeader,
+              TEncoding.ANSI.GetBytes(IntToHex(LChunkSize, 0)),
+              [13, 10]
+            ]);
 
             LChunkState := csBody;
 
             AData^ := @LChunkHeader[0];
-            ACount^ := Length(LChunkHeader);
+            ADataSize^ := Length(LChunkHeader);
 
-            Result := (ACount^ > 0);
+            Result := (ADataSize^ > 0);
           end;
 
         csBody:
@@ -4224,9 +4244,9 @@ begin
             LChunkState := csHead;
 
             AData^ := LChunkData;
-            ACount^ := LChunkSize;
+            ADataSize^ := LChunkSize;
 
-            Result := (ACount^ > 0);
+            Result := (ADataSize^ > 0);
           end;
 
         csDone:
@@ -4494,7 +4514,7 @@ begin
 
   if AChunked then
     FHeader[HEADER_TRANSFER_ENCODING] := 'chunked'
-  else
+  else if (ABodySize > 0) then
     FHeader[HEADER_CONTENT_LENGTH] := ABodySize.ToString;
 
   if (FHeader[HEADER_CROSS_HTTP_SERVER] = '') then

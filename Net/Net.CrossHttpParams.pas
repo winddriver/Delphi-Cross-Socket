@@ -37,6 +37,7 @@ uses
   Utils.DateTime,
   Utils.StrUtils,
   Utils.SyncObjs,
+  Utils.ArrayUtils,
   Utils.Utils;
 
 type
@@ -1846,7 +1847,7 @@ begin
     FFirstBoundaryBytes := TEncoding.ANSI.GetBytes('--' + FBoundary);
 
     // 第二块及以后的数据 Boundary 前面都会有 #13#10
-    FBoundaryBytes := [13, 10] + FFirstBoundaryBytes;
+    FBoundaryBytes := TArrayUtils<Byte>.Concat([13, 10], FFirstBoundaryBytes);
   end;
 end;
 
@@ -2329,7 +2330,7 @@ begin
   end;
 
   // 结尾数据
-  FMultiPartEnd := FMultiPartFormData.FBoundaryBytes + [45, 45, 13, 10];
+  FMultiPartEnd := TArrayUtils<Byte>.Concat(FMultiPartFormData.FBoundaryBytes, [45, 45, 13, 10]);
 
   LOffset := 0;
   FSize := 0;
@@ -2377,8 +2378,8 @@ begin
 
     LPartHeaderBytes := TEncoding.UTF8.GetBytes(LPartHeaderStr);
 
-    LFormFieldEx.Header := LBoundary + [13, 10]
-      + LPartHeaderBytes;
+    LFormFieldEx.Header := TArrayUtils<Byte>.Concat([
+      LBoundary, [13, 10], LPartHeaderBytes]);
 
     Inc(FSize, LFormFieldEx.HeaderSize);
     Inc(FSize, LFormFieldEx.DataSize);

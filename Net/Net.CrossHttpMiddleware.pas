@@ -102,7 +102,7 @@ begin
       LAuthStr := ARequest.Header['Authorization'];
       if (LAuthStr <> '') then
       begin
-        if (LAuthStr.StartsWith('Basic')) then
+        if (LAuthStr.StartsWith('Basic', True)) then
           LAuthStr := LAuthStr.Substring(6)
         else
           LAuthStr := '';
@@ -148,7 +148,7 @@ begin
       LAuthStr := ARequest.Header['Authorization'];
       if (LAuthStr <> '') then
       begin
-        if (LAuthStr.StartsWith('Digest')) then
+        if (LAuthStr.StartsWith('Digest', True)) then
           LAuthStr := LAuthStr.Substring(7)
         else
           LAuthStr := '';

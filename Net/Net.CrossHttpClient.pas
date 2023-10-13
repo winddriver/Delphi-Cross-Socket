@@ -36,6 +36,7 @@ uses
   Utils.IOUtils,
   Utils.SyncObjs,
   Utils.EasyTimer,
+  Utils.ArrayUtils,
   Utils.Utils;
 
 const
@@ -1096,8 +1097,6 @@ begin
     end,
     // BODY
     function(const AData: PPointer; const ADataSize: PNativeInt): Boolean
-    var
-      LChunkSizeBytes: TBytes;
     begin
       if not LChunked then Exit(False);
 
@@ -1130,8 +1129,15 @@ begin
               LChunkHeader := [13, 10];
             end;
 
-            LChunkSizeBytes := TEncoding.ANSI.GetBytes(IntToHex(LChunkSize, 0));
-            LChunkHeader := LChunkHeader + LChunkSizeBytes + [13, 10];
+            // FPC编译器在Linux下有BUG(FPC 3.3.1)
+            // 无法将函数返回的字节数组直接与其它字节数组使用加号拼接
+            // 实际上使用加号拼接字节数组还有其它各种异常
+            // 所以改用我的TArrayUtils.Concat进行拼接
+            LChunkHeader := TArrayUtils<Byte>.Concat([
+              LChunkHeader,
+              TEncoding.ANSI.GetBytes(IntToHex(LChunkSize, 0)), [
+              13, 10]
+            ]);
 
             LChunkState := csBody;
 
