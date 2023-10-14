@@ -34,7 +34,8 @@ uses
 
   Utils.DateTime,
   Utils.StrUtils,
-  Utils.Utils;
+  Utils.Utils,
+  System.StrUtils;
 
 type
   { TFileUtils }
@@ -191,8 +192,7 @@ var
 begin
   Result.dwLowDateTime := 0;
   Result.dwHighDateTime := 0;
-  ADateTime.Decode(LSysTime.wYear, LSysTime.wMonth, LSysTime.wDay,
-    LSysTime.wHour, LSysTime.wMinute, LSysTime.wSecond, LSysTime.wMilliseconds);
+  DateTimeToSystemTime(ADateTime, LSysTime);
 
   SystemTimeToFileTime(LSysTime, Result);
 end;
@@ -881,7 +881,7 @@ begin
         // get the difference between APath and ASourceDirName
         else
           LCompletePath := TPathUtils.Combine(ADestDirName,
-            TStrUtils.StuffString(APath, 1, Length(ASourceDirName) + Length(TPathUtils.DIRECTORY_SEPARATOR_CHAR), ''));
+            StuffString(APath, 1, Length(ASourceDirName) + Length(TPathUtils.DIRECTORY_SEPARATOR_CHAR), ''));
         LCompletePath := TPathUtils.Combine(LCompletePath, AFileInfo.Name);
 
         CreateDir(LCompletePath);
@@ -922,7 +922,7 @@ begin
               // get the difference between APath and ASourceDirName
               else
                 LCompleteDest := TPathUtils.Combine(ADestDirName,
-                  TStrUtils.StuffString(APath, 1, Length(ASourceDirName) + Length(TPathUtils.DIRECTORY_SEPARATOR_CHAR), ''));
+                  StuffString(APath, 1, Length(ASourceDirName) + Length(TPathUtils.DIRECTORY_SEPARATOR_CHAR), ''));
               // add the file name to the destination
               LCompleteDest := TPathUtils.Combine(LCompleteDest, AFileInfo.Name);
 
