@@ -11,14 +11,12 @@ uses
   Generics.Defaults,
   Math,
   Rtti,
-  TypInfo,
 
   {$IFDEF FPC}
   DTF.Types,
   DTF.Generics,
   {$ENDIF}
-
-  Utils.Rtti;
+  TypInfo;
 
 type
   TArrayUtils<T> = class
@@ -509,7 +507,7 @@ begin
   LStrArray := S.Split([ADelimiter], TStringSplitOptions.ExcludeEmpty);
   SetLength(Result, Length(LStrArray));
   for I := Low(LStrArray) to High(LStrArray) do
-    Result[I] := TRttiUtils.StrToType<T>(LStrArray[I]);
+    Result[I] := TValue.From(LStrArray[I]).AsType<T>;
 end;
 
 class function TArrayUtils<T>.Union(const AArray1, AArray2: array of T;
