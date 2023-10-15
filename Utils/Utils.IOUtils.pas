@@ -189,11 +189,7 @@ class function TFileUtils.ConvertDateTimeToFileTime(const ADateTime: TDateTime):
 var
   LSysTime: TSystemTime;
 begin
-  Result.dwLowDateTime := 0;
-  Result.dwHighDateTime := 0;
-  ADateTime.Decode(LSysTime.wYear, LSysTime.wMonth, LSysTime.wDay,
-    LSysTime.wHour, LSysTime.wMinute, LSysTime.wSecond, LSysTime.wMilliseconds);
-
+  DateTimeToSystemTime(ADateTime, LSysTime);
   SystemTimeToFileTime(LSysTime, Result);
 end;
 {$ELSE}
