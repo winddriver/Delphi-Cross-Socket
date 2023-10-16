@@ -416,6 +416,11 @@ type
     ///    套接字是否有效
     /// </summary>
     class function IsValidSocket(const ASocket: TSocket): Boolean; static;
+
+    /// <summary>
+    ///    标准化主机地址(主要是为IPv6补足[])
+    /// </summary>
+    class function StandardAddr(const AHost: string): string; static;
   end;
 
 implementation
@@ -614,6 +619,26 @@ begin
   Result := fpshutdown(ASocket, AHow);
   {$ENDIF DELPHI}
   {$ENDIF MSWINDOWS}
+end;
+
+class function TSocketAPI.StandardAddr(const AHost: string): string;
+var
+  LHost: string;
+begin
+  if (AHost = '') then Exit('');
+
+  LHost := AHost.Trim.ToLower;
+
+  // IPv6
+  if LHost.Contains(':') then
+  begin
+    if not LHost.StartsWith('[', True) then
+      LHost := '[' + LHost;
+    if not LHost.EndsWith(']', True) then
+      LHost := LHost + ']';
+  end;
+
+  Result := LHost;
 end;
 
 class function TSocketAPI.Connect(const ASocket: TSocket; const Addr: PSockAddr;
