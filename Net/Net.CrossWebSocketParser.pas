@@ -333,8 +333,12 @@ begin
 end;
 
 class function TWebSocketParser.NewSecWebSocketKey: string;
+var
+  LRand: Int64;
 begin
-  Result := TBase64Utils.Encode(TUtils.GetGUID);
+  Randomize;
+  LRand := Trunc(High(Int64) * Random());
+  Result := TBase64Utils.Encode(TUtils.BinToHex(@LRand, SizeOf(Int64)));
 end;
 
 class function TWebSocketParser.OpCodeToReqType(AOpCode: Byte): TWsMessageType;
