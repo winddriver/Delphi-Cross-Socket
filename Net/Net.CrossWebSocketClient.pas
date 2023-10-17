@@ -859,23 +859,26 @@ destructor TCrossWebSocket.Destroy;
 begin
   FStatus := wsShutdown;
 
-  _Lock;
-  try
-    if (FConnection <> nil) then
-    begin
-      FConnection.FWebSocket := nil;
-      FConnection.Close;
-      FConnection := nil;
+  if (FLock <> nil) then
+  begin
+    _Lock;
+    try
+      if (FConnection <> nil) then
+      begin
+        FConnection.FWebSocket := nil;
+        FConnection.Close;
+        FConnection := nil;
+      end;
+
+      FreeAndNil(FOnOpenEvents);
+      FreeAndNil(FOnMessageEvents);
+      FreeAndNil(FOnCloseEvents);
+
+      FreeAndNil(FOnPingEvents);
+      FreeAndNil(FOnPongEvents);
+    finally
+      _Unlock;
     end;
-
-    FreeAndNil(FOnOpenEvents);
-    FreeAndNil(FOnMessageEvents);
-    FreeAndNil(FOnCloseEvents);
-
-    FreeAndNil(FOnPingEvents);
-    FreeAndNil(FOnPongEvents);
-  finally
-    _Unlock;
   end;
 
   inherited;
@@ -1249,7 +1252,7 @@ var
 begin
   if (FDefault = nil) then
   begin
-    LDefault := TCrossWebSocketMgr.Create();
+    LDefault := TCrossWebSocketMgr.Create;
     if AtomicCmpExchange(Pointer(FDefault), Pointer(LDefault), nil) <> nil then
       LDefault := nil
     else

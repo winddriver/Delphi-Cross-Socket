@@ -930,9 +930,8 @@ begin
   else
   begin
     if IsConsole then
-      Writeln(S)
-    else
-      AppendLog(S);
+      Writeln(S);
+    AppendLog(S);
   end;
 end;
 
@@ -1020,6 +1019,8 @@ var
   LLConnectionArr: TArray<ICrossConnection>;
   LConnection: ICrossConnection;
 begin
+  if (FConnections = nil) then Exit;  
+
   _LockConnections;
   try
     LLConnectionArr := FConnections.Values.ToArray;
@@ -1036,6 +1037,8 @@ var
   LListenArr: TArray<ICrossListen>;
   LListen: ICrossListen;
 begin
+  if (FListens = nil) then Exit;
+  
   _LockListens;
   try
     LListenArr := FListens.Values.ToArray;
@@ -1078,6 +1081,8 @@ var
   LLConnectionArr: TArray<ICrossConnection>;
   LConnection: ICrossConnection;
 begin
+  if (FConnections = nil) then Exit;
+
   _LockConnections;
   try
     LLConnectionArr := FConnections.Values.ToArray;

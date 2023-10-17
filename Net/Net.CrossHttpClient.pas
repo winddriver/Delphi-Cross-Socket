@@ -738,6 +738,9 @@ type
 
   TCrossHttpClient = class(TInterfacedObject, ICrossHttpClient)
   private
+    class var FDefault: ICrossHttpClient;
+    class function GetDefault: ICrossHttpClient; static;
+  private
     FCompressType: TCompressType;
     FIoThreads: Integer;
     FLock: ILock;
@@ -815,6 +818,8 @@ type
       const AResponseStream: TStream;
       const AInitProc: TCrossHttpRequestInitProc;
       const ACallback: TCrossHttpResponseProc); overload;
+
+    class property &Default: ICrossHttpClient read GetDefault;
   end;
 
 const
@@ -2422,6 +2427,21 @@ begin
       if Assigned(ACallback) then
         ACallback(AResponse);
     end);
+end;
+
+class function TCrossHttpClient.GetDefault: ICrossHttpClient;
+var
+  LDefault: ICrossHttpClient;
+begin
+  if (FDefault = nil) then
+  begin
+    LDefault := TCrossHttpClient.Create;
+    if AtomicCmpExchange(Pointer(FDefault), Pointer(LDefault), nil) <> nil then
+      LDefault := nil
+    else
+      FDefault._AddRef;
+  end;
+  Result := FDefault;
 end;
 
 end.

@@ -25,6 +25,7 @@ type
     procedure SetPaused(const AValue: Boolean);
 
     procedure Terminate;
+    procedure WaitFor;
 
     property Name: string read GetName;
     property Paused: Boolean read GetPaused write SetPaused;
@@ -34,8 +35,7 @@ type
   private
     FEasyThread: IEasyThread;
     FName: string;
-    FDelay: Integer;
-    FInterval: Integer;
+    FDelay, FInterval: Int64;
     FPaused: Boolean;
 
     function GetName: string;
@@ -45,14 +45,16 @@ type
     class function _FullDateTime(const ADateTime: TDateTime): TDateTime; static;
   public
     constructor Create(const AName: string; const AProc: TProc;
-      const ADelay, AInterval: Integer); overload;
+      const ADelay, AInterval: Int64; const APaused: Boolean = False); overload;
     constructor Create(const AName: string; const AProc: TProc;
-      const AInterval: Integer); overload;
+      const AInterval: Int64; const APaused: Boolean = False); overload;
     constructor Create(const AName: string; const AProc: TProc;
-      const AStartTime: TDateTime; const AInterval: Integer); overload;
+      const AStartTime: TDateTime; const AInterval: Int64;
+      const APaused: Boolean = False); overload;
     destructor Destroy; override;
 
     procedure Terminate;
+    procedure WaitFor;
 
     property Name: string read GetName;
     property Paused: Boolean read GetPaused write SetPaused;
@@ -63,7 +65,7 @@ implementation
 { TEasyTimer }
 
 constructor TEasyTimer.Create(const AName: string; const AProc: TProc;
-  const ADelay, AInterval: Integer);
+  const ADelay, AInterval: Int64; const APaused: Boolean = False);
 var
   LFirstRun: Boolean;
   LElMSec: Int64;
@@ -72,6 +74,7 @@ begin
   FDelay := ADelay;
   FInterval := AInterval;
   LFirstRun := True;
+  FPaused := APaused;
 
   FEasyThread := TEasyThread.Create(
     procedure(const AEasyThread: IEasyThread)
@@ -121,21 +124,24 @@ begin
 end;
 
 constructor TEasyTimer.Create(const AName: string; const AProc: TProc;
-  const AInterval: Integer);
+  const AInterval: Int64; const APaused: Boolean = False);
 begin
-  Create(AName, AProc, 0, AInterval);
+  Create(AName, AProc, 0, AInterval, APaused);
 end;
 
 constructor TEasyTimer.Create(const AName: string; const AProc: TProc;
-  const AStartTime: TDateTime; const AInterval: Integer);
+  const AStartTime: TDateTime; const AInterval: Int64;
+  const APaused: Boolean = False);
 begin
-  Create(AName, AProc,  _FullDateTime(AStartTime).MilliSecondsDiffer(Now), AInterval);
+  Create(AName, AProc,
+    _FullDateTime(AStartTime).MilliSecondsDiffer(Now),
+    AInterval, APaused);
 end;
 
 destructor TEasyTimer.Destroy;
 begin
-  FEasyThread.Terminate;
-  FEasyThread.WaitFor;
+  Terminate;
+  WaitFor;
 
   inherited;
 end;
@@ -158,6 +164,11 @@ end;
 procedure TEasyTimer.Terminate;
 begin
   FEasyThread.Terminate;
+end;
+
+procedure TEasyTimer.WaitFor;
+begin
+  FEasyThread.WaitFor;
 end;
 
 class function TEasyTimer._FullDateTime(const ADateTime: TDateTime): TDateTime;
