@@ -579,8 +579,8 @@ type
     FRequest: ICrossHttpClientRequest;
     FResponse: ICrossHttpClientResponse;
 
-    procedure _BeginRequest; inline;
-    procedure _EndRequest; inline;
+    procedure _BeginRequest; //inline;
+    procedure _EndRequest; //inline;
     function _IsIdle: Boolean; inline;
     procedure _UpdateWatch;
     function _IsTimeout: Boolean;
@@ -1978,7 +1978,7 @@ var
   LHttpConnObj: TCrossHttpClientConnection;
 begin
   {$region '先从已有连接中找空闲的连接'}
-  if ReUseConnection(AProtocol) then
+   if ReUseConnection(AProtocol) then
   begin
     LConns := LockConnections;
     try
@@ -1993,6 +1993,7 @@ begin
           and (LHttpConnObj.FPort = APort)
           and LHttpConnObj._IsIdle then
         begin
+          LHttpConnObj._BeginRequest;
           if Assigned(ACallback) then
             ACallback(LHttpConn);
 

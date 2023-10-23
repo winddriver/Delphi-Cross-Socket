@@ -316,6 +316,8 @@ var
   LFileStream: TFileStream;
   LFileSize: Int64;
 begin
+  if not Exists(AFileName) then Exit(nil);
+
   LFileStream := nil;
   try
     LFileStream := OpenRead(AFileName);
@@ -413,9 +415,12 @@ begin
     CloseHandle(LFileHnd);
     SetLastError(ERROR_SUCCESS);
 
-    Dispose(LFileCreationTime);
-    Dispose(LFileLastAccessTime);
-    Dispose(LFileLastWriteTime);
+    if Assigned(LFileCreationTime) then
+      Dispose(LFileCreationTime);
+    if Assigned(LFileLastAccessTime) then
+      Dispose(LFileLastAccessTime);
+    if Assigned(LFileLastWriteTime) then
+      Dispose(LFileLastWriteTime);
   end;
 end;
 {$ENDIF}

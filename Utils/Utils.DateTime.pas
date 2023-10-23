@@ -84,6 +84,9 @@ type
     property Second: Word read GetSecond write SetSecond;
     property Millisecond: Word read GetMillisecond write SetMillisecond;
 
+    procedure Decode(out AYear, AMonth, ADay,
+      AHour, AMinute, ASecond, AMilliSecond: Word);
+
     function ToString(const AFormatStr: string = ''): string; overload; inline;
     function ToISO8601(const AIsUtcDateTime: Boolean = False): string;
     function ToRFC1123(const AIsUtcDateTime: Boolean = False): string;
@@ -154,6 +157,7 @@ type
 
     function ToUniversalTime(const AForceDaylight: Boolean = False): TDateTime; inline;
     function ToLocalTime: TDateTime; inline;
+    function ToTimeStamp: TTimeStamp; inline;
   end;
 
 implementation
@@ -246,6 +250,13 @@ end;
 function TDateTimeHelper.DecMonths(const ANumberOfMonths: Integer): TDateTime;
 begin
   Result := AddMonths(0 - ANumberOfMonths);
+end;
+
+procedure TDateTimeHelper.Decode(out AYear, AMonth, ADay, AHour, AMinute,
+  ASecond, AMilliSecond: Word);
+begin
+  DecodeDate(Self, AYear, AMonth, ADay);
+  DecodeTime(Self, AHour, AMinute, ASecond, AMilliSecond);
 end;
 
 function TDateTimeHelper.DecSeconds(const ANumberOfSeconds: Int64): TDateTime;
@@ -566,7 +577,7 @@ function TDateTimeHelper.ToMilliseconds: Int64;
 var
   LTimeStamp: TTimeStamp;
 begin
-  LTimeStamp := DateTimeToTimeStamp(Self);
+  LTimeStamp := Self.ToTimeStamp;
   Result := (Int64(LTimeStamp.Date) * MSecsPerDay) + LTimeStamp.Time;
 end;
 
@@ -596,6 +607,11 @@ begin
     Result := DateToStr(Self)
   else
     Result := FormatDateTime(AFormatStr, Self);
+end;
+
+function TDateTimeHelper.ToTimeStamp: TTimeStamp;
+begin
+  Result := DateTimeToTimeStamp(Self);
 end;
 
 function TDateTimeHelper.ToUniversalTime(

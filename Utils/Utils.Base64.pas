@@ -17,8 +17,11 @@ uses
 type
   TBase64Utils = class
   public
-    class function Decode(const ABase64Str: string): TBytes; static;
+    class function Decode(const ABase64Bytes: TBytes; out ABytes: TBytes): Boolean; overload; static;
+    class function Decode(const ABase64Str: string): TBytes; overload; static;
+    class function Decode(const ABase64Bytes: TBytes): TBytes; overload; static;
 
+    class function Encode(const ABytes: TBytes; out ABase64Bytes: TBytes): Boolean; overload; static;
     class function Encode(const ABytes: TBytes): string; overload; static;
     class function Encode(const AStream: TStream): string; overload; static;
     class function Encode(const AStr: string): string; overload; static;
@@ -28,10 +31,12 @@ implementation
 
 { TBase64Utils }
 
-class function TBase64Utils.Decode(const ABase64Str: string): TBytes;
+class function TBase64Utils.Decode(const ABase64Bytes: TBytes;
+  out ABytes: TBytes): Boolean;
 {$IFDEF DELPHI}
 begin
-  Result := TNetEncoding.Base64.DecodeStringToBytes(ABase64Str);
+  ABytes := TNetEncoding.Base64.Decode(ABase64Bytes);
+  Result := True;
 end;
 {$ELSE}
 var
@@ -39,10 +44,11 @@ var
   LSrc, LDst: TBytesStream;
   LSize: Integer;
 begin
-  Result := nil;
-  if (ABase64Str = '') then Exit;
+  Result := True;
+  ABytes := nil;
+  if (ABase64Bytes = nil) then Exit;
 
-  LSrc := TBytesStream.Create(TEncoding.UTF8.GetBytes(ABase64Str));
+  LSrc := TBytesStream.Create(ABase64Bytes);
   LSrc.Position := 0;
   LDec := TBase64DecodingStream.Create(LSrc);
   try
@@ -53,8 +59,8 @@ begin
     try
       LDst.CopyFrom(LDec, LSize);
 
-      Result := LDst.Bytes;
-      SetLength(Result, LSize);
+      ABytes := LDst.Bytes;
+      SetLength(ABytes, LSize);
     finally
       FreeAndNil(LDst);
     end;
@@ -65,16 +71,32 @@ begin
 end;
 {$ENDIF}
 
-class function TBase64Utils.Encode(const ABytes: TBytes): string;
+class function TBase64Utils.Decode(const ABase64Str: string): TBytes;
+begin
+  Decode(TEncoding.UTF8.GetBytes(ABase64Str), Result);
+end;
+
+class function TBase64Utils.Decode(const ABase64Bytes: TBytes): TBytes;
+begin
+  Decode(ABase64Bytes, Result);
+end;
+
+class function TBase64Utils.Encode(const ABytes: TBytes;
+  out ABase64Bytes: TBytes): Boolean;
 {$IFDEF DELPHI}
 begin
-  Result := TNetEncoding.Base64.EncodeBytesToString(ABytes);
+  ABase64Bytes := TNetEncoding.Base64.Encode(ABytes);
+  Result := True;
 end;
 {$ELSE}
 var
   LEnc: TBase64EncodingStream;
   LSrc, LDst: TBytesStream;
 begin
+  Result := True;
+  ABase64Bytes := nil;
+  if (ABytes = nil) then Exit;
+
   LSrc := TBytesStream.Create(ABytes);
   LDst := TBytesStream.Create(nil);
   LEnc := TBase64EncodingStream.Create(LDst);
@@ -82,7 +104,8 @@ begin
     LEnc.CopyFrom(LSrc, LSrc.Size);
     LEnc.Flush;
 
-    SetString(Result, MarshaledAString(LDst.Memory), LDst.Size);
+    ABase64Bytes := LDst.Bytes;
+    SetLength(ABase64Bytes, LDst.Size);
   finally
     FreeAndNil(LEnc);
     FreeAndNil(LSrc);
@@ -90,6 +113,14 @@ begin
   end;
 end;
 {$ENDIF}
+
+class function TBase64Utils.Encode(const ABytes: TBytes): string;
+var
+  LBase64Bytes: TBytes;
+begin
+  Encode(ABytes, LBase64Bytes);
+  Result := TEncoding.UTF8.GetString(LBase64Bytes);
+end;
 
 class function TBase64Utils.Encode(const AStream: TStream): string;
 var

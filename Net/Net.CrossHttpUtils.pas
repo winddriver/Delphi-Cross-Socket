@@ -1226,7 +1226,13 @@ type
 
     class function ExtractUrl(const AUrl: string; out AProtocol, AHost: string;
       out APort: Word; out APath: string): Boolean; static;
+
     class function CombinePath(const APath1, APath2: string; const APathDelim: Char = '/'): string; static;
+    class function IsSamePath(const APath1, APath2: string): Boolean; static;
+
+    class function HtmlEncode(const AInput: string): string; static;
+    class function HtmlDecode(const AInput: string): string; static;
+
     class function UrlEncode(const S: string; const ANoConversion: TSysCharSet = []): string; static;
     class function UrlDecode(const S: string): string; static;
   end;
@@ -1242,6 +1248,150 @@ begin
   for LStatusItem in STATUS_CODES do
     if (LStatusItem.Code = AStatusCode) then Exit(LStatusItem.Text);
   Result := AStatusCode.ToString;
+end;
+
+class function TCrossHttpUtils.HtmlDecode(const AInput: string): string;
+var
+  LSp, LRp, LCp, LTp: PChar;
+  LStr: string;
+  I, LCode: Integer;
+  LValid: Boolean;
+begin
+  SetLength(Result, Length(AInput));
+  LSp := PChar(AInput);
+  LRp := PChar(Result);
+  while LSp^ <> #0 do
+  begin
+    case LSp^ of
+      '&':
+        begin
+          LCp := LSp;
+          Inc(LSp);
+          LValid := False;
+          case LSp^ of
+            'a':
+              if StrLComp(LSp, 'amp;', 4) = 0 then { do not localize }
+              begin
+                Inc(LSp, 3);
+                LRp^ := '&';
+                LValid := True;
+              end
+              else if StrLComp(LSp, 'apos;', 5) = 0 then { do not localize }
+              begin
+                Inc(LSp, 4);
+                LRp^ := '''';
+                LValid := True;
+              end;
+            'l':
+              if StrLComp(LSp, 'lt;', 3) = 0 then { do not localize }
+              begin
+                Inc(LSp, 2);
+                LRp^ := '<';
+                LValid := True;
+              end;
+            'g':
+              if StrLComp(LSp, 'gt;', 3) = 0 then { do not localize }
+              begin
+                Inc(LSp, 2);
+                LRp^ := '>';
+                LValid := True;
+              end;
+            'q':
+              if StrLComp(LSp, 'quot;', 5) = 0 then { do not localize }
+              begin
+                Inc(LSp, 4);
+                LRp^ := '"';
+                LValid := True;
+              end;
+            '#':
+              begin
+                LTp := LSp;
+                Inc(LTp);
+                while (LSp^ <> ';') and (LSp^ <> #0) do
+                  Inc(LSp);
+                SetString(LStr, LTp, LSp - LTp);
+                Val(LStr, I, LCode);
+                if LCode = 0 then
+                begin
+                  if I >= $10000 then
+                  begin
+                    // DoDecode surrogate pair
+                    LRp^ := Char(((I - $10000) div $400) + $D800);
+                    Inc(LRp);
+                    LRp^ := Char(((I - $10000) and $3FF) + $DC00);
+                  end
+                  else
+                    LRp^ := Chr((I));
+                  LValid := True;
+                end
+                else
+                  LSp := LTp - 1;
+              end;
+          end;
+          if not LValid then
+          begin
+            LSp := LCp;
+            LRp^ := LSp^;
+          end;
+        end
+    else
+      LRp^ := LSp^;
+    end;
+    Inc(LRp);
+    Inc(LSp);
+  end;
+  SetLength(Result, LRp - PChar(Result));
+end;
+
+class function TCrossHttpUtils.HtmlEncode(const AInput: string): string;
+var
+  LSp, LRp: PChar;
+begin
+  SetLength(Result, Length(AInput) * 10);
+  LSp := PChar(AInput);
+  LRp := PChar(Result);
+  // Convert: &, <, >, "
+  while LSp^ <> #0 do
+  begin
+    case LSp^ of
+      '&':
+        begin
+          StrMove(LRp, '&amp;', 5);
+          Inc(LRp, 5);
+        end;
+      '<':
+        begin
+          StrMove(LRp, '&lt;', 4);
+          Inc(LRp, 4);
+        end;
+       '>':
+        begin
+          StrMove(LRp, '&gt;', 4);
+          Inc(LRp, 4);
+        end;
+      '"':
+        begin
+          StrMove(LRp, '&quot;', 6);
+          Inc(LRp, 6);
+        end;
+      else
+      begin
+        LRp^ := LSp^;
+        Inc(LRp);
+      end;
+    end;
+    Inc(LSp);
+  end;
+  SetLength(Result, LRp - PChar(Result));
+end;
+
+class function TCrossHttpUtils.IsSamePath(const APath1,
+  APath2: string): Boolean;
+begin
+  if (Length(APath1) >= Length(APath2)) then
+    Result := (Pos(APath2, APath1) = 1)
+  else
+    Result := (Pos(APath1, APath2) = 1);
 end;
 
 class function TCrossHttpUtils.CombinePath(const APath1,
