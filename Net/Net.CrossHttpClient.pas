@@ -1431,7 +1431,7 @@ begin
 
   // 设置请求行
   LHeaderStr := FMethod + ' '
-    + TCrossHttpUtils.UrlEncode(FPath, ['/']) + ' '
+    + TCrossHttpUtils.UrlEncode(FPath, ['/', '?', '=', '&']) + ' '
     + HTTP_VER_STR[FHttpVersion] + CRLF;
 
   LHeaderStr := LHeaderStr + FHeader.Encode;
