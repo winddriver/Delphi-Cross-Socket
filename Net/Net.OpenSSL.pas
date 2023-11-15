@@ -65,7 +65,8 @@ uses
   {$ENDIF DELPHI}
   {$ENDIF POSIX}
 
-  SysUtils;
+  SysUtils,
+  Utils.IOUtils;
 
 const
   LIBSSL_NAME =
@@ -691,9 +692,6 @@ var
 
 implementation
 
-uses
-  System.IOUtils;
-
 function SSL_CTX_need_tmp_rsa(ctx: PSSL_CTX): Integer;
 begin
   Result := SSL_CTX_ctrl(ctx, SSL_CTRL_NEED_TMP_RSA, 0, nil);
@@ -931,7 +929,7 @@ end;
 class procedure TSSLTools.SetCertificateFile(AContext: PSSL_CTX;
   const ACertFile: string);
 begin
-  SetCertificate(AContext, TFile.ReadAllBytes(ACertFile));
+  SetCertificate(AContext, TFileUtils.ReadAllBytes(ACertFile));
 end;
 
 class procedure TSSLTools.SetPrivateKey(AContext: PSSL_CTX; APKeyBuf: Pointer;
@@ -973,7 +971,7 @@ end;
 class procedure TSSLTools.SetPrivateKeyFile(AContext: PSSL_CTX;
   const APKeyFile: string);
 begin
-  SetPrivateKey(AContext, TFile.ReadAllBytes(APKeyFile));
+  SetPrivateKey(AContext, TFileUtils.ReadAllBytes(APKeyFile));
 end;
 
 class procedure TSSLTools.SslInit;

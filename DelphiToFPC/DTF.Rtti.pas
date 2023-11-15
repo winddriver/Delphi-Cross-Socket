@@ -163,7 +163,7 @@ end;
 //
 //  for LField in LFields do
 //  begin
-//    if SameText(LField.Name, AName) then
+//    if TStrUtils.SameText(LField.Name, AName) then
 //    	Exit(LField);
 //  end;
 //end;

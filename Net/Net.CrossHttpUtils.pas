@@ -1235,6 +1235,9 @@ type
 
     class function UrlEncode(const S: string; const ANoConversion: TSysCharSet = []): string; static;
     class function UrlDecode(const S: string): string; static;
+
+    class procedure AdjustOffsetCount(const ABodySize: Integer; var AOffset, ACount: Integer); overload; static;
+    class procedure AdjustOffsetCount(const ABodySize: Int64; var AOffset, ACount: Int64); overload; static;
   end;
 
 implementation
@@ -1394,6 +1397,64 @@ begin
     Result := (Pos(APath1, APath2) = 1);
 end;
 
+class procedure TCrossHttpUtils.AdjustOffsetCount(const ABodySize: Integer;
+  var AOffset, ACount: Integer);
+begin
+  {$region '修正 AOffset'}
+  // 偏移为正数, 从头部开始计算偏移
+  if (AOffset >= 0) then
+  begin
+    AOffset := AOffset;
+    if (AOffset >= ABodySize) then
+      AOffset := ABodySize - 1;
+  end else
+  // 偏移为负数, 从尾部开始计算偏移
+  begin
+    AOffset := ABodySize + AOffset;
+    if (AOffset < 0) then
+      AOffset := 0;
+  end;
+  {$endregion}
+
+  {$region '修正 ACount'}
+  // ACount<=0表示需要处理所有数据
+  if (ACount <= 0) then
+    ACount := ABodySize;
+
+  if (ABodySize - AOffset < ACount) then
+    ACount := ABodySize - AOffset;
+  {$endregion}
+end;
+
+class procedure TCrossHttpUtils.AdjustOffsetCount(const ABodySize: Int64;
+  var AOffset, ACount: Int64);
+begin
+  {$region '修正 AOffset'}
+  // 偏移为正数, 从头部开始计算偏移
+  if (AOffset >= 0) then
+  begin
+    AOffset := AOffset;
+    if (AOffset >= ABodySize) then
+      AOffset := ABodySize - 1;
+  end else
+  // 偏移为负数, 从尾部开始计算偏移
+  begin
+    AOffset := ABodySize + AOffset;
+    if (AOffset < 0) then
+      AOffset := 0;
+  end;
+  {$endregion}
+
+  {$region '修正 ACount'}
+  // ACount<=0表示需要处理所有数据
+  if (ACount <= 0) then
+    ACount := ABodySize;
+
+  if (ABodySize - AOffset < ACount) then
+    ACount := ABodySize - AOffset;
+  {$endregion}
+end;
+
 class function TCrossHttpUtils.CombinePath(const APath1,
   APath2: string; const APathDelim: Char): string;
 begin
@@ -1541,6 +1602,7 @@ begin
   while (P < PEnd) do
   begin
     case Ord(P^) of
+      // 兼容早期的编码
       Ord('+'):
         begin
           LUTF8Bytes[I] := Ord(' ');
@@ -1604,18 +1666,16 @@ begin
   begin
     C := LUTF8Bytes[I];
     case C of
+      // https://datatracker.ietf.org/doc/html/rfc3986
+      // RFC 3986 中明确定义了未保留字(无需编码)包含以下这些
+      //   字母数字：大小写英文字母(A-Z, a-z)和数字(0-9)。
+      //   特殊字符：连字符(-)，下划线(_)，点号(.)，和波浪号(~)。
       Ord('0')..Ord('9'),
       Ord('a')..Ord('z'),
       Ord('A')..Ord('Z'),
-      Ord('_'), Ord('-'), Ord('.'), Ord('~'):
+      Ord('-'), Ord('_'), Ord('.'), Ord('~'):
         begin
           P^ := Char(C);
-          Inc(P);
-        end;
-
-      Ord(' '):
-        begin
-          P^ := '+';
           Inc(P);
         end;
     else

@@ -986,10 +986,11 @@ begin
           _Log('%s Io线程ID %d, 异常 %s, %s', [
             FOwner.ClassName, Self.ThreadID, e.ClassName, e.Message
           ]);
-          {$IFDEF madExcept}
-          _Log('%s 异常调用堆栈:%s', [
-            FOwner.ClassName, e.StackTrace
-          ]);
+          {$IFDEF DELPHI}
+          if (e.StackTrace <> '') then
+            _Log('%s 异常调用堆栈:%s', [
+              FOwner.ClassName, e.StackTrace
+            ]);
           {$ENDIF}
         end;
         {$ENDIF}

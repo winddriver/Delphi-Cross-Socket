@@ -691,7 +691,6 @@ type
     FZBuffer: TBytes;
 
     procedure _SetResponseStream(const AValue: TStream);
-    procedure _SetStatus(const AStatusCode: Integer; const AStatusText: string = '');
   protected
     function ParseHeader: Boolean;
     procedure ParseRecvData(const ABuf: Pointer; const ALen: Integer);
@@ -712,8 +711,11 @@ type
     function GetStatusCode: Integer;
     function GetStatusText: string;
   public
-    constructor Create(const AConnection: TCrossHttpClientConnection);
+    constructor Create(const AConnection: TCrossHttpClientConnection); overload;
+    constructor Create(const AStatusCode: Integer; const AStatusText: string = ''); overload;
     destructor Destroy; override;
+
+    procedure _SetStatus(const AStatusCode: Integer; const AStatusText: string = '');
 
     property Connection: ICrossHttpClientConnection read GetConnection;
     property Header: THttpHeader read GetHeader;
@@ -765,7 +767,7 @@ type
       const ARequestBody: TCrossHttpChunkDataFunc;
       const AResponseStream: TStream;
       const AInitProc: TCrossHttpRequestInitProc;
-      const ACallback: TCrossHttpResponseProc); overload;
+      const ACallback: TCrossHttpResponseProc); overload; virtual;
 
     procedure DoRequest(const AMethod, AUrl: string;
       const AHttpHeaders: THttpHeader;
@@ -826,66 +828,6 @@ const
   SND_BUF_SIZE = 32768;
 
 implementation
-
-{$region '辅助函数'}
-procedure _AdjustOffsetCount(const ABodySize: Int64;
-  var AOffset, ACount: Int64); overload;
-begin
-  {$region '修正 AOffset'}
-  // 偏移为正数, 从头部开始计算偏移
-  if (AOffset >= 0) then
-  begin
-    if (AOffset >= ABodySize) then
-      AOffset := ABodySize - 1;
-  end else
-  // 偏移为负数, 从尾部开始计算偏移
-  begin
-    AOffset := ABodySize + AOffset;
-  end;
-
-  if (AOffset < 0) then
-    AOffset := 0;
-  {$endregion}
-
-  {$region '修正 ACount'}
-  // ACount<=0表示需要处理所有数据
-  if (ACount <= 0) then
-    ACount := ABodySize;
-
-  if (ABodySize - AOffset < ACount) then
-    ACount := ABodySize - AOffset;
-  {$endregion}
-end;
-
-procedure _AdjustOffsetCount(const ABodySize: NativeInt;
-  var AOffset, ACount: NativeInt); overload;
-begin
-  {$region '修正 AOffset'}
-  // 偏移为正数, 从头部开始计算偏移
-  if (AOffset >= 0) then
-  begin
-    if (AOffset >= ABodySize) then
-      AOffset := ABodySize - 1;
-  end else
-  // 偏移为负数, 从尾部开始计算偏移
-  begin
-    AOffset := ABodySize + AOffset;
-  end;
-
-  if (AOffset < 0) then
-    AOffset := 0;
-  {$endregion}
-
-  {$region '修正 ACount'}
-  // ACount<=0表示需要处理所有数据
-  if (ACount <= 0) then
-    ACount := ABodySize;
-
-  if (ABodySize - AOffset < ACount) then
-    ACount := ABodySize - AOffset;
-  {$endregion}
-end;
-{$endregion}
 
 { TCrossHttpClientConnection }
 
@@ -1474,6 +1416,13 @@ begin
   FRawRequest := TBytesStream.Create;
 
   FParseState := psHeader;
+end;
+
+constructor TCrossHttpClientResponse.Create(const AStatusCode: Integer;
+  const AStatusText: string);
+begin
+  Create(nil);
+  _SetStatus(AStatusCode, AStatusText);
 end;
 
 destructor TCrossHttpClientResponse.Destroy;
@@ -2105,7 +2054,8 @@ begin
   if not TCrossHttpUtils.ExtractUrl(AUrl, LProtocol, LHost, LPort, LPath) then
   begin
     if Assigned(ACallback) then
-      ACallback(nil);
+      ACallback(TCrossHttpClientResponse.Create(400, 'Invalid URL'));
+
     Exit;
   end;
 
@@ -2130,7 +2080,8 @@ begin
       if (AHttpConnection = nil) then
       begin
         if Assigned(ACallback) then
-          ACallback(nil);
+          ACallback(TCrossHttpClientResponse.Create(400, 'Connect failed'));
+
         Exit;
       end;
 
@@ -2222,7 +2173,7 @@ begin
 
   LOffset := AOffset;
   LCount := ACount;
-  _AdjustOffsetCount(Length(LBody), LOffset, LCount);
+  TCrossHttpUtils.AdjustOffsetCount(Length(LBody), LOffset, LCount);
 
   DoRequest(AMethod, AUrl, AHttpHeaders,
     Pointer(PByte(LBody) + LOffset), LCount,
@@ -2265,7 +2216,7 @@ begin
   begin
     LOffset := AOffset;
     LCount := ACount;
-    _AdjustOffsetCount(ARequestBody.Size, LOffset, LCount);
+    TCrossHttpUtils.AdjustOffsetCount(ARequestBody.Size, LOffset, LCount);
 
     if (ARequestBody is TCustomMemoryStream) then
     begin

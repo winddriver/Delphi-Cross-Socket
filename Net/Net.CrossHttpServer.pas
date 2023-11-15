@@ -1954,8 +1954,6 @@ type
     {$endregion}
 
     function _CheckCompress(const ABodySize: Int64; out ACompressType: TCompressType): Boolean;
-    procedure _AdjustOffsetCount(const ABodySize: NativeInt; var AOffset, ACount: NativeInt); overload;
-    procedure _AdjustOffsetCount(const ABodySize: Int64; var AOffset, ACount: Int64); overload;
 
     {$region '压缩发送'}
     procedure SendZCompress(const AChunkSource: TCrossHttpChunkDataFunc; const ACompressType: TCompressType; const ACallback: TCrossConnectionCallback = nil); overload;
@@ -4092,7 +4090,7 @@ begin
 
   LOffset := AOffset;
   LCount := ACount;
-  _AdjustOffsetCount(Length(ABody), LOffset, LCount);
+  TCrossHttpUtils.AdjustOffsetCount(Length(ABody), LOffset, LCount);
 
   Send(Pointer(PByte(LBody) + LOffset), LCount,
     // CALLBACK
@@ -4401,64 +4399,6 @@ begin
   FStatusCode := Value;
 end;
 
-procedure TCrossHttpResponse._AdjustOffsetCount(const ABodySize: NativeInt;
-  var AOffset, ACount: NativeInt);
-begin
-  {$region '修正 AOffset'}
-  // 偏移为正数, 从头部开始计算偏移
-  if (AOffset >= 0) then
-  begin
-    if (AOffset >= ABodySize) then
-      AOffset := ABodySize - 1;
-  end else
-  // 偏移为负数, 从尾部开始计算偏移
-  begin
-    AOffset := ABodySize + AOffset;
-  end;
-
-  if (AOffset < 0) then
-    AOffset := 0;
-  {$endregion}
-
-  {$region '修正 ACount'}
-  // ACount<=0表示需要处理所有数据
-  if (ACount <= 0) then
-    ACount := ABodySize;
-
-  if (ABodySize - AOffset < ACount) then
-    ACount := ABodySize - AOffset;
-  {$endregion}
-end;
-
-procedure TCrossHttpResponse._AdjustOffsetCount(const ABodySize: Int64;
-  var AOffset, ACount: Int64);
-begin
-  {$region '修正 AOffset'}
-  // 偏移为正数, 从头部开始计算偏移
-  if (AOffset >= 0) then
-  begin
-    if (AOffset >= ABodySize) then
-      AOffset := ABodySize - 1;
-  end else
-  // 偏移为负数, 从尾部开始计算偏移
-  begin
-    AOffset := ABodySize + AOffset;
-  end;
-
-  if (AOffset < 0) then
-    AOffset := 0;
-  {$endregion}
-
-  {$region '修正 ACount'}
-  // ACount<=0表示需要处理所有数据
-  if (ACount <= 0) then
-    ACount := ABodySize;
-
-  if (ABodySize - AOffset < ACount) then
-    ACount := ABodySize - AOffset;
-  {$endregion}
-end;
-
 function TCrossHttpResponse._CheckCompress(const ABodySize: Int64;
   out ACompressType: TCompressType): Boolean;
 var
@@ -4688,7 +4628,7 @@ begin
 
   LOffset := AOffset;
   LCount := ACount;
-  _AdjustOffsetCount(Length(ABody), LOffset, LCount);
+  TCrossHttpUtils.AdjustOffsetCount(Length(ABody), LOffset, LCount);
 
   SendNoCompress(Pointer(PByte(LBody) + LOffset), LCount,
     // CALLBACK
@@ -4717,7 +4657,7 @@ var
 begin
   LOffset := AOffset;
   LCount := ACount;
-  _AdjustOffsetCount(ABody.Size, LOffset, LCount);
+  TCrossHttpUtils.AdjustOffsetCount(ABody.Size, LOffset, LCount);
 
   if (ABody is TCustomMemoryStream) then
   begin
@@ -4966,7 +4906,7 @@ begin
 
   LOffset := AOffset;
   LCount := ACount;
-  _AdjustOffsetCount(Length(ABody), LOffset, LCount);
+  TCrossHttpUtils.AdjustOffsetCount(Length(ABody), LOffset, LCount);
 
   SendZCompress(Pointer(PByte(LBody) + LOffset), LCount, ACompressType,
     // CALLBACK
@@ -4996,7 +4936,7 @@ var
 begin
   LOffset := AOffset;
   LCount := ACount;
-  _AdjustOffsetCount(ABody.Size, LOffset, LCount);
+  TCrossHttpUtils.AdjustOffsetCount(ABody.Size, LOffset, LCount);
 
   if (ABody is TCustomMemoryStream) then
   begin

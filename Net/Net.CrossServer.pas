@@ -64,8 +64,8 @@ type
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
   public
-    procedure Start(const ACallback: TCrossListenCallback = nil);
-    procedure Stop;
+    procedure Start(const ACallback: TCrossListenCallback = nil); virtual;
+    procedure Stop; virtual;
 
     property Addr: string read GetAddr write SetAddr;
     property Port: Word read GetPort write SetPort;

@@ -153,8 +153,11 @@ type
   public
     class function ChangeExtension(const APath, AExtension: string): string; static;
 
-    class function Combine(const APath1, APath2: string; const APathDelim: Char): string; overload; static;
+    class function Combine(const APath1, APath2, APathDelim: string): string; overload; static;
     class function Combine(const APath1, APath2: string): string; overload; static; inline;
+
+    class function Combine(const APaths: array of string; const APathDelim: string): string; overload; static;
+    class function Combine(const APaths: array of string): string; overload; static;
 
     class function GetExtensionSeparatorPos(const AFileName: string): Integer; static;
 
@@ -995,26 +998,6 @@ end;
 
 { TPathUtils }
 
-class function TPathUtils.Combine(const APath1, APath2: string;
-  const APathDelim: Char): string;
-var
-  LPath1Ends, LPath2Starts: string;
-begin
-  if (APath1 = '') then Exit(APath2);
-  if (APath2 = '') then Exit(APath1);
-
-  LPath1Ends := APath1.Substring(APath1.Length - 1, 1);
-  LPath2Starts := APath2.Substring(0, 1);
-  if (LPath1Ends = APathDelim) and (LPath2Starts = APathDelim) then
-    Result := APath1 + APath2.Substring(1)
-  else if (LPath1Ends = APathDelim) and (LPath2Starts <> APathDelim) then
-    Result := APath1 + APath2
-  else if (LPath1Ends <> APathDelim) and (LPath2Starts = APathDelim) then
-    Result := APath1 + APath2
-  else
-    Result := APath1 + APathDelim + APath2;
-end;
-
 class function TPathUtils.ChangeExtension(const APath,
   AExtension: string): string;
 var
@@ -1037,9 +1020,45 @@ begin
   Result := Result + AExtension;
 end;
 
+class function TPathUtils.Combine(const APath1, APath2, APathDelim: string): string;
+var
+  LPath1EndsWithDelim, LPath2StartsWithDelim: Boolean;
+begin
+  if (APath1 = '') then Exit(APath2);
+  if (APath2 = '') then Exit(APath1);
+
+  LPath1EndsWithDelim := APath1.EndsWith(APathDelim, True);
+  LPath2StartsWithDelim := APath2.StartsWith(APathDelim, True);
+  if LPath1EndsWithDelim and LPath2StartsWithDelim then
+    Result := APath1 + APath2.Substring(1)
+  else if LPath1EndsWithDelim or LPath2StartsWithDelim then
+    Result := APath1 + APath2
+  else
+    Result := APath1 + APathDelim + APath2;
+end;
+
 class function TPathUtils.Combine(const APath1, APath2: string): string;
 begin
   Result := Combine(APath1, APath2, DIRECTORY_SEPARATOR_CHAR);
+end;
+
+class function TPathUtils.Combine(const APaths: array of string;
+  const APathDelim: string): string;
+var
+  I: Integer;
+begin
+  if (Length(APaths) > 0) then
+  begin
+    Result := APaths[0];
+    for I := 1 to Length(APaths) - 1 do
+      Result := Combine(Result, APaths[I], APathDelim);
+  end else
+    Result := '';
+end;
+
+class function TPathUtils.Combine(const APaths: array of string): string;
+begin
+  Result := Combine(APaths, DIRECTORY_SEPARATOR_CHAR);
 end;
 
 class function TPathUtils.GetDirectoryName(const AFileName: string): string;

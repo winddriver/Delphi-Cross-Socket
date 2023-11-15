@@ -106,8 +106,9 @@ begin
                     FName, e.ClassName, e.Message
                   ]);
 
-                  {$IFDEF madExcept}
-                  AppendLog('异常调用堆栈:%s', [e.StackTrace]);
+                  {$IFDEF DELPHI}
+                  if (e.StackTrace <> '') then
+                    AppendLog('异常调用堆栈:%s', [e.StackTrace]);
                   {$ENDIF}
                 end;
               end;

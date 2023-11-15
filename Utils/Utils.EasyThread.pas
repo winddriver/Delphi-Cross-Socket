@@ -22,7 +22,7 @@ type
     function GetThreadID: TThreadID;
 
     procedure Terminate;
-    function WaitFor: LongWord;
+    procedure WaitFor;
 
     property Terminated: Boolean read GetTerminated;
     property ThreadID: TThreadID read GetThreadID;
@@ -41,7 +41,7 @@ type
     destructor Destroy; override;
 
     procedure Terminate;
-    function WaitFor: LongWord;
+    procedure WaitFor;
 
     property Terminated: Boolean read GetTerminated;
     property ThreadID: TThreadID read GetThreadID;
@@ -84,9 +84,7 @@ end;
 
 destructor TEasyThread.Destroy;
 begin
-  if not Terminated then
-    Terminate;
-
+  Terminate;
   WaitFor;
 
   FreeAndNil(FThread);
@@ -109,9 +107,12 @@ begin
   FTerminated := True;
 end;
 
-function TEasyThread.WaitFor: LongWord;
+procedure TEasyThread.WaitFor;
 begin
-  Result := FThread.WaitFor;
+  // TThread.WaitFor 在线程退出后调用会死循环
+  // 所以这里通过检查线程的结束状态(FThread.Finished)来实现
+  while (FThread <> nil) and not FThread.Finished do
+    Sleep(1);
 end;
 
 end.

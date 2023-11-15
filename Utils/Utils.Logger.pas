@@ -201,7 +201,7 @@ begin
   Result := LogTypeStr[ALogType];
   if (Result <> '') then
     Result := Result + '-';
-  Result := Result + TUtils.DateTimeToStr(ADate, 'YYYY-MM-DD') + '.log';
+  Result := Result + TStrUtils.FormatDateTime('YYYY-MM-DD', ADate) + '.log';
 end;
 
 procedure TLogger.SetFilters(const Value: TLogTypeSets);
@@ -347,7 +347,7 @@ begin
     LText := ALog.Replace(sLineBreak, CRLF)
   else
     LText := ALog;
-  LText := TUtils.DateTimeToStr(Now, ATimeFormat) + ' ' + LText + sLineBreak;
+  LText := TStrUtils.FormatDateTime(ATimeFormat, Now) + ' ' + LText + sLineBreak;
 
   if IsConsole then
     Write(LText);
@@ -357,7 +357,11 @@ end;
 
 procedure TLogger.AppendLog(const ALog: string; ALogType: TLogType; const CRLF: string);
 begin
-  AppendLog(ALog, 'HH:NN:SS:ZZZ', ALogType, CRLF);
+  // 不知道什么原因, 在 FPC 中时间格式中的冒号(:)如果不用双引号包裹起来
+  // 在 Linux 下调用 FormatDateTime 就有概率格式化出乱码(冒号部分变成乱码)
+  AppendLog(ALog,
+    {$IFDEF DELPHI}'HH:NN:SS:ZZZ'{$ELSE}'HH":"NN":"SS":"ZZZ'{$ENDIF},
+    ALogType, CRLF);
 end;
 
 procedure TLogger.AppendLog(const AFmt: string; const AArgs: array of const; const ATimeFormat: string; ALogType: TLogType; const CRLF: string);

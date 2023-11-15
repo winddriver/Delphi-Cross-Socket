@@ -865,12 +865,12 @@ end;
 
 {$IFDEF FPC}
 initialization
-  DefaultFormatSettings.ShortDateFormat := 'yyyy-mm-dd';
-  DefaultFormatSettings.ShortTimeFormat := 'hh:NN:ss';
-  DefaultFormatSettings.LongDateFormat := 'yyyy-mm-dd';
-  DefaultFormatSettings.LongTimeFormat := 'hh:NN:ss';
-  DefaultFormatSettings.DateSeparator := '-';
-  DefaultFormatSettings.TimeSeparator := ':';
+  DefaultFormatSettings.ShortDateFormat := AnsiString('yyyy-mm-dd');
+  DefaultFormatSettings.ShortTimeFormat := AnsiString('hh":"NN":"ss');
+  DefaultFormatSettings.LongDateFormat := AnsiString('yyyy-mm-dd');
+  DefaultFormatSettings.LongTimeFormat := AnsiString('hh":"NN":"ss');
+  DefaultFormatSettings.DateSeparator := AnsiChar('-');
+  DefaultFormatSettings.TimeSeparator := AnsiChar(':');
 {$ENDIF}
 
 end.

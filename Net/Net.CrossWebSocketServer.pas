@@ -274,9 +274,6 @@ type
 
     procedure _WebSocketRecv(ABuf: Pointer; ALen: Integer);
 
-    procedure _AdjustOffsetCount(const ABodySize: NativeInt; var AOffset, ACount: NativeInt); overload;
-    procedure _AdjustOffsetCount(const ABodySize: Int64; var AOffset, ACount: Int64); overload;
-
     {$region '内部发送方法'}
     procedure _WsSend(AOpCode: Byte; AFin: Boolean; AData: Pointer; ACount: NativeInt;
       ACallback: TWsServerCallback = nil); overload;
@@ -555,7 +552,7 @@ var
 begin
   LOffset := AOffset;
   LCount := ACount;
-  _AdjustOffsetCount(AData.Size, LOffset, LCount);
+  TCrossHttpUtils.AdjustOffsetCount(AData.Size, LOffset, LCount);
 
   if (AData is TCustomMemoryStream) then
   begin
@@ -608,64 +605,6 @@ end;
 procedure TCrossWebSocketConnection.WsPing;
 begin
   _WsSend(WS_OP_PING, True, nil, 0);
-end;
-
-procedure TCrossWebSocketConnection._AdjustOffsetCount(
-  const ABodySize: NativeInt; var AOffset, ACount: NativeInt);
-begin
-  {$region '修正 AOffset'}
-  // 偏移为正数, 从头部开始计算偏移
-  if (AOffset >= 0) then
-  begin
-    AOffset := AOffset;
-    if (AOffset >= ABodySize) then
-      AOffset := ABodySize - 1;
-  end else
-  // 偏移为负数, 从尾部开始计算偏移
-  begin
-    AOffset := ABodySize + AOffset;
-    if (AOffset < 0) then
-      AOffset := 0;
-  end;
-  {$endregion}
-
-  {$region '修正 ACount'}
-  // ACount<=0表示需要处理所有数据
-  if (ACount <= 0) then
-    ACount := ABodySize;
-
-  if (ABodySize - AOffset < ACount) then
-    ACount := ABodySize - AOffset;
-  {$endregion}
-end;
-
-procedure TCrossWebSocketConnection._AdjustOffsetCount(const ABodySize: Int64;
-  var AOffset, ACount: Int64);
-begin
-  {$region '修正 AOffset'}
-  // 偏移为正数, 从头部开始计算偏移
-  if (AOffset >= 0) then
-  begin
-    AOffset := AOffset;
-    if (AOffset >= ABodySize) then
-      AOffset := ABodySize - 1;
-  end else
-  // 偏移为负数, 从尾部开始计算偏移
-  begin
-    AOffset := ABodySize + AOffset;
-    if (AOffset < 0) then
-      AOffset := 0;
-  end;
-  {$endregion}
-
-  {$region '修正 ACount'}
-  // ACount<=0表示需要处理所有数据
-  if (ACount <= 0) then
-    ACount := ABodySize;
-
-  if (ABodySize - AOffset < ACount) then
-    ACount := ABodySize - AOffset;
-  {$endregion}
 end;
 
 procedure TCrossWebSocketConnection._WebSocketRecv(ABuf: Pointer;
@@ -726,7 +665,7 @@ begin
   begin
     LOffset := AOffset;
     LCount := ACount;
-    _AdjustOffsetCount(Length(AData), LOffset, LCount);
+    TCrossHttpUtils.AdjustOffsetCount(Length(AData), LOffset, LCount);
 
     P := PByte(@AData[0]) + LOffset;
   end else
