@@ -1236,6 +1236,10 @@ type
     class function UrlEncode(const S: string; const ANoConversion: TSysCharSet = []): string; static;
     class function UrlDecode(const S: string): string; static;
 
+    // Delphi 12+ 编译器将NativeInt与Integer(目标32位)和Int64(目标64位)等同
+    {$IF DEFINED(DELPHI) AND (CompilerVersion < 36)}
+    class procedure AdjustOffsetCount(const ABodySize: NativeInt; var AOffset, ACount: NativeInt); overload; static;
+    {$ENDIF}
     class procedure AdjustOffsetCount(const ABodySize: Integer; var AOffset, ACount: Integer); overload; static;
     class procedure AdjustOffsetCount(const ABodySize: Int64; var AOffset, ACount: Int64); overload; static;
   end;
@@ -1396,6 +1400,37 @@ begin
   else
     Result := (Pos(APath1, APath2) = 1);
 end;
+
+{$IF DEFINED(DELPHI) AND (CompilerVersion < 36)}
+class procedure TCrossHttpUtils.AdjustOffsetCount(const ABodySize: NativeInt;
+  var AOffset, ACount: NativeInt);
+begin
+  {$region '修正 AOffset'}
+  // 偏移为正数, 从头部开始计算偏移
+  if (AOffset >= 0) then
+  begin
+    AOffset := AOffset;
+    if (AOffset >= ABodySize) then
+      AOffset := ABodySize - 1;
+  end else
+  // 偏移为负数, 从尾部开始计算偏移
+  begin
+    AOffset := ABodySize + AOffset;
+    if (AOffset < 0) then
+      AOffset := 0;
+  end;
+  {$endregion}
+
+  {$region '修正 ACount'}
+  // ACount<=0表示需要处理所有数据
+  if (ACount <= 0) then
+    ACount := ABodySize;
+
+  if (ABodySize - AOffset < ACount) then
+    ACount := ABodySize - AOffset;
+  {$endregion}
+end;
+{$ENDIF}
 
 class procedure TCrossHttpUtils.AdjustOffsetCount(const ABodySize: Integer;
   var AOffset, ACount: Integer);
