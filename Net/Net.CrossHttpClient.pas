@@ -50,6 +50,7 @@ type
   ICrossHttpClientRequest = interface;
   ICrossHttpClientResponse = interface;
   ICrossHttpClient = interface;
+  TCrossHttpClient = class;
 
   {$REGION 'Documentation'}
   /// <summary>
@@ -288,6 +289,9 @@ type
   {$ENDREGION}
   ICrossHttpClient = interface
   ['{99CC5305-02FE-48DA-9D62-3AE1A5FA86D1}']
+    function GetTimeout: Integer;
+    procedure SetTimeout(const AValue: Integer);
+
     {$REGION 'Documentation'}
     /// <summary>
     ///   裸数据请求(由匿名函数提供数据块)
@@ -566,6 +570,11 @@ type
       const AResponseStream: TStream;
       const AInitProc: TCrossHttpRequestInitProc;
       const ACallback: TCrossHttpResponseProc); overload;
+
+    /// <summary>
+    ///   超时秒数
+    /// </summary>
+    property Timeout: Integer read GetTimeout write SetTimeout;
   end;
 
   TCrossHttpClientConnection = class(TCrossSslConnection, ICrossHttpClientConnection)
@@ -727,6 +736,8 @@ type
   end;
 
   TCrossHttpClientSocket = class(TCrossSslSocket, ICrossHttpClientSocket)
+  private
+    FHttpClient: TCrossHttpClient;
   protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
@@ -734,6 +745,9 @@ type
 
     function ReUseConnection(const AProtocol: string): Boolean; virtual;
   public
+    constructor Create(const AHttpClient: TCrossHttpClient;
+      const AIoThreads: Integer; const ASsl: Boolean); reintroduce; virtual;
+
     procedure GetConnection(const AProtocol, AHost: string; const APort: Word;
       const ACallback: TCrossHttpGetConnectionProc); virtual;
   end;
@@ -748,6 +762,7 @@ type
     FLock: ILock;
     FTimer: IEasyTimer;
     FHttpCli, FHttpsCli: ICrossHttpClientSocket;
+    FTimeout: Integer;
 
     procedure _Lock; inline;
     procedure _Unlock; inline;
@@ -755,6 +770,8 @@ type
     procedure _ProcTimeout;
   protected
     function CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket; virtual;
+    function GetTimeout: Integer;
+    procedure SetTimeout(const AValue: Integer);
   public
     constructor Create(const AIoThreads: Integer = 2;
       const ACompressType: TCompressType = ctNone);
@@ -881,15 +898,14 @@ begin
 end;
 
 function TCrossHttpClientConnection._IsTimeout: Boolean;
+var
+  LTimeout: Integer;
 begin
-  // 暂时超时时间设置为2分钟
-  // 实际连接每收到一个数据包, 都会更新计时器
-  // 所以不用担心2分钟无法完成大数据的收取
-  // 一个正常的响应, 如果数据很大会被拆分成很多小的数据包发回
-  // 每个小的数据包不太可能2分钟还传不完, 如果真出现2分钟传不完一个小数据包的情况
-  // 那是真应该判定超时了, 因为这个网络环境确实太恶劣了, 基本也无法完成正常的网络交互
+  LTimeout := (Owner as TCrossHttpClientSocket).FHttpClient.FTimeout;
+  if (LTimeout <= 0) then Exit(False);
+
   Result := (GetRequestStatus = rsReponsding)
-    and (FWatch.ElapsedMilliseconds >= 120000);
+    and (FWatch.Elapsed.TotalSeconds >= LTimeout);
 end;
 
 function TCrossHttpClientConnection._SetRequestStatus(
@@ -1284,9 +1300,6 @@ begin
   LResponse := FConnection.FResponse;
   (LResponse as TCrossHttpClientResponse).FCallback := ACallback;
 
-  // 更新计时器
-  FConnection._UpdateWatch;
-
   // 标记正在发送请求
   FConnection._SetRequestStatus(rsSending);
 
@@ -1296,6 +1309,7 @@ begin
       LData: Pointer;
       LCount: NativeInt;
     begin
+      // 发送失败
       if not ASuccess then
       begin
         LHttpConnection.Close;
@@ -1313,6 +1327,8 @@ begin
         or (LData = nil)
         or (LCount <= 0) then
       begin
+        // 更新计时器
+        FConnection._UpdateWatch;
         // 标记正在等待响应
         FConnection._SetRequestStatus(rsReponsding);
         LSender := nil;
@@ -1746,6 +1762,7 @@ begin
     _SetStatus(AStatusCode, AStatusText);
 
     FConnection._SetRequestStatus(rsRespondFailed);
+    FConnection.Close;
 
     if Assigned(FCallback) then
       FCallback(FConnection.FResponse);
@@ -1880,6 +1897,7 @@ begin
     _SetStatus(408);
 
     FConnection._SetRequestStatus(rsRespondTimeout);
+    FConnection.Close;
 
     if Assigned(FCallback) then
       FCallback(FConnection.FResponse);
@@ -1911,6 +1929,14 @@ end;
 
 { TCrossHttpClientSocket }
 
+constructor TCrossHttpClientSocket.Create(const AHttpClient: TCrossHttpClient;
+  const AIoThreads: Integer; const ASsl: Boolean);
+begin
+  FHttpClient := AHttpClient;
+
+  inherited Create(AIoThreads, ASsl);
+end;
+
 function TCrossHttpClientSocket.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback): ICrossConnection;
@@ -1927,7 +1953,7 @@ var
   LHttpConnObj: TCrossHttpClientConnection;
 begin
   {$region '先从已有连接中找空闲的连接'}
-   if ReUseConnection(AProtocol) then
+  if ReUseConnection(AProtocol) then
   begin
     LConns := LockConnections;
     try
@@ -1999,10 +2025,18 @@ end;
 constructor TCrossHttpClient.Create(const AIoThreads: Integer;
   const ACompressType: TCompressType);
 begin
+  // 暂时超时时间设置为2分钟
+  // 实际连接每收到一个数据包, 都会更新计时器
+  // 所以不用担心2分钟无法完成大数据的收取
+  // 一个正常的响应, 如果数据很大会被拆分成很多小的数据包发回
+  // 每个小的数据包不太可能2分钟还传不完, 如果真出现2分钟传不完一个小数据包的情况
+  // 那是真应该判定超时了, 因为这个网络环境确实太恶劣了, 基本也无法完成正常的网络交互
+  FTimeout := 120;
+
   FIoThreads := AIoThreads;
   FCompressType := ACompressType;
   FLock := TLock.Create;
-  FTimer := TEasyTimer.Create('',
+  FTimer := TEasyTimer.Create('TCrossHttpClient.Timeout',
     procedure
     begin
       _ProcTimeout;
@@ -2026,14 +2060,14 @@ begin
   if TStrUtils.SameText(AProtocol, HTTP) then
   begin
     if (FHttpCli = nil) then
-      FHttpCli := TCrossHttpClientSocket.Create(FIoThreads, False);
+      FHttpCli := TCrossHttpClientSocket.Create(Self, FIoThreads, False);
 
     Result := FHttpCli;
   end else
   if TStrUtils.SameText(AProtocol, HTTPS) then
   begin
     if (FHttpsCli = nil) then
-      FHttpsCli := TCrossHttpClientSocket.Create(FIoThreads, True);
+      FHttpsCli := TCrossHttpClientSocket.Create(Self, FIoThreads, True);
 
     Result := FHttpsCli;
   end else
@@ -2394,6 +2428,16 @@ begin
       FDefault._AddRef;
   end;
   Result := FDefault;
+end;
+
+function TCrossHttpClient.GetTimeout: Integer;
+begin
+  Result := FTimeout;
+end;
+
+procedure TCrossHttpClient.SetTimeout(const AValue: Integer);
+begin
+  FTimeout := AValue;
 end;
 
 end.
