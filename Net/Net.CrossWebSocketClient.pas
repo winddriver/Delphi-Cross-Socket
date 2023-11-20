@@ -1150,14 +1150,14 @@ begin
   if TStrUtils.SameText(AProtocol, WS) then
   begin
     if (FWsCli = nil) then
-      FWsCli := TCrossWebSocketClient.Create(FIoThreads, False);
+      FWsCli := TCrossWebSocketClient.Create(Self, FIoThreads, False);
 
     Result := FWsCli;
   end else
   if TStrUtils.SameText(AProtocol, WSS) then
   begin
     if (FWssCli = nil) then
-      FWssCli := TCrossWebSocketClient.Create(FIoThreads, True);
+      FWssCli := TCrossWebSocketClient.Create(Self, FIoThreads, True);
 
     Result := FWssCli;
   end else
