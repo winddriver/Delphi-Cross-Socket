@@ -289,7 +289,10 @@ type
   {$ENDREGION}
   ICrossHttpClient = interface
   ['{99CC5305-02FE-48DA-9D62-3AE1A5FA86D1}']
+    function GetIdleout: Integer;
     function GetTimeout: Integer;
+
+    procedure SetIdleout(const AValue: Integer);
     procedure SetTimeout(const AValue: Integer);
 
     {$REGION 'Documentation'}
@@ -572,7 +575,12 @@ type
       const ACallback: TCrossHttpResponseProc); overload;
 
     /// <summary>
-    ///   超时秒数
+    ///   连接空闲时间(秒, 空闲超过该时间连接将自动关闭, 设置为0则不检查空闲, 连接一直保留)
+    /// </summary>
+    property Idleout: Integer read GetIdleout write SetIdleout;
+
+    /// <summary>
+    ///   请求超时时间(秒, 从请求发送成功之后算起, 设置为0则不检查超时)
     /// </summary>
     property Timeout: Integer read GetTimeout write SetTimeout;
   end;
@@ -592,6 +600,7 @@ type
     procedure _EndRequest; //inline;
     function _IsIdle: Boolean; inline;
     procedure _UpdateWatch;
+    function _IsIdleout: Boolean;
     function _IsTimeout: Boolean;
     function _SetRequestStatus(const AStatus: TRequestStatus): TRequestStatus;
   protected
@@ -602,6 +611,7 @@ type
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
+    destructor Destroy; override;
 
     property Protocol: string read GetProtocol;
     property Host: string read GetHost;
@@ -721,9 +731,9 @@ type
     function GetStatusText: string;
   public
     constructor Create(const AConnection: TCrossHttpClientConnection); overload;
-    constructor Create(const AStatusCode: Integer; const AStatusText: string = ''); overload;
     destructor Destroy; override;
 
+    class function Create(const AStatusCode: Integer; const AStatusText: string = ''): ICrossHttpClientResponse; overload; static;
     procedure _SetStatus(const AStatusCode: Integer; const AStatusText: string = '');
 
     property Connection: ICrossHttpClientConnection read GetConnection;
@@ -762,7 +772,7 @@ type
     FLock: ILock;
     FTimer: IEasyTimer;
     FHttpCli, FHttpsCli: ICrossHttpClientSocket;
-    FTimeout: Integer;
+    FTimeout, FIdleout: Integer;
 
     procedure _Lock; inline;
     procedure _Unlock; inline;
@@ -770,7 +780,11 @@ type
     procedure _ProcTimeout;
   protected
     function CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket; virtual;
+
+    function GetIdleout: Integer;
     function GetTimeout: Integer;
+
+    procedure SetIdleout(const AValue: Integer);
     procedure SetTimeout(const AValue: Integer);
   public
     constructor Create(const AIoThreads: Integer = 2;
@@ -862,6 +876,22 @@ begin
   FWatch := TStopwatch.Create;
 end;
 
+destructor TCrossHttpClientConnection.Destroy;
+var
+  LResponseObj: TCrossHttpClientResponse;
+begin
+  // 在等待响应的过程中连接被断开了
+  // 需要触发回调函数
+  if (Self.RequestStatus = rsReponsding) and (FResponse <> nil) then
+  begin
+    LResponseObj := FResponse as TCrossHttpClientResponse;
+    if Assigned(LResponseObj.FCallback) then
+      LResponseObj.TriggerResponseFailed(400, 'Connection lost');
+  end;
+
+  inherited;
+end;
+
 function TCrossHttpClientConnection.GetHost: string;
 begin
   Result := FHost;
@@ -895,6 +925,17 @@ end;
 function TCrossHttpClientConnection._IsIdle: Boolean;
 begin
   Result := (AtomicCmpExchange(FPending, 0, 0) = 0);
+end;
+
+function TCrossHttpClientConnection._IsIdleout: Boolean;
+var
+  LIdleout: Integer;
+begin
+  LIdleout := (Owner as TCrossHttpClientSocket).FHttpClient.FIdleout;
+  if (LIdleout <= 0) then Exit(False);
+
+  Result := (GetRequestStatus = rsIdle)
+    and (FWatch.Elapsed.TotalSeconds >= LIdleout);
 end;
 
 function TCrossHttpClientConnection._IsTimeout: Boolean;
@@ -1294,11 +1335,13 @@ procedure TCrossHttpClientRequest._Send(const ASource: TCrossHttpChunkDataFunc;
 var
   LHttpConnection: ICrossHttpClientConnection;
   LResponse: ICrossHttpClientResponse;
+  LResponseObj: TCrossHttpClientResponse;
   LSender: TCrossConnectionCallback;
 begin
   LHttpConnection := FConnection;
   LResponse := FConnection.FResponse;
-  (LResponse as TCrossHttpClientResponse).FCallback := ACallback;
+  LResponseObj := LResponse as TCrossHttpClientResponse;
+  LResponseObj.FCallback := ACallback;
 
   // 标记正在发送请求
   FConnection._SetRequestStatus(rsSending);
@@ -1313,7 +1356,7 @@ begin
       if not ASuccess then
       begin
         LHttpConnection.Close;
-        (LResponse as TCrossHttpClientResponse).TriggerResponseFailed(400);
+        LResponseObj.TriggerResponseFailed(400, 'Send failed');
 
         LSender := nil;
 
@@ -1434,11 +1477,14 @@ begin
   FParseState := psHeader;
 end;
 
-constructor TCrossHttpClientResponse.Create(const AStatusCode: Integer;
-  const AStatusText: string);
+class function TCrossHttpClientResponse.Create(const AStatusCode: Integer;
+  const AStatusText: string): ICrossHttpClientResponse;
+var
+  LResponseObj: TCrossHttpClientResponse;
 begin
-  Create(nil);
-  _SetStatus(AStatusCode, AStatusText);
+  LResponseObj := TCrossHttpClientResponse.Create(nil);
+  LResponseObj._SetStatus(AStatusCode, AStatusText);
+  Result := LResponseObj;
 end;
 
 destructor TCrossHttpClientResponse.Destroy;
@@ -1752,7 +1798,7 @@ begin
     end;
   except
     on e: Exception do
-      TriggerResponseFailed(400, e.Message);
+      TriggerResponseFailed(500, e.Message);
   end;
 end;
 
@@ -1778,6 +1824,9 @@ begin
 
     if Assigned(FCallback) then
       FCallback(FConnection.FResponse);
+
+    FConnection._SetRequestStatus(rsIdle);
+    FConnection._UpdateWatch;
   finally
     FConnection._EndRequest;
   end;
@@ -2033,6 +2082,9 @@ begin
   // 那是真应该判定超时了, 因为这个网络环境确实太恶劣了, 基本也无法完成正常的网络交互
   FTimeout := 120;
 
+  // 空闲超时默认设置为10秒
+  FIdleout := 10;
+
   FIoThreads := AIoThreads;
   FCompressType := ACompressType;
   FLock := TLock.Create;
@@ -2145,7 +2197,7 @@ begin
 
       // 调用初始化函数
       if Assigned(AInitProc) then
-        AInitProc(LRequestObj);
+        AInitProc(LHttpConnectionObj.FRequest);
 
       // 发起请求
       LRequestObj.DoRequest(AMethod, LPath, ARequestBody, ACallback);
@@ -2321,10 +2373,13 @@ procedure TCrossHttpClient._ProcTimeout;
         LHttpConn := LConn as ICrossHttpClientConnection;
         LHttpConnObj := LHttpConn as TCrossHttpClientConnection;
 
-        if not LHttpConnObj.IsClosed
-          and LHttpConnObj._IsTimeout then
+        if not LHttpConnObj.IsClosed then
         begin
-          (LHttpConnObj.FResponse as TCrossHttpClientResponse).TriggerResponseTimeout;
+          if LHttpConnObj._IsTimeout then
+            (LHttpConnObj.FResponse as TCrossHttpClientResponse).TriggerResponseTimeout;
+
+          if LHttpConnObj._IsIdleout then
+            LHttpConnObj.Close;
         end;
       end;
     finally
@@ -2430,9 +2485,19 @@ begin
   Result := FDefault;
 end;
 
+function TCrossHttpClient.GetIdleout: Integer;
+begin
+  Result := FIdleout;
+end;
+
 function TCrossHttpClient.GetTimeout: Integer;
 begin
   Result := FTimeout;
+end;
+
+procedure TCrossHttpClient.SetIdleout(const AValue: Integer);
+begin
+  FIdleout := AValue;
 end;
 
 procedure TCrossHttpClient.SetTimeout(const AValue: Integer);
