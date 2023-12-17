@@ -567,91 +567,93 @@ end;
 procedure TCrossOpenSslSocket.TriggerReceived(const AConnection: ICrossConnection;
   const ABuf: Pointer; const ALen: Integer);
 var
-  LConnection: TCrossOpenSslConnection;
+  LConnectionObj: TCrossOpenSslConnection;
   LRetCode: Integer;
   LTriggerConnected: Boolean;
   LDecryptedData, LHandshakeData: TBytes;
 begin
-  LConnection := AConnection as TCrossOpenSslConnection;
-
   if Ssl then
   begin
+    LConnectionObj := AConnection as TCrossOpenSslConnection;
     LTriggerConnected := False;
     LDecryptedData := nil;
     LHandshakeData := nil;
 
-    LConnection._Lock;
+    LConnectionObj._Lock;
     try
       // 将收到的加密数据写入内存 BIO, 让 OpenSSL 对其解密
       // 最初收到的数据是握手数据
       // 需要判断握手状态, 然后决定如何使用收到的数据
-      LRetCode := LConnection._BIO_write(ABuf, ALen);
+      LRetCode := LConnectionObj._BIO_write(ABuf, ALen);
       if (LRetCode <> ALen) then
       begin
-        if LConnection._SSL_print_error(LRetCode, 'BIO_write') then
-          LConnection.Close;
+        if LConnectionObj._SSL_print_error(LRetCode, 'BIO_write') then
+          LConnectionObj.Close;
         Exit;
       end;
 
       // 握手完成
-      if (LConnection._SSL_is_init_finished = TLS_ST_OK) then
+      if (LConnectionObj._SSL_is_init_finished = TLS_ST_OK) then
       begin
-        if (LConnection.ConnectStatus = csHandshaking) then
+        if (LConnectionObj.ConnectStatus = csHandshaking) then
           LTriggerConnected := True;
 
         // 读取解密后的数据
-        LDecryptedData := LConnection._SSL_read;
+        LDecryptedData := LConnectionObj._SSL_read;
       end else
-      if (LConnection.ConnectStatus = csHandshaking) then
+      if (LConnectionObj.ConnectStatus = csHandshaking) then
       begin
         // 继续握手
-        LRetCode := LConnection._SSL_do_handshake;
+        LRetCode := LConnectionObj._SSL_do_handshake;
 
         if (LRetCode <> 1) then
-          LConnection._SSL_print_error(LRetCode, 'SSL_do_handshake(TriggerReceived)');
+          LConnectionObj._SSL_print_error(LRetCode, 'SSL_do_handshake(TriggerReceived)');
 
         // 读取握手数据
-        LHandshakeData := LConnection._BIO_read;
+        LHandshakeData := LConnectionObj._BIO_read;
 
         // 如果握手完成
         // 读取解密后的数据
         if (LRetCode = 1) then
         begin
           LTriggerConnected := True;
-          LDecryptedData := LConnection._SSL_read;
+          LDecryptedData := LConnectionObj._SSL_read;
         end;
       end;
     finally
-      LConnection._Unlock;
+      LConnectionObj._Unlock;
     end;
 
     // 有握手数据
     if (LHandshakeData <> nil) then
     begin
       // 先把握手数据发出去再触发连接事件和数据接收事件
-      LConnection._Send(LHandshakeData,
+      LConnectionObj._Send(LHandshakeData,
         procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
         begin
           // 握手完成, 触发已连接事件
           if LTriggerConnected then
-            _Connected(LConnection);
+            _Connected(AConnection);
 
           // 收到了解密后的数据
           if (LDecryptedData <> nil) then
-            _Received(LConnection, @LDecryptedData[0], Length(LDecryptedData));
+          begin
+            _Received(AConnection, @LDecryptedData[0], Length(LDecryptedData));
+            LDecryptedData := nil;
+          end;
         end);
     end else
     begin
       // 握手完成, 触发已连接事件
       if LTriggerConnected then
-        _Connected(LConnection);
+        _Connected(AConnection);
 
       // 收到了解密后的数据
       if (LDecryptedData <> nil) then
-        _Received(LConnection, @LDecryptedData[0], Length(LDecryptedData));
+        _Received(AConnection, @LDecryptedData[0], Length(LDecryptedData));
     end;
   end else
-    _Received(LConnection, ABuf, ALen);
+    _Received(AConnection, ABuf, ALen);
 end;
 
 end.
