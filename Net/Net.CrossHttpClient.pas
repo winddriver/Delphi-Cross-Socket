@@ -1793,7 +1793,10 @@ begin
         // 因为有可能响应完成的数据在超时后才到来, 这时候请求状态已经被置为超时
         // 不应该再触发完成回调
         if (LHttpConnection.RequestStatus = rsReponsding) then
+        try
           TriggerResponseSuccess;
+        except
+        end;
       end;
     end;
   except
@@ -1803,27 +1806,37 @@ begin
 end;
 
 procedure TCrossHttpClientResponse.TriggerResponseFailed(const AStatusCode: Integer; const AStatusText: string);
+var
+  LCallback: TCrossHttpResponseProc;
 begin
   try
+    LCallback := FCallback;
+    FCallback := nil;
+
     _SetStatus(AStatusCode, AStatusText);
 
     FConnection._SetRequestStatus(rsRespondFailed);
     FConnection.Close;
 
-    if Assigned(FCallback) then
-      FCallback(FConnection.FResponse);
+    if Assigned(LCallback) then
+      LCallback(FConnection.FResponse);
   finally
     FConnection._EndRequest;
   end;
 end;
 
 procedure TCrossHttpClientResponse.TriggerResponseSuccess;
+var
+  LCallback: TCrossHttpResponseProc;
 begin
   try
+    LCallback := FCallback;
+    FCallback := nil;
+
     FConnection._SetRequestStatus(rsRespondSuccess);
 
-    if Assigned(FCallback) then
-      FCallback(FConnection.FResponse);
+    if Assigned(LCallback) then
+      LCallback(FConnection.FResponse);
 
     FConnection._SetRequestStatus(rsIdle);
     FConnection._UpdateWatch;
@@ -1940,16 +1953,21 @@ begin
 end;
 
 procedure TCrossHttpClientResponse.TriggerResponseTimeout;
+var
+  LCallback: TCrossHttpResponseProc;
 begin
   try
+    LCallback := FCallback;
+    FCallback := nil;
+
     // 408 = Request Time-out
     _SetStatus(408);
 
     FConnection._SetRequestStatus(rsRespondTimeout);
     FConnection.Close;
 
-    if Assigned(FCallback) then
-      FCallback(FConnection.FResponse);
+    if Assigned(LCallback) then
+      LCallback(FConnection.FResponse);
   finally
     FConnection._EndRequest;
   end;
