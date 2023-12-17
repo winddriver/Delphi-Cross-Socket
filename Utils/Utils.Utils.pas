@@ -341,6 +341,8 @@ var
   LBuf: TBytes;
   LBufSize: Integer;
 begin
+  if (AStrStream = nil) or (AStrStream.Size <= 0) then Exit('');
+
   AStrStream.Position := 0;
   LBufSize := AStrStream.Size;
   SetLength(LBuf, LBufSize);
