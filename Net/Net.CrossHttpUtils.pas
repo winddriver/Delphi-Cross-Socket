@@ -98,6 +98,9 @@ const
   HEADER_WWW_AUTHENTICATE      = 'WWW-Authenticate';
   HEADER_X_METHOD_OVERRIDE     = 'x-method-override';
   HEADER_X_FORWARDED_FOR       = 'X-Forwarded-For';
+  HEADER_X_REAL_IP             = 'X-Real-IP';
+  HEADER_X_FORWARDED_HOST      = 'X-Forwarded-Host';
+  HEADER_X_FORWARDED_SERVER    = 'X-Forwarded-Server';
   {$ENDREGION}
 
   ZLIB_BUF_SIZE = 32768;
@@ -133,13 +136,13 @@ const
     (Code: 405; Text: 'Method Not Allowed'),
     (Code: 406; Text: 'Not Acceptable'),
     (Code: 407; Text: 'Proxy Authentication Required'),
-    (Code: 408; Text: 'Request Time-out'),
+    (Code: 408; Text: 'Request Timeout'),
     (Code: 409; Text: 'Conflict'),
     (Code: 410; Text: 'Gone'),
     (Code: 411; Text: 'Length Required'),
     (Code: 412; Text: 'Precondition Failed'),
     (Code: 413; Text: 'Request Entity Too Large'),
-    (Code: 414; Text: 'Request-URI Too Large'),
+    (Code: 414; Text: 'Request URI Too Large'),
     (Code: 415; Text: 'Unsupported Media Type'),
     (Code: 416; Text: 'Requested Range Not Satisfiable'),
     (Code: 417; Text: 'Expectation Failed'),
@@ -156,7 +159,7 @@ const
     (Code: 501; Text: 'Not Implemented'),
     (Code: 502; Text: 'Bad Gateway'),
     (Code: 503; Text: 'Service Unavailable'),
-    (Code: 504; Text: 'Gateway Time-out'),
+    (Code: 504; Text: 'Gateway Timeout'),
     (Code: 505; Text: 'HTTP Version Not Supported'),
     (Code: 506; Text: 'Variant Also Negotiates'),     // RFC 2295
     (Code: 507; Text: 'Insufficient Storage'),        // RFC 4918
@@ -1264,6 +1267,8 @@ var
   I, LCode: Integer;
   LValid: Boolean;
 begin
+  if (AInput = '') then Exit('');
+
   SetLength(Result, Length(AInput));
   LSp := PChar(AInput);
   LRp := PChar(Result);
@@ -1354,6 +1359,8 @@ class function TCrossHttpUtils.HtmlEncode(const AInput: string): string;
 var
   LSp, LRp: PChar;
 begin
+  if (AInput = '') then Exit('');
+
   SetLength(Result, Length(AInput) * 10);
   LSp := PChar(AInput);
   LRp := PChar(Result);
@@ -1628,6 +1635,8 @@ var
   P, PEnd: PChar;
   H, L: Byte;
 begin
+  if (S = '') then Exit('');
+
   I := 0;
   LStrLen := Length(S);
   P := PChar(S);
@@ -1688,6 +1697,8 @@ var
   C: Byte;
   P: PChar;
 begin
+  if (S = '') then Exit('');
+  
   // 先将 unicode 字符串编码为 utf8 字节数组
   LUTF8Bytes := TEncoding.UTF8.GetBytes(S);
 
