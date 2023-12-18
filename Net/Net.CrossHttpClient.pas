@@ -1357,7 +1357,6 @@ begin
       begin
         LHttpConnection.Close;
         LResponseObj.TriggerResponseFailed(400, 'Send failed');
-
         LSender := nil;
 
         Exit;
@@ -1813,7 +1812,9 @@ begin
     LCallback := FCallback;
     FCallback := nil;
 
-    _SetStatus(AStatusCode, AStatusText);
+    // 只有还没收到响应码的情况(FStatusCode=0), 才允许修改
+    if (FStatusCode = 0) then
+      _SetStatus(AStatusCode, AStatusText);
 
     FConnection._SetRequestStatus(rsRespondFailed);
     FConnection.Close;
