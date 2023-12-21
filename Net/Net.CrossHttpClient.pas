@@ -1398,7 +1398,8 @@ begin
     FHeader[HEADER_CONNECTION] := 'keep-alive';
 
   // 设置数据格式
-  if (FHeader[HEADER_CONTENT_TYPE] = '') then
+  if (FHeader[HEADER_CONTENT_TYPE] = '')
+    and (AChunked or (ABodySize > 0)) then
     FHeader[HEADER_CONTENT_TYPE] := TMediaType.APPLICATION_OCTET_STREAM;
 
   // 设置主机信息
