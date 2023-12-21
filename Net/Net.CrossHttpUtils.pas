@@ -1506,7 +1506,7 @@ end;
 class function TCrossHttpUtils.ExtractUrl(const AUrl: string; out AProtocol,
   AHost: string; out APort: Word; out APath: string): Boolean;
 var
-  LProtocolIndex, LIPv6Index, LPortIndex, LPathIndex: Integer;
+  LProtocolIndex, LIPv6Index, LPortIndex, LPathIndex, LQueryIndex: Integer;
   LPortStr: string;
 begin
   // http://www.test.com/abc
@@ -1543,6 +1543,9 @@ begin
 
     // 找 / 定位路径
     LPathIndex := AUrl.IndexOf('/', LIPv6Index + 1);
+
+    // 找 ? 定位参数
+    LQueryIndex := AUrl.IndexOf('?', LIPv6Index + 1);
   end else
   begin
     // 找 : 定位端口
@@ -1550,10 +1553,18 @@ begin
 
     // 找 / 定位路径
     LPathIndex := AUrl.IndexOf('/', LProtocolIndex);
+
+    // 找 ? 定位参数
+    LQueryIndex := AUrl.IndexOf('?', LProtocolIndex);
   end;
 
   if (LPathIndex < 0) then
-    LPathIndex := Length(AUrl);
+  begin
+    if (LQueryIndex >= 0) then
+      LPathIndex := LQueryIndex
+    else
+      LPathIndex := Length(AUrl);
+  end;
 
   if (LPortIndex >= 0) then
   begin
@@ -1578,7 +1589,9 @@ begin
   // 提取路径
   APath := AUrl.Substring(LPathIndex, MaxInt);
   if (APath = '') then
-    APath := '/';
+    APath := '/'
+  else if (APath[1] <> '/') then
+    APath := '/' + APath;
 
   Result := (AHost <> '');
 end;
