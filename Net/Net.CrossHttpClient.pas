@@ -764,7 +764,10 @@ type
 
   TCrossHttpClient = class(TInterfacedObject, ICrossHttpClient)
   private
+    class var FDefaultIOThreads: Integer;
     class var FDefault: ICrossHttpClient;
+
+    class constructor Create;
     class function GetDefault: ICrossHttpClient; static;
   private
     FCompressType: TCompressType;
@@ -787,7 +790,7 @@ type
     procedure SetIdleout(const AValue: Integer);
     procedure SetTimeout(const AValue: Integer);
   public
-    constructor Create(const AIoThreads: Integer = 2;
+    constructor Create(const AIoThreads: Integer = 4;
       const ACompressType: TCompressType = ctNone);
     destructor Destroy; override;
 
@@ -852,6 +855,7 @@ type
       const AInitProc: TCrossHttpRequestInitProc;
       const ACallback: TCrossHttpResponseProc); overload;
 
+    class property DefaultIOThreads: Integer read FDefaultIOThreads write FDefaultIOThreads;
     class property &Default: ICrossHttpClient read GetDefault;
   end;
 
@@ -2127,6 +2131,11 @@ begin
   inherited;
 end;
 
+class constructor TCrossHttpClient.Create;
+begin
+  FDefaultIOThreads := 4;
+end;
+
 function TCrossHttpClient.CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket;
 begin
   if TStrUtils.SameText(AProtocol, HTTP) then
@@ -2496,7 +2505,7 @@ var
 begin
   if (FDefault = nil) then
   begin
-    LDefault := TCrossHttpClient.Create;
+    LDefault := TCrossHttpClient.Create(FDefaultIOThreads);
     if AtomicCmpExchange(Pointer(FDefault), Pointer(LDefault), nil) <> nil then
       LDefault := nil
     else
