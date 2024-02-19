@@ -6,6 +6,7 @@ interface
 
 uses
   SysUtils,
+  Classes,
   {$IFDEF DELPHI}
   Diagnostics,
   {$ELSE}
@@ -22,6 +23,7 @@ type
   ['{3AA98783-0800-4C4E-AA3F-037FC5307196}']
     function GetName: string;
     function GetPaused: Boolean;
+    function GetLastTick: UInt64;
     procedure SetPaused(const AValue: Boolean);
 
     procedure Terminate;
@@ -29,6 +31,7 @@ type
 
     property Name: string read GetName;
     property Paused: Boolean read GetPaused write SetPaused;
+    property LastTick: UInt64 read GetLastTick;
   end;
 
   TEasyTimer = class(TInterfacedObject, IEasyTimer)
@@ -37,9 +40,11 @@ type
     FName: string;
     FDelay, FInterval: Int64;
     FPaused: Boolean;
+    FLastTick: UInt64;
 
     function GetName: string;
     function GetPaused: Boolean;
+    function GetLastTick: UInt64;
     procedure SetPaused(const AValue: Boolean);
 
     class function _FullDateTime(const ADateTime: TDateTime): TDateTime; static;
@@ -58,6 +63,7 @@ type
 
     property Name: string read GetName;
     property Paused: Boolean read GetPaused write SetPaused;
+    property LastTick: UInt64 read GetLastTick;
   end;
 
 implementation
@@ -85,37 +91,40 @@ begin
 
       while not AEasyThread.Terminated do
       begin
-        if not FPaused then
-        begin
-          LElMSec := LWatch.ElapsedMilliseconds;
-
-          if (LFirstRun and (LElMSec >= FDelay)) or
-            (not LFirstRun and (LElMSec >= FInterval)) then
+        try
+          if not FPaused then
           begin
-            try
+            FLastTick := TThread.GetTickCount64;
+            LElMSec := LWatch.ElapsedMilliseconds;
+
+            if (LFirstRun and (LElMSec >= FDelay)) or
+              (not LFirstRun and (LElMSec >= FInterval)) then
+            begin
               LFirstRun := False;
 
-              if Assigned(AProc) then
-                AProc();
-            except
-              on e: Exception do
-              begin
-                if not (e is EAbort) then
-                begin
-                  AppendLog('执行EasyTimer[%s]出现异常: %s, %s', [
-                    FName, e.ClassName, e.Message
-                  ]);
-
-                  {$IFDEF DELPHI}
-                  if (e.StackTrace <> '') then
-                    AppendLog('异常调用堆栈:%s', [e.StackTrace]);
-                  {$ENDIF}
-                end;
+              try
+                if Assigned(AProc) then
+                  AProc();
+              finally
+                LWatch.Reset;
+                LWatch.Start;
               end;
             end;
+          end;
+        except
+          on e: Exception do
+          begin
+            if not (e is EAbort) then
+            begin
+              AppendLog('执行EasyTimer[%s]出现异常: %s, %s', [
+                FName, e.ClassName, e.Message
+              ]);
 
-            LWatch.Reset;
-            LWatch.Start;
+              {$IFDEF DELPHI}
+              if (e.StackTrace <> '') then
+                AppendLog('异常调用堆栈:%s', [e.StackTrace]);
+              {$ENDIF}
+            end;
           end;
         end;
 
@@ -145,6 +154,11 @@ begin
   WaitFor;
 
   inherited;
+end;
+
+function TEasyTimer.GetLastTick: UInt64;
+begin
+  Result := FLastTick;
 end;
 
 function TEasyTimer.GetName: string;

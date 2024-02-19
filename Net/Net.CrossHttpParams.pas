@@ -85,6 +85,11 @@ type
     function GetEnumerator: TEnumerator; inline;
 
     /// <summary>
+    ///   从源对象设置数据
+    /// </summary>
+    procedure Assign(const ASource: TBaseParams);
+
+    /// <summary>
     ///   添加参数
     /// </summary>
     procedure Add(const AParamValue: TNameValue); overload;
@@ -419,6 +424,11 @@ type
     destructor Destroy; override;
 
     /// <summary>
+    ///   从源对象设置数据
+    /// </summary>
+    procedure Assign(const ASource: TFormField);
+
+    /// <summary>
     ///   将数据转为字节
     /// </summary>
     function AsBytes: TBytes;
@@ -512,6 +522,11 @@ type
     function GetEnumerator: TEnumerator; inline;
 
     /// <summary>
+    ///   从源对象设置数据
+    /// </summary>
+    procedure Assign(const ASource: THttpMultiPartFormData);
+
+    /// <summary>
     /// 初始化Boundary(Decode之前调用)
     /// </summary>
     procedure InitWithBoundary(const ABoundary: string);
@@ -531,6 +546,8 @@ type
     /// 清除所有Items
     /// </summary>
     procedure Clear;
+
+    function AddField(const AField: TFormField): TFormField; overload;
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -1112,6 +1129,18 @@ begin
   Decode(AEncodedParams, False);
 end;
 
+procedure TBaseParams.Assign(const ASource: TBaseParams);
+var
+  LParamItem: TNameValue;
+begin
+  Clear;
+
+  if (ASource = nil) or (ASource.Count <= 0) then Exit;
+
+  for LParamItem in ASource do
+    Add(LParamItem);
+end;
+
 procedure TBaseParams.Add(const AParamValue: TNameValue);
 begin
   FParams.Add(AParamValue);
@@ -1656,6 +1685,34 @@ begin
   end;
 end;
 
+procedure TFormField.Assign(const ASource: TFormField);
+begin
+  FreeValue;
+
+  if (ASource = nil) then Exit;
+
+  FName := ASource.FName;
+  FValueOwned := ASource.FValueOwned;
+  FFileName := ASource.FFileName;
+  FFilePath := ASource.FFilePath;
+  FContentType := ASource.FContentType;
+  FContentTransferEncoding := ASource.FContentTransferEncoding;
+
+  if ASource.FValueOwned then
+  begin
+    if (FFilePath <> '') then
+      FValue := TFileUtils.OpenRead(FFilePath)
+    else
+    begin
+      FValue := TBytesStream.Create;
+      FValue.CopyFrom(ASource.FValue, 0);
+    end;
+  end else
+  begin
+    FValue := ASource.FValue;
+  end;
+end;
+
 function TFormField.AsString(AEncoding: TEncoding): string;
 begin
 //  if (AEncoding = nil) then
@@ -1704,6 +1761,12 @@ begin
   inherited;
 end;
 
+function THttpMultiPartFormData.AddField(const AField: TFormField): TFormField;
+begin
+  FPartFields.Add(AField);
+  Result := AField;
+end;
+
 function THttpMultiPartFormData.AddField(const AFieldName: string;
   const AValue: TBytes): TFormField;
 begin
@@ -1746,6 +1809,21 @@ begin
     TFileUtils.OpenRead(AFileName),
     True);
   Result.FFilePath := AFileName;
+end;
+
+procedure THttpMultiPartFormData.Assign(const ASource: THttpMultiPartFormData);
+var
+  LSrcField, LNewField: TFormField;
+begin
+  Clear;
+
+  for LSrcField in ASource do
+  begin
+    LNewField := TFormField.Create;
+    LNewField.Assign(LSrcField);
+
+    AddField(LNewField);
+  end;
 end;
 
 procedure THttpMultiPartFormData.Clear;

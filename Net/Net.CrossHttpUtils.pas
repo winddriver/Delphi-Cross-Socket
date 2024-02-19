@@ -15,7 +15,9 @@ interface
 
 uses
   SysUtils,
+  DateUtils,
 
+  Utils.DateTime,
   Utils.StrUtils,
   Utils.Utils,
   Utils.IOUtils;
@@ -170,7 +172,7 @@ const
   {$ENDREGION}
 
   {$REGION 'MIME CONST'}
-  MIME_TYPES: array[0..987] of TMimeValue = (
+  MIME_TYPES: array[0..988] of TMimeValue = (
     (Key: 'ez'; Value: 'application/andrew-inset'), // do not localize
     (Key: 'aw'; Value: 'application/applixware'), // do not localize
     (Key: 'atom'; Value: 'application/atom+xml'), // do not localize
@@ -1158,7 +1160,8 @@ const
     (Key: 'avi'; Value: 'video/x-msvideo'), // do not localize
     (Key: 'movie'; Value: 'video/x-sgi-movie'), // do not localize
     (Key: 'smv'; Value: 'video/x-smv'), // do not localize
-    (Key: 'ice'; Value: 'x-conference/x-cooltalk') // do not localize
+    (Key: 'ice'; Value: 'x-conference/x-cooltalk'), // do not localize
+    (Key: 'wasm'; Value: 'application/wasm') // do not localize
   );
   {$ENDREGION}
 
@@ -1224,11 +1227,13 @@ type
   public
     class function GetHttpStatusText(const AStatusCode: Integer): string; static;
     class function GetFileMIMEType(const AFileName: string): string; static;
-    class function RFC1123_DateToStr(const ADate: TDateTime): string; static;
+    class function RFC1123_DateToStr(const ADate: TDateTime): string; static; inline;
     class function RFC1123_StrToDate(const ADateStr: string): TDateTime; static;
 
     class function ExtractUrl(const AUrl: string; out AProtocol, AHost: string;
       out APort: Word; out APath: string): Boolean; static;
+    class function CreateUrl(const AProtocol, AHost: string;
+      const APort: Word; const APath: string): string; static;
 
     class function CombinePath(const APath1, APath2: string; const APathDelim: Char = '/'): string; static;
     class function IsSamePath(const APath1, APath2: string): Boolean; static;
@@ -1503,6 +1508,27 @@ begin
   Result := TPathUtils.Combine(APath1, APath2, APathDelim);
 end;
 
+class function TCrossHttpUtils.CreateUrl(const AProtocol, AHost: string;
+  const APort: Word; const APath: string): string;
+var
+  LPath: string;
+begin
+  if (APath = '') then
+    LPath := '/'
+  else if (APath[1] = '/') then
+    LPath := APath
+  else
+    LPath := '/' + APath;
+
+  Result := Format('%s://%s', [AProtocol, AHost]);
+
+  if (SameText(AProtocol, HTTP) and (APort = HTTP_DEFAULT_PORT))
+    or (SameText(AProtocol, HTTPS) and (APort = HTTPS_DEFAULT_PORT)) then
+    Result := Result + LPath
+  else
+    Result := Result + Format(':%d%s', [APort, LPath]);
+end;
+
 class function TCrossHttpUtils.ExtractUrl(const AUrl: string; out AProtocol,
   AHost: string; out APort: Word; out APath: string): Boolean;
 var
@@ -1544,6 +1570,10 @@ begin
     // 找 / 定位路径
     LPathIndex := AUrl.IndexOf('/', LIPv6Index + 1);
 
+    // 避免在参数部分出现 : 被当成端口定位
+    if (LPortIndex > LPathIndex) then
+      LPortIndex := -1;
+
     // 找 ? 定位参数
     LQueryIndex := AUrl.IndexOf('?', LIPv6Index + 1);
   end else
@@ -1553,6 +1583,10 @@ begin
 
     // 找 / 定位路径
     LPathIndex := AUrl.IndexOf('/', LProtocolIndex);
+
+    // 避免在参数部分出现 : 被当成端口定位
+    if (LPortIndex > LPathIndex) then
+      LPortIndex := -1;
 
     // 找 ? 定位参数
     LQueryIndex := AUrl.IndexOf('?', LProtocolIndex);
@@ -1609,18 +1643,9 @@ begin
 end;
 
 class function TCrossHttpUtils.RFC1123_DateToStr(const ADate: TDateTime): string;
-var
-  LYear, LMonth, LDay        : Word;
-  LHour, LMin,   LSec, LMSec : Word;
-  LDayOfWeek                 : Word;
 begin
-  DecodeDate(ADate, LYear, LMonth, LDay);
-  DecodeTime(ADate, LHour, LMin,   LSec, LMSec);
-  LDayOfWeek := ((Trunc(aDate) - 2) mod 7);
-  Result := Copy(RFC1123_StrWeekDay, 1 + LDayOfWeek * 3, 3) + ', ' +
-    Format('%2.2d %s %4.4d %2.2d:%2.2d:%2.2d GMT',
-      [LDay, Copy(RFC1123_StrMonth, 1 + 3 * (LMonth - 1), 3),
-      LYear, LHour, LMin, LSec]);
+  // Fri, 30 Jul 2024 10:10:35 GMT
+  Result := ADate.ToRFC1123(True);
 end;
 
 class function TCrossHttpUtils.RFC1123_StrToDate(const ADateStr: string) : TDateTime;
@@ -1628,15 +1653,29 @@ var
   LYear, LMonth, LDay : Word;
   LHour, LMin,   LSec : Word;
 begin
-  if (ADateStr = '') then Exit(0);
+  // Fri, 30 Jul 2024 10:10:35 GMT
+  if (Length(ADateStr) = 29) then
+  begin
+    LDay    := StrToIntDef(Copy(ADateStr, 6, 2), 0);
+    LMonth  := (Pos(Copy(ADateStr, 9, 3), RFC1123_StrMonth) + 2) div 3;
+    LYear   := StrToIntDef(Copy(ADateStr, 13, 4), 0);
+    LHour   := StrToIntDef(Copy(ADateStr, 18, 2), 0);
+    LMin    := StrToIntDef(Copy(ADateStr, 21, 2), 0);
+    LSec    := StrToIntDef(Copy(ADateStr, 24, 2), 0);
+  end else
+  // Fri, 30 Jul 24 10:10:35 GMT
+  // Fri, 30-Jul-24 10:10:35 GMT
+  if (Length(ADateStr) = 27) then
+  begin
+    LDay    := StrToIntDef(Copy(ADateStr, 6, 2), 0);
+    LMonth  := (Pos(Copy(ADateStr, 9, 3), RFC1123_StrMonth) + 2) div 3;
+    LYear   := 2000 + StrToIntDef(Copy(ADateStr, 13, 2), 0);
+    LHour   := StrToIntDef(Copy(ADateStr, 16, 2), 0);
+    LMin    := StrToIntDef(Copy(ADateStr, 19, 2), 0);
+    LSec    := StrToIntDef(Copy(ADateStr, 22, 2), 0);
+  end else
+    Exit(0);
 
-  { Fri, 30 Jul 2004 10:10:35 GMT }
-  LDay    := StrToIntDef(Copy(ADateStr, 6, 2), 0);
-  LMonth  := (Pos(Copy(ADateStr, 9, 3), RFC1123_StrMonth) + 2) div 3;
-  LYear   := StrToIntDef(Copy(ADateStr, 13, 4), 0);
-  LHour   := StrToIntDef(Copy(ADateStr, 18, 2), 0);
-  LMin    := StrToIntDef(Copy(ADateStr, 21, 2), 0);
-  LSec    := StrToIntDef(Copy(ADateStr, 24, 2), 0);
   Result := EncodeDate(LYear, LMonth, LDay);
   Result := Result + EncodeTime(LHour, LMin, LSec, 0);
 end;

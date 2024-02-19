@@ -430,6 +430,7 @@ type
   private
     FIoThreads: Integer;
     FWsCli, FWssCli: ICrossHttpClientSocket;
+    FWsCliArr: TArray<ICrossHttpClientSocket>;
 
     class var FDefault: ICrossWebSocketMgr;
     class function GetDefault: ICrossWebSocketMgr; static;
@@ -439,6 +440,7 @@ type
     constructor Create(const AIoThreads: Integer = 2); reintroduce;
     destructor Destroy; override;
 
+    procedure CancelAll; override;
     function CreateWebSocket(const AUrl: string): ICrossWebSocket;
 
     class property &Default: ICrossWebSocketMgr read GetDefault;
@@ -1137,9 +1139,25 @@ end;
 
 { TCrossWebSocketMgr }
 
+procedure TCrossWebSocketMgr.CancelAll;
+var
+  LWsCli: ICrossHttpClientSocket;
+begin
+  inherited CancelAll;
+
+  _Lock;
+  try
+    for LWsCli in FWsCliArr do
+      LWsCli.CloseAll;
+  finally
+    _Unlock;
+  end;
+end;
+
 constructor TCrossWebSocketMgr.Create(const AIoThreads: Integer);
 begin
   FIoThreads := AIoThreads;
+  FWsCliArr := [];
 
   inherited Create(AIoThreads, ctNone);
 end;
@@ -1150,14 +1168,20 @@ begin
   if TStrUtils.SameText(AProtocol, WS) then
   begin
     if (FWsCli = nil) then
+    begin
       FWsCli := TCrossWebSocketClient.Create(Self, FIoThreads, False);
+      FWsCliArr := FWsCliArr + [FWsCli];
+    end;
 
     Result := FWsCli;
   end else
   if TStrUtils.SameText(AProtocol, WSS) then
   begin
     if (FWssCli = nil) then
+    begin
       FWssCli := TCrossWebSocketClient.Create(Self, FIoThreads, True);
+      FWsCliArr := FWsCliArr + [FWssCli];
+    end;
 
     Result := FWssCli;
   end else

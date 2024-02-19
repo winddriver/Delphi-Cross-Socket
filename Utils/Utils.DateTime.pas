@@ -22,6 +22,13 @@ uses
   Types,
   Math;
 
+const
+  ShortDayNamesEnglish :array[1..7] of string =
+    ('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat');
+  ShortMonthNamesEnglish :array[1..12] of string =
+    ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
+
 type
   TDateTimeHelper = record helper for TDateTime
   private const
@@ -543,6 +550,7 @@ var
   LOffset: TDateTime;
   LYear, LMonth, LDay, LHour, LMinute, LSecond, LMilliseconds: Word;
 begin
+  // 2015-02-01T16:08:19.202Z
   DecodeDate(Self, LYear, LMonth, LDay);
   DecodeTime(Self, LHour, LMinute, LSecond, LMilliseconds);
   Result := Format('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%d', [LYear, LMonth, LDay, LHour, LMinute, LSecond, LMilliseconds]);
@@ -582,11 +590,6 @@ begin
 end;
 
 function TDateTimeHelper.ToRFC1123(const AIsUtcDateTime: Boolean): string;
-const
-  ShortDayNamesEnglish :array[1..7] of string =
-    ('Mon','Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun');
-  ShortMonthNamesEnglish :array[1..12] of string = ('Jan', 'Feb','Mar', 'Apr',
-     'May','Jun','Jul','Aug', 'Sep','Oct','Nov','Dec');
 var
   LDateTime: TDateTime;
 begin
@@ -595,10 +598,8 @@ begin
   else
     LDateTime := Self;
 
-  Result := ShortDayNamesEnglish[DayOfTheWeek(LDateTime)] + ', ' +
-    FormatDateTime('dd', LDateTime) + ' ' +
-    ShortMonthNamesEnglish[MonthOf(LDateTime)] + ' ' +
-    FormatDateTime('yyyy hh:nn:ss', LDateTime) + ' GMT';
+  // Fri, 30 Jul 2024 10:10:35 GMT
+  Result := FormatDateTime('ddd, dd mmm yyyy hh":"nn":"ss "GMT"', LDateTime);
 end;
 
 function TDateTimeHelper.ToString(const AFormatStr: string): string;
@@ -863,14 +864,25 @@ begin
 end;
 {$ENDIF}
 
-{$IFDEF FPC}
+procedure _InitDefaultFormatSettings;
+var
+  I: Integer;
+begin
+  FormatSettings.ShortDateFormat := 'yyyy-mm-dd';
+  FormatSettings.ShortTimeFormat := 'hh":"nn":"ss';
+  FormatSettings.LongDateFormat := 'yyyy-mm-dd';
+  FormatSettings.LongTimeFormat := 'hh":"nn":"ss';
+  FormatSettings.DateSeparator := '-';
+  FormatSettings.TimeSeparator := ':';
+
+  for I := Low(ShortDayNamesEnglish) to High(ShortDayNamesEnglish) do
+    FormatSettings.ShortDayNames[I] := ShortDayNamesEnglish[I];
+
+  for I := Low(ShortMonthNamesEnglish) to High(ShortMonthNamesEnglish) do
+    FormatSettings.ShortMonthNames[I] := ShortMonthNamesEnglish[I];
+end;
+
 initialization
-  DefaultFormatSettings.ShortDateFormat := AnsiString('yyyy-mm-dd');
-  DefaultFormatSettings.ShortTimeFormat := AnsiString('hh":"NN":"ss');
-  DefaultFormatSettings.LongDateFormat := AnsiString('yyyy-mm-dd');
-  DefaultFormatSettings.LongTimeFormat := AnsiString('hh":"NN":"ss');
-  DefaultFormatSettings.DateSeparator := AnsiChar('-');
-  DefaultFormatSettings.TimeSeparator := AnsiChar(':');
-{$ENDIF}
+  _InitDefaultFormatSettings;
 
 end.

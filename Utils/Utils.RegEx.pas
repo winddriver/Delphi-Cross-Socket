@@ -421,7 +421,7 @@ begin
   FRegEx.StartPos := AStartPos;
   LCount := 0;
   SetLength(FList, 0);
-  LResult := FRegEx.MatchAgain;
+  LResult := FRegEx.Match;
   while LResult do
   begin
     if (LCount mod 100 = 0) then
