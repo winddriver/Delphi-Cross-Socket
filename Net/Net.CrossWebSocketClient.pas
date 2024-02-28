@@ -436,6 +436,7 @@ type
     class function GetDefault: ICrossWebSocketMgr; static;
   protected
     function CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket; override;
+    procedure CreateHttpClis; override;
   public
     constructor Create(const AIoThreads: Integer = 2); reintroduce;
     destructor Destroy; override;
@@ -1145,13 +1146,8 @@ var
 begin
   inherited CancelAll;
 
-  _Lock;
-  try
-    for LWsCli in FWsCliArr do
-      LWsCli.CloseAll;
-  finally
-    _Unlock;
-  end;
+  for LWsCli in FWsCliArr do
+    LWsCli.CloseAll;
 end;
 
 constructor TCrossWebSocketMgr.Create(const AIoThreads: Integer);
@@ -1169,7 +1165,7 @@ begin
   begin
     if (FWsCli = nil) then
     begin
-      FWsCli := TCrossWebSocketClient.Create(Self, FIoThreads, False);
+      FWsCli := TCrossWebSocketClient.Create(Self, FIoThreads, False, False);
       FWsCliArr := FWsCliArr + [FWsCli];
     end;
 
@@ -1179,13 +1175,21 @@ begin
   begin
     if (FWssCli = nil) then
     begin
-      FWssCli := TCrossWebSocketClient.Create(Self, FIoThreads, True);
+      FWssCli := TCrossWebSocketClient.Create(Self, FIoThreads, True, False);
       FWsCliArr := FWsCliArr + [FWssCli];
     end;
 
     Result := FWssCli;
   end else
     Result := inherited CreateHttpCli(AProtocol);
+end;
+
+procedure TCrossWebSocketMgr.CreateHttpClis;
+begin
+  inherited;
+
+  CreateHttpCli(WS);
+  CreateHttpCli(WSS);
 end;
 
 function TCrossWebSocketMgr.CreateWebSocket(

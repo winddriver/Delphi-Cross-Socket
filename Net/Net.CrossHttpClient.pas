@@ -758,15 +758,14 @@ type
   TCrossHttpClientSocket = class(TCrossSslSocket, ICrossHttpClientSocket)
   private
     FHttpClient: TCrossHttpClient;
+    FReUseConnection: Boolean;
   protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
     procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
-
-    function ReUseConnection(const AProtocol: string): Boolean; virtual;
   public
     constructor Create(const AHttpClient: TCrossHttpClient;
-      const AIoThreads: Integer; const ASsl: Boolean); reintroduce; virtual;
+      const AIoThreads: Integer; const ASsl, AReUseConnection: Boolean); reintroduce; virtual;
 
     procedure GetConnection(const AProtocol, AHost: string; const APort: Word;
       const ACallback: TCrossHttpGetConnectionProc); virtual;
@@ -792,7 +791,9 @@ type
   protected
     procedure _Lock; inline;
     procedure _Unlock; inline;
+
     function CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket; virtual;
+    procedure CreateHttpClis; virtual;
 
     function GetIdleout: Integer;
     function GetTimeout: Integer;
@@ -2046,9 +2047,10 @@ end;
 { TCrossHttpClientSocket }
 
 constructor TCrossHttpClientSocket.Create(const AHttpClient: TCrossHttpClient;
-  const AIoThreads: Integer; const ASsl: Boolean);
+  const AIoThreads: Integer; const ASsl, AReUseConnection: Boolean);
 begin
   FHttpClient := AHttpClient;
+  FReUseConnection := AReUseConnection;
 
   inherited Create(AIoThreads, ASsl);
 end;
@@ -2069,7 +2071,7 @@ var
   LHttpConnObj: TCrossHttpClientConnection;
 begin
   {$region '先从已有连接中找空闲的连接'}
-  if ReUseConnection(AProtocol) then
+  if FReUseConnection then
   begin
     LConns := LockConnections;
     try
@@ -2130,25 +2132,14 @@ begin
   LResponseObj.ParseRecvData(ABuf, ALen);
 end;
 
-function TCrossHttpClientSocket.ReUseConnection(
-  const AProtocol: string): Boolean;
-begin
-  Result := TStrUtils.SameText(AProtocol, HTTP) or TStrUtils.SameText(AProtocol, HTTPS);
-end;
-
 { TCrossHttpClient }
 
 procedure TCrossHttpClient.CancelAll;
 var
   LHttpCli: ICrossHttpClientSocket;
 begin
-  _Lock;
-  try
-    for LHttpCli in FHttpCliArr do
-      LHttpCli.CloseAll;
-  finally
-    _Unlock;
-  end;
+  for LHttpCli in FHttpCliArr do
+    LHttpCli.CloseAll;
 end;
 
 constructor TCrossHttpClient.Create(const AIoThreads: Integer;
@@ -2169,6 +2160,11 @@ begin
   FCompressType := ACompressType;
   FLock := TLock.Create;
   FHttpCliArr := [];
+
+  // 预先创建请求对象
+  // 后续请求中就可以不用加锁而直接使用了
+  CreateHttpClis;
+
   FTimer := TEasyTimer.Create('TCrossHttpClient.Timeout',
     procedure
     begin
@@ -2199,7 +2195,7 @@ begin
   begin
     if (FHttpCli = nil) then
     begin
-      FHttpCli := TCrossHttpClientSocket.Create(Self, FIoThreads, False);
+      FHttpCli := TCrossHttpClientSocket.Create(Self, FIoThreads, False, True);
       FHttpCliArr := FHttpCliArr + [FHttpCli];
     end;
 
@@ -2209,13 +2205,19 @@ begin
   begin
     if (FHttpsCli = nil) then
     begin
-      FHttpsCli := TCrossHttpClientSocket.Create(Self, FIoThreads, True);
+      FHttpsCli := TCrossHttpClientSocket.Create(Self, FIoThreads, True, True);
       FHttpCliArr := FHttpCliArr + [FHttpsCli];
     end;
 
     Result := FHttpsCli;
   end else
     raise ECrossHttpClient.CreateFmt('Invalid protocol:%s', [AProtocol]);
+end;
+
+procedure TCrossHttpClient.CreateHttpClis;
+begin
+  CreateHttpCli(HTTP);
+  CreateHttpCli(HTTPS);
 end;
 
 procedure TCrossHttpClient.DoRequest(const AMethod, AUrl: string;
@@ -2237,13 +2239,8 @@ begin
     Exit;
   end;
 
-  // 根据协议创建HttpCli对象
-  _Lock;
-  try
-    LHttpCli := CreateHttpCli(LProtocol);
-  finally
-    _Unlock;
-  end;
+  // 根据协议获取HttpCli对象
+  LHttpCli := CreateHttpCli(LProtocol);
 
   // 获取可用连接
   LHttpCli.GetConnection(LProtocol, LHost, LPort,
