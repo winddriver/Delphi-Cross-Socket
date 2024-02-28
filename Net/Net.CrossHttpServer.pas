@@ -98,6 +98,7 @@ type
     function GetRawPathAndParams: string;
     function GetMethod: string;
     function GetPath: string;
+    function GetPathAndParams: string;
     function GetVersion: string;
     function GetHeader: THttpHeader;
     function GetCookies: TRequestCookies;
@@ -211,6 +212,16 @@ type
     ///   </para>
     /// </summary>
     property Path: string read GetPath;
+
+    /// <summary>
+    ///   <para>
+    ///     请求路径及参数
+    ///   </para>
+    ///   <para>
+    ///     比如: /api/callapi1?aaa=111&bbb=222
+    ///   </para>
+    /// </summary>
+    property PathAndParams: string read GetPathAndParams;
 
     /// <summary>
     ///   请求版本:
@@ -1778,6 +1789,7 @@ type
     function GetRawPathAndParams: string;
     function GetMethod: string;
     function GetPath: string;
+    function GetPathAndParams: string;
     function GetVersion: string;
     function GetHeader: THttpHeader;
     function GetCookies: TRequestCookies;
@@ -1829,7 +1841,7 @@ type
 
     FRawRequest: TMemoryStream;
     FRawRequestText: string;
-    FMethod, FPath, FVersion: string;
+    FMethod, FPath, FPathAndParams, FVersion: string;
     FRawPath, FRawParamsText, FRawPathAndParams: string;
     FHttpVerNum: Integer;
     FKeepAlive: Boolean;
@@ -1882,6 +1894,7 @@ type
     property RawPathAndParams: string read GetRawPathAndParams;
     property Method: string read GetMethod;
     property Path: string read GetPath;
+    property PathAndParams: string read GetPathAndParams;
     property Version: string read GetVersion;
     property Header: THttpHeader read GetHeader;
     property Cookies: TRequestCookies read GetCookies;
@@ -2453,7 +2466,7 @@ function TCrossHttpRouter.IsMatch(const ARequest: ICrossHttpRequest): Boolean;
     // Path中不包括参数时, 使用TStrUtils.SameText辅助加速
     if (FPath = '*') or ((Length(FPathParamKeys) = 0) and TStrUtils.SameText(ARequest.Path, FPath)) then Exit(True);
 
-    FPathRegEx.Subject := ARequest.Path;
+    FPathRegEx.Subject := ARequest.PathAndParams;
     Result := FPathRegEx.Match;
     if not Result then Exit;
 
@@ -3768,6 +3781,11 @@ begin
   Result := FPath;
 end;
 
+function TCrossHttpRequest.GetPathAndParams: string;
+begin
+  Result := FPathAndParams;
+end;
+
 function TCrossHttpRequest.GetPostDataSize: Int64;
 begin
   Result := FPostDataSize;
@@ -3875,6 +3893,8 @@ begin
     FRawPath := FRawPathAndParams.Substring(0, J);
     FRawParamsText := FRawPathAndParams.Substring(J + 1);
   end;
+
+  FPathAndParams := TCrossHttpUtils.UrlDecode(FRawPathAndParams);
   FPath := TCrossHttpUtils.UrlDecode(FRawPath);
 
   FQuery.Decode(FRawParamsText);
