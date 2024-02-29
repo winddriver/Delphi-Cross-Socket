@@ -1238,6 +1238,8 @@ type
     class function CombinePath(const APath1, APath2: string; const APathDelim: Char = '/'): string; static;
     class function IsSamePath(const APath1, APath2: string): Boolean; static;
 
+    class function GetPathWithoutParams(const APath: string): string; static;
+
     class function HtmlEncode(const AInput: string): string; static;
     class function HtmlDecode(const AInput: string): string; static;
 
@@ -1263,6 +1265,18 @@ begin
   for LStatusItem in STATUS_CODES do
     if (LStatusItem.Code = AStatusCode) then Exit(LStatusItem.Text);
   Result := AStatusCode.ToString;
+end;
+
+class function TCrossHttpUtils.GetPathWithoutParams(
+  const APath: string): string;
+var
+  LIndex: Integer;
+begin
+  LIndex := APath.IndexOf('?');
+  if (LIndex >= 0) then
+    Result := APath.Substring(0, LIndex)
+  else
+    Result := APath;
 end;
 
 class function TCrossHttpUtils.HtmlDecode(const AInput: string): string;

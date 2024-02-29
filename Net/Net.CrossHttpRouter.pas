@@ -92,7 +92,7 @@ begin
       LPath, LFile, LDefMainFile: string;
     begin
       LPath := ALocalDir;
-      LFile := ARequest.Params[AFileParamName];
+      LFile := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[AFileParamName]);
 
       if (LFile = '') then
       begin
@@ -130,7 +130,9 @@ begin
       LFile: string;
     begin
       AHandled := True;
-      LFile := TCrossHttpUtils.CombinePath(ALocalDir, ARequest.Params[AFileParamName]);
+
+      LFile := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[AFileParamName]);
+      LFile := TCrossHttpUtils.CombinePath(ALocalDir, LFile);
       if (LFile = '') then
       begin
         AHandled := False;
@@ -151,7 +153,8 @@ begin
     begin
       AHandled := True;
 
-      LFile := TCrossHttpUtils.CombinePath(ALocalDir, ARequest.Params[ADirParamName]);
+      LFile := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[ADirParamName]);
+      LFile := TCrossHttpUtils.CombinePath(ALocalDir, LFile);
       if (LFile = '') then
       begin
         AHandled := False;
