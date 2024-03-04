@@ -436,7 +436,6 @@ type
     class function GetDefault: ICrossWebSocketMgr; static;
   protected
     function CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket; override;
-    procedure CreateHttpClis; override;
   public
     constructor Create(const AIoThreads: Integer = 2); reintroduce;
     destructor Destroy; override;
@@ -1182,14 +1181,6 @@ begin
     Result := FWssCli;
   end else
     Result := inherited CreateHttpCli(AProtocol);
-end;
-
-procedure TCrossWebSocketMgr.CreateHttpClis;
-begin
-  inherited;
-
-  CreateHttpCli(WS);
-  CreateHttpCli(WSS);
 end;
 
 function TCrossWebSocketMgr.CreateWebSocket(

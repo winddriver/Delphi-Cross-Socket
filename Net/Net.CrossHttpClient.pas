@@ -18,6 +18,7 @@ uses
   SysUtils,
   Math,
   ZLib,
+  Generics.Collections,
 
   {$IFDEF DELPHI}
   Diagnostics,
@@ -294,6 +295,13 @@ type
 
     procedure SetIdleout(const AValue: Integer);
     procedure SetTimeout(const AValue: Integer);
+
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   预创建请求对象
+    /// </summary>
+    {$ENDREGION}
+    procedure Prepare(const AProtocols: array of string);
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -779,8 +787,8 @@ type
     class constructor Create;
     class function GetDefault: ICrossHttpClient; static;
   private
-    FCompressType: TCompressType;
     FIoThreads: Integer;
+    FCompressType: TCompressType;
     FLock: ILock;
     FTimer: IEasyTimer;
     FHttpCli, FHttpsCli: ICrossHttpClientSocket;
@@ -793,7 +801,6 @@ type
     procedure _Unlock; inline;
 
     function CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket; virtual;
-    procedure CreateHttpClis; virtual;
 
     function GetIdleout: Integer;
     function GetTimeout: Integer;
@@ -804,6 +811,8 @@ type
     constructor Create(const AIoThreads: Integer = 4;
       const ACompressType: TCompressType = ctNone);
     destructor Destroy; override;
+
+    procedure Prepare(const AProtocols: array of string);
 
     procedure CancelAll; virtual;
 
@@ -2161,10 +2170,6 @@ begin
   FLock := TLock.Create;
   FHttpCliArr := [];
 
-  // 预先创建请求对象
-  // 后续请求中就可以不用加锁而直接使用了
-  CreateHttpClis;
-
   FTimer := TEasyTimer.Create('TCrossHttpClient.Timeout',
     procedure
     begin
@@ -2214,12 +2219,6 @@ begin
     raise ECrossHttpClient.CreateFmt('Invalid protocol:%s', [AProtocol]);
 end;
 
-procedure TCrossHttpClient.CreateHttpClis;
-begin
-  CreateHttpCli(HTTP);
-  CreateHttpCli(HTTPS);
-end;
-
 procedure TCrossHttpClient.DoRequest(const AMethod, AUrl: string;
   const AHttpHeaders: THttpHeader;
   const ARequestBody: TCrossHttpChunkDataFunc;
@@ -2240,7 +2239,12 @@ begin
   end;
 
   // 根据协议获取HttpCli对象
-  LHttpCli := CreateHttpCli(LProtocol);
+  _Lock;
+  try
+    LHttpCli := CreateHttpCli(LProtocol);
+  finally
+    _Unlock;
+  end;
 
   // 获取可用连接
   LHttpCli.GetConnection(LProtocol, LHost, LPort,
@@ -2584,6 +2588,19 @@ end;
 function TCrossHttpClient.GetTimeout: Integer;
 begin
   Result := FTimeout;
+end;
+
+procedure TCrossHttpClient.Prepare(const AProtocols: array of string);
+var
+  LProtocol: string;
+begin
+  _Lock;
+  try
+    for LProtocol in AProtocols do
+      CreateHttpCli(LProtocol);
+  finally
+    _Unlock;
+  end;
 end;
 
 procedure TCrossHttpClient.SetIdleout(const AValue: Integer);
