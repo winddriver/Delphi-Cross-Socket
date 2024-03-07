@@ -1585,7 +1585,7 @@ begin
     LPathIndex := AUrl.IndexOf('/', LIPv6Index + 1);
 
     // 避免在参数部分出现 : 被当成端口定位
-    if (LPortIndex > LPathIndex) then
+    if (LPathIndex >= 0) and (LPortIndex > LPathIndex) then
       LPortIndex := -1;
 
     // 找 ? 定位参数
@@ -1599,7 +1599,7 @@ begin
     LPathIndex := AUrl.IndexOf('/', LProtocolIndex);
 
     // 避免在参数部分出现 : 被当成端口定位
-    if (LPortIndex > LPathIndex) then
+    if (LPathIndex >= 0) and (LPortIndex > LPathIndex) then
       LPortIndex := -1;
 
     // 找 ? 定位参数
@@ -1628,7 +1628,8 @@ begin
     AHost := AUrl.Substring(LProtocolIndex, LPathIndex - LProtocolIndex);
 
     // 根据协议类型决定默认端口
-    if TStrUtils.SameText(AProtocol, HTTPS) then
+    if TStrUtils.SameText(AProtocol, HTTPS)
+      or TStrUtils.SameText(AProtocol, WSS) then
       APort := HTTPS_DEFAULT_PORT
     else
       APort := HTTP_DEFAULT_PORT;
