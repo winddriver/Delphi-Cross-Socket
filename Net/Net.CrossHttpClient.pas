@@ -1117,8 +1117,8 @@ begin
             // 所以改用我的TArrayUtils.Concat进行拼接
             LChunkHeader := TArrayUtils<Byte>.Concat([
               LChunkHeader,
-              TEncoding.ANSI.GetBytes(IntToHex(LChunkSize, 0)), [
-              13, 10]
+              TEncoding.ANSI.GetBytes(IntToHex(LChunkSize, 0)),
+              [13, 10]
             ]);
 
             LChunkState := csBody;
@@ -2253,7 +2253,6 @@ begin
       LHttpConnectionObj: TCrossHttpClientConnection;
       LRequestObj: TCrossHttpClientRequest;
       LResponseObj: TCrossHttpClientResponse;
-      LHttpHeader: TNameValue;
     begin
       // 没取到可用连接, 应该是连接失败了
       if (AHttpConnection = nil) then
@@ -2280,10 +2279,7 @@ begin
 
       // 设置请求头
       if (AHttpHeaders <> nil) then
-      begin
-        for LHttpHeader in AHttpHeaders do
-          LRequestObj.Header[LHttpHeader.Name] := LHttpHeader.Value;
-      end;
+        LRequestObj.Header.Assign(AHttpHeaders);
 
       // 设置响应数据流
       LResponseObj._SetResponseStream(AResponseStream);

@@ -545,7 +545,7 @@ begin
     // 对方主动断开连接
     if (LRcvd = 0) then
     begin
-//      _Log('%d close on read 0, ref %d', [LConnection.Socket, TInterfacedObject(LConnection).RefCount]);
+//      _Log('%d close on read 0, ref %d', [LConnection.Socket, (LConnection as TInterfacedObject).RefCount]);
       LConnection.Close;
       Exit;
     end;
@@ -563,7 +563,7 @@ begin
       else
       // 接收出错
       begin
-//        _Log('%d close on read error %d, ref %d', [LConnection.Socket, GetLastError, TInterfacedObject(LConnection).RefCount]);
+//        _Log('%d close on read error %d, ref %d', [LConnection.Socket, GetLastError, (LConnection as TInterfacedObject).RefCount]);
         LConnection.Close;
         Exit;
       end;
@@ -741,7 +741,7 @@ procedure TKqueueCrossSocket.Connect(const AHost: string; const APort: Word;
       ACallback(nil, False);
   end;
 
-  function _Connect(const ASocket: LSocket; const AAddr: PRawAddrInfo): Boolean;
+  function _Connect(const ASocket: TSocket; const AAddr: PRawAddrInfo): Boolean;
   var
     LConnection: ICrossConnection;
     LKqConnection: TKqueueConnection;
@@ -780,7 +780,7 @@ procedure TKqueueCrossSocket.Connect(const AHost: string; const APort: Word;
 var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
-  LSocket: LSocket;
+  LSocket: TSocket;
 begin
   FillChar(LHints, SizeOf(TRawAddrInfo), 0);
   LHints.ai_family := AF_UNSPEC;
