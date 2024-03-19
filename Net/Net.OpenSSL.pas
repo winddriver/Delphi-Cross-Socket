@@ -44,7 +44,7 @@ unit Net.OpenSSL;
 }
 
 // iOS真机必须用openssl的静态库(未验证)
-{$IF defined(IOS) and defined(CPUARM)}
+{$IF defined(IOS) or defined(ANDROID)}
   {$DEFINE __SSL_STATIC__}
 {$ENDIF}
 
@@ -107,9 +107,7 @@ const
       {$ENDIF}
     {$ENDIF};
 
-  {$IFDEF MSWINDOWS}
   _PU = '';
-  {$ENDIF}
 
   SSL_ERROR_NONE                              = 0;
   SSL_ERROR_SSL                               = 1;
@@ -374,7 +372,7 @@ type
 {$IFDEF __SSL_STATIC__}
 
 {$REGION 'LIBSSL-FUNC'}
-function OPENSSL_init_ssl: Integer; cdecl;
+function OPENSSL_init_ssl(opts: UInt64; settings: Pointer): Integer; cdecl;
   external LIBSSL_NAME name _PU + 'OPENSSL_init_ssl';
 
 function TLS_method: PSSL_METHOD; cdecl;
@@ -553,11 +551,11 @@ type
   TSSLTools = class
   private
     class var FRef: Integer;
+    class var FSslVersion: Longword;
 
     {$IFNDEF __SSL_STATIC__}
     class var FLibPath, FLibSSL, FLibCRYPTO: string;
     class var FSslLibHandle, FCryptoLibHandle: TLibHandle;
-    class var FSslVersion: Longword;
 
     class function GetSslLibPath: string; static;
     class function GetSslLibProc(const ALibHandle: TLibHandle;
@@ -597,6 +595,7 @@ type
     class procedure SetPrivateKey(AContext: PSSL_CTX; const APKeyStr: string); overload; static;
     class procedure SetPrivateKeyFile(AContext: PSSL_CTX; const APKeyFile: string); static;
 
+    {$IFNDEF __SSL_STATIC__}
     // 手动指定 ssl 库路径
     class property LibPath: string read FLibPath write FLibPath;
 
@@ -605,6 +604,7 @@ type
 
     // 手动指定 libcrypto 库名称
     class property LibCRYPTO: string read FLibCRYPTO write FLibCRYPTO;
+    {$ENDIF}
   end;
   {$ENDREGION}
 
@@ -882,20 +882,20 @@ var
 begin
 	LBIOCert := BIO_new_mem_buf(ACertBuf, ACertBufSize);
   if (LBIOCert = nil) then
-    raise ESsl.Create('分配证书缓存失败');
+    raise ESsl.Create('Failed to allocate certificate cache.');
 
 	LSSLCert := PEM_read_bio_X509_AUX(LBIOCert, nil, nil, nil);
   if (LSSLCert = nil) then
-    raise ESsl.Create('读取证书数据失败');
+    raise ESsl.Create('Failed to read certificate data.');
 
 	if (SSL_CTX_use_certificate(AContext, LSSLCert) <= 0) then
-    raise ESsl.Create('使用证书失败');
+    raise ESsl.Create('Failed to use certificate.');
 
 	X509_free(LSSLCert);
 
   LStore := SSL_CTX_get_cert_store(AContext);
   if (LStore = nil) then
-    raise ESsl.Create('获取证书仓库失败');
+    raise ESsl.Create('Failed to retrieve certificate store.');
 
   // 将证书链中剩余的证书添加到仓库中
   // 有完整证书链在 ssllabs.com 评分中才能评为 A
@@ -903,10 +903,10 @@ begin
   begin
   	LSSLCert := PEM_read_bio_X509(LBIOCert, nil, nil, nil);
     if (LSSLCert = nil) then
-      raise ESsl.Create('读取证书数据失败');
+      raise ESsl.Create('Failed to read certificate data.');
 
     if (X509_STORE_add_cert(LStore, LSSLCert) <= 0) then
-      raise ESsl.Create('添加证书到仓库失败');
+      raise ESsl.Create('Failed to add certificate to the store.');
 
   	X509_free(LSSLCert);
   end;
@@ -940,20 +940,20 @@ var
 begin
 	LBIOKey := BIO_new_mem_buf(APKeyBuf, APKeyBufSize);
   if (LBIOKey = nil) then
-    raise ESsl.Create('分配私钥缓存失败');
+    raise ESsl.Create('Failed to allocate private key cache.');
 
 	LSSLPKey := PEM_read_bio_PrivateKey(LBIOKey, nil, nil, nil);
   if (LSSLPKey = nil) then
-    raise ESsl.Create('读取私钥数据失败');
+    raise ESsl.Create('Failed to read private key data.');
 
 	if (SSL_CTX_use_PrivateKey(AContext, LSSLPKey) <= 0) then
-    raise ESsl.Create('使用私钥失败');
+    raise ESsl.Create('Failed to use private key.');
 
 	EVP_PKEY_free(LSSLPKey);
 	BIO_free(LBIOKey);
 
   if (SSL_CTX_check_private_key(AContext) <= 0) then
-    raise ESsl.Create('私钥与证书的公钥不匹配');
+    raise ESsl.Create('Private key does not match the public key of the certificate.');
 end;
 
 class procedure TSSLTools.SetPrivateKey(AContext: PSSL_CTX;
@@ -976,7 +976,9 @@ end;
 
 class procedure TSSLTools.SslInit;
 begin
+  {$IFNDEF __SSL_STATIC__}
   if (FSslLibHandle = 0) or (FCryptoLibHandle = 0) then Exit;
+  {$ENDIF}
 
   // 初始化 OpenSSL 库的 SSL/TLS 部分
   OPENSSL_init_ssl(
@@ -996,7 +998,9 @@ end;
 
 class procedure TSSLTools.SslUninit;
 begin
+  {$IFNDEF __SSL_STATIC__}
   if (FSslLibHandle = 0) or (FCryptoLibHandle = 0) then Exit;
+  {$ENDIF}
 
   // 回收资源
   OPENSSL_cleanup();
@@ -1026,7 +1030,7 @@ begin
   {$ENDIF}
 
   if (Result = nil) then
-    raise ESslInvalidProc.CreateFmt('无效的SSL接口函数: %s', [AProcName]);
+    raise ESslInvalidProc.CreateFmt('Invalid SSL interface function: %s', [AProcName]);
 end;
 
 class procedure TSSLTools.LoadSslLibs;
@@ -1054,7 +1058,7 @@ begin
       end;
     end;
     if (FCryptoLibHandle = 0) then
-      raise ESslInvalidLib.Create('没有可用的libcrypto库');
+      raise ESslInvalidLib.Create('No available libcrypto library.');
 
     @OpenSSL_version_num := GetSslLibProc(FCryptoLibHandle, 'OpenSSL_version_num');
     @OPENSSL_init_crypto := GetSslLibProc(FCryptoLibHandle, 'OPENSSL_init_crypto');
@@ -1112,7 +1116,7 @@ begin
       end;
     end;
     if (FSslLibHandle = 0) then
-      raise ESslInvalidLib.Create('没有可用的libssl库');
+      raise ESslInvalidLib.Create('No available libssl library.');
 
     @OPENSSL_init_ssl := GetSslLibProc(FSslLibHandle, 'OPENSSL_init_ssl');
 
