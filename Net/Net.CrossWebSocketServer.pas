@@ -272,7 +272,7 @@ type
     FWsParser: TWebSocketParser;
     FWsSendClose: Integer;
 
-    procedure _WebSocketRecv(ABuf: Pointer; ALen: Integer);
+    procedure _WebSocketRecv(var ABuf: Pointer; var ALen: Integer);
 
     {$region '内部发送方法'}
     procedure _WsSend(AOpCode: Byte; AFin: Boolean; AData: Pointer; ACount: NativeInt;
@@ -366,9 +366,10 @@ type
     procedure _OnPing(const AConnection: ICrossWebSocketConnection);
     procedure _OnPong(const AConnection: ICrossWebSocketConnection);
   protected
+    procedure ParseRecvData(const AConnection: ICrossConnection; var ABuf: Pointer; var ALen: Integer); override;
+
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
-    procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
 
     procedure DoOnRequest(const AConnection: ICrossHttpConnection); override;
@@ -607,8 +608,8 @@ begin
   _WsSend(WS_OP_PING, True, nil, 0);
 end;
 
-procedure TCrossWebSocketConnection._WebSocketRecv(ABuf: Pointer;
-  ALen: Integer);
+procedure TCrossWebSocketConnection._WebSocketRecv(var ABuf: Pointer;
+  var ALen: Integer);
 begin
   FWsParser.Decode(ABuf, ALen);
 end;
@@ -735,18 +736,6 @@ begin
     inherited;
 end;
 
-procedure TCrossWebSocketServer.LogicReceived(const AConnection: ICrossConnection;
-  const ABuf: Pointer; const ALen: Integer);
-var
-  LConnection: ICrossWebSocketConnection;
-begin
-  LConnection := AConnection as ICrossWebSocketConnection;
-  if LConnection.IsWebSocket then
-    (LConnection as TCrossWebSocketConnection)._WebSocketRecv(ABuf, ALen)
-  else
-    inherited;
-end;
-
 function TCrossWebSocketServer.OnClose(const ACallback: TWsServerOnClose): ICrossWebSocketServer;
 begin
   FOnCloseEventsLock.Enter;
@@ -807,6 +796,23 @@ begin
   end;
 
   Result := Self;
+end;
+
+procedure TCrossWebSocketServer.ParseRecvData(
+  const AConnection: ICrossConnection; var ABuf: Pointer; var ALen: Integer);
+var
+  LConnection: TCrossWebSocketConnection;
+begin
+  LConnection := AConnection as TCrossWebSocketConnection;
+
+  while (ALen > 0) do
+  begin
+    if not LConnection.IsWebSocket then
+      inherited ParseRecvData(AConnection, ABuf, ALen);
+
+    if (ALen > 0) and LConnection.IsWebSocket then
+      LConnection._WebSocketRecv(ABuf, ALen);
+  end;
 end;
 
 procedure TCrossWebSocketServer.TriggerWsRequest(

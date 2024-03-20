@@ -99,7 +99,7 @@ type
     constructor Create(const AOnCommand: TWsOnCommand; const AOnMessage: TWsOnMessage);
     destructor Destroy; override;
 
-    procedure Decode(ABuf: Pointer; ALen: Integer);
+    procedure Decode(var ABuf: Pointer; var ALen: Integer);
 
     class function OpCodeToReqType(AOpCode: Byte): TWsMessageType; static;
     class function MakeFrameData(AOpCode: Byte; AFin: Boolean; AMaskKey: Cardinal; AData: Pointer; ADataSize: UInt64): TBytes; static;
@@ -131,13 +131,14 @@ begin
   inherited;
 end;
 
-procedure TWebSocketParser.Decode(ABuf: Pointer; ALen: Integer);
+procedure TWebSocketParser.Decode(var ABuf: Pointer; var ALen: Integer);
 var
   PBuf: PByte;
   LByte: Byte;
   LMessageData: TBytes;
 begin
   PBuf := ABuf;
+
   while (ALen > 0) do
   begin
     // 使用循环处理粘包, 比递归调用节省资源
@@ -261,6 +262,8 @@ begin
       end;
     end;
   end;
+
+  ABuf := PBuf;
 end;
 
 class function TWebSocketParser.MakeFrameData(AOpCode: Byte; AFin: Boolean;

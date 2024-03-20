@@ -623,6 +623,8 @@ type
     function GetPort: Word;
     function GetProtocol: string;
     function GetRequestStatus: TRequestStatus;
+
+    procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); virtual;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
@@ -730,7 +732,7 @@ type
     procedure _Unlock; inline;
   protected
     function ParseHeader: Boolean;
-    procedure ParseRecvData(const ABuf: Pointer; const ALen: Integer);
+    procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer);
 
     procedure TriggerResponseDataBegin; virtual;
     procedure TriggerResponseData(const ABuf: Pointer; const ALen: Integer); virtual;
@@ -936,6 +938,17 @@ end;
 function TCrossHttpClientConnection.GetRequestStatus: TRequestStatus;
 begin
   Result := TRequestStatus(AtomicCmpExchange(FStatus, 0, 0));
+end;
+
+procedure TCrossHttpClientConnection.ParseRecvData(var ABuf: Pointer;
+  var ALen: Integer);
+var
+  LResponseObj: TCrossHttpClientResponse;
+begin
+  _UpdateWatch;
+
+  LResponseObj := FResponse as TCrossHttpClientResponse;
+  LResponseObj.ParseRecvData(ABuf, ALen);
 end;
 
 procedure TCrossHttpClientConnection._BeginRequest;
@@ -1629,8 +1642,8 @@ begin
   Result := True;
 end;
 
-procedure TCrossHttpClientResponse.ParseRecvData(const ABuf: Pointer;
-  const ALen: Integer);
+procedure TCrossHttpClientResponse.ParseRecvData(var ABuf: Pointer;
+  var ALen: Integer);
 var
   LHttpConnection: ICrossHttpClientConnection;
   LPtr, LPtrEnd: PByte;
@@ -1655,170 +1668,172 @@ begin
   0\r\n
   \r\n
   }
+
   LHttpConnection := FConnection;
 
   try
     // 在这里解析服务端发送过来的响应数据
     LPtr := ABuf;
     LPtrEnd := LPtr + ALen;
-    while (LPtr < LPtrEnd) do
+
+    // 使用循环处理粘包, 比递归调用节省资源
+    while (LPtr < LPtrEnd) and (FParseState <> psDone) do
     begin
-      // 使用循环处理粘包, 比递归调用节省资源
-      while (LPtr < LPtrEnd) and (FParseState <> psDone) do
-      begin
-        case FParseState of
-          psHeader:
-            begin
-              case LPtr^ of
-                13{\r}: Inc(FCRCount);
-                10{\n}: Inc(FLFCount);
-              else
-                FCRCount := 0;
-                FLFCount := 0;
-              end;
-
-              // 写入请求数据
-              FRawRequest.Write(LPtr^, 1);
-              Inc(LPtr);
-
-              // HTTP头已接收完毕(\r\n\r\n是HTTP头结束的标志)
-              if (FCRCount = 2) and (FLFCount = 2) then
-              begin
-                FCRCount := 0;
-                FLFCount := 0;
-
-                if not ParseHeader then
-                begin
-                  TriggerResponseFailed(500, 'Invalid HTTP response header');
-                  Exit;
-                end;
-
-                // 如果 ContentLength 大于 0, 或者是 Chunked 编码, 则还需要接收 body 数据
-                if (FContentLength > 0) or FIsChunked then
-                begin
-                  FResponseBodySize := 0;
-
-                  if FIsChunked then
-                  begin
-                    FParseState := psChunkSize;
-                    FChunkSizeStream := TBytesStream.Create(nil);
-                  end else
-                    FParseState := psBodyData;
-
-                  TriggerResponseDataBegin;
-                end else
-                begin
-                  FParseState := psDone;
-                  Break;
-                end;
-              end;
+      case FParseState of
+        psHeader:
+          begin
+            case LPtr^ of
+              13{\r}: Inc(FCRCount);
+              10{\n}: Inc(FLFCount);
+            else
+              FCRCount := 0;
+              FLFCount := 0;
             end;
 
-          // 非Chunked编码的Post数据(有 ContentLength)
-          psBodyData:
+            // 写入请求数据
+            FRawRequest.Write(LPtr^, 1);
+            Inc(LPtr);
+
+            // HTTP头已接收完毕(\r\n\r\n是HTTP头结束的标志)
+            if (FCRCount = 2) and (FLFCount = 2) then
             begin
-              LChunkSize := Min((FContentLength - FResponseBodySize), LPtrEnd - LPtr);
+              FCRCount := 0;
+              FLFCount := 0;
+
+              if not ParseHeader then
+              begin
+                TriggerResponseFailed(500, 'Invalid HTTP response header');
+                Exit;
+              end;
+
+              // 如果 ContentLength 大于 0, 或者是 Chunked 编码, 则还需要接收 body 数据
+              if (FContentLength > 0) or FIsChunked then
+              begin
+                FResponseBodySize := 0;
+
+                if FIsChunked then
+                begin
+                  FParseState := psChunkSize;
+                  FChunkSizeStream := TBytesStream.Create(nil);
+                end else
+                  FParseState := psBodyData;
+
+                TriggerResponseDataBegin;
+              end else
+              begin
+                FParseState := psDone;
+                Break;
+              end;
+            end;
+          end;
+
+        // 非Chunked编码的Post数据(有 ContentLength)
+        psBodyData:
+          begin
+            LChunkSize := Min((FContentLength - FResponseBodySize), LPtrEnd - LPtr);
+            TriggerResponseData(LPtr, LChunkSize);
+
+            Inc(FResponseBodySize, LChunkSize);
+            Inc(LPtr, LChunkSize);
+
+            if (FResponseBodySize >= FContentLength) then
+            begin
+              FParseState := psDone;
+              TriggerResponseDataEnd;
+              Break;
+            end;
+          end;
+
+        // Chunked编码: 块尺寸
+        psChunkSize:
+          begin
+            case LPtr^ of
+              13{\r}: Inc(FCRCount);
+              10{\n}: Inc(FLFCount);
+            else
+              FCRCount := 0;
+              FLFCount := 0;
+              FChunkSizeStream.Write(LPtr^, 1);
+            end;
+            Inc(LPtr);
+
+            if (FCRCount = 1) and (FLFCount = 1) then
+            begin
+              SetString(LLineStr, MarshaledAString(FChunkSizeStream.Memory), FChunkSizeStream.Size);
+              FParseState := psChunkData;
+              FChunkSize := StrToIntDef('$' + Trim(LLineStr), -1);
+              FChunkLeftSize := FChunkSize;
+            end;
+          end;
+
+        // Chunked编码: 块数据
+        psChunkData:
+          begin
+            if (FChunkLeftSize > 0) then
+            begin
+              LChunkSize := Min(FChunkLeftSize, LPtrEnd - LPtr);
               TriggerResponseData(LPtr, LChunkSize);
 
               Inc(FResponseBodySize, LChunkSize);
+              Dec(FChunkLeftSize, LChunkSize);
               Inc(LPtr, LChunkSize);
+            end;
 
-              if (FResponseBodySize >= FContentLength) then
+            if (FChunkLeftSize <= 0) then
+            begin
+              FParseState := psChunkEnd;
+              FCRCount := 0;
+              FLFCount := 0;
+            end;
+          end;
+
+        // Chunked编码: 块结束符\r\n
+        psChunkEnd:
+          begin
+            case LPtr^ of
+              13{\r}: Inc(FCRCount);
+              10{\n}: Inc(FLFCount);
+            else
+              FCRCount := 0;
+              FLFCount := 0;
+            end;
+            Inc(LPtr);
+
+            if (FCRCount = 1) and (FLFCount = 1) then
+            begin
+              // 最后一块的ChunSize为0
+              if (FChunkSize > 0) then
+              begin
+                FParseState := psChunkSize;
+                FChunkSizeStream.Clear;
+                FCRCount := 0;
+                FLFCount := 0;
+              end else
               begin
                 FParseState := psDone;
+                FreeAndNil(FChunkSizeStream);
                 TriggerResponseDataEnd;
                 Break;
               end;
             end;
-
-          // Chunked编码: 块尺寸
-          psChunkSize:
-            begin
-              case LPtr^ of
-                13{\r}: Inc(FCRCount);
-                10{\n}: Inc(FLFCount);
-              else
-                FCRCount := 0;
-                FLFCount := 0;
-                FChunkSizeStream.Write(LPtr^, 1);
-              end;
-              Inc(LPtr);
-
-              if (FCRCount = 1) and (FLFCount = 1) then
-              begin
-                SetString(LLineStr, MarshaledAString(FChunkSizeStream.Memory), FChunkSizeStream.Size);
-                FParseState := psChunkData;
-                FChunkSize := StrToIntDef('$' + Trim(LLineStr), -1);
-                FChunkLeftSize := FChunkSize;
-              end;
-            end;
-
-          // Chunked编码: 块数据
-          psChunkData:
-            begin
-              if (FChunkLeftSize > 0) then
-              begin
-                LChunkSize := Min(FChunkLeftSize, LPtrEnd - LPtr);
-                TriggerResponseData(LPtr, LChunkSize);
-
-                Inc(FResponseBodySize, LChunkSize);
-                Dec(FChunkLeftSize, LChunkSize);
-                Inc(LPtr, LChunkSize);
-              end;
-
-              if (FChunkLeftSize <= 0) then
-              begin
-                FParseState := psChunkEnd;
-                FCRCount := 0;
-                FLFCount := 0;
-              end;
-            end;
-
-          // Chunked编码: 块结束符\r\n
-          psChunkEnd:
-            begin
-              case LPtr^ of
-                13{\r}: Inc(FCRCount);
-                10{\n}: Inc(FLFCount);
-              else
-                FCRCount := 0;
-                FLFCount := 0;
-              end;
-              Inc(LPtr);
-
-              if (FCRCount = 1) and (FLFCount = 1) then
-              begin
-                // 最后一块的ChunSize为0
-                if (FChunkSize > 0) then
-                begin
-                  FParseState := psChunkSize;
-                  FChunkSizeStream.Clear;
-                  FCRCount := 0;
-                  FLFCount := 0;
-                end else
-                begin
-                  FParseState := psDone;
-                  FreeAndNil(FChunkSizeStream);
-                  TriggerResponseDataEnd;
-                  Break;
-                end;
-              end;
-            end;
-        end;
-      end;
-
-      // 响应数据接收完毕
-      if (FParseState = psDone) then
-      begin
-        FParseState := psHeader;
-        FRawRequest.Clear;
-        FCRCount := 0;
-        FLFCount := 0;
-        FResponseBodySize := 0;
-
-        TriggerResponseSuccess;
+          end;
       end;
     end;
+
+    // 响应数据接收完毕
+    if (FParseState = psDone) then
+    begin
+      FParseState := psHeader;
+      FRawRequest.Clear;
+      FCRCount := 0;
+      FLFCount := 0;
+      FResponseBodySize := 0;
+
+      TriggerResponseSuccess;
+    end;
+
+    ABuf := LPtr;
+    ALen := LPtrEnd - LPtr;
   except
     on e: Exception do
       TriggerResponseFailed(500, e.Message);
@@ -2132,13 +2147,15 @@ procedure TCrossHttpClientSocket.LogicReceived(const AConnection: ICrossConnecti
   const ABuf: Pointer; const ALen: Integer);
 var
   LConnObj: TCrossHttpClientConnection;
-  LResponseObj: TCrossHttpClientResponse;
+  LBuf: Pointer;
+  LLen: Integer;
 begin
   LConnObj := AConnection as TCrossHttpClientConnection;
-  LConnObj._UpdateWatch;
+  LBuf := ABuf;
+  LLen := ALen;
 
-  LResponseObj := LConnObj.FResponse as TCrossHttpClientResponse;
-  LResponseObj.ParseRecvData(ABuf, ALen);
+  while (LLen > 0) do
+    LConnObj.ParseRecvData(LBuf, LLen);
 end;
 
 { TCrossHttpClient }
