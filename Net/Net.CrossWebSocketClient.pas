@@ -300,7 +300,7 @@ type
     FWsParser: TWebSocketParser;
     FWsSendClose: Integer;
 
-    procedure _WebSocketRecv(ABuf: Pointer; ALen: Integer);
+    procedure _WebSocketRecv(var ABuf: Pointer; var ALen: Integer);
 
     procedure _RespondPong(const AData: TBytes);
     procedure _RespondClose;
@@ -315,6 +315,8 @@ type
     procedure _WsSend(AOpCode: Byte; AFin: Boolean; const AData: TBytes;
       ACallback: TWsClientCallback = nil); overload;
     {$endregion}
+  protected
+    procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); override;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
@@ -337,7 +339,6 @@ type
   protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
-    procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
   end;
 
@@ -506,6 +507,19 @@ begin
   inherited;
 end;
 
+procedure TCrossWebSocketClientConnection.ParseRecvData(var ABuf: Pointer;
+  var ALen: Integer);
+begin
+  while (ALen > 0) do
+  begin
+    if not FIsWebSocket then
+      inherited ParseRecvData(ABuf, ALen);
+
+    if (ALen > 0) and FIsWebSocket then
+      _WebSocketRecv(ABuf, ALen);
+  end;
+end;
+
 procedure TCrossWebSocketClientConnection.WsClose;
 begin
   if (AtomicExchange(FWsSendClose, 1) = 1) then Exit;
@@ -670,8 +684,8 @@ begin
   _WsSend(WS_OP_PONG, True, AData);
 end;
 
-procedure TCrossWebSocketClientConnection._WebSocketRecv(ABuf: Pointer;
-  ALen: Integer);
+procedure TCrossWebSocketClientConnection._WebSocketRecv(var ABuf: Pointer;
+  var ALen: Integer);
 begin
   FWsParser.Decode(ABuf, ALen);
 end;
@@ -750,20 +764,6 @@ begin
     LConnectionObj.FWebSocket._OnClose;
 
   inherited LogicDisconnected(AConnection);
-end;
-
-procedure TCrossWebSocketClient.LogicReceived(
-  const AConnection: ICrossConnection; const ABuf: Pointer;
-  const ALen: Integer);
-var
-  LConnObj: TCrossWebSocketClientConnection;
-begin
-  LConnObj := AConnection as TCrossWebSocketClientConnection;
-
-  if LConnObj.FIsWebSocket then
-    LConnObj._WebSocketRecv(ABuf, ALen)
-  else
-    inherited LogicReceived(AConnection, ABuf, ALen);
 end;
 
 { TCrossWebSocket }
