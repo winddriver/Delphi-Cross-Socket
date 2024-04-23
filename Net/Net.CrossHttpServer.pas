@@ -1789,6 +1789,8 @@ type
     function GetServer: ICrossHttpServer;
 
     procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); virtual;
+    procedure ReleaseRequest; virtual;
+    procedure ReleaseResponse; virtual;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
@@ -2310,6 +2312,16 @@ begin
   FHttpParser.Decode(ABuf, ALen);
 end;
 
+procedure TCrossHttpConnection.ReleaseRequest;
+begin
+  FRequest := nil;
+end;
+
+procedure TCrossHttpConnection.ReleaseResponse;
+begin
+  FResponse := nil;
+end;
+
 procedure TCrossHttpConnection._OnBodyBegin;
 begin
   FServer.TriggerPostDataBegin(Self);
@@ -2702,8 +2714,8 @@ begin
     FOnRequestEnd(Self, AConnection, ASuccess);
 
   LConnObj := AConnection as TCrossHttpConnection;
-  LConnObj.FRequest := nil;
-  LConnObj.FResponse := nil;
+  LConnObj.ReleaseRequest;
+  LConnObj.ReleaseResponse;
 end;
 
 procedure TCrossHttpServer.DoOnRequest(const AConnection: ICrossHttpConnection);

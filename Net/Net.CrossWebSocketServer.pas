@@ -289,6 +289,7 @@ type
     procedure _RespondClose;
   protected
     procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); override;
+    procedure ReleaseRequest; override;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
@@ -460,6 +461,12 @@ begin
     if (ALen > 0) and FIsWebSocket then
       _WebSocketRecv(ABuf, ALen);
   end;
+end;
+
+procedure TCrossWebSocketConnection.ReleaseRequest;
+begin
+  // do nothing
+  // keep request
 end;
 
 procedure TCrossWebSocketConnection.WsSend(const AData: Pointer;
@@ -929,8 +936,12 @@ procedure TCrossWebSocketServer.DoOnRequest(
   const AConnection: ICrossHttpConnection);
 var
   LConnection: ICrossWebSocketConnection;
+  LConnectionObj: TCrossWebSocketConnection;
 begin
   LConnection := AConnection as ICrossWebSocketConnection;
+  LConnectionObj := LConnection as TCrossWebSocketConnection;
+
+  if LConnectionObj.FIsWebSocket then Exit;
 
   {
     GET /websocket-endpoint HTTP/1.1
@@ -944,7 +955,7 @@ begin
   if ContainsText(AConnection.Request.Header[HEADER_UPGRADE], WEBSOCKET)
     and ContainsText(AConnection.Request.Header[HEADER_CONNECTION], HEADER_UPGRADE) then
   begin
-    (LConnection as TCrossWebSocketConnection).FIsWebSocket := True;
+    LConnectionObj.FIsWebSocket := True;
     _WebSocketHandshake(LConnection,
       procedure(const AConnection: ICrossWebSocketConnection; const ASuccess: Boolean)
       begin
