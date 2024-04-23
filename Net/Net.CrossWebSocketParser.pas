@@ -73,7 +73,7 @@ type
   TWsOnCommand = reference to procedure(const AOpCode: Byte; const AData: TBytes);
   TWsOnMessage = reference to procedure(const AType: TWsMessageType; const AData: TBytes);
 
-  TWebSocketParser = class
+  TCrossWebSocketParser = class
   private
     FWsFrameState: TWsFrameParseState;
     FWsFrameHeader, FWsMessageBody: TBytesStream;
@@ -91,7 +91,6 @@ type
 
     procedure _ResetFrameHeader;
     procedure _ResetRequest;
-
   protected
     procedure TriggerCommand(const AOpCode: Byte; const AData: TBytes);
     procedure TriggerMessage(const AType: TWsMessageType; const AData: TBytes);
@@ -110,9 +109,9 @@ type
 
 implementation
 
-{ TWebSocketParser }
+{ TCrossWebSocketParser }
 
-constructor TWebSocketParser.Create(const AOnCommand: TWsOnCommand;
+constructor TCrossWebSocketParser.Create(const AOnCommand: TWsOnCommand;
   const AOnMessage: TWsOnMessage);
 begin
   FOnCommand := AOnCommand;
@@ -123,7 +122,7 @@ begin
   _ResetRequest;
 end;
 
-destructor TWebSocketParser.Destroy;
+destructor TCrossWebSocketParser.Destroy;
 begin
   FreeAndNil(FWsFrameHeader);
   FreeAndNil(FWsMessageBody);
@@ -131,7 +130,7 @@ begin
   inherited;
 end;
 
-procedure TWebSocketParser.Decode(var ABuf: Pointer; var ALen: Integer);
+procedure TCrossWebSocketParser.Decode(var ABuf: Pointer; var ALen: Integer);
 var
   PBuf: PByte;
   LByte: Byte;
@@ -266,7 +265,7 @@ begin
   ABuf := PBuf;
 end;
 
-class function TWebSocketParser.MakeFrameData(AOpCode: Byte; AFin: Boolean;
+class function TCrossWebSocketParser.MakeFrameData(AOpCode: Byte; AFin: Boolean;
   AMaskKey: Cardinal; AData: Pointer; ADataSize: UInt64): TBytes;
 var
   LPayload: Byte;
@@ -327,7 +326,7 @@ begin
     Move(AData^, Result[LHeaderSize], LDataSize);
 end;
 
-class function TWebSocketParser.MakeSecWebSocketAccept(
+class function TCrossWebSocketParser.MakeSecWebSocketAccept(
   const ASecWebSocketKey: string): string;
 begin
   Result := TBase64Utils.Encode(
@@ -335,7 +334,7 @@ begin
   );
 end;
 
-class function TWebSocketParser.NewSecWebSocketKey: string;
+class function TCrossWebSocketParser.NewSecWebSocketKey: string;
 var
   LRand: Int64;
 begin
@@ -344,7 +343,7 @@ begin
   Result := TBase64Utils.Encode(TUtils.BinToHex(@LRand, SizeOf(Int64)));
 end;
 
-class function TWebSocketParser.OpCodeToReqType(AOpCode: Byte): TWsMessageType;
+class function TCrossWebSocketParser.OpCodeToReqType(AOpCode: Byte): TWsMessageType;
 begin
   case AOpCode of
     WS_OP_TEXT: Exit(wtText);
@@ -354,28 +353,28 @@ begin
   end;
 end;
 
-procedure TWebSocketParser.TriggerCommand(const AOpCode: Byte;
+procedure TCrossWebSocketParser.TriggerCommand(const AOpCode: Byte;
   const AData: TBytes);
 begin
   if Assigned(FOnCommand) then
     FOnCommand(AOpCode, AData);
 end;
 
-procedure TWebSocketParser.TriggerMessage(const AType: TWsMessageType;
+procedure TCrossWebSocketParser.TriggerMessage(const AType: TWsMessageType;
   const AData: TBytes);
 begin
   if Assigned(FOnMessage) then
     FOnMessage(AType, AData);
 end;
 
-procedure TWebSocketParser._ResetFrameHeader;
+procedure TCrossWebSocketParser._ResetFrameHeader;
 begin
   FWsFrameState := wsHeader;
   FWsFrameHeader.Clear;
   FWsMaskKeyShift := 0;
 end;
 
-procedure TWebSocketParser._ResetRequest;
+procedure TCrossWebSocketParser._ResetRequest;
 begin
   FWsFrameState := wsHeader;
   FWsFrameHeader.Clear;

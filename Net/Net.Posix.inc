@@ -10,7 +10,8 @@ begin
   // 在向一个已经关闭的套接字发送数据时系统会直接抛出EPIPE异常导致程序非正常退出
   // LINUX下可以在send时带上MSG_NOSIGNAL参数就能避免这种情况的发生
   // OSX中可以通过设置套接字的SO_NOSIGPIPE参数达到同样的目的
-  {$IF defined(LINUX) or defined(ANDROID)}
+  //{$IF defined(LINUX) or defined(ANDROID) or defined(FREEBSD)}
+  {$IFNDEF MACOS}
   LFlags := MSG_NOSIGNAL;
   {$ELSE}
   LFlags := 0;

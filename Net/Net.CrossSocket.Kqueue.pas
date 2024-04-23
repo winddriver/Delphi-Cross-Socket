@@ -39,6 +39,11 @@ uses
   Net.CrossSocket.Base,
   Utils.SyncObjs;
 
+{$IFDEF BSD}
+const
+	IPV6_V6ONLY = 27;
+{$ENDIF}
+
 type
   {$IFDEF FPC}
   TPipeDescriptors = {packed} record
@@ -684,7 +689,9 @@ end;
 
 procedure TKqueueCrossSocket._SetNoSigPipe(ASocket: TSocket);
 begin
+	{$ifdef MACOS}
   TSocketAPI.SetSockOpt<Integer>(ASocket, SOL_SOCKET, SO_NOSIGPIPE, 1);
+  {$endif}
 end;
 
 procedure TKqueueCrossSocket.StartLoop;

@@ -297,7 +297,7 @@ type
     FIsWebSocket: Boolean;
     FWebSocket: TCrossWebSocket;
 
-    FWsParser: TWebSocketParser;
+    FWsParser: TCrossWebSocketParser;
     FWsSendClose: Integer;
 
     procedure _WebSocketRecv(var ABuf: Pointer; var ALen: Integer);
@@ -325,6 +325,7 @@ type
     procedure WsClose;
     procedure WsPing;
 
+    procedure WsSend(const AData: Pointer; const ACount: NativeInt; const ACallback: TWsClientCallback = nil); overload;
     procedure WsSend(const AData; const ACount: NativeInt; const ACallback: TWsClientCallback = nil); overload;
     procedure WsSend(const AData: TBytes; const AOffset, ACount: NativeInt; const ACallback: TWsClientCallback = nil); overload;
     procedure WsSend(const AData: TBytes; const ACallback: TWsClientCallback = nil); overload;
@@ -384,7 +385,7 @@ type
     FOnCloseEvents: TList<TWsClientOnClose>;
     FOnPingEvents: TList<TWsClientOnPing>;
     FOnPongEvents: TList<TWsClientOnPong>;
-
+  protected
     procedure _Lock; inline;
     procedure _Unlock; inline;
 
@@ -398,7 +399,7 @@ type
     function GetStatus: TWsStatus;
     function GetUrl: string;
   public
-    constructor Create(const AMgr: TCrossWebSocketMgr; const AUrl: string); overload;
+    constructor Create(const AMgr: TCrossWebSocketMgr; const AUrl: string); overload; virtual;
     constructor Create(const AUrl: string); overload;
     destructor Destroy; override;
 
@@ -407,6 +408,7 @@ type
 
     procedure Ping;
 
+    procedure Send(const AData: Pointer; const ACount: NativeInt; const ACallback: TWsClientCallback = nil); overload;
     procedure Send(const AData; const ACount: NativeInt; const ACallback: TWsClientCallback = nil); overload;
     procedure Send(const AData: TBytes; const AOffset, ACount: NativeInt; const ACallback: TWsClientCallback = nil); overload;
     procedure Send(const AData: TBytes; const ACallback: TWsClientCallback = nil); overload;
@@ -457,7 +459,7 @@ constructor TCrossWebSocketClientConnection.Create(
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 
-  FWsParser := TWebSocketParser.Create(
+  FWsParser := TCrossWebSocketParser.Create(
     procedure(const AOpCode: Byte; const AData: TBytes)
     begin
       if (FWebSocket = nil) then Exit;
@@ -530,6 +532,12 @@ end;
 procedure TCrossWebSocketClientConnection.WsPing;
 begin
   _WsSend(WS_OP_PING, True, nil, 0);
+end;
+
+procedure TCrossWebSocketClientConnection.WsSend(const AData: Pointer;
+  const ACount: NativeInt; const ACallback: TWsClientCallback);
+begin
+  _WsSend(WS_OP_BINARY, True, AData, ACount, ACallback);
 end;
 
 procedure TCrossWebSocketClientConnection.WsSend(const AData;
@@ -698,7 +706,7 @@ begin
   // 将数据和头打包到一起发送
   // 这是因为如果分开发送, 在多线程环境多个不同的线程数据可能会出现交叉
   // 会引起数据与头部混乱
-  LWsFrameData := TWebSocketParser.MakeFrameData(AOpCode, AFin, 0, AData, ACount);
+  LWsFrameData := TCrossWebSocketParser.MakeFrameData(AOpCode, AFin, 0, AData, ACount);
 
   SendBytes(LWsFrameData,
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
@@ -912,8 +920,8 @@ begin
     _Unlock;
   end;
 
-  LSecWebSocketKey := TWebSocketParser.NewSecWebSocketKey;
-  LSecWebSocketAccept := TWebSocketParser.MakeSecWebSocketAccept(LSecWebSocketKey);
+  LSecWebSocketKey := TCrossWebSocketParser.NewSecWebSocketKey;
+  LSecWebSocketAccept := TCrossWebSocketParser.MakeSecWebSocketAccept(LSecWebSocketKey);
 
   // 发出 WebSocket 握手请求
   FMgr.DoRequest('GET', FUrl, nil,
@@ -970,6 +978,13 @@ procedure TCrossWebSocket.Ping;
 begin
   if (GetStatus = wsConnected) then
     FConnection.WsPing;
+end;
+
+procedure TCrossWebSocket.Send(const AData: Pointer; const ACount: NativeInt;
+  const ACallback: TWsClientCallback);
+begin
+  if (GetStatus = wsConnected) then
+    FConnection.WsSend(AData, ACount, ACallback);
 end;
 
 procedure TCrossWebSocket.Send(const AData; const ACount: NativeInt;

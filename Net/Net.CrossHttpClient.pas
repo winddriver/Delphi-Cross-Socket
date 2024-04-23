@@ -32,6 +32,7 @@ uses
   Net.CrossSslSocket,
   Net.CrossHttpParams,
   Net.CrossHttpUtils,
+  Net.CrossHttpParser,
 
   Utils.StrUtils,
   Utils.IOUtils,
@@ -691,8 +692,6 @@ type
   end;
 
   TCrossHttpClientResponse = class(TInterfacedObject, ICrossHttpClientResponse)
-  private type
-    TCrossHttpParseState = (psHeader, psBodyData, psChunkSize, psChunkData, psChunkEnd, psDone);
   private
     FConnection: TCrossHttpClientConnection;
     FCallback: TCrossHttpResponseProc;
@@ -710,28 +709,24 @@ type
     FHeader: THttpHeader;
     FCookies: TResponseCookies;
 
-    FResponseBodySize: Int64;
-    FParseState: TCrossHttpParseState;
-    FCRCount, FLFCount: Integer;
-    FRawRequest: TBytesStream;
-    FChunkSizeStream: TBytesStream;
-    FChunkSize, FChunkLeftSize: Integer;
     FResponseBodyStream: TStream;
     FNeedFreeResponseBodyStream: Boolean;
 
-    // 动态解压
-    FZCompressed: Boolean;
-    FZStream: TZStreamRec;
-    FZFlush: Integer;
-    FZResult: Integer;
-    FZOutSize: Integer;
-    FZBuffer: TBytes;
+    FHttpParser: TCrossHttpParser;
 
     procedure _SetResponseStream(const AValue: TStream);
     procedure _Lock; inline;
     procedure _Unlock; inline;
+
+    procedure _OnHeaderData(const ADataPtr: Pointer; const ADataSize: Integer);
+    function _OnGetHeaderValue(const AHeaderName: string; out AHeaderValue: string): Boolean;
+    procedure _OnBodyBegin;
+    procedure _OnBodyData(const ADataPtr: Pointer; const ADataSize: Integer);
+    procedure _OnBodyEnd;
+    procedure _OnParseSuccess;
+    procedure _OnParseFailed(const ACode: Integer; const AError: string);
   protected
-    function ParseHeader: Boolean;
+    function ParseHeader(const ADataPtr: Pointer; const ADataSize: Integer): Boolean;
     procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer);
 
     procedure TriggerResponseDataBegin; virtual;
@@ -1511,10 +1506,16 @@ begin
 
   FHeader := THttpHeader.Create;
   FCookies := TResponseCookies.Create;
-  FRawRequest := TBytesStream.Create;
   FLock := TLock.Create;
 
-  FParseState := psHeader;
+  FHttpParser := TCrossHttpParser.Create;
+  FHttpParser.OnHeaderData := _OnHeaderData;
+  FHttpParser.OnGetHeaderValue := _OnGetHeaderValue;
+  FHttpParser.OnBodyBegin := _OnBodyBegin;
+  FHttpParser.OnBodyData := _OnBodyData;
+  FHttpParser.OnBodyEnd := _OnBodyEnd;
+  FHttpParser.OnParseSuccess := _OnParseSuccess;
+  FHttpParser.OnParseFailed := _OnParseFailed;
 end;
 
 class function TCrossHttpClientResponse.Create(const AStatusCode: Integer;
@@ -1530,8 +1531,8 @@ end;
 destructor TCrossHttpClientResponse.Destroy;
 begin
   FreeAndNil(FHeader);
-  FreeAndNil(FRawRequest);
   FreeAndNil(FCookies);
+  FreeAndNil(FHttpParser);
 
   if FNeedFreeResponseBodyStream and (FResponseBodyStream <> nil) then
     FreeAndNil(FResponseBodyStream);
@@ -1574,7 +1575,8 @@ begin
   Result := FContentType;
 end;
 
-function TCrossHttpClientResponse.ParseHeader: Boolean;
+function TCrossHttpClientResponse.ParseHeader(const ADataPtr: Pointer;
+  const ADataSize: Integer): Boolean;
 var
   LResponseFirstLine, LResponseHeader: string;
   I, J: Integer;
@@ -1595,7 +1597,7 @@ begin
   Connection: keep-alive
   Transfer-Encoding: chunked
   }
-  SetString(FRawResponseHeader, MarshaledAString(FRawRequest.Memory), FRawRequest.Size);
+  SetString(FRawResponseHeader, MarshaledAString(ADataPtr), ADataSize);
   I := FRawResponseHeader.IndexOf(#13#10);
   // 第一行是响应状态
   // HTTP/1.1 200 OK
@@ -1644,200 +1646,8 @@ end;
 
 procedure TCrossHttpClientResponse.ParseRecvData(var ABuf: Pointer;
   var ALen: Integer);
-var
-  LHttpConnection: ICrossHttpClientConnection;
-  LPtr, LPtrEnd: PByte;
-  LChunkSize: Integer;
-  LLineStr: string;
 begin
-  {
-  HTTP/1.1 200 OK
-  Content-Type: application/json;charset=utf-8
-  Content-Encoding: gzip
-  Transfer-Encoding: chunked
-  }
-  {
-  HTTP/1.1 200 OK
-  Content-Type: text/plain
-  Transfer-Encoding: chunked
-
-  7\r\n
-  Chunk 1\r\n
-  6\r\n
-  Chunk 2\r\n
-  0\r\n
-  \r\n
-  }
-
-  LHttpConnection := FConnection;
-
-  try
-    // 在这里解析服务端发送过来的响应数据
-    LPtr := ABuf;
-    LPtrEnd := LPtr + ALen;
-
-    // 使用循环处理粘包, 比递归调用节省资源
-    while (LPtr < LPtrEnd) and (FParseState <> psDone) do
-    begin
-      case FParseState of
-        psHeader:
-          begin
-            case LPtr^ of
-              13{\r}: Inc(FCRCount);
-              10{\n}: Inc(FLFCount);
-            else
-              FCRCount := 0;
-              FLFCount := 0;
-            end;
-
-            // 写入请求数据
-            FRawRequest.Write(LPtr^, 1);
-            Inc(LPtr);
-
-            // HTTP头已接收完毕(\r\n\r\n是HTTP头结束的标志)
-            if (FCRCount = 2) and (FLFCount = 2) then
-            begin
-              FCRCount := 0;
-              FLFCount := 0;
-
-              if not ParseHeader then
-              begin
-                TriggerResponseFailed(500, 'Invalid HTTP response header');
-                Exit;
-              end;
-
-              // 如果 ContentLength 大于 0, 或者是 Chunked 编码, 则还需要接收 body 数据
-              if (FContentLength > 0) or FIsChunked then
-              begin
-                FResponseBodySize := 0;
-
-                if FIsChunked then
-                begin
-                  FParseState := psChunkSize;
-                  FChunkSizeStream := TBytesStream.Create(nil);
-                end else
-                  FParseState := psBodyData;
-
-                TriggerResponseDataBegin;
-              end else
-              begin
-                FParseState := psDone;
-                Break;
-              end;
-            end;
-          end;
-
-        // 非Chunked编码的Post数据(有 ContentLength)
-        psBodyData:
-          begin
-            LChunkSize := Min((FContentLength - FResponseBodySize), LPtrEnd - LPtr);
-            TriggerResponseData(LPtr, LChunkSize);
-
-            Inc(FResponseBodySize, LChunkSize);
-            Inc(LPtr, LChunkSize);
-
-            if (FResponseBodySize >= FContentLength) then
-            begin
-              FParseState := psDone;
-              TriggerResponseDataEnd;
-              Break;
-            end;
-          end;
-
-        // Chunked编码: 块尺寸
-        psChunkSize:
-          begin
-            case LPtr^ of
-              13{\r}: Inc(FCRCount);
-              10{\n}: Inc(FLFCount);
-            else
-              FCRCount := 0;
-              FLFCount := 0;
-              FChunkSizeStream.Write(LPtr^, 1);
-            end;
-            Inc(LPtr);
-
-            if (FCRCount = 1) and (FLFCount = 1) then
-            begin
-              SetString(LLineStr, MarshaledAString(FChunkSizeStream.Memory), FChunkSizeStream.Size);
-              FParseState := psChunkData;
-              FChunkSize := StrToIntDef('$' + Trim(LLineStr), -1);
-              FChunkLeftSize := FChunkSize;
-            end;
-          end;
-
-        // Chunked编码: 块数据
-        psChunkData:
-          begin
-            if (FChunkLeftSize > 0) then
-            begin
-              LChunkSize := Min(FChunkLeftSize, LPtrEnd - LPtr);
-              TriggerResponseData(LPtr, LChunkSize);
-
-              Inc(FResponseBodySize, LChunkSize);
-              Dec(FChunkLeftSize, LChunkSize);
-              Inc(LPtr, LChunkSize);
-            end;
-
-            if (FChunkLeftSize <= 0) then
-            begin
-              FParseState := psChunkEnd;
-              FCRCount := 0;
-              FLFCount := 0;
-            end;
-          end;
-
-        // Chunked编码: 块结束符\r\n
-        psChunkEnd:
-          begin
-            case LPtr^ of
-              13{\r}: Inc(FCRCount);
-              10{\n}: Inc(FLFCount);
-            else
-              FCRCount := 0;
-              FLFCount := 0;
-            end;
-            Inc(LPtr);
-
-            if (FCRCount = 1) and (FLFCount = 1) then
-            begin
-              // 最后一块的ChunSize为0
-              if (FChunkSize > 0) then
-              begin
-                FParseState := psChunkSize;
-                FChunkSizeStream.Clear;
-                FCRCount := 0;
-                FLFCount := 0;
-              end else
-              begin
-                FParseState := psDone;
-                FreeAndNil(FChunkSizeStream);
-                TriggerResponseDataEnd;
-                Break;
-              end;
-            end;
-          end;
-      end;
-    end;
-
-    // 响应数据接收完毕
-    if (FParseState = psDone) then
-    begin
-      FParseState := psHeader;
-      FRawRequest.Clear;
-      FCRCount := 0;
-      FLFCount := 0;
-      FResponseBodySize := 0;
-
-      TriggerResponseSuccess;
-    end;
-
-    ABuf := LPtr;
-    ALen := LPtrEnd - LPtr;
-  except
-    on e: Exception do
-      TriggerResponseFailed(500, e.Message);
-  end;
+  FHttpParser.Decode(ABuf, ALen);
 end;
 
 procedure TCrossHttpClientResponse.TriggerResponseData(const ABuf: Pointer;
@@ -1846,54 +1656,10 @@ begin
   if (FResponseBodyStream = nil)
     or (ABuf = nil) or (ALen <= 0) then Exit;
 
-  // 如果数据是压缩的, 进行解压
-  if FZCompressed then
-  begin
-    // 往输入缓冲区填入新数据
-    // 对于使用 inflate 函数解压缩数据, 通常不需要使用 Z_FINISH 进行收尾。
-    // Z_FINISH 选项通常在压缩时使用, 以表示已经完成了压缩的数据块。
-    // 在解压缩过程中, inflate 函数会自动处理数据流的结束。
-    // 当输入数据流中的所有数据都被解压缩时, inflate 函数会返回 Z_STREAM_END,
-    // 这表示数据流已经结束，不需要额外的处理。
-    FZStream.avail_in := ALen;
-    FZStream.next_in := ABuf;
-    FZFlush := Z_NO_FLUSH;
-
-    repeat
-      // 返回 Z_STREAM_END 表示所有数据处理完毕
-      if (FZResult = Z_STREAM_END) then Break;
-
-      // 解压数据输出缓冲区
-      FZStream.avail_out := ZLIB_BUF_SIZE;
-      FZStream.next_out := @FZBuffer[0];
-
-      // 进行解压处理
-      // 输入缓冲区数据可以大于输出缓冲区
-      // 这种情况可以多次调用 inflate 分批解压,
-      // 直到 avail_in=0  表示当前输入缓冲区数据已解压完毕
-      FZResult := inflate(FZStream, FZFlush);
-
-      // 解压出错之后直接结束
-      if (FZResult < 0) then
-      begin
-        FZOutSize := 0;
-        Break;
-      end;
-
-      // 已解压完成的数据大小
-      FZOutSize := ZLIB_BUF_SIZE - FZStream.avail_out;
-
-      // 保存已解压的数据
-      if (FZOutSize > 0) then
-        FResponseBodyStream.Write(FZBuffer[0], FZOutSize);
-    until ((FZResult = Z_STREAM_END) or (FZStream.avail_in = 0));
-  end else
-    FResponseBodyStream.Write(ABuf^, ALen);
+  FResponseBodyStream.Write(ABuf^, ALen);
 end;
 
 procedure TCrossHttpClientResponse.TriggerResponseDataBegin;
-var
-  LCompressType: TCompressType;
 begin
   if (FResponseBodyStream = nil) then
   begin
@@ -1901,48 +1667,10 @@ begin
     FNeedFreeResponseBodyStream := True;
   end;
   FResponseBodyStream.Size := 0;
-
-  FZCompressed := False;
-  LCompressType := ctNone;
-
-  // 根据 FContentEncoding(gzip deflate br) 判断使用哪种方式解压
-  // 目前暂时只支持 gzip deflate
-  // 初始化解压库
-  if (FContentEncoding <> '') then
-  begin
-    if TStrUtils.SameText(FContentEncoding, 'gzip') then
-    begin
-      LCompressType := ctGZip;
-      FZCompressed := True;
-    end else
-    if TStrUtils.SameText(FContentEncoding, 'deflate') then
-    begin
-      LCompressType := ctDeflate;
-      FZCompressed := True;
-    end;
-
-    if FZCompressed then
-    begin
-      SetLength(FZBuffer, ZLIB_BUF_SIZE);
-
-      FillChar(FZStream, SizeOf(TZStreamRec), 0);
-      FZResult := Z_OK;
-      FZFlush := Z_NO_FLUSH;
-
-      if (inflateInit2(FZStream, ZLIB_WINDOW_BITS[LCompressType]) <> Z_OK) then
-      begin
-        TriggerResponseFailed(400, 'inflateInit2 failed');
-        Abort;
-      end;
-    end;
-  end;
 end;
 
 procedure TCrossHttpClientResponse.TriggerResponseDataEnd;
 begin
-  if FZCompressed then
-    inflateEnd(FZStream);
-
   if (FResponseBodyStream <> nil) and (FResponseBodyStream.Size > 0) then
     FResponseBodyStream.Position := 0;
 end;
@@ -2040,6 +1768,45 @@ end;
 procedure TCrossHttpClientResponse._Lock;
 begin
   FLock.Enter;
+end;
+
+procedure TCrossHttpClientResponse._OnBodyBegin;
+begin
+  TriggerResponseDataBegin;
+end;
+
+procedure TCrossHttpClientResponse._OnBodyData(const ADataPtr: Pointer;
+  const ADataSize: Integer);
+begin
+  TriggerResponseData(ADataPtr, ADataSize);
+end;
+
+procedure TCrossHttpClientResponse._OnBodyEnd;
+begin
+  TriggerResponseDataEnd;
+end;
+
+function TCrossHttpClientResponse._OnGetHeaderValue(const AHeaderName: string;
+  out AHeaderValue: string): Boolean;
+begin
+  Result := FHeader.GetParamValue(AHeaderName, AHeaderValue);
+end;
+
+procedure TCrossHttpClientResponse._OnHeaderData(const ADataPtr: Pointer;
+  const ADataSize: Integer);
+begin
+  ParseHeader(ADataPtr, ADataSize);
+end;
+
+procedure TCrossHttpClientResponse._OnParseFailed(const ACode: Integer;
+  const AError: string);
+begin
+  TriggerResponseFailed(ACode, AError);
+end;
+
+procedure TCrossHttpClientResponse._OnParseSuccess;
+begin
+  TriggerResponseSuccess;
 end;
 
 procedure TCrossHttpClientResponse._SetResponseStream(const AValue: TStream);

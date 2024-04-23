@@ -1808,7 +1808,7 @@ begin
         Exit;
       end;
 
-      (AConnection as TCrossConnectionBase).DirectSend(LData, LCount, LSender);
+      (AConnection as TCrossConnectionBase).SendBuf(LData, LCount, LSender);
     end;
 
   LSender(Self, True);

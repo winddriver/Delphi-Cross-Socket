@@ -418,7 +418,7 @@ type
     FFilePath: string;
     FContentType: string;
     FContentTransferEncoding: string;
-    FValueOwned: Boolean;
+    FValueOwned, FIsTempFile: Boolean;
   public
     constructor Create; overload;
     destructor Destroy; override;
@@ -474,6 +474,11 @@ type
   end;
 
   /// <summary>
+  ///   FormData解码结果
+  /// </summary>
+  TFormDataDecodeResult = (frContinue, frComplete, frFailed);
+
+  /// <summary>
   ///   MultiPartFormData类
   /// </summary>
   THttpMultiPartFormData = class
@@ -516,21 +521,28 @@ type
     constructor Create; virtual;
     destructor Destroy; override;
 
+    {$REGION 'Documentation'}
     /// <summary>
     ///   枚举器
     /// </summary>
+    {$ENDREGION}
     function GetEnumerator: TEnumerator; inline;
 
+    {$REGION 'Documentation'}
     /// <summary>
     ///   从源对象设置数据
     /// </summary>
+    {$ENDREGION}
     procedure Assign(const ASource: THttpMultiPartFormData);
 
+    {$REGION 'Documentation'}
     /// <summary>
     /// 初始化Boundary(Decode之前调用)
     /// </summary>
+    {$ENDREGION}
     procedure InitWithBoundary(const ABoundary: string);
 
+    {$REGION 'Documentation'}
     /// <summary>
     ///   从内存中解码(必须先调用InitWithBoundary)
     /// </summary>
@@ -540,13 +552,34 @@ type
     /// <param name="ALen">
     ///   数据长度
     /// </param>
-    function Decode(const ABuf: Pointer; ALen: Integer): Integer;
+    {$ENDREGION}
+    function Decode(const ABuf: Pointer; ALen: Integer): TFormDataDecodeResult; overload;
 
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   从数据流解码(必须先调用InitWithBoundary)
+    /// </summary>
+    /// <param name="AStream">
+    ///   待解码数据流
+    /// </param>
+    {$ENDREGION}
+    function Decode(const AStream: TStream): TFormDataDecodeResult; overload;
+
+    {$REGION 'Documentation'}
     /// <summary>
     /// 清除所有Items
     /// </summary>
+    {$ENDREGION}
     procedure Clear;
 
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   添加字段
+    /// </summary>
+    /// <param name="AField">
+    ///   字段对象
+    /// </param>
+    {$ENDREGION}
     function AddField(const AField: TFormField): TFormField; overload;
 
     {$REGION 'Documentation'}
@@ -593,7 +626,7 @@ type
     /// </param>
     {$ENDREGION}
     function AddFile(const AFieldName, AFileName: string;
-      const AStream: TStream; const AOwned: Boolean): TFormField; overload;
+      const AStream: TStream; const AOwned: Boolean = False): TFormField; overload;
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -608,44 +641,90 @@ type
     {$ENDREGION}
     function AddFile(const AFieldName, AFileName: string): TFormField; overload;
 
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   根据名称删除指定字段
+    /// </summary>
+    /// <param name="AFieldName">
+    ///   字段名
+    /// </param>
+    {$ENDREGION}
+    procedure Remove(const AFieldName: string); overload;
+
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   根据序号删除指定字段
+    /// </summary>
+    /// <param name="AIndex">
+    ///   字段序号
+    /// </param>
+    {$ENDREGION}
+    procedure Remove(AIndex: Integer); overload;
+
+    {$REGION 'Documentation'}
     /// <summary>
     /// 查找参数
     /// </summary>
+    {$ENDREGION}
     function FindField(const AFieldName: string; out AField: TFormField): Boolean;
 
+    function AsBytes(const AFieldName: string; out AValue: TBytes): Boolean; overload;
+    function AsBytes(const AFieldName: string): TBytes; overload;
+
+    function AsStream(const AFieldName: string; out AValue: TStream): Boolean; overload;
+    function AsStream(const AFieldName: string): TStream; overload;
+
+    function AsString(const AFieldName: string; const AEncoding: TEncoding; out AValue: string): Boolean; overload;
+    function AsString(const AFieldName: string; out AValue: string): Boolean; overload;
+    function AsString(const AFieldName: string; const AEncoding: TEncoding = nil): string; overload;
+
+    {$REGION 'Documentation'}
     /// <summary>
     /// Boundary特征字符串
     /// </summary>
+    {$ENDREGION}
     property Boundary: string read FBoundary write SetBoundary;
 
+    {$REGION 'Documentation'}
     /// <summary>
     /// 上传文件保存的路径
     /// </summary>
+    {$ENDREGION}
     property StoragePath: string read FStoragePath write FStoragePath;
 
+    {$REGION 'Documentation'}
     /// <summary>
     /// 按序号访问参数
     /// </summary>
+    {$ENDREGION}
     property Items[AIndex: Integer]: TFormField read GetItem;
 
+    {$REGION 'Documentation'}
     /// <summary>
     ///   按名称访问参数
     /// </summary>
+    {$ENDREGION}
     property Fields[const AName: string]: TFormField read GetField;
 
+    {$REGION 'Documentation'}
     /// <summary>
     /// Items个数(只读)
     /// </summary>
+    {$ENDREGION}
     property Count: Integer read GetCount;
 
+    {$REGION 'Documentation'}
     /// <summary>
     /// 所有Items数据的总尺寸(字节数)
     /// </summary>
+    {$ENDREGION}
     property DataSize: Integer read GetDataSize;
 
+    {$REGION 'Documentation'}
     /// <summary>
     /// 对象释放时自动删除上传的文件
     /// </summary>
+    {$ENDREGION}
     property AutoDeleteFiles: Boolean read FAutoDeleteFiles write FAutoDeleteFiles;
   end;
 
@@ -672,6 +751,7 @@ type
     TFormFieldExArray = TArray<TFormFieldEx>;
   private
     FMultiPartFormData: THttpMultiPartFormData;
+    FOwned: Boolean;
     FFormFieldExArray: TFormFieldExArray;
     FMultiPartEnd: TBytes;
     FSize, FPosition, FEndPos: Int64;
@@ -679,10 +759,14 @@ type
     procedure _Init;
     function _GetFiledIndexByOffset(const AOffset: Int64): Integer;
   public
-    constructor Create(const AMultiPartFormData: THttpMultiPartFormData);
+    constructor Create(const AMultiPartFormData: THttpMultiPartFormData;
+      const AOwned: Boolean = False); reintroduce;
+    destructor Destroy; override;
 
     function Read(var ABuffer; ACount: Longint): Longint; override;
     function Seek(const AOffset: Int64; AOrigin: TSeekOrigin): Int64; override;
+
+    property MultiPartFormData: THttpMultiPartFormData read FMultiPartFormData;
   end;
 
   TSessionsBase = class;
@@ -1664,7 +1748,7 @@ end;
 
 function TFormField.AsBytes: TBytes;
 var
-  LBytesStream: TBytesStream;
+  LBufSize: Integer;
 begin
   if (FValue = nil) or (FValue.Size <= 0) then Exit(nil);
 
@@ -1674,14 +1758,10 @@ begin
     SetLength(Result, FValue.Size);
   end else
   begin
-    LBytesStream := TBytesStream.Create;
-    try
-      LBytesStream.CopyFrom(FValue, 0);
-      Result := LBytesStream.Bytes;
-      SetLength(Result, LBytesStream.Size);
-    finally
-      FreeAndNil(LBytesStream);
-    end;
+    FValue.Position := 0;
+    LBufSize := FValue.Size;
+    SetLength(Result, LBufSize);
+    FValue.ReadBuffer(Result, LBufSize);
   end;
 end;
 
@@ -1693,6 +1773,7 @@ begin
 
   FName := ASource.FName;
   FValueOwned := ASource.FValueOwned;
+  FIsTempFile := ASource.FIsTempFile;
   FFileName := ASource.FFileName;
   FFilePath := ASource.FFilePath;
   FContentType := ASource.FContentType;
@@ -1715,12 +1796,7 @@ end;
 
 function TFormField.AsString(AEncoding: TEncoding): string;
 begin
-//  if (AEncoding = nil) then
-//    AEncoding := TEncoding.UTF8;
-//
-//  Result := AEncoding.GetString(AsBytes);
-
-  Result := TUtils.GetString(AsBytes, AEncoding);
+  Result := TUtils.GetString(FValue, AEncoding);
 end;
 
 { THttpMultiPartFormData.TEnumerator }
@@ -1751,6 +1827,25 @@ begin
   FDecodeState := dsBoundary;
   FCurrentPartHeader := TBytesStream.Create(nil);
   FPartFields := TObjectList<TFormField>.Create(True);
+  FAutoDeleteFiles := True;
+end;
+
+function THttpMultiPartFormData.Decode(
+  const AStream: TStream): TFormDataDecodeResult;
+const
+  BUF_SIZE = 1024;
+var
+  LBuffer: array [0..BUF_SIZE - 1] of Byte;
+  N: Integer;
+begin
+  while True do
+  begin
+    N := AStream.Read(LBuffer[0], BUF_SIZE);
+    Result := Decode(@LBuffer[0], N);
+
+    if (Result in [frComplete, frFailed])
+      or (N < BUF_SIZE) then Exit;
+  end;
 end;
 
 destructor THttpMultiPartFormData.Destroy;
@@ -1817,6 +1912,8 @@ var
 begin
   Clear;
 
+  Boundary := ASource.Boundary;
+
   for LSrcField in ASource do
   begin
     LNewField := TFormField.Create;
@@ -1824,6 +1921,67 @@ begin
 
     AddField(LNewField);
   end;
+end;
+
+function THttpMultiPartFormData.AsBytes(const AFieldName: string;
+  out AValue: TBytes): Boolean;
+var
+  LField: TFormField;
+begin
+  Result := FindField(AFieldName, LField);
+  if Result then
+    AValue := LField.AsBytes
+  else
+    AValue := nil;
+end;
+
+function THttpMultiPartFormData.AsBytes(const AFieldName: string): TBytes;
+begin
+  AsBytes(AFieldName, Result);
+end;
+
+function THttpMultiPartFormData.AsStream(const AFieldName: string;
+  out AValue: TStream): Boolean;
+var
+  LField: TFormField;
+begin
+  Result := FindField(AFieldName, LField);
+  if Result then
+  begin
+    AValue := LField.Value;
+    if (AValue.Size > 0) then
+    AValue.Position := 0;
+  end else
+    AValue := nil;
+end;
+
+function THttpMultiPartFormData.AsStream(const AFieldName: string): TStream;
+begin
+  AsStream(AFieldName, Result);
+end;
+
+function THttpMultiPartFormData.AsString(const AFieldName: string;
+  const AEncoding: TEncoding; out AValue: string): Boolean;
+var
+  LField: TFormField;
+begin
+  Result := FindField(AFieldName, LField);
+  if Result then
+    AValue := LField.AsString(AEncoding)
+  else
+    AValue := '';
+end;
+
+function THttpMultiPartFormData.AsString(const AFieldName: string;
+  out AValue: string): Boolean;
+begin
+  Result := AsString(AFieldName, nil, AValue);
+end;
+
+function THttpMultiPartFormData.AsString(const AFieldName: string;
+  const AEncoding: TEncoding): string;
+begin
+  AsString(AFieldName, AEncoding, Result);
 end;
 
 procedure THttpMultiPartFormData.Clear;
@@ -1835,7 +1993,9 @@ begin
     if FAutoDeleteFiles and FileExists(LField.FilePath) then
     begin
       LField.FreeValue;
-      DeleteFile(LField.FilePath);
+
+      if LField.FIsTempFile then
+        DeleteFile(LField.FilePath);
     end;
   end;
 
@@ -1914,6 +2074,20 @@ begin
   SetLength(FLookbehind, Length(FBoundaryBytes) + 8);
 end;
 
+procedure THttpMultiPartFormData.Remove(AIndex: Integer);
+begin
+  FPartFields.Delete(AIndex);
+end;
+
+procedure THttpMultiPartFormData.Remove(const AFieldName: string);
+var
+  I: Integer;
+begin
+  I := GetItemIndex(AFieldName);
+  if (I >= 0) then
+    FPartFields.Delete(I);
+end;
+
 procedure THttpMultiPartFormData.SetBoundary(const AValue: string);
 begin
   if (FBoundary <> AValue) then
@@ -1929,7 +2103,7 @@ begin
   end;
 end;
 
-function THttpMultiPartFormData.Decode(const ABuf: Pointer; ALen: Integer): Integer;
+function THttpMultiPartFormData.Decode(const ABuf: Pointer; ALen: Integer): TFormDataDecodeResult;
   function __NewFileID: string;
   begin
     Result := TUtils.GetGUID.ToLower;
@@ -1979,6 +2153,7 @@ function THttpMultiPartFormData.Decode(const ABuf: Pointer; ALen: Integer): Inte
             AFormField.FFileName);
         end;
 
+        AFormField.FIsTempFile := True;
         AFormField.FValue := TFileUtils.OpenCreate(AFormField.FFilePath);
       end else
         AFormField.FValue := TBytesStream.Create(nil);
@@ -1995,7 +2170,7 @@ var
   P: PByte;
   LPartHeader: string;
 begin
-  if (FBoundaryBytes = nil) then Exit(0);
+  if (FBoundaryBytes = nil) then Exit(frFailed);
 
   (*
    ***************************************
@@ -2065,7 +2240,7 @@ begin
             FDetectEndIndex := 0;
 
           // 非法数据
-          if (FDetectHeaderIndex = 0) and (FDetectEndIndex = 0) then Exit(I);
+          if (FDetectHeaderIndex = 0) and (FDetectEndIndex = 0) then Exit(frFailed);
 
           // 检测到结束标志
           // --Boundary--#13#10
@@ -2076,6 +2251,8 @@ begin
             LF := 0;
             FBoundaryIndex := 0;
             FDetectEndIndex := 0;
+
+            Exit(frComplete);
           end else
           // 后面还有数据
           // --Boundary#13#10
@@ -2108,7 +2285,7 @@ begin
           // 割到两个ABuf中时处理比较麻烦
           FCurrentPartHeader.Write(C, 1);
           // 块头部过大, 视为非法数据
-          if (FCurrentPartHeader.Size > MAX_PART_HEADER) then Exit(I);
+          if (FCurrentPartHeader.Size > MAX_PART_HEADER) then Exit(frFailed);
 
           // 块头部结束
           // #13#10#13#10
@@ -2204,7 +2381,7 @@ begin
     Inc(I);
   end;
 
-  Result := ALen;
+  Result := frContinue;
 end;
 
 { THttpMultiPartFormStream.TFormFieldEx }
@@ -2230,11 +2407,20 @@ end;
 { THttpMultiPartFormStream }
 
 constructor THttpMultiPartFormStream.Create(
-  const AMultiPartFormData: THttpMultiPartFormData);
+  const AMultiPartFormData: THttpMultiPartFormData; const AOwned: Boolean);
 begin
   FMultiPartFormData := AMultiPartFormData;
+  FOwned := AOwned;
 
   _Init;
+end;
+
+destructor THttpMultiPartFormStream.Destroy;
+begin
+  if FOwned and (FMultiPartFormData <> nil) then
+    FreeAndNil(FMultiPartFormData);
+
+  inherited;
 end;
 
 function THttpMultiPartFormStream.Read(var ABuffer; ACount: Longint): Longint;

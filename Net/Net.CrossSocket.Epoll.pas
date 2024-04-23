@@ -428,8 +428,6 @@ end;
 procedure TEpollCrossSocket._HandleConnect(const AConnection: ICrossConnection);
 var
   LConnection: ICrossConnection;
-  LEpConnection: TEpollConnection;
-  LConnectCallback: TCrossConnectionCallback;
 begin
   LConnection := AConnection;
 
@@ -442,8 +440,6 @@ begin
     LConnection.Close;
     Exit;
   end;
-
-  LEpConnection := LConnection as TEpollConnection;
 
   TriggerConnected(LConnection);
 end;

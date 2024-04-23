@@ -269,7 +269,7 @@ type
     TWsFrameParseState = (wsHeader, wsBody, wsDone);
   private
     FIsWebSocket: Boolean;
-    FWsParser: TWebSocketParser;
+    FWsParser: TCrossWebSocketParser;
     FWsSendClose: Integer;
 
     procedure _WebSocketRecv(var ABuf: Pointer; var ALen: Integer);
@@ -288,8 +288,7 @@ type
     procedure _RespondPong(const AData: TBytes);
     procedure _RespondClose;
   protected
-    procedure TriggerWsRequest(ARequestType: TWsMessageType;
-      const ARequestData: TBytes); virtual;
+    procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); override;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
@@ -299,6 +298,7 @@ type
     procedure WsClose;
     procedure WsPing;
 
+    procedure WsSend(const AData: Pointer; const ACount: NativeInt; const ACallback: TWsServerCallback = nil); overload;
     procedure WsSend(const AData; const ACount: NativeInt; const ACallback: TWsServerCallback = nil); overload;
     procedure WsSend(const AData: TBytes; const AOffset, ACount: NativeInt; const ACallback: TWsServerCallback = nil); overload;
     procedure WsSend(const AData: TBytes; const ACallback: TWsServerCallback = nil); overload;
@@ -366,16 +366,11 @@ type
     procedure _OnPing(const AConnection: ICrossWebSocketConnection);
     procedure _OnPong(const AConnection: ICrossWebSocketConnection);
   protected
-    procedure ParseRecvData(const AConnection: ICrossConnection; var ABuf: Pointer; var ALen: Integer); override;
-
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
 
     procedure DoOnRequest(const AConnection: ICrossHttpConnection); override;
-
-    procedure TriggerWsRequest(const AConnection: ICrossWebSocketConnection;
-      const ARequestType: TWsMessageType; const ARequestData: TBytes); virtual;
   public
     constructor Create(const AIoThreads: Integer; const ASsl: Boolean); override;
     destructor Destroy; override;
@@ -398,7 +393,7 @@ constructor TCrossWebSocketConnection.Create(const AOwner: TCrossSocketBase;
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 
-  FWsParser := TWebSocketParser.Create(
+  FWsParser := TCrossWebSocketParser.Create(
     procedure(const AOpCode: Byte; const AData: TBytes)
     var
       LWsServer: TCrossWebSocketServer;
@@ -454,10 +449,23 @@ begin
   Result := FIsWebSocket;
 end;
 
-procedure TCrossWebSocketConnection.TriggerWsRequest(
-  ARequestType: TWsMessageType; const ARequestData: TBytes);
+procedure TCrossWebSocketConnection.ParseRecvData(var ABuf: Pointer;
+  var ALen: Integer);
 begin
-  TCrossWebSocketServer(Owner).TriggerWsRequest(Self, ARequestType, ARequestData);
+  while (ALen > 0) do
+  begin
+    if not FIsWebSocket then
+      inherited ParseRecvData(ABuf, ALen);
+
+    if (ALen > 0) and FIsWebSocket then
+      _WebSocketRecv(ABuf, ALen);
+  end;
+end;
+
+procedure TCrossWebSocketConnection.WsSend(const AData: Pointer;
+  const ACount: NativeInt; const ACallback: TWsServerCallback);
+begin
+  _WsSend(WS_OP_BINARY, True, AData, ACount, ACallback);
 end;
 
 procedure TCrossWebSocketConnection.WsSend(const AData; const ACount: NativeInt;
@@ -642,7 +650,7 @@ begin
   // 将数据和头打包到一起发送
   // 这是因为如果分开发送, 在多线程环境多个不同的线程数据可能会出现交叉
   // 会引起数据与头部混乱
-  LWsFrameData := TWebSocketParser.MakeFrameData(AOpCode, AFin, 0, AData, ACount);
+  LWsFrameData := TCrossWebSocketParser.MakeFrameData(AOpCode, AFin, 0, AData, ACount);
 
   SendBytes(LWsFrameData,
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
@@ -798,30 +806,6 @@ begin
   Result := Self;
 end;
 
-procedure TCrossWebSocketServer.ParseRecvData(
-  const AConnection: ICrossConnection; var ABuf: Pointer; var ALen: Integer);
-var
-  LConnection: TCrossWebSocketConnection;
-begin
-  LConnection := AConnection as TCrossWebSocketConnection;
-
-  while (ALen > 0) do
-  begin
-    if not LConnection.IsWebSocket then
-      inherited ParseRecvData(AConnection, ABuf, ALen);
-
-    if (ALen > 0) and LConnection.IsWebSocket then
-      LConnection._WebSocketRecv(ABuf, ALen);
-  end;
-end;
-
-procedure TCrossWebSocketServer.TriggerWsRequest(
-  const AConnection: ICrossWebSocketConnection; const ARequestType: TWsMessageType;
-  const ARequestData: TBytes);
-begin
-  _OnMessage(AConnection, ARequestType, ARequestData);
-end;
-
 procedure TCrossWebSocketServer._OnClose(
   const AConnection: ICrossWebSocketConnection);
 var
@@ -926,7 +910,7 @@ begin
   AConnection.Response.Header[HEADER_UPGRADE] := WEBSOCKET;
   AConnection.Response.Header[HEADER_CONNECTION] := HEADER_UPGRADE;
   AConnection.Response.Header[HEADER_SEC_WEBSOCKET_ACCEPT] :=
-    TWebSocketParser.MakeSecWebSocketAccept(AConnection.Request.Header[HEADER_SEC_WEBSOCKET_KEY]);
+    TCrossWebSocketParser.MakeSecWebSocketAccept(AConnection.Request.Header[HEADER_SEC_WEBSOCKET_KEY]);
   AConnection.Response.SendStatus(101, '',
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
