@@ -11,6 +11,7 @@ uses
   {$IFDEF DELPHI}
   System.NetEncoding
   {$ELSE}
+  DTF.RTL,
   base64
   {$ENDIF};
 
@@ -23,6 +24,8 @@ type
 
     class function Encode(const ABytes: TBytes; out ABase64Bytes: TBytes): Boolean; overload; static;
     class function Encode(const ABytes: TBytes): string; overload; static;
+    class function Encode(const AInput: Pointer; const ASize: Integer; out ABase64Bytes: TBytes): Boolean; overload; static;
+    class function Encode(const AInput: Pointer; const ASize: Integer): string; overload; static;
     class function Encode(const AStream: TStream): string; overload; static;
     class function Encode(const AStr: string): string; overload; static;
   end;
@@ -120,6 +123,18 @@ var
 begin
   Encode(ABytes, LBase64Bytes);
   Result := TEncoding.UTF8.GetString(LBase64Bytes);
+end;
+
+class function TBase64Utils.Encode(const AInput: Pointer; const ASize: Integer;
+  out ABase64Bytes: TBytes): Boolean;
+begin
+  Result := Encode(BytesOf(AInput, ASize), ABase64Bytes);
+end;
+
+class function TBase64Utils.Encode(const AInput: Pointer;
+  const ASize: Integer): string;
+begin
+  Result := Encode(BytesOf(AInput, ASize));
 end;
 
 class function TBase64Utils.Encode(const AStream: TStream): string;

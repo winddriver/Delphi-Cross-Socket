@@ -29,6 +29,8 @@ type
     procedure Terminate;
     procedure WaitFor;
 
+    function IsTimeout(const ATimeout: Integer): Boolean;
+
     property Name: string read GetName;
     property Paused: Boolean read GetPaused write SetPaused;
     property LastTick: UInt64 read GetLastTick;
@@ -60,6 +62,8 @@ type
 
     procedure Terminate;
     procedure WaitFor;
+
+    function IsTimeout(const ATimeout: Integer): Boolean;
 
     property Name: string read GetName;
     property Paused: Boolean read GetPaused write SetPaused;
@@ -128,6 +132,7 @@ begin
           end;
         end;
 
+        FLastTick := TThread.GetTickCount64;
         Sleep(10);
       end;
     end);
@@ -169,6 +174,14 @@ end;
 function TEasyTimer.GetPaused: Boolean;
 begin
   Result := FPaused;
+end;
+
+function TEasyTimer.IsTimeout(const ATimeout: Integer): Boolean;
+begin
+  Result := False;
+  if (ATimeout <= 0) then Exit;
+
+  Result := (TThread.GetTickCount64 - FLastTick >= ATimeout);
 end;
 
 procedure TEasyTimer.SetPaused(const AValue: Boolean);

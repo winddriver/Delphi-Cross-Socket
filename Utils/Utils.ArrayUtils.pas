@@ -24,7 +24,11 @@ type
   TArrayUtils<T> = class
   public type
     IArrayComparer = IComparer<T>;
+
+    // reference to function(const Left, Right: T): Integer
     TArrayComparison = {$IFDEF DELPHI}TComparison<T>{$ELSE}TComparisonAnonymousFunc<T>{$ENDIF};
+
+    // TDelegatedComparer<T> = class(TComparer<T>)
     TArrayComparer = {$IFDEF DELPHI}TDelegatedComparer<T>{$ELSE}TDelegatedComparerAnonymousFunc<T>{$ENDIF};
   public
     class procedure Sort(var AArray: array of T; const AComparer: IArrayComparer; AIndex, ACount: Integer); overload; static;

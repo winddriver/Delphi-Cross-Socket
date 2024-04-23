@@ -24,7 +24,6 @@ uses
     {$ELSE}
     baseunix,
     unix,
-    linux,
     {$ENDIF}
   {$ENDIF}
 
@@ -169,6 +168,14 @@ type
     class function GetDirectoryName(const AFileName: string): string; static;
 
     class function MatchesPattern(const AFileName, APattern: string): Boolean; static;
+  end;
+
+  TTempFileStream = class(TFileStream)
+  private
+    FTempFileName: string;
+  public
+    constructor Create(const ATempPath: string = ''); reintroduce;
+    destructor Destroy; override;
   end;
 
   TFileStreamHelper = class helper for TFileStream
@@ -1112,10 +1119,37 @@ end;
 class function TPathUtils.MatchesPattern(const AFileName,
   APattern: string): Boolean;
 begin
-  if (APattern = '*.*') then
+  if (APattern = '*') or (APattern = '*.*') then
     Result := True
   else
     Result := MatchesMask(AFileName, APattern);
+end;
+
+{ TTempFileStream }
+
+constructor TTempFileStream.Create(const ATempPath: string);
+var
+  LTempPath: string;
+begin
+  if (ATempPath <> '') then
+    LTempPath := ATempPath
+  else
+    LTempPath := TUtils.AppPath + 'temp';
+
+  FTempFileName := TPathUtils.Combine(LTempPath, TUtils.GetGUID);
+
+  if not FileExists(FTempFileName) then
+    TDirectoryUtils.CreateDirectory(ExtractFilePath(FTempFileName));
+
+  inherited Create(FTempFileName, fmCreate or fmShareDenyWrite);
+end;
+
+destructor TTempFileStream.Destroy;
+begin
+  inherited Destroy;
+
+  if FileExists(FTempFileName) then
+    TFileUtils.Delete(FTempFileName);
 end;
 
 end.
