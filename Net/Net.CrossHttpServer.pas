@@ -1773,7 +1773,10 @@ type
     FServer: TCrossHttpServer;
     FRequest: ICrossHttpRequest;
     FResponse: ICrossHttpResponse;
+    FResourceLock: ILock;
     FHttpParser: TCrossHttpParser;
+
+    FInitCount, FUninitCount: Integer;
 
     procedure _OnHeaderData(const ADataPtr: Pointer; const ADataSize: Integer);
     function _OnGetHeaderValue(const AHeaderName: string; out AHeaderValue: string): Boolean;
@@ -1783,6 +1786,9 @@ type
     procedure _OnParseBegin;
     procedure _OnParseSuccess;
     procedure _OnParseFailed(const ACode: Integer; const AError: string);
+
+    procedure _InitResource;
+    procedure _UninitResource;
   protected
     function GetRequest: ICrossHttpRequest;
     function GetResponse: ICrossHttpResponse;
@@ -2282,10 +2288,18 @@ begin
   FHttpParser.OnParseBegin := _OnParseBegin;
   FHttpParser.OnParseSuccess := _OnParseSuccess;
   FHttpParser.OnParseFailed := _OnParseFailed;
+
+  FResourceLock := TLock.Create;
 end;
 
 destructor TCrossHttpConnection.Destroy;
 begin
+  if (FRequest <> nil) then
+    (FRequest as TCrossHttpRequest).FConnection := nil;
+
+  if (FResponse <> nil) then
+    (FResponse as TCrossHttpResponse).FConnection := nil;
+
   FreeAndNil(FHttpParser);
 
   inherited;
@@ -2322,6 +2336,18 @@ begin
   FResponse := nil;
 end;
 
+procedure TCrossHttpConnection._InitResource;
+begin
+  FResourceLock.Enter;
+  try
+    FRequest := TCrossHttpRequest.Create(Self);
+    FResponse := TCrossHttpResponse.Create(Self);
+    Inc(FInitCount);
+  finally
+    FResourceLock.Leave;
+  end;
+end;
+
 procedure TCrossHttpConnection._OnBodyBegin;
 begin
   FServer.TriggerPostDataBegin(Self);
@@ -2352,8 +2378,7 @@ end;
 
 procedure TCrossHttpConnection._OnParseBegin;
 begin
-  FRequest := TCrossHttpRequest.Create(Self);
-  FResponse := TCrossHttpResponse.Create(Self);
+  _InitResource;
 
   FServer.TriggerParseRequestBegin(Self);
 end;
@@ -2367,6 +2392,22 @@ end;
 procedure TCrossHttpConnection._OnParseSuccess;
 begin
   FServer.TriggerParseRequestSuccess(Self);
+end;
+
+procedure TCrossHttpConnection._UninitResource;
+begin
+  FResourceLock.Enter;
+  try
+    Inc(FUninitCount);
+
+    if (FInitCount = FUninitCount) then
+    begin
+      ReleaseRequest;
+      ReleaseResponse;
+    end;
+  finally
+    FResourceLock.Leave;
+  end;
 end;
 
 { TCrossHttpRouter }
@@ -2714,8 +2755,7 @@ begin
     FOnRequestEnd(Self, AConnection, ASuccess);
 
   LConnObj := AConnection as TCrossHttpConnection;
-  LConnObj.ReleaseRequest;
-  LConnObj.ReleaseResponse;
+  LConnObj._UninitResource;
 end;
 
 procedure TCrossHttpServer.DoOnRequest(const AConnection: ICrossHttpConnection);
