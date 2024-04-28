@@ -904,6 +904,9 @@ type
   procedure _Log(const S: string); overload;
   procedure _Log(const Fmt: string; const Args: array of const); overload;
 
+var
+  CrossSocketLogEnabled: Boolean = True;
+
 implementation
 
 uses
@@ -925,6 +928,8 @@ end;
 
 procedure _Log(const S: string); overload;
 begin
+  if not CrossSocketLogEnabled then Exit;
+  
   if Assigned(_CrossLogger) then
     _CrossLogger(S)
   else
@@ -965,16 +970,9 @@ begin
 end;
 
 procedure TIoEventThread.Execute;
-{$IFDEF __DEBUG__}
-var
-  LRunCount: Int64;
-{$ENDIF}
 begin
   try
     FOwner.TriggerIoThreadBegin(Self);
-    {$IFDEF __DEBUG__}
-    LRunCount := 0;
-    {$ENDIF}
     while not Terminated do
     begin
       try
@@ -995,13 +993,7 @@ begin
         end;
         {$ENDIF}
       end;
-      {$IFDEF __DEBUG__}
-      Inc(LRunCount)
-      {$ENDIF};
     end;
-    {$IFDEF __DEBUG__}
-    _Log('%s Io线程ID %d, 被调用了 %d 次', [FOwner.ClassName, Self.ThreadID, LRunCount]);
-    {$ENDIF}
   finally
     FOwner.TriggerIoThreadEnd(Self);
   end;
