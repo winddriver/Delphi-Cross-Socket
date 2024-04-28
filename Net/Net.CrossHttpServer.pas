@@ -16,6 +16,8 @@ unit Net.CrossHttpServer;
   sudo apt-get install zlib1g-dev
 }
 
+{$DEFINE __NEW_REQUEST_RESPONSE__}
+
 interface
 
 uses
@@ -135,6 +137,11 @@ type
     function GetIsMultiPartFormData: Boolean;
     function GetIsUrlEncodedFormData: Boolean;
     function GetPostDataSize: Int64;
+
+    /// <summary>
+    ///   重置数据
+    /// </summary>
+    procedure Reset;
 
     /// <summary>
     ///   HTTP连接对象
@@ -476,6 +483,11 @@ type
     function GetHeader: THttpHeader;
     function GetCookies: TResponseCookies;
     function GetSent: Boolean;
+
+    /// <summary>
+    ///   重置数据
+    /// </summary>
+    procedure Reset;
 
     /// <summary>
     ///   压缩发送块数据
@@ -1787,6 +1799,8 @@ type
     procedure _OnParseSuccess;
     procedure _OnParseFailed(const ACode: Integer; const AError: string);
 
+    procedure _LockResource; inline;
+    procedure _UnlockResource; inline;
     procedure _InitResource;
     procedure _UninitResource;
   protected
@@ -1852,6 +1866,8 @@ type
     FQuery: THttpUrlParams;
     FBody: TObject;
     FBodyType: TBodyType;
+
+    procedure Reset;
   protected
     function GetConnection: ICrossHttpConnection;
     function GetRawRequestText: string;
@@ -1954,6 +1970,7 @@ type
     FCookies: TResponseCookies;
     FSendStatus: Integer;
 
+    procedure Reset;
     function _CreateHeader(const ABodySize: Int64; AChunked: Boolean): TBytes;
 
     {$region '内部: 基础发送方法'}
@@ -2277,6 +2294,11 @@ begin
 
   FServer := AOwner as TCrossHttpServer;
 
+  {$IFNDEF __NEW_REQUEST_RESPONSE__}
+  FRequest := TCrossHttpRequest.Create(Self);
+  FResponse := TCrossHttpResponse.Create(Self);
+  {$ENDIF}
+
   FHttpParser := TCrossHttpParser.Create;
   FHttpParser.MaxHeaderSize := FServer.MaxHeaderSize;
   FHttpParser.MaxBodyDataSize := FServer.MaxPostDataSize;
@@ -2328,24 +2350,38 @@ end;
 
 procedure TCrossHttpConnection.ReleaseRequest;
 begin
+  {$IFDEF __NEW_REQUEST_RESPONSE__}
   FRequest := nil;
+  {$ELSE}
+  (FRequest as TCrossHttpRequest).Reset;
+  {$ENDIF}
 end;
 
 procedure TCrossHttpConnection.ReleaseResponse;
 begin
+  {$IFDEF __NEW_REQUEST_RESPONSE__}
   FResponse := nil;
+  {$ELSE}
+  (FResponse as TCrossHttpResponse).Reset;
+  {$ENDIF}
 end;
 
 procedure TCrossHttpConnection._InitResource;
 begin
+  {$IFDEF __NEW_REQUEST_RESPONSE__}
+  FRequest := TCrossHttpRequest.Create(Self);
+  FResponse := TCrossHttpResponse.Create(Self);
+  {$ELSE}
+  (FRequest as TCrossHttpRequest).Reset;
+  (FResponse as TCrossHttpResponse).Reset;
+  {$ENDIF}
+
+  Inc(FInitCount);
+end;
+
+procedure TCrossHttpConnection._LockResource;
+begin
   FResourceLock.Enter;
-  try
-    FRequest := TCrossHttpRequest.Create(Self);
-    FResponse := TCrossHttpResponse.Create(Self);
-    Inc(FInitCount);
-  finally
-    FResourceLock.Leave;
-  end;
 end;
 
 procedure TCrossHttpConnection._OnBodyBegin;
@@ -2378,7 +2414,12 @@ end;
 
 procedure TCrossHttpConnection._OnParseBegin;
 begin
-  _InitResource;
+  _LockResource;
+  try
+    _InitResource;
+  finally
+    _UnlockResource;
+  end;
 
   FServer.TriggerParseRequestBegin(Self);
 end;
@@ -2396,18 +2437,18 @@ end;
 
 procedure TCrossHttpConnection._UninitResource;
 begin
-  FResourceLock.Enter;
-  try
-    Inc(FUninitCount);
+  Inc(FUninitCount);
 
-    if (FInitCount = FUninitCount) then
-    begin
-      ReleaseRequest;
-      ReleaseResponse;
-    end;
-  finally
-    FResourceLock.Leave;
+  if (FInitCount = FUninitCount) then
+  begin
+    ReleaseRequest;
+    ReleaseResponse;
   end;
+end;
+
+procedure TCrossHttpConnection._UnlockResource;
+begin
+  FResourceLock.Leave;
 end;
 
 { TCrossHttpRouter }
@@ -2751,11 +2792,17 @@ procedure TCrossHttpServer.DoOnRequestEnd(
 var
   LConnObj: TCrossHttpConnection;
 begin
-  if Assigned(FOnRequestEnd) then
-    FOnRequestEnd(Self, AConnection, ASuccess);
-
   LConnObj := AConnection as TCrossHttpConnection;
-  LConnObj._UninitResource;
+
+  LConnObj._LockResource;
+  try
+    if Assigned(FOnRequestEnd) then
+      FOnRequestEnd(Self, AConnection, ASuccess);
+
+    LConnObj._UninitResource;
+  finally
+    LConnObj._UnlockResource;
+  end;
 end;
 
 procedure TCrossHttpServer.DoOnRequest(const AConnection: ICrossHttpConnection);
@@ -3774,6 +3821,17 @@ begin
   Result := True;
 end;
 
+procedure TCrossHttpRequest.Reset;
+begin
+  FHeader.Clear;
+  FCookies.Clear;
+  FSession := nil;
+  FParams.Clear;
+  FQuery.Clear;
+  FreeAndNil(FBody);
+  FBodyType := btNone;
+end;
+
 { TCrossHttpResponse }
 
 constructor TCrossHttpResponse.Create(const AConnection: TCrossHttpConnection);
@@ -3850,6 +3908,14 @@ procedure TCrossHttpResponse.Redirect(const AUrl: string; const ACallback: TCros
 begin
   SetLocation(AUrl);
   SendStatus(302, '', ACallback);
+end;
+
+procedure TCrossHttpResponse.Reset;
+begin
+  FSendStatus := 0;
+  FStatusCode := 0;
+  FHeader.Clear;
+  FCookies.Clear;
 end;
 
 procedure TCrossHttpResponse.Attachment(const AFileName: string);

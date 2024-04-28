@@ -465,8 +465,8 @@ end;
 
 procedure TCrossWebSocketConnection.ReleaseRequest;
 begin
-  // do nothing
-  // keep request
+  if not FIsWebSocket then
+    inherited ReleaseRequest;
 end;
 
 procedure TCrossWebSocketConnection.WsSend(const AData: Pointer;
