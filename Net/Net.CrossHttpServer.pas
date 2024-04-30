@@ -16,7 +16,7 @@ unit Net.CrossHttpServer;
   sudo apt-get install zlib1g-dev
 }
 
-{$DEFINE __NEW_REQUEST_RESPONSE__}
+{.$DEFINE __NEW_REQUEST_RESPONSE__}
 
 interface
 
@@ -3913,7 +3913,7 @@ end;
 procedure TCrossHttpResponse.Reset;
 begin
   FSendStatus := 0;
-  FStatusCode := 0;
+  FStatusCode := 200;
   FHeader.Clear;
   FCookies.Clear;
 end;
