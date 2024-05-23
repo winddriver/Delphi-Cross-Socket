@@ -215,7 +215,7 @@ type
 
   TEvent = class(TInterfacedObject, IEvent)
   private
-    FEvent: SyncObjs.TEvent;
+    FEvent: SyncObjs.TSimpleEvent;
   public
     constructor Create;
     destructor Destroy; override;
@@ -393,7 +393,7 @@ end;
 
 constructor TEvent.Create;
 begin
-  FEvent := SyncObjs.TEvent.Create();
+  FEvent := SyncObjs.TSimpleEvent.Create();
 end;
 
 destructor TEvent.Destroy;

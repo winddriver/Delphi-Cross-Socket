@@ -905,7 +905,7 @@ type
   procedure _Log(const Fmt: string; const Args: array of const); overload;
 
 var
-  CrossSocketLogEnabled: Boolean = True;
+  CrossSocketLogEnabled: Boolean = {$IFDEF DEBUG}True{$ELSE}False{$ENDIF};
 
 implementation
 
@@ -942,7 +942,8 @@ end;
 
 procedure _Log(const Fmt: string; const Args: array of const); overload;
 begin
-  _Log(TStrUtils.Format(Fmt, Args));
+  if CrossSocketLogEnabled then
+    _Log(TStrUtils.Format(Fmt, Args));
 end;
 
 procedure _LogLastOsError(const ATag: string);
@@ -950,6 +951,8 @@ var
   LError: Integer;
   LErrMsg: string;
 begin
+  if not CrossSocketLogEnabled then Exit;
+
   LError := GetLastError;
   if (ATag <> '') then
     LErrMsg := ATag + ' : '

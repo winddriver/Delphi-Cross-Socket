@@ -54,8 +54,7 @@ type
     FParsedBodySize: Int64;
     FParseState: TCrossHttpParseState;
     FCRCount, FLFCount: Integer;
-    FHeaderStream: TBytesStream;
-    FChunkSizeStream: TBytesStream;
+    FHeaderStream, FChunkSizeStream: TMemoryStream;
     FChunkSize, FChunkLeftSize: Integer;
 
     // 动态解压
@@ -101,7 +100,7 @@ implementation
 
 constructor TCrossHttpParser.Create;
 begin
-  FHeaderStream := TBytesStream.Create;
+  FHeaderStream := TMemoryStream.Create;
   FParseState := psIdle;
 end;
 
@@ -213,7 +212,7 @@ begin
                 if FIsChunked then
                 begin
                   FParseState := psChunkSize;
-                  FChunkSizeStream := TBytesStream.Create(nil);
+                  FChunkSizeStream := TMemoryStream.Create;
                 end else
                   FParseState := psBodyData;
 

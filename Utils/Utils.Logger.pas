@@ -280,6 +280,9 @@ var
     LBytes := TEncoding.UTF8.GetBytes(ALogItem.Text);
     LBuffer.Seek(0, TSeekOrigin.soEnd);
     LBuffer.Write(LBytes, Length(LBytes));
+
+    if IsConsole then
+      Write(ALogItem.Text);
   end;
 
   procedure _WriteBufferToFile(const ALogFile: string);
@@ -354,8 +357,8 @@ begin
     LText := ALog;
   LText := TStrUtils.FormatDateTime(ATimeFormat, Now) + ' ' + LText + sLineBreak;
 
-  if IsConsole then
-    Write(LText);
+//  if IsConsole then
+//    Write(LText);
 
   _AppendLogToBuffer(LText, ALogType);
 end;

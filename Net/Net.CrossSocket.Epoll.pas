@@ -19,26 +19,29 @@ uses
   Generics.Collections,
 
   {$IFDEF DELPHI}
+  Posix.Base,
   Posix.SysSocket,
   Posix.NetinetIn,
   Posix.UniStd,
   Posix.NetDB,
   Posix.Pthread,
   Posix.Errno,
+  Linux.epoll,
   {$ELSE}
   baseunix,
   unix,
   linux,
+  syscall,
   sockets,
   netdb,
   cnetdb,
   DTF.RTL,
   {$ENDIF DELPHI}
-  Linux.epoll,
 
   Net.SocketAPI,
   Net.CrossSocket.Base,
 
+  Utils.Logger,
   Utils.SyncObjs;
 
 type
@@ -63,7 +66,7 @@ type
   end;
 
   PSendItem = ^TSendItem;
-  TSendItem = packed record
+  TSendItem = record
     Data: PByte;
     Size: Integer;
     Callback: TCrossConnectionCallback;
@@ -91,6 +94,8 @@ type
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
+
+    procedure Close; override;
   end;
 
   // KQUEUE 与 EPOLL 队列的差异
@@ -125,9 +130,8 @@ type
   private
     FEpollHandle: Integer;
     FIoThreads: TArray<TIoEventThread>;
-    FIdleHandle: THandle;
+    FIdleHandle, FStopHandle: Integer;
     FIdleLock: ILock;
-    FStopHandle: THandle;
 
     // 利用 eventfd 唤醒并退出IO线程
     procedure _OpenStopHandle; inline;
@@ -168,6 +172,17 @@ type
 implementation
 
 {$I Net.Posix.inc}
+
+{ create a file descriptor for event notification }
+{$IFDEF DELPHI}
+function eventfd(initval: Cardinal; flags: Integer): Integer; cdecl;
+  external libc name 'eventfd';
+{$ELSE}
+function eventfd(initval: Cardinal; flags: Integer): Integer;
+begin
+  Result := do_syscall(syscall_nr_eventfd2, TSysParam(initval), TSysParam(flags));
+end;
+{$ENDIF}
 
 { TEpollListen }
 
@@ -232,16 +247,17 @@ end;
 procedure TSendQueue.Notify(const Value: PSendItem;
   Action: TCollectionNotification);
 begin
-  inherited;
-
   if (Action = TCollectionNotification.cnRemoved) then
   begin
     if (Value <> nil) then
     begin
       Value.Callback := nil;
-      FreeMem(Value, SizeOf(TSendItem));
+//      FreeMem(Value, SizeOf(TSendItem));
+      System.Dispose(Value);
     end;
   end;
+
+  inherited;
 end;
 
 { TEpollConnection }
@@ -285,6 +301,16 @@ begin
   inherited;
 end;
 
+procedure TEpollConnection.Close;
+var
+  LOwner: TEpollCrossSocket;
+begin
+  LOwner := TEpollCrossSocket(Owner);
+  epoll_ctl(LOwner.FEpollHandle, EPOLL_CTL_DEL, Socket, nil);
+
+  inherited Close;
+end;
+
 procedure TEpollConnection._Lock;
 begin
   FLock.Enter;
@@ -311,7 +337,8 @@ begin
 
   LOwner := TEpollCrossSocket(Owner);
 
-  LEvent.Events := EPOLLET or EPOLLONESHOT;
+//  LEvent.Events := EPOLLET or EPOLLONESHOT;
+  LEvent.Events := EPOLLET or EPOLLONESHOT or EPOLLERR or EPOLLHUP;
   LEvent.Data.u64 := Self.UID;
 
   if _ReadEnabled then
@@ -323,11 +350,14 @@ begin
   Result := (epoll_ctl(LOwner.FEpollHandle, FOpCode, Socket, @LEvent) >= 0);
   FOpCode := EPOLL_CTL_MOD;
 
-  {$IFDEF DEBUG}
   if not Result then
+  begin
+    {$IFDEF DEBUG}
     _Log('connection %.16x epoll_ctl socket=%d events=0x%.8x error %d',
       [UID, LEvent.Events, Socket, GetLastError]);
-  {$ENDIF}
+    {$ENDIF}
+    Close;
+  end;
 end;
 
 
@@ -579,8 +609,7 @@ var
 begin
   LStuff := 1;
   // 往 FStopHandle 写入任意数据, 唤醒工作线程
-  //Posix.UniStd.__write(FStopHandle, @LStuff, SizeOf(LStuff));
-  __write(FStopHandle, @LStuff, SizeOf(LStuff));
+  FileWrite(FStopHandle, LStuff, SizeOf(LStuff));
 end;
 
 procedure TEpollCrossSocket.StartLoop;
@@ -832,7 +861,8 @@ begin
   // 测试过先发送, 然后将剩余部分放入发送队列的做法
   // 发现会引起内存访问异常, 放到队列里到IO线程中发送则不会有问题
   {$region '放入发送队列'}
-  GetMem(LSendItem, SizeOf(TSendItem));
+//  GetMem(LSendItem, SizeOf(TSendItem));
+  System.New(LSendItem);
   FillChar(LSendItem^, SizeOf(TSendItem), 0);
   LSendItem.Data := ABuf;
   LSendItem.Size := ALen;
@@ -937,6 +967,17 @@ begin
     end else
     if (LConnection <> nil) then
     begin
+      // 连接被断开
+      if (LEvent.Events and EPOLLERR <> 0)
+        or (LEvent.Events and EPOLLHUP <> 0) then
+      begin
+        {$IFDEF DEBUG}
+        _Log('epoll conn [%d] closed', [LConnection.UID]);
+        {$ENDIF}
+        LConnection.Close;
+        Continue;
+      end;
+
       // epoll的读写事件同一时间可能两个同时触发
       if (LEvent.Events and EPOLLIN <> 0) then
         _HandleRead(LConnection);

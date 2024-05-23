@@ -74,13 +74,6 @@ function epoll_ctl(epfd, op, fd: Integer; event: pepoll_event): Integer; cdecl;
 function epoll_wait(epfd: Integer; events: pepoll_event; maxevents, timeout: Integer): Integer; cdecl;
   external {$IFDEF DELPHI}libc name 'epoll_wait'{$ENDIF};
 
-{ create a file descriptor for event notification }
-function eventfd(initval: Cardinal; flags: Integer): Integer; cdecl;
-  external {$IFDEF DELPHI}libc name 'eventfd'{$ENDIF};
-
-function __write(Handle: Integer; Buffer: Pointer; Count: size_t): ssize_t; cdecl;
-  external {$IFDEF DELPHI}libc name 'write'{$ENDIF};
-
 implementation
 
 end.

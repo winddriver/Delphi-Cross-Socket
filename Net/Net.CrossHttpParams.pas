@@ -507,7 +507,7 @@ type
     FDecodeState: TDecodeState;
     CR, LF: Integer;
     FPartFields: TObjectList<TFormField>;
-    FCurrentPartHeader: TBytesStream;
+    FCurrentPartHeader: TMemoryStream;
     FCurrentPartField: TFormField;
     FAutoDeleteFiles: Boolean;
 
@@ -1825,7 +1825,7 @@ end;
 constructor THttpMultiPartFormData.Create;
 begin
   FDecodeState := dsBoundary;
-  FCurrentPartHeader := TBytesStream.Create(nil);
+  FCurrentPartHeader := TMemoryStream.Create;
   FPartFields := TObjectList<TFormField>.Create(True);
   FAutoDeleteFiles := True;
 end;
@@ -2292,7 +2292,7 @@ begin
           if (CR = 2) and (LF = 2) then
           begin
             // 块头部通常采用UTF8编码
-            LPartHeader := TUtils.GetString(FCurrentPartHeader.Bytes, 0, FCurrentPartHeader.Size - 4{#13#10#13#10});
+            LPartHeader := TUtils.GetString(FCurrentPartHeader.Memory, FCurrentPartHeader.Size - 4{#13#10#13#10});
             FCurrentPartHeader.Clear;
             FCurrentPartField := TFormField.Create;
             __InitFormFieldByHeader(FCurrentPartField, LPartHeader);

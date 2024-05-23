@@ -76,7 +76,7 @@ type
   TCrossWebSocketParser = class
   private
     FWsFrameState: TWsFrameParseState;
-    FWsFrameHeader, FWsMessageBody: TBytesStream;
+    FWsFrameHeader, FWsMessageBody: TMemoryStream;
     FWsFIN: Boolean;
     FWsOpCode: Byte;
     FWsMask: Boolean;
@@ -117,8 +117,8 @@ begin
   FOnCommand := AOnCommand;
   FOnMessage := AOnMessage;
 
-  FWsFrameHeader := TBytesStream.Create(nil);
-  FWsMessageBody := TBytesStream.Create(nil);
+  FWsFrameHeader := TMemoryStream.Create;
+  FWsMessageBody := TMemoryStream.Create;
   _ResetRequest;
 end;
 
@@ -132,7 +132,7 @@ end;
 
 procedure TCrossWebSocketParser.Decode(var ABuf: Pointer; var ALen: Integer);
 var
-  PBuf: PByte;
+  PBuf, PHeader: PByte;
   LByte: Byte;
   LMessageData: TBytes;
 begin
@@ -150,21 +150,23 @@ begin
             Dec(ALen);
             Inc(PBuf);
 
+            PHeader := FWsFrameHeader.Memory;
+
             if (FWsFrameHeader.Size = 2) then
             begin
               // 第1个字节最高位为 FIN 状态
-              FWsFIN := (FWsFrameHeader.Bytes[0] and $80 <> 0);
+              FWsFIN := (PHeader[0] and $80 <> 0);
 
               // 第1个字节低4位为 opcode 状态
-              LByte := FWsFrameHeader.Bytes[0] and $0F;
+              LByte := PHeader[0] and $0F;
               if (LByte <> WS_OP_CONTINUATION) then
                 FWsOpCode := LByte;
 
               // 第2个字节最高位为 MASK 状态
-              FWsMask := (FWsFrameHeader.Bytes[1] and $80 <> 0);
+              FWsMask := (PHeader[1] and $80 <> 0);
 
               // 第2个字节低7位为 payload len
-              FWsPayload := FWsFrameHeader.Bytes[1] and $7F;
+              FWsPayload := PHeader[1] and $7F;
 
               FWsHeaderSize := 2;
               if (FWsPayload < 126) then
@@ -186,17 +188,17 @@ begin
                 Move(PCardinal(UIntPtr(FWsFrameHeader.Memory) + FWsHeaderSize - 4)^, FWsMaskKey, 4);
 
               if (FWsPayload = 126) then
-                FWsBodySize := FWsFrameHeader.Bytes[3]
-                  + Word(FWsFrameHeader.Bytes[2]) shl 8
+                FWsBodySize := PHeader[3]
+                  + Word(PHeader[2]) shl 8
               else if (FWsPayload = 127) then
-                FWsBodySize := FWsFrameHeader.Bytes[9]
-                  + UInt64(FWsFrameHeader.Bytes[8]) shl 8
-                  + UInt64(FWsFrameHeader.Bytes[7]) shl 16
-                  + UInt64(FWsFrameHeader.Bytes[6]) shl 24
-                  + UInt64(FWsFrameHeader.Bytes[5]) shl 32
-                  + UInt64(FWsFrameHeader.Bytes[4]) shl 40
-                  + UInt64(FWsFrameHeader.Bytes[3]) shl 48
-                  + UInt64(FWsFrameHeader.Bytes[2]) shl 56
+                FWsBodySize := PHeader[9]
+                  + UInt64(PHeader[8]) shl 8
+                  + UInt64(PHeader[7]) shl 16
+                  + UInt64(PHeader[6]) shl 24
+                  + UInt64(PHeader[5]) shl 32
+                  + UInt64(PHeader[4]) shl 40
+                  + UInt64(PHeader[3]) shl 48
+                  + UInt64(PHeader[2]) shl 56
                   ;
 
               // 接收完一帧
@@ -249,8 +251,9 @@ begin
     // 一个完整的 WebSocket 数据帧接收完毕
     if (FWsFrameState = wsDone) then
     begin
-      LMessageData := FWsMessageBody.Bytes;
       SetLength(LMessageData, FWsMessageBody.Size);
+      FWsMessageBody.Position := 0;
+      FWsMessageBody.ReadBuffer(LMessageData, FWsMessageBody.Size);
       _ResetRequest;
 
       case FWsOpCode of

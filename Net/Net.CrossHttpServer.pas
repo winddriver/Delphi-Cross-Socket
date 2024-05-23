@@ -298,7 +298,7 @@ type
     ///       btMultiPart(THttpMultiPartFormData)
     ///     </item>
     ///     <item>
-    ///       btBinary(TBytesStream)
+    ///       btBinary(TMemoryStream)
     ///     </item>
     ///   </list>
     /// </summary>
@@ -317,7 +317,7 @@ type
     ///       btMultiPart(THttpMultiPartFormData)
     ///     </item>
     ///     <item>
-    ///       btBinary(TBytesStream)
+    ///       btBinary(TMemoryStream)
     ///     </item>
     ///   </list>
     /// </summary>
@@ -1823,7 +1823,6 @@ type
 
   TCrossHttpRequest = class(TInterfacedObject, ICrossHttpRequest)
   private
-    FRawRequest: TMemoryStream;
     FRawRequestText: string;
     FMethod, FPath, FPathAndParams, FVersion: string;
     FRawPath, FRawParamsText, FRawPathAndParams: string;
@@ -2782,9 +2781,18 @@ end;
 
 procedure TCrossHttpServer.DoOnRequestBegin(
   const AConnection: ICrossHttpConnection);
+var
+  LConnObj: TCrossHttpConnection;
 begin
-  if Assigned(FOnRequestBegin) then
-    FOnRequestBegin(Self, AConnection);
+  LConnObj := AConnection as TCrossHttpConnection;
+
+  LConnObj._LockResource;
+  try
+    if Assigned(FOnRequestBegin) then
+      FOnRequestBegin(Self, AConnection);
+  finally
+    LConnObj._UnlockResource;
+  end;
 end;
 
 procedure TCrossHttpServer.DoOnRequestEnd(
@@ -3277,14 +3285,14 @@ begin
 
     btUrlEncoded:
       begin
-        LStream := TBytesStream.Create;
+        LStream := TMemoryStream.Create;
         FreeAndNil(LRequest.FBody);
         LRequest.FBody := LStream;
       end;
 
     btBinary:
       begin
-        LStream := TBytesStream.Create(nil);
+        LStream := TMemoryStream.Create;
         FreeAndNil(LRequest.FBody);
         LRequest.FBody := LStream;
       end;
@@ -3326,8 +3334,8 @@ begin
     btUrlEncoded:
       begin
         SetString(LUrlEncodedStr,
-          MarshaledAString((LRequest.Body as TBytesStream).Memory),
-          (LRequest.Body as TBytesStream).Size);
+          MarshaledAString((LRequest.Body as TMemoryStream).Memory),
+          (LRequest.Body as TMemoryStream).Size);
         LUrlEncodedBody := THttpUrlParams.Create;
         if LUrlEncodedBody.Decode(LUrlEncodedStr) then
         begin
@@ -3485,7 +3493,6 @@ begin
   FConnection := AConnection;
   FServer := FConnection.Owner as TCrossHttpServer;
 
-  FRawRequest := TMemoryStream.Create;
   FHeader := THttpHeader.Create;
   FCookies := TRequestCookies.Create;
   FParams := THttpUrlParams.Create;
@@ -3494,7 +3501,6 @@ end;
 
 destructor TCrossHttpRequest.Destroy;
 begin
-  FreeAndNil(FRawRequest);
   FreeAndNil(FHeader);
   FreeAndNil(FCookies);
   FreeAndNil(FParams);
@@ -4387,7 +4393,7 @@ begin
 
         if not LKeepAlive
           or (LStatusCode >= 400{如果发送的是出错状态码, 则发送完成之后断开连接}) then
-          LHttpConnection.Disconnect;
+          LHttpConnection.Close;
 
         LSender := nil;
 
