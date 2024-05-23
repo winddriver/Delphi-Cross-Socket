@@ -7,15 +7,14 @@ interface
 uses
   SysUtils,
   Classes,
-  {$IFDEF DELPHI}
-  Diagnostics,
-  {$ELSE}
+  {$IFDEF FPC}
   DTF.Types,
-  DTF.Diagnostics,
   {$ENDIF}
 
   Utils.EasyThread,
   Utils.DateTime,
+  Utils.SimpleWatch,
+  Utils.Utils,
   Utils.Logger;
 
 type
@@ -42,7 +41,7 @@ type
     FName: string;
     FDelay, FInterval: Int64;
     FPaused: Boolean;
-    FLastTick: UInt64;
+    FTickWatch: TSimpleWatch;
 
     function GetName: string;
     function GetPaused: Boolean;
@@ -85,20 +84,21 @@ begin
   FInterval := AInterval;
   LFirstRun := True;
   FPaused := APaused;
+  FTickWatch.Reset;
 
   FEasyThread := TEasyThread.Create(
     procedure(const AEasyThread: IEasyThread)
     var
-      LWatch: TStopwatch;
+      LWatch: TSimpleWatch;
+      LStackTrace: string;
     begin
-      LWatch := TStopwatch.StartNew;
+      LWatch.Reset;
 
       while not AEasyThread.Terminated do
       begin
         try
           if not FPaused then
           begin
-            FLastTick := TThread.GetTickCount64;
             LElMSec := LWatch.ElapsedMilliseconds;
 
             if (LFirstRun and (LElMSec >= FDelay)) or
@@ -111,7 +111,6 @@ begin
                   AProc();
               finally
                 LWatch.Reset;
-                LWatch.Start;
               end;
             end;
           end;
@@ -124,15 +123,14 @@ begin
                 FName, e.ClassName, e.Message
               ]);
 
-              {$IFDEF DELPHI}
-              if (e.StackTrace <> '') then
-                AppendLog('异常调用堆栈:%s', [e.StackTrace]);
-              {$ENDIF}
+              LStackTrace := TUtils.GetStackTrace;
+              if (LStackTrace <> '') then
+                AppendLog('异常调用堆栈:%s', [LStackTrace]);
             end;
           end;
         end;
 
-        FLastTick := TThread.GetTickCount64;
+        FTickWatch.Reset;
         Sleep(10);
       end;
     end);
@@ -163,7 +161,7 @@ end;
 
 function TEasyTimer.GetLastTick: UInt64;
 begin
-  Result := FLastTick;
+  Result := FTickWatch.LastTime.ToMilliseconds;
 end;
 
 function TEasyTimer.GetName: string;
@@ -181,7 +179,7 @@ begin
   Result := False;
   if (ATimeout <= 0) then Exit;
 
-  Result := (TThread.GetTickCount64 - FLastTick >= ATimeout);
+  Result := (FTickWatch.ElapsedMilliseconds > ATimeout);
 end;
 
 procedure TEasyTimer.SetPaused(const AValue: Boolean);
