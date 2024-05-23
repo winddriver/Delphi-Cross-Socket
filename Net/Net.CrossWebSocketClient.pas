@@ -51,6 +51,10 @@ type
   {$ENDREGION}
   TWsClientOnMessage = TWsOnMessage;
 
+  TWsClientOnOpenRequest = reference to procedure(const ARequest: ICrossHttpClientRequest);
+
+  TWsClientOnOpenResponse = reference to procedure(const AResponse: ICrossHttpClientResponse);
+
   {$REGION 'Documentation'}
   /// <summary>
   ///   WebSocket 已连接事件
@@ -221,6 +225,10 @@ type
     {$ENDREGION}
     procedure Send(const AData: TStream; const ACallback: TWsClientCallback = nil); overload;
 
+    function OnOpenRequest(const ACallback: TWsClientOnOpenRequest): ICrossWebSocket;
+
+    function OnOpenResponse(const ACallback: TWsClientOnOpenResponse): ICrossWebSocket;
+
     {$REGION 'Documentation'}
     /// <summary>
     ///   注册打开 WebSocket 事件
@@ -380,6 +388,8 @@ type
     FStatus: TWsStatus;
     FLock: ILock;
 
+    FOnOpenRequestEvents: TList<TWsClientOnOpenRequest>;
+    FOnOpenResponseEvents: TList<TWsClientOnOpenResponse>;
     FOnOpenEvents: TList<TWsClientOnOpen>;
     FOnMessageEvents: TList<TWsClientOnMessage>;
     FOnCloseEvents: TList<TWsClientOnClose>;
@@ -389,6 +399,8 @@ type
     procedure _Lock; inline;
     procedure _Unlock; inline;
 
+    procedure _OnOpenRequest(const ARequest: ICrossHttpClientRequest);
+    procedure _OnOpenResponse(const AResponse: ICrossHttpClientResponse);
     procedure _OnOpen;
     procedure _OnMessage(const AMessageType: TWsMessageType; const AMessageData: TBytes);
     procedure _OnClose;
@@ -418,6 +430,8 @@ type
     procedure Send(const AData: TStream; const AOffset, ACount: Int64; const ACallback: TWsClientCallback = nil); overload;
     procedure Send(const AData: TStream; const ACallback: TWsClientCallback = nil); overload;
 
+    function OnOpenRequest(const ACallback: TWsClientOnOpenRequest): ICrossWebSocket;
+    function OnOpenResponse(const ACallback: TWsClientOnOpenResponse): ICrossWebSocket;
     function OnOpen(const ACallback: TWsClientOnOpen): ICrossWebSocket;
     function OnMessage(const ACallback: TWsClientOnMessage): ICrossWebSocket;
     function OnClose(const ACallback: TWsClientOnClose): ICrossWebSocket;
@@ -792,6 +806,8 @@ begin
 
   FLock := TLock.Create;
 
+  FOnOpenRequestEvents := TList<TWsClientOnOpenRequest>.Create;
+  FOnOpenResponseEvents := TList<TWsClientOnOpenResponse>.Create;
   FOnOpenEvents := TList<TWsClientOnOpen>.Create;
   FOnMessageEvents := TList<TWsOnMessage>.Create;
   FOnCloseEvents := TList<TWsClientOnClose>.Create;
@@ -819,6 +835,8 @@ begin
         FConnection := nil;
       end;
 
+      FreeAndNil(FOnOpenRequestEvents);
+      FreeAndNil(FOnOpenResponseEvents);
       FreeAndNil(FOnOpenEvents);
       FreeAndNil(FOnMessageEvents);
       FreeAndNil(FOnCloseEvents);
@@ -863,6 +881,30 @@ begin
   _Lock;
   try
     FOnMessageEvents.Add(ACallback);
+  finally
+    _Unlock;
+  end;
+
+  Result := Self;
+end;
+
+function TCrossWebSocket.OnOpenRequest(const ACallback: TWsClientOnOpenRequest): ICrossWebSocket;
+begin
+  _Lock;
+  try
+    FOnOpenRequestEvents.Add(ACallback);
+  finally
+    _Unlock;
+  end;
+
+  Result := Self;
+end;
+
+function TCrossWebSocket.OnOpenResponse(const ACallback: TWsClientOnOpenResponse): ICrossWebSocket;
+begin
+  _Lock;
+  try
+    FOnOpenResponseEvents.Add(ACallback);
   finally
     _Unlock;
   end;
@@ -941,6 +983,7 @@ begin
       ARequest.Header[HEADER_CONNECTION] := HEADER_UPGRADE;
       ARequest.Header[HEADER_SEC_WEBSOCKET_KEY] := LSecWebSocketKey;
       ARequest.Header[HEADER_SEC_WEBSOCKET_VERSION] := WEBSOCKET_VERSION;
+      _OnOpenRequest(ARequest);
     end,
     procedure(const AResponse: ICrossHttpClientResponse)
     begin
@@ -950,7 +993,7 @@ begin
         Connection: Upgrade
         Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
       }
-
+      _OnOpenResponse(AResponse);
       // 连接失败
       if (AResponse = nil) then
       begin
@@ -1087,6 +1130,46 @@ begin
   for LOnMessageEvent in LOnMessageEvents do
     if Assigned(LOnMessageEvent) then
       LOnMessageEvent(AMessageType, AMessageData);
+end;
+
+procedure TCrossWebSocket._OnOpenRequest(const ARequest: ICrossHttpClientRequest);
+var
+  LOnOpenRequestEvents: TArray<TWsClientOnOpenRequest>;
+  LOnOpenRequestEvent: TWsClientOnOpenRequest;
+begin
+  if (FStatus = wsShutdown) then Exit;
+
+  _Lock;
+  try
+    FStatus := wsConnected;
+    LOnOpenRequestEvents := FOnOpenRequestEvents.ToArray;
+  finally
+    _Unlock;
+  end;
+
+  for LOnOpenRequestEvent in LOnOpenRequestEvents do
+    if Assigned(LOnOpenRequestEvent) then
+      LOnOpenRequestEvent(ARequest);
+end;
+
+procedure TCrossWebSocket._OnOpenResponse(const AResponse: ICrossHttpClientResponse);
+var
+  LOnOpenResponseEvents: TArray<TWsClientOnOpenResponse>;
+  LOnOpenResponseEvent: TWsClientOnOpenResponse;
+begin
+  if (FStatus = wsShutdown) then Exit;
+
+  _Lock;
+  try
+    FStatus := wsConnected;
+    LOnOpenResponseEvents := FOnOpenResponseEvents.ToArray;
+  finally
+    _Unlock;
+  end;
+
+  for LOnOpenResponseEvent in LOnOpenResponseEvents do
+    if Assigned(LOnOpenResponseEvent) then
+      LOnOpenResponseEvent(AResponse);
 end;
 
 procedure TCrossWebSocket._OnOpen;
