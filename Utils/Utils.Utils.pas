@@ -120,8 +120,11 @@ type
     // 判断两段日期是否有交集
     class function IsCrossDate(const AStartDate1, AEndDate1, AStartDate2, AEndDate2: TDateTime): Boolean; static;
 
+    // 判断缓存中是不是UTF8编码的字符串
+    class function IsUTF8(const ABuf: Pointer; const ABufSize: Integer): Boolean;
+
     // 获取缓存中的字符串编码
-    class function GetBufEncoding(const ABuf: Pointer; const ACount: Integer;
+    class function GetBufEncoding(const ABuf: Pointer; const ABufSize: Integer;
       var AEncoding: TEncoding; const ADefaultEncoding: TEncoding): Integer; static;
 
     // 自动检测缓存中的字符串编码并解码出字符串
@@ -141,6 +144,9 @@ type
       const AComparison: {$IFDEF DELPHI}TComparison<T>{$ELSE}TComparisonAnonymousFunc<T>{$ENDIF} = nil;
       const AIndex: Integer = 0; const ACount: Integer = 0): Integer; static;
     class function ExistsInArray<T>(const AArray: array of T; const AItem: T): Boolean; static;
+
+    // 获取调用堆栈信息
+    class function GetStackTrace: string; static;
 
     class property AppFile: string read FAppFile;
     class property AppPath: string read FAppPath;
@@ -223,13 +229,14 @@ begin
   Result := (IndexOfArray<T>(AArray, AItem, nil, 0, 0) >= 0);
 end;
 
-class function TUtils.GetBufEncoding(const ABuf: Pointer; const ACount: Integer;
+class function TUtils.GetBufEncoding(const ABuf: Pointer; const ABufSize: Integer;
   var AEncoding: TEncoding; const ADefaultEncoding: TEncoding): Integer;
 
   function ContainsPreamble(const APreamble: TBytes; out APreambleSize: Integer): Boolean;
   begin
+    APreambleSize := 0;
     if (Length(APreamble) <= 0)
-      or (ACount < Length(APreamble)) then Exit(False);
+      or (ABufSize < Length(APreamble)) then Exit(False);
 
     Result := CompareMem(ABuf, @APreamble[0], Length(APreamble));
 
@@ -248,12 +255,14 @@ begin
       AEncoding := TEncoding.Unicode
     else if ContainsPreamble(TEncoding.BigEndianUnicode.GetPreamble, Result) then
       AEncoding := TEncoding.BigEndianUnicode
+    else if IsUTF8(ABuf, ABufSize) then
+      AEncoding := TEncoding.UTF8
     else
     begin
       if (ADefaultEncoding <> nil) then
         AEncoding := ADefaultEncoding
       else
-        AEncoding := TEncoding.UTF8;
+        AEncoding := TEncoding.Default;
       ContainsPreamble(AEncoding.GetPreamble, Result);
     end;
   end else
@@ -315,9 +324,9 @@ begin
   if (AStrBuf = nil) or (ABufSize <= 0) then Exit('');
 
   LEncoding := AEncoding;
-  LBomLen := TUtils.GetBufEncoding(AStrBuf, ABufSize, LEncoding, TEncoding.UTF8);
+  LBomLen := TUtils.GetBufEncoding(AStrBuf, ABufSize, LEncoding, TEncoding.Default);
 
-  Result := LEncoding.GetString(PByte(NativeInt(AStrBuf) + LBomLen), ABufSize - LBomLen);
+  Result := LEncoding.GetString(AStrBuf + LBomLen, ABufSize - LBomLen);
 end;
 
 class function TUtils.GetString(const AStrBytes: TBytes; AIndex,
@@ -335,20 +344,64 @@ begin
   Result := GetString(AStrBytes, 0, Length(AStrBytes), AEncoding);
 end;
 
+class function TUtils.GetStackTrace: string;
+{$IFDEF DELPHI}
+// 需要启用 madExcept 或其他能提供调用堆栈的库
+var
+  E: Exception;
+begin
+  E := Exception(ExceptObject);
+  if (E <> nil) then
+    Result := E.StackTrace
+  else
+    Result := '';
+end;
+{$ELSE}
+// FPC
+// 需要开启调试信息相关编译开关
+// -g  生成调试信息
+// -gl 生成代码行信息
+var
+	LStack: PExceptObject;
+  LStackTrace: string;
+  I: Integer;
+begin
+  Result := '';
+  LStack :=	RaiseList;
+  if (LStack = nil) then Exit;
+
+  LStackTrace := BackTraceStrFunc(LStack.Addr);
+
+  for I :=0 to LStack.FrameCount - 1 do
+    LStackTrace := LStackTrace + sLineBreak + BackTraceStrFunc(LStack.Frames[I]);
+
+  Result := LStackTrace;
+end;
+{$ENDIF}
+
 class function TUtils.GetString(const AStrStream: TStream;
   const AEncoding: TEncoding): string;
 var
   LBuf: TBytes;
   LBufSize: Integer;
+  P: PByte;
 begin
   if (AStrStream = nil) or (AStrStream.Size <= 0) then Exit('');
 
-  AStrStream.Position := 0;
-  LBufSize := AStrStream.Size;
-  SetLength(LBuf, LBufSize);
-  AStrStream.ReadBuffer(LBuf, LBufSize);
+  if (AStrStream is TCustomMemoryStream) then
+  begin
+    P := (AStrStream as TCustomMemoryStream).Memory;
+    LBufSize := AStrStream.Size;
+  end else
+  begin
+    AStrStream.Position := 0;
+    LBufSize := AStrStream.Size;
+    SetLength(LBuf, LBufSize);
+    AStrStream.ReadBuffer(LBuf, LBufSize);
+    P := Pointer(LBuf);
+  end;
 
-  Result := GetString(LBuf, AEncoding);
+  Result := GetString(P, LBufSize, AEncoding);
 end;
 
 class function TUtils.HexToBin(AText: PChar; ABinBuf: Pointer;
@@ -487,6 +540,59 @@ begin
     TUnicodeCategory.ucUnassigned,
     TUnicodeCategory.ucSpaceSeparator
   ]);
+end;
+
+class function TUtils.IsUTF8(const ABuf: Pointer; const ABufSize: Integer): Boolean;
+
+  function _IsUTF8(const P, PEnd: PByte; out AUTF8Size: ShortInt): Boolean;
+  var
+    I: ShortInt;
+  begin
+    Result := False;
+
+    // UTF8最多6个字节
+    // 第一个字节高位有多少个1就表示这个字符要占用几个字节
+
+    if (P^ and $FE) = $FC then      // 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
+      AUTF8Size := 6
+    else if (P^ and $FC) = $F8 then // 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
+      AUTF8Size := 5
+    else if (P^ and $F8) = $F0 then // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+      AUTF8Size := 4
+    else if (P^ and $F0) = $E0 then // 1110xxxx 10xxxxxx 10xxxxxx
+      AUTF8Size := 3
+    else if (P^ and $E0) = $C0 then // 110xxxxx 10xxxxxx
+      AUTF8Size := 2
+    else
+      Exit;
+
+    if (P + AUTF8Size > PEnd) then Exit;
+
+    for I := 1 to AUTF8Size - 1 do
+      if (P[I] and $C0 <> $80) then Exit;
+
+    Result := True;
+  end;
+
+var
+  P, PEnd: PByte;
+  LUTF8Size: ShortInt;
+begin
+  P := ABuf;
+  PEnd := P + ABufSize;
+
+  while (P < PEnd) do
+  begin
+    // $00 - $7F
+    if P^ and $80 = 0 then
+      Inc(P)
+    else if _IsUTF8(P, PEnd, LUTF8Size) then
+      Inc(P, LUTF8Size)
+    else
+      Exit(False);
+  end;
+
+  Result := True;
 end;
 
 class function TUtils.MoveDir(const ASrcDirName, ADstDirName: string): Boolean;
