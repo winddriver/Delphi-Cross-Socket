@@ -882,7 +882,12 @@ begin
     FormatSettings.ShortMonthNames[I] := ShortMonthNamesEnglish[I];
 end;
 
+{
+Initialize Formatsettings in a component is not a good style.
+This can cause al kinds of trouble.
+FormatSettings is set automatically at start and this should be respected
+
 initialization
-  _InitDefaultFormatSettings;
+  _InitDefaultFormatSettings; }
 
 end.
