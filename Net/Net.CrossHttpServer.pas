@@ -4393,7 +4393,7 @@ begin
 
         if not LKeepAlive
           or (LStatusCode >= 400{如果发送的是出错状态码, 则发送完成之后断开连接}) then
-          LHttpConnection.Close;
+          LHttpConnection.Disconnect;
 
         LSender := nil;
 
