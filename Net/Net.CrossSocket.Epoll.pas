@@ -134,12 +134,12 @@ type
     FIdleLock: ILock;
 
     // 利用 eventfd 唤醒并退出IO线程
-    procedure _OpenStopHandle; inline;
-    procedure _PostStopCommand; inline;
-    procedure _CloseStopHandle; inline;
+    procedure _OpenStopHandle;
+    procedure _PostStopCommand;
+    procedure _CloseStopHandle;
 
-    procedure _OpenIdleHandle; inline;
-    procedure _CloseIdleHandle; inline;
+    procedure _OpenIdleHandle;
+    procedure _CloseIdleHandle;
 
     procedure _HandleAccept(const AListen: ICrossListen);
     procedure _HandleConnect(const AConnection: ICrossConnection);
