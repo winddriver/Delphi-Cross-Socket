@@ -167,6 +167,8 @@ type
     function ToTimeStamp: TTimeStamp; inline;
   end;
 
+procedure InitDefaultFormatSettings;
+
 implementation
 
 { TDateTimeHelper }
@@ -864,7 +866,7 @@ begin
 end;
 {$ENDIF}
 
-procedure _InitDefaultFormatSettings;
+procedure InitDefaultFormatSettings;
 var
   I: Integer;
 begin
@@ -881,8 +883,5 @@ begin
   for I := Low(ShortMonthNamesEnglish) to High(ShortMonthNamesEnglish) do
     FormatSettings.ShortMonthNames[I] := ShortMonthNamesEnglish[I];
 end;
-
-initialization
-  _InitDefaultFormatSettings;
 
 end.
