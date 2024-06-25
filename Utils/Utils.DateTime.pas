@@ -592,16 +592,36 @@ begin
 end;
 
 function TDateTimeHelper.ToRFC1123(const AIsUtcDateTime: Boolean): string;
+const
+  RFC1123_StrWeekDay :array[1..7] of string =
+    ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun');
+  RFC1123_StrMonth :array[1..12] of string =
+    ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
 var
   LDateTime: TDateTime;
+  LYear, LMonth, LDay, LDayOfWeek: Word;
+  LHour, LMin,   LSec, LMSec: Word;
 begin
   if not AIsUtcDateTime then
     LDateTime := Self.ToUniversalTime
   else
     LDateTime := Self;
 
-  // Fri, 30 Jul 2024 10:10:35 GMT
-  Result := FormatDateTime('ddd, dd mmm yyyy hh":"nn":"ss "GMT"', LDateTime);
+//  // Fri, 30 Jul 2024 10:10:35 GMT
+//  Result := FormatDateTime('ddd, dd mmm yyyy hh":"nn":"ss "GMT"', LDateTime);
+
+  DecodeDateTime(LDateTime,
+    LYear, LMonth, LDay,
+    LHour, LMin,   LSec, LMSec);
+  LDayOfWeek := DayOfTheWeek(LDateTime);
+
+  Result := Format('%s, %.2d %s %.4d %.2d:%.2d:%.2d GMT', [
+    RFC1123_StrWeekDay[LDayOfWeek],
+    LDay,
+    RFC1123_StrMonth[LMonth],
+    LYear, LHour, LMin, LSec
+  ]);
 end;
 
 function TDateTimeHelper.ToString(const AFormatStr: string): string;
