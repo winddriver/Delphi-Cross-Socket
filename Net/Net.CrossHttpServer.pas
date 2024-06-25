@@ -2500,65 +2500,35 @@ begin
   LKeys := [];
   LPattern := APath;
 
-  // 最后增加 /?
-  if APath.EndsWith('/') then
-    LPattern := LPattern + '?'
-  else
-    LPattern := LPattern + '/?';
+  LPattern := '(?:' + LPattern + ')';
 
   // 将 /( 替换成 /(?:
   LPattern := TRegEx.Replace(LPattern, '\/\(', '/(?:');
 
-  // 将 / . 替换成 \/ \.
+  // 将 /. 替换成 \/\.
   LPattern := TRegEx.Replace(LPattern, '([\/\.])', '\\$1');
 
   // 提取形如 :keyname 的参数名称
   // 可以在参数后面增加正则限定参数 :number(\d+), :word(\w+)
-  LPattern := TRegEx.Replace(LPattern, '(\\\/)?(\\\.)?:(\w+)(\(.*?\))?(\*)?(\?)?',
+  LPattern := TRegEx.Replace(LPattern, ':(\w+)(\(.*?\))?',
     function(const Match: TMatch): string
     var
-      LSlash, LFormat, LKey, LCapture, LStar, LOptional: string;
+      LKey, LCapture: string;
     begin
       if not Match.Success then Exit('');
 
       if (Match.Groups.Count > 1) then
-        LSlash := Match.Groups[1].Value
-      else
-        LSlash := '';
-      if (Match.Groups.Count > 2) then
-        LFormat := Match.Groups[2].Value
-      else
-        LFormat := '';
-      if (Match.Groups.Count > 3) then
-        LKey := Match.Groups[3].Value
+        LKey := Match.Groups[1].Value
       else
         LKey := '';
-      if (Match.Groups.Count > 4) then
-        LCapture := Match.Groups[4].Value
+      if (Match.Groups.Count > 2) then
+        LCapture := Match.Groups[2].Value
       else
         LCapture := '';
-      if (Match.Groups.Count > 5) then
-        LStar := Match.Groups[5].Value
-      else
-        LStar := '';
-      if (Match.Groups.Count > 6) then
-        LOptional := Match.Groups[6].Value
-      else
-        LOptional := '';
 
       if (LCapture = '') then
-        LCapture := '([^\\/' + LFormat + ']+?)';
-
-      Result := '';
-      if (LOptional = '') then
-        Result := Result + LSlash;
-      Result := Result + '(?:' + LFormat;
-      if (LOptional <> '') then
-        Result := Result + LSlash;
-      Result := Result + LCapture;
-      if (LStar <> '') then
-        Result := Result + '((?:[\\/' + LFormat + '].+?)?)';
-      Result := Result + ')' + LOptional;
+        LCapture := '[^\/\?]+';
+      Result := '(?P<' + LKey + '>' + LCapture + ')';
 
       LKeys := LKeys + [LKey];
     end);
@@ -2568,6 +2538,10 @@ begin
 
   if not LPattern.StartsWith('^', True) then
     LPattern := '^' + LPattern;
+
+  // /test/?aa=11&bb=22
+  // /test?aa=11&bb=22
+  LPattern := LPattern + '\/?\??(?:[^\/\?]*)';
   if not LPattern.EndsWith('$') then
     LPattern := LPattern + '$';
 
@@ -2602,21 +2576,50 @@ function TCrossHttpRouter.IsMatch(const ARequest: ICrossHttpRequest): Boolean;
     Result := FMethodRegEx.Match;
   end;
 
+  function _SamePath(const APath1, APath2: string): Boolean;
+  var
+    LLen1, LLen2: Integer;
+    LMaxLen: Cardinal;
+  begin
+    if (APath1 = '') or (APath2 = '') then Exit(False);
+
+    LLen1 := Length(APath1);
+    LLen2 := Length(APath2);
+
+    if (LLen1 = LLen2) then
+      LMaxLen := LLen1
+    else if (APath1[LLen1] = '/') and (APath2[LLen2] = '/') then
+      LMaxLen := Min(LLen1, LLen2)
+    else if (APath1[LLen1] = '/') then
+      LMaxLen := Min(LLen1 - 1, LLen2)
+    else if (APath2[LLen2] = '/') then
+      LMaxLen := Min(LLen1, LLen2 - 1)
+    else
+      Exit(False);
+
+    Result := (LMaxLen > 0) and (StrLIComp(PChar(APath1), PChar(APath2), LMaxLen) = 0);
+  end;
+
   function _IsMatchPath: Boolean;
   var
-    I: Integer;
+    LParamName: string;
+    LParamIndex: Integer;
   begin
-    // Path中不包括参数时, 使用TStrUtils.SameText辅助加速
-    if (FPath = '*') or ((Length(FPathParamKeys) = 0) and TStrUtils.SameText(ARequest.Path, FPath)) then Exit(True);
+    // Path中不包括参数时, 使用_SamePath辅助加速
+    if (FPath = '*') or
+      ((Length(FPathParamKeys) = 0) and _SamePath(ARequest.Path, FPath)) then Exit(True);
 
     FPathRegEx.Subject := ARequest.PathAndParams;
     Result := FPathRegEx.Match;
-    if not Result then Exit;
+    if not Result or (FPathRegEx.GroupCount <= 0) then Exit;
 
     // 将Path中的参数解析出来保存到Request.Params中
-    // 注意: TPerlRegEx.GroupCount 是实际 GroupCount - 1
-    for I := 1 to FPathRegEx.GroupCount do
-      ARequest.Params[FPathParamKeys[I - 1]] := FPathRegEx.Groups[I];
+    for LParamName in FPathParamKeys do
+    begin
+      LParamIndex := FPathRegEx.GetGroupIndex(LParamName);
+      if (LParamIndex >= 0) then
+        ARequest.Params[LParamName] := FPathRegEx.Groups[LParamIndex];
+    end;
   end;
 begin
   ARequest.Params.Clear;
