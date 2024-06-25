@@ -2511,18 +2511,18 @@ begin
   // 提取形如 :keyname 的参数名称
   // 可以在参数后面增加正则限定参数 :number(\d+), :word(\w+)
   LPattern := TRegEx.Replace(LPattern, ':(\w+)(\(.*?\))?',
-    function(const Match: TMatch): string
+    function(const AMatch: TMatch): string
     var
       LKey, LCapture: string;
     begin
-      if not Match.Success then Exit('');
+      if not AMatch.Success then Exit('');
 
-      if (Match.Groups.Count > 1) then
-        LKey := Match.Groups[1].Value
+      if (AMatch.Groups.Count > 1) then
+        LKey := AMatch.Groups[1].Value
       else
         LKey := '';
-      if (Match.Groups.Count > 2) then
-        LCapture := Match.Groups[2].Value
+      if (AMatch.Groups.Count > 2) then
+        LCapture := AMatch.Groups[2].Value
       else
         LCapture := '';
 
