@@ -154,6 +154,9 @@ type
   ['{951728E5-5F85-44E1-847F-59C9D30EBBBA}']
     function GetStatus: TWsStatus;
     function GetUrl: string;
+    function GetMaskingKey: Cardinal;
+
+    procedure SetMaskingKey(const AValue: Cardinal);
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -277,6 +280,13 @@ type
     /// </summary>
     {$ENDREGION}
     property Url: string read GetUrl;
+
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   Masking-Key
+    /// </summary>
+    {$ENDREGION}
+    property MaskingKey: Cardinal read GetMaskingKey write SetMaskingKey;
   end;
 
   {$REGION 'Documentation'}
@@ -386,6 +396,7 @@ type
     FMgr: TCrossWebSocketMgr;
     FConnection: TCrossWebSocketClientConnection;
     FStatus: TWsStatus;
+    FMaskingKey: Cardinal;
     FLock: ILock;
 
     FOnOpenRequestEvents: TList<TWsClientOnOpenRequest>;
@@ -410,6 +421,9 @@ type
   protected
     function GetStatus: TWsStatus;
     function GetUrl: string;
+    function GetMaskingKey: Cardinal;
+
+    procedure SetMaskingKey(const AValue: Cardinal);
   public
     constructor Create(const AMgr: TCrossWebSocketMgr; const AUrl: string); overload; virtual;
     constructor Create(const AUrl: string); overload;
@@ -441,6 +455,7 @@ type
 
     property Status: TWsStatus read GetStatus;
     property Url: string read GetUrl;
+    property MaskingKey: Cardinal read GetMaskingKey write SetMaskingKey;
   end;
 
   TCrossWebSocketMgr = class(TCrossHttpClient, ICrossWebSocketMgr)
@@ -720,7 +735,12 @@ begin
   // 将数据和头打包到一起发送
   // 这是因为如果分开发送, 在多线程环境多个不同的线程数据可能会出现交叉
   // 会引起数据与头部混乱
-  LWsFrameData := TCrossWebSocketParser.MakeFrameData(AOpCode, AFin, 0, AData, ACount);
+  LWsFrameData := TCrossWebSocketParser.MakeFrameData(
+    AOpCode,
+    AFin,
+    FWebSocket.MaskingKey,
+    AData,
+    ACount);
 
   SendBytes(LWsFrameData,
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
@@ -849,6 +869,11 @@ begin
   end;
 
   inherited;
+end;
+
+function TCrossWebSocket.GetMaskingKey: Cardinal;
+begin
+  Result := FMaskingKey;
 end;
 
 function TCrossWebSocket.GetStatus: TWsStatus;
@@ -1077,6 +1102,11 @@ procedure TCrossWebSocket.Send(const AData: TStream;
 begin
   if (GetStatus = wsConnected) then
     FConnection.WsSend(AData, ACallback);
+end;
+
+procedure TCrossWebSocket.SetMaskingKey(const AValue: Cardinal);
+begin
+  FMaskingKey := AValue;
 end;
 
 procedure TCrossWebSocket._Lock;

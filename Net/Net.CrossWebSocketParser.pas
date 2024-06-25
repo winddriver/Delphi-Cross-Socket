@@ -176,7 +176,10 @@ begin
               else if (FWsPayload = 127) then
                 Inc(FWsHeaderSize, 8);
               if FWsMask then
+              begin
                 Inc(FWsHeaderSize, 4);
+                FWsMaskKeyShift := 0;
+              end;
             end;
 
             if (FWsFrameHeader.Size = FWsHeaderSize) then
@@ -185,7 +188,7 @@ begin
 
               // 保存 mask key
               if FWsMask then
-                Move(PCardinal(UIntPtr(FWsFrameHeader.Memory) + FWsHeaderSize - 4)^, FWsMaskKey, 4);
+                Move((PByte(FWsFrameHeader.Memory) + FWsHeaderSize - 4)^, FWsMaskKey, 4);
 
               if (FWsPayload = 126) then
                 FWsBodySize := PHeader[3]
@@ -272,7 +275,8 @@ class function TCrossWebSocketParser.MakeFrameData(AOpCode: Byte; AFin: Boolean;
   AMaskKey: Cardinal; AData: Pointer; ADataSize: UInt64): TBytes;
 var
   LPayload: Byte;
-  LHeaderSize, LDataSize: Integer;
+  LHeaderSize, LDataSize, I: Integer;
+  LMaskKey: PByte;
 begin
   if (AData <> nil) and (ADataSize > 0) then
     LDataSize := ADataSize
@@ -326,7 +330,15 @@ begin
     Move(AMaskKey, Result[LHeaderSize - 4], 4);
 
   if (LDataSize > 0) then
-    Move(AData^, Result[LHeaderSize], LDataSize);
+  begin
+    if (AMaskKey <> 0) then
+    begin
+      LMaskKey := PByte(@AMaskKey);
+      for I := 0 to LDataSize - 1 do
+        Result[LHeaderSize + I] := PByte(AData)[I] xor LMaskKey[I mod 4];
+    end else
+      Move(AData^, Result[LHeaderSize], LDataSize);
+  end;
 end;
 
 class function TCrossWebSocketParser.MakeSecWebSocketAccept(
@@ -382,6 +394,7 @@ begin
   FWsFrameState := wsHeader;
   FWsFrameHeader.Clear;
   FWsMessageBody.Clear;
+  FWsHeaderSize := 0;
   FWsMaskKeyShift := 0;
 end;
 
