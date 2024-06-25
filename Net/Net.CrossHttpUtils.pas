@@ -1665,8 +1665,8 @@ end;
 
 class function TCrossHttpUtils.RFC1123_StrToDate(const ADateStr: string) : TDateTime;
 var
-  LYear, LMonth, LDay : Word;
-  LHour, LMin,   LSec : Word;
+  LYear, LMonth, LDay: Word;
+  LHour, LMin,   LSec: Word;
 begin
   // Fri, 30 Jul 2024 10:10:35 GMT
   if (Length(ADateStr) = 29) then
@@ -1691,8 +1691,8 @@ begin
   end else
     Exit(0);
 
-  Result := EncodeDate(LYear, LMonth, LDay);
-  Result := Result + EncodeTime(LHour, LMin, LSec, 0);
+  if not TryEncodeDateTime(LYear, LMonth, LDay, LHour, LMin, LSec, 0, Result) then
+    Result := 0;
 end;
 
 class function TCrossHttpUtils.UrlDecode(const S: string): string;
