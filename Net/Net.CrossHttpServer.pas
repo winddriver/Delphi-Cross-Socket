@@ -2541,9 +2541,8 @@ begin
 
   // /test/?aa=11&bb=22
   // /test?aa=11&bb=22
-  LPattern := LPattern + '\/?\??(?:[^\/\?]*)';
   if not LPattern.EndsWith('$') then
-    LPattern := LPattern + '$';
+    LPattern := LPattern + '(?:(\/?\?[^\/\?]*$)|$)';
 
   AKeys := LKeys;
   Result := LPattern;
