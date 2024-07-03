@@ -1138,8 +1138,8 @@ begin
 
   FTempFileName := TPathUtils.Combine(LTempPath, TUtils.GetGUID);
 
-  if not FileExists(FTempFileName) then
-    TDirectoryUtils.CreateDirectory(ExtractFilePath(FTempFileName));
+  if not TDirectoryUtils.Exists(LTempPath) then
+    TDirectoryUtils.CreateDirectory(LTempPath);
 
   inherited Create(FTempFileName, fmCreate or fmShareDenyWrite);
 end;

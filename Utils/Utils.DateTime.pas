@@ -616,6 +616,7 @@ begin
     LHour, LMin,   LSec, LMSec);
   LDayOfWeek := DayOfTheWeek(LDateTime);
 
+  // Fri, 30 Jul 2024 10:10:35 GMT
   Result := Format('%s, %.2d %s %.4d %.2d:%.2d:%.2d GMT', [
     RFC1123_StrWeekDay[LDayOfWeek],
     LDay,
