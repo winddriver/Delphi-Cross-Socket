@@ -58,11 +58,7 @@ type
 
   TKqueueListen = class(TCrossListenBase)
   private
-    FLock: ILock;
     FIoEvents: TIoEvents;
-
-    procedure _Lock; inline;
-    procedure _Unlock; inline;
 
     function _ReadEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
@@ -85,12 +81,8 @@ type
 
   TKqueueConnection = class(TCrossConnectionBase)
   private
-    FLock: ILock;
     FSendQueue: TSendQueue;
     FIoEvents: TIoEvents;
-
-    procedure _Lock; inline;
-    procedure _Unlock; inline;
 
     function _ReadEnabled: Boolean; inline;
     function _WriteEnabled: Boolean; inline;
@@ -210,23 +202,11 @@ constructor TKqueueListen.Create(const AOwner: TCrossSocketBase;
   const AListenSocket: TSocket; const AFamily, ASockType, AProtocol: Integer);
 begin
   inherited;
-
-  FLock := TLock.Create;
-end;
-
-procedure TKqueueListen._Lock;
-begin
-  FLock.Enter;
 end;
 
 function TKqueueListen._ReadEnabled: Boolean;
 begin
   Result := (ieRead in FIoEvents);
-end;
-
-procedure TKqueueListen._Unlock;
-begin
-  FLock.Leave;
 end;
 
 function TKqueueListen._UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
@@ -288,7 +268,6 @@ begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 
   FSendQueue := TSendQueue.Create;
-  FLock := TLock.Create;
 end;
 
 destructor TKqueueConnection.Destroy;
@@ -318,19 +297,9 @@ begin
   inherited;
 end;
 
-procedure TKqueueConnection._Lock;
-begin
-  FLock.Enter;
-end;
-
 function TKqueueConnection._ReadEnabled: Boolean;
 begin
   Result := (ieRead in FIoEvents);
-end;
-
-procedure TKqueueConnection._Unlock;
-begin
-  FLock.Leave;
 end;
 
 function TKqueueConnection._UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;

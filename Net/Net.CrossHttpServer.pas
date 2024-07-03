@@ -1785,7 +1785,6 @@ type
     FServer: TCrossHttpServer;
     FRequest: ICrossHttpRequest;
     FResponse: ICrossHttpResponse;
-    FResourceLock: ILock;
     FHttpParser: TCrossHttpParser;
 
     FInitCount, FUninitCount: Integer;
@@ -1799,8 +1798,6 @@ type
     procedure _OnParseSuccess;
     procedure _OnParseFailed(const ACode: Integer; const AError: string);
 
-    procedure _LockResource; inline;
-    procedure _UnlockResource; inline;
     procedure _InitResource;
     procedure _UninitResource;
   protected
@@ -2309,8 +2306,6 @@ begin
   FHttpParser.OnParseBegin := _OnParseBegin;
   FHttpParser.OnParseSuccess := _OnParseSuccess;
   FHttpParser.OnParseFailed := _OnParseFailed;
-
-  FResourceLock := TLock.Create;
 end;
 
 destructor TCrossHttpConnection.Destroy;
@@ -2378,11 +2373,6 @@ begin
   Inc(FInitCount);
 end;
 
-procedure TCrossHttpConnection._LockResource;
-begin
-  FResourceLock.Enter;
-end;
-
 procedure TCrossHttpConnection._OnBodyBegin;
 begin
   FServer.TriggerPostDataBegin(Self);
@@ -2413,11 +2403,11 @@ end;
 
 procedure TCrossHttpConnection._OnParseBegin;
 begin
-  _LockResource;
+  _Lock;
   try
     _InitResource;
   finally
-    _UnlockResource;
+    _Unlock;
   end;
 
   FServer.TriggerParseRequestBegin(Self);
@@ -2443,11 +2433,6 @@ begin
     ReleaseRequest;
     ReleaseResponse;
   end;
-end;
-
-procedure TCrossHttpConnection._UnlockResource;
-begin
-  FResourceLock.Leave;
 end;
 
 { TCrossHttpRouter }
@@ -2788,12 +2773,12 @@ var
 begin
   LConnObj := AConnection as TCrossHttpConnection;
 
-  LConnObj._LockResource;
+  LConnObj._Lock;
   try
     if Assigned(FOnRequestBegin) then
       FOnRequestBegin(Self, AConnection);
   finally
-    LConnObj._UnlockResource;
+    LConnObj._Unlock;
   end;
 end;
 
@@ -2804,14 +2789,14 @@ var
 begin
   LConnObj := AConnection as TCrossHttpConnection;
 
-  LConnObj._LockResource;
+  LConnObj._Lock;
   try
     if Assigned(FOnRequestEnd) then
       FOnRequestEnd(Self, AConnection, ASuccess);
 
     LConnObj._UninitResource;
   finally
-    LConnObj._UnlockResource;
+    LConnObj._Unlock;
   end;
 end;
 

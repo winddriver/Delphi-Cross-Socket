@@ -50,19 +50,14 @@ type
 
   TEpollListen = class(TCrossListenBase)
   private
-    FLock: ILock;
     FIoEvents: TIoEvents;
     FOpCode: Integer;
-
-    procedure _Lock; inline;
-    procedure _Unlock; inline;
 
     function _ReadEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer); override;
-    destructor Destroy; override;
   end;
 
   PSendItem = ^TSendItem;
@@ -79,13 +74,9 @@ type
 
   TEpollConnection = class(TCrossConnectionBase)
   private
-    FLock: ILock;
     FSendQueue: TSendQueue;
     FIoEvents: TIoEvents;
     FOpCode: Integer;
-
-    procedure _Lock; inline;
-    procedure _Unlock; inline;
 
     function _ReadEnabled: Boolean; inline;
     function _WriteEnabled: Boolean; inline;
@@ -191,29 +182,12 @@ constructor TEpollListen.Create(const AOwner: TCrossSocketBase;
 begin
   inherited;
 
-  FLock := TLock.Create;
   FOpCode := EPOLL_CTL_ADD;
-end;
-
-destructor TEpollListen.Destroy;
-begin
-
-  inherited;
-end;
-
-procedure TEpollListen._Lock;
-begin
-  FLock.Enter;
 end;
 
 function TEpollListen._ReadEnabled: Boolean;
 begin
   Result := (ieRead in FIoEvents);
-end;
-
-procedure TEpollListen._Unlock;
-begin
-  FLock.Leave;
 end;
 
 function TEpollListen._UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
@@ -252,7 +226,6 @@ begin
     if (Value <> nil) then
     begin
       Value.Callback := nil;
-//      FreeMem(Value, SizeOf(TSendItem));
       System.Dispose(Value);
     end;
   end;
@@ -269,7 +242,6 @@ begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 
   FSendQueue := TSendQueue.Create;
-  FLock := TLock.Create;
 
   FOpCode := EPOLL_CTL_ADD;
 end;
@@ -311,19 +283,9 @@ begin
   inherited Close;
 end;
 
-procedure TEpollConnection._Lock;
-begin
-  FLock.Enter;
-end;
-
 function TEpollConnection._ReadEnabled: Boolean;
 begin
   Result := (ieRead in FIoEvents);
-end;
-
-procedure TEpollConnection._Unlock;
-begin
-  FLock.Leave;
 end;
 
 function TEpollConnection._UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
@@ -337,7 +299,6 @@ begin
 
   LOwner := TEpollCrossSocket(Owner);
 
-//  LEvent.Events := EPOLLET or EPOLLONESHOT;
   LEvent.Events := EPOLLET or EPOLLONESHOT or EPOLLERR or EPOLLHUP;
   LEvent.Data.u64 := Self.UID;
 
