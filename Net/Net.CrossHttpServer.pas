@@ -2560,28 +2560,29 @@ function TCrossHttpRouter.IsMatch(const ARequest: ICrossHttpRequest): Boolean;
     Result := FMethodRegEx.Match;
   end;
 
+  function _GetPurePathLen(const APath: string): Integer;
+  begin
+    Result := Length(APath);
+    if APath.EndsWith('/?', True) then
+      Dec(Result, 2)
+    else if APath.EndsWith('?', True) then
+      Dec(Result)
+    else if APath.EndsWith('/', True) then
+      Dec(Result);
+  end;
+
   function _SamePath(const APath1, APath2: string): Boolean;
   var
-    LLen1, LLen2: Integer;
-    LMaxLen: Cardinal;
+    LPureLen1, LPureLen2: Integer;
   begin
     if (APath1 = '') or (APath2 = '') then Exit(False);
 
-    LLen1 := Length(APath1);
-    LLen2 := Length(APath2);
+    LPureLen1 := _GetPurePathLen(APath1);
+    LPureLen2 := _GetPurePathLen(APath2);
 
-    if (LLen1 = LLen2) then
-      LMaxLen := LLen1
-    else if (APath1[LLen1] = '/') and (APath2[LLen2] = '/') then
-      LMaxLen := Min(LLen1, LLen2)
-    else if (APath1[LLen1] = '/') then
-      LMaxLen := Min(LLen1 - 1, LLen2)
-    else if (APath2[LLen2] = '/') then
-      LMaxLen := Min(LLen1, LLen2 - 1)
-    else
-      Exit(False);
+    if (LPureLen1 <> LPureLen2) then Exit(False);
 
-    Result := (LMaxLen > 0) and (StrLIComp(PChar(APath1), PChar(APath2), LMaxLen) = 0);
+    Result := (string.Compare(APath1, 0, APath2, 0, LPureLen1, True) = 0);
   end;
 
   function _IsMatchPath: Boolean;
@@ -2590,7 +2591,7 @@ function TCrossHttpRouter.IsMatch(const ARequest: ICrossHttpRequest): Boolean;
     LParamIndex: Integer;
   begin
     // Path中不包括参数时, 使用_SamePath辅助加速
-    if (FPath = '*') or
+    if (FPath = '*') or (FPath = '/*') or
       ((Length(FPathParamKeys) = 0) and _SamePath(ARequest.Path, FPath)) then Exit(True);
 
     FPathRegEx.Subject := ARequest.PathAndParams;
