@@ -32,6 +32,8 @@ function GetLastError: Integer; inline;
 
 function GrowCollection(const AOldCapacity, ANewCount: Integer): Integer;
 
+function BytesOf(const Val: Pointer; const Len: Integer): TBytes;
+
 implementation
 
 function GetLastError: Integer;
@@ -58,6 +60,12 @@ begin
     if Result < 0 then
       OutOfMemoryError;
   until (Result >= ANewCount);
+end;
+
+function BytesOf(const Val: Pointer; const Len: Integer): TBytes;
+begin
+  SetLength(Result, Len);
+  Move(PByte(Val)^, Result[0], Len);
 end;
 
 end.

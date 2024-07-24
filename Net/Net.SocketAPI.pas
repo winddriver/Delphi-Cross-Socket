@@ -984,6 +984,7 @@ end;
 
 class function TSocketAPI.SetReUsePort(const ASocket: TSocket;
   const AReUsePort: Boolean): Integer;
+{$IFDEF LINUX}
 var
   LOptVal: Integer;
 begin
@@ -991,12 +992,13 @@ begin
     LOptVal := 1
   else
     LOptVal := 0;
-  {$IFDEF LINUX}
   Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, SO_REUSEPORT, LOptVal, SizeOf(Integer));
-  {$ELSE}
-  Result := -1;
-  {$ENDIF}
 end;
+{$else}
+begin
+  Result := -1;
+end;
+{$ENDIF}
 
 class function TSocketAPI.SetRcvBuf(const ASocket: TSocket;
   const ABufSize: Integer): Integer;
@@ -1042,7 +1044,7 @@ end;
 class function TSocketAPI.SetSockOpt(const ASocket: TSocket; const ALevel,
   AOptionName: Integer; const AOptionValue; AOptionLen: Integer): Integer;
 begin
-  SetSockOpt(ASocket, ALevel, AOptionName, @AOptionValue, AOptionLen);
+  Result := SetSockOpt(ASocket, ALevel, AOptionName, @AOptionValue, AOptionLen);
 end;
 
 class function TSocketAPI.SetSockOpt<T>(const ASocket: TSocket; const ALevel,

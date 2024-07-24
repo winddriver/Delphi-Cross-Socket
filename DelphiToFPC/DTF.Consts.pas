@@ -26,6 +26,8 @@ resourcestring
   SInvalidStringLength = 'Invalid string length';
   SNoSurrogates = 'Surrogates not allowed as a single char';
 
+  SInvalidMask = '''%s'' is an invalid mask at (%d)';
+
 const
   INFINITE = Cardinal(-1);
 

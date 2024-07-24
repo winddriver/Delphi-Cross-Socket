@@ -11,6 +11,7 @@ uses
 
   {$IFDEF DELPHI}
   ,System.RegularExpressionsCore
+  ,System.RegularExpressionsConsts
   {$ELSE}
   ,DTF.Types
   ,uregexpr
@@ -37,9 +38,10 @@ type
     FSuccess: Boolean;
     FValue: string;
 
-    constructor Create(const AValue: string; const AIndex, ALength: Integer; const ASuccess: Boolean);
     function GetValue: string;
   public
+	  constructor Create(const AValue: string; const AIndex, ALength: Integer; const ASuccess: Boolean);
+
     property Index: Integer read FIndex;
     property Length: Integer read FLength;
     property Success: Boolean read FSuccess;
@@ -53,12 +55,13 @@ type
     FList: TArray<TGroup>;
     FRegEx: IRegEx;
 
-    constructor Create(const ARegEx: IRegEx; const AValue: string;
-      const AIndex, ALength: Integer; const ASuccess: Boolean);
     function GetCount: Integer;
     function GetItem(const AIndex: Variant): TGroup;
   public
-    function GetEnumerator: TGroupCollectionEnumerator;
+    constructor Create(const ARegEx: IRegEx; const AValue: string;
+      const AIndex, ALength: Integer; const ASuccess: Boolean);
+
+  	function GetEnumerator: TGroupCollectionEnumerator;
     property Count: Integer read GetCount;
     property Item[const AIndex: Variant]: TGroup read GetItem; default;
   end;
@@ -69,6 +72,7 @@ type
     FIndex: Integer;
   public
     constructor Create(const ACollection: TGroupCollection);
+
     function GetCurrent: TGroup;
     function MoveNext: Boolean;
     property Current: TGroup read GetCurrent;
@@ -80,14 +84,15 @@ type
     FGroups: TGroupCollection;
     FRegEx: IRegEx;
 
-    constructor Create(const ARegEx: IRegEx; const AValue: string;
-      const AIndex, ALength: Integer; const ASuccess: Boolean);
     function GetIndex: Integer;
     function GetGroups: TGroupCollection;
     function GetLength: Integer;
     function GetSuccess: Boolean;
     function GetValue: string;
   public
+    constructor Create(const ARegEx: IRegEx; const AValue: string;
+	    const AIndex, ALength: Integer; const ASuccess: Boolean);
+
     function NextMatch: TMatch;
     property Groups: TGroupCollection read GetGroups;
     property Index: Integer read GetIndex;
@@ -103,12 +108,13 @@ type
     FRegEx: IRegEx;
     FList: TArray<TMatch>;
 
-    constructor Create(const ARegEx: IRegEx; const AInput: string;
-      const AStartPos: Integer);
     function GetCount: Integer;
     function GetItem(const AIndex: Integer): TMatch;
   public
-    function GetEnumerator: TMatchCollectionEnumerator;
+    constructor Create(const ARegEx: IRegEx; const AInput: string;
+      const AStartPos: Integer);
+
+  	 function GetEnumerator: TMatchCollectionEnumerator;
     property Count: Integer read GetCount;
     property Item[const AIndex: Integer]: TMatch read GetItem; default;
   end;
@@ -119,6 +125,7 @@ type
     FIndex: Integer;
   public
     constructor Create(const ACollection: TMatchCollection);
+
     function GetCurrent: TMatch;
     function MoveNext: Boolean;
     property Current: TMatch read GetCurrent;

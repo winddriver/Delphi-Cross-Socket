@@ -405,7 +405,9 @@ begin
 
       // determine if APath points to a directory or a file
       SetLastError(ERROR_SUCCESS);
+      {$WARN SYMBOL_PLATFORM OFF}
       LFileAttr := FileGetAttr(APath);
+      {$WARN SYMBOL_PLATFORM ON}
       if LFileAttr and SysUtils.faDirectory <> 0 then
         LFileAttr := FILE_FLAG_BACKUP_SEMANTICS
       else
@@ -614,7 +616,9 @@ begin
           // clear read-only, system and hidden attributes that can compromise
           // the deletion
           {$IFDEF MSWINDOWS}
+          {$WARN SYMBOL_PLATFORM OFF}
           FileSetAttr(LCompletePath, faNormal);
+          {$WARN SYMBOL_PLATFORM ON}
           {$ENDIF MSWINDOWS}
 
           case AFileInfo.Attr and faDirectory of
@@ -631,7 +635,9 @@ begin
   end;
 
   {$IFDEF MSWINDOWS}
+  {$WARN SYMBOL_PLATFORM OFF}
   FileSetAttr(APath, faNormal);
+  {$WARN SYMBOL_PLATFORM ON}
   {$ENDIF}
 
   Result := RemoveDir(APath);
@@ -916,9 +922,11 @@ begin
 
               // clear read-only, system and hidden attributes that can compromise
               // the deletion and then remove the directory at source
-{$IFDEF MSWINDOWS}
+              {$IFDEF MSWINDOWS}
+              {$WARN SYMBOL_PLATFORM OFF}
               FileSetAttr(LCompleteSrc, SysUtils.faNormal);
-{$ENDIF}
+              {$WARN SYMBOL_PLATFORM ON}
+              {$ENDIF}
               RemoveDir(LCompleteSrc);
             end;
 
@@ -940,13 +948,17 @@ begin
               // clear read-only, system and hidden attributes that can compromise
               // the file displacement, move the file and reset the original
               // file attributes
-{$IFDEF MSWINDOWS}
+              {$IFDEF MSWINDOWS}
+              {$WARN SYMBOL_PLATFORM OFF}
               FileSetAttr(LCompleteSrc, SysUtils.faNormal);
-{$ENDIF MSWINDOWS}
+              {$WARN SYMBOL_PLATFORM ON}
+              {$ENDIF MSWINDOWS}
               RenameFile(LCompleteSrc, LCompleteDest);
-{$IFDEF MSWINDOWS}
+              {$IFDEF MSWINDOWS}
+              {$WARN SYMBOL_PLATFORM OFF}
               FileSetAttr(LCompleteDest, AFileInfo.Attr);
-{$ENDIF MSWINDOWS}
+              {$WARN SYMBOL_PLATFORM ON}
+              {$ENDIF MSWINDOWS}
             end;
         end;
       end;
@@ -959,9 +971,11 @@ begin
     WalkThroughDirectory(ASourceDirName, '*', LPreCallback, LPostCallback, True); // DO NOT LOCALIZE
 
     // delete the remaining source directory
-{$IFDEF MSWINDOWS}
+    {$IFDEF MSWINDOWS}
+    {$WARN SYMBOL_PLATFORM OFF}
     FileSetAttr(ASourceDirName, SysUtils.faDirectory);
-{$ENDIF MSWINDOWS}
+    {$WARN SYMBOL_PLATFORM ON}
+    {$ENDIF MSWINDOWS}
     RemoveDir(ASourceDirName);
 end;
 

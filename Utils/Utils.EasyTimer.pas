@@ -7,6 +7,7 @@ interface
 uses
   SysUtils,
   Classes,
+  DateUtils,
   {$IFDEF FPC}
   DTF.Types,
   {$ENDIF}
@@ -22,6 +23,7 @@ type
   ['{3AA98783-0800-4C4E-AA3F-037FC5307196}']
     function GetName: string;
     function GetPaused: Boolean;
+    function GetFinished: Boolean;
     function GetLastTick: UInt64;
     procedure SetPaused(const AValue: Boolean);
 
@@ -32,6 +34,7 @@ type
 
     property Name: string read GetName;
     property Paused: Boolean read GetPaused write SetPaused;
+    property Finished: Boolean read GetFinished;
     property LastTick: UInt64 read GetLastTick;
   end;
 
@@ -40,11 +43,12 @@ type
     FEasyThread: IEasyThread;
     FName: string;
     FDelay, FInterval: Int64;
-    FPaused: Boolean;
+    FPaused, FFinished: Boolean;
     FTickWatch: TSimpleWatch;
 
     function GetName: string;
     function GetPaused: Boolean;
+    function GetFinished: Boolean;
     function GetLastTick: UInt64;
     procedure SetPaused(const AValue: Boolean);
 
@@ -66,6 +70,7 @@ type
 
     property Name: string read GetName;
     property Paused: Boolean read GetPaused write SetPaused;
+    property Finished: Boolean read GetFinished;
     property LastTick: UInt64 read GetLastTick;
   end;
 
@@ -84,6 +89,7 @@ begin
   FInterval := AInterval;
   LFirstRun := True;
   FPaused := APaused;
+  FFinished := False;
   FTickWatch.Reset;
 
   FEasyThread := TEasyThread.Create(
@@ -92,46 +98,50 @@ begin
       LWatch: TSimpleWatch;
       LStackTrace: string;
     begin
-      LWatch.Reset;
+      try
+        LWatch.Reset;
 
-      while not AEasyThread.Terminated do
-      begin
-        try
-          if not FPaused then
-          begin
-            LElMSec := LWatch.ElapsedMilliseconds;
-
-            if (LFirstRun and (LElMSec >= FDelay)) or
-              (not LFirstRun and (LElMSec >= FInterval)) then
+        while not AEasyThread.Terminated do
+        begin
+          try
+            if not FPaused then
             begin
-              LFirstRun := False;
+              LElMSec := LWatch.ElapsedMilliseconds;
 
-              try
-                if Assigned(AProc) then
-                  AProc();
-              finally
-                LWatch.Reset;
+              if (LFirstRun and (LElMSec >= FDelay)) or
+                (not LFirstRun and (LElMSec >= FInterval)) then
+              begin
+                LFirstRun := False;
+
+                try
+                  if Assigned(AProc) then
+                    AProc();
+                finally
+                  LWatch.Reset;
+                end;
+              end;
+            end;
+          except
+            on e: Exception do
+            begin
+              if not (e is EAbort) then
+              begin
+                AppendLog('执行EasyTimer[%s]出现异常: %s, %s', [
+                  FName, e.ClassName, e.Message
+                ]);
+
+                LStackTrace := TUtils.GetStackTrace;
+                if (LStackTrace <> '') then
+                  AppendLog('异常调用堆栈:%s', [LStackTrace]);
               end;
             end;
           end;
-        except
-          on e: Exception do
-          begin
-            if not (e is EAbort) then
-            begin
-              AppendLog('执行EasyTimer[%s]出现异常: %s, %s', [
-                FName, e.ClassName, e.Message
-              ]);
 
-              LStackTrace := TUtils.GetStackTrace;
-              if (LStackTrace <> '') then
-                AppendLog('异常调用堆栈:%s', [LStackTrace]);
-            end;
-          end;
+          FTickWatch.Reset;
+          Sleep(10);
         end;
-
-        FTickWatch.Reset;
-        Sleep(10);
+      finally
+        FFinished := True;
       end;
     end);
 end;
@@ -157,6 +167,11 @@ begin
   WaitFor;
 
   inherited;
+end;
+
+function TEasyTimer.GetFinished: Boolean;
+begin
+  Result := FFinished;
 end;
 
 function TEasyTimer.GetLastTick: UInt64;

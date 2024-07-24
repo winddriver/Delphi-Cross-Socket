@@ -1344,7 +1344,7 @@ end;
 
 destructor TCrossData.Destroy;
 begin
-  if (FSocket <> -1) then
+  if (FSocket <> INVALID_SOCKET) then
   begin
     TSocketAPI.CloseSocket(FSocket);
     {$IFDEF __DEBUG__}
@@ -1553,7 +1553,7 @@ procedure TCrossConnectionBase.DirectSend(const ABuffer: Pointer;
 var
   LBuffer: Pointer;
 begin
-  if (FSocket = -1)
+  if (FSocket = INVALID_SOCKET)
     or IsClosed then
   begin
     if Assigned(ACallback) then
