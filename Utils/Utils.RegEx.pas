@@ -11,6 +11,7 @@ uses
 
   {$IFDEF DELPHI}
   ,System.RegularExpressionsCore
+  ,System.RegularExpressionsConsts
   {$ELSE}
   ,DTF.Types
   ,uregexpr

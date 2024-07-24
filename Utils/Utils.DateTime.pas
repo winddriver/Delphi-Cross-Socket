@@ -661,7 +661,7 @@ class function TDateTimeHelper.TryStrToDateTime(const AStr: string;
   begin
     Result := P;
     V := 0;
-    while (Result^ in ['0'..'9']) and (MaxLen > 0) do
+    while CharInSet(Result^, ['0'..'9']) and (MaxLen > 0) do
     begin
       V := V * 10 + (Ord(Result^) - Ord('0'));
       Inc(Result);
@@ -687,7 +687,7 @@ begin
   begin
     Inc(P, 6);
     LMSecsSince1970 := 0;
-    while (P < PEnd) and (P^ in ['0'..'9']) do
+    while (P < PEnd) and CharInSet(P^, ['0'..'9']) do
     begin
       LMSecsSince1970 := LMSecsSince1970 * 10 + (Ord(P^) - Ord('0'));
       Inc(P);
@@ -695,7 +695,7 @@ begin
     if (P^ = '+') or (P^ = '-') then // timezone information
     begin
       Inc(P);
-      while (P < PEnd) and (P^ in ['0'..'9']) do
+      while (P < PEnd) and CharInSet(P^, ['0'..'9']) do
         Inc(P);
     end;
     if (P + 2 = PEnd) and (P[0] = ')') and (P[1] = '/') then
@@ -775,7 +775,7 @@ begin
       begin
         P := ParseDateTimePart(P + 1, LSec, 2);
         if (P^ = '.') then
-          P := ParseDateTimePart(P + 1, LMSec, 3);
+          ParseDateTimePart(P + 1, LMSec, 3);
       end;
       if not TryEncodeTime(LHour, LMin, LSec, LMSec, LTime) then Exit(False);
       ADateTime := ADateTime + LTime;

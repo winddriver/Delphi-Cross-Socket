@@ -7,6 +7,7 @@ interface
 uses
   SysUtils,
   Classes,
+  Dateutils,
   {$IFDEF FPC}
   DTF.Types,
   {$ENDIF}

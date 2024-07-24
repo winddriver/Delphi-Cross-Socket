@@ -184,8 +184,10 @@ begin
       Data.Time := F.TimeStamp;
       Data.Directory := ((F.Attr and faDirectory) <> 0);
       Data.ReadOnly := ((F.Attr and faReadOnly) <> 0);
+{$WARN SYMBOL_PLATFORM OFF}
       Data.SysFile := ((F.Attr and faSysFile) <> 0);
       Data.Hidden := ((F.Attr and faHidden) <> 0);
+{$WARN SYMBOL_PLATFORM ON}
 
       if ((F.Attr and faDirectory) <> 0) then
         DirList.Add(Data)

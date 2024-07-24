@@ -164,6 +164,11 @@ type
 
 implementation
 
+{$IFDEF MSWINDOWS}
+uses
+  Windows;
+{$ENDIF}
+
 { TUtils }
 
 class constructor TUtils.Create;
@@ -615,13 +620,17 @@ begin
       if (AFileInfo.Attr and SysUtils.faDirectory = 0) then
       begin
         {$IFDEF MSWINDOWS}
+        {$WARN SYMBOL_PLATFORM OFF}
         FileSetAttr(LSrcFileName, SysUtils.faNormal);
+        {$WARN SYMBOL_PLATFORM ON}
         {$ENDIF MSWINDOWS}
 
         MoveFile(LSrcFileName, LDstFileName);
 
         {$IFDEF MSWINDOWS}
+        {$WARN SYMBOL_PLATFORM OFF}
         FileSetAttr(LDstFileName, AFileInfo.Attr);
+        {$WARN SYMBOL_PLATFORM ON}
         {$ENDIF MSWINDOWS}
       end else
       begin
