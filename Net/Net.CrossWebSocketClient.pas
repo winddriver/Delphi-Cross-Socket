@@ -732,6 +732,13 @@ procedure TCrossWebSocketClientConnection._WsSend(AOpCode: Byte; AFin: Boolean;
 var
   LWsFrameData: TBytes;
 begin
+  if IsClosed or (FWebSocket = nil) then
+  begin
+    if Assigned(ACallback) then
+      ACallback(False);
+    Exit;
+  end;
+
   // 将数据和头打包到一起发送
   // 这是因为如果分开发送, 在多线程环境多个不同的线程数据可能会出现交叉
   // 会引起数据与头部混乱
@@ -1292,7 +1299,7 @@ begin
   begin
     if (FWsCli = nil) then
     begin
-      FWsCli := TCrossWebSocketClient.Create(Self, FIoThreads, -1, False, False);
+      FWsCli := TCrossWebSocketClient.Create(Self, FIoThreads, -1, False, False, ctNone);
       FWsCliArr := FWsCliArr + [FWsCli];
     end;
 
@@ -1302,7 +1309,7 @@ begin
   begin
     if (FWssCli = nil) then
     begin
-      FWssCli := TCrossWebSocketClient.Create(Self, FIoThreads, -1, True, False);
+      FWssCli := TCrossWebSocketClient.Create(Self, FIoThreads, -1, True, False, ctNone);
       FWsCliArr := FWsCliArr + [FWssCli];
     end;
 

@@ -874,8 +874,6 @@ begin
     _CrossLogger(S)
   else
   begin
-    if IsConsole then
-      Writeln(S);
     AppendLog(S);
   end;
 end;

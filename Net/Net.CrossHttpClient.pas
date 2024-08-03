@@ -119,6 +119,39 @@ type
   {$ENDREGION}
   TCrossHttpResponseProc = reference to procedure(const AResponse: ICrossHttpClientResponse);
 
+  TRequestPack = record
+  private
+    procedure _ParseUrl;
+  public
+    Url, Protocol, Host: string;
+    Port: Word;
+    Method, Path: string;
+    HttpHeaders: THttpHeader;
+    RequestBodyFunc: TCrossHttpChunkDataFunc;
+    RequestBody: Pointer;
+    RequestBodySize: NativeInt;
+    ResponseStream: TStream;
+    InitProc: TCrossHttpRequestInitProc;
+    Callback: TCrossHttpResponseProc;
+
+    constructor Create(
+      const AMethod, AUrl: string;
+      const AHttpHeaders: THttpHeader;
+      const ARequestBodyFunc: TCrossHttpChunkDataFunc;
+      const AResponseStream: TStream;
+      const AInitProc: TCrossHttpRequestInitProc;
+      const ACallback: TCrossHttpResponseProc); overload;
+
+    constructor Create(
+      const AMethod, AUrl: string;
+      const AHttpHeaders: THttpHeader;
+      const ARequestBody: Pointer;
+      const ABodySize: NativeInt;
+      const AResponseStream: TStream;
+      const AInitProc: TCrossHttpRequestInitProc;
+      const ACallback: TCrossHttpResponseProc); overload;
+  end;
+
   /// <summary>
   ///   HTTP客户端连接
   /// </summary>
@@ -263,6 +296,8 @@ type
   {$ENDREGION}
   ICrossHttpClientSocket = interface(ICrossSslSocket)
   ['{F689E29A-0489-4F1E-A0B8-64DA80B0862E}']
+    procedure DoRequest(const ARequestPack: TRequestPack); overload;
+
     {$REGION 'Documentation'}
     /// <summary>
     ///   裸数据请求(所有请求的基础方法, 由匿名函数提供数据块)
@@ -294,7 +329,15 @@ type
       const ARequestBody: TCrossHttpChunkDataFunc;
       const AResponseStream: TStream;
       const AInitProc: TCrossHttpRequestInitProc;
-      const ACallback: TCrossHttpResponseProc);
+      const ACallback: TCrossHttpResponseProc); overload;
+
+    procedure DoRequest(const AMethod, AUrl: string;
+      const AHttpHeaders: THttpHeader;
+      const ARequestBody: Pointer;
+      const ABodySize: NativeInt;
+      const AResponseStream: TStream;
+      const AInitProc: TCrossHttpRequestInitProc;
+      const ACallback: TCrossHttpResponseProc); overload;
   end;
 
   {$REGION 'Documentation'}
@@ -640,17 +683,12 @@ type
     function GetRequestStatus: TRequestStatus;
 
     procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); virtual;
+
+    // 所有请求方法的核心
+    procedure DoRequest(const ARequestPack: TRequestPack); overload;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
-
-    // 所有请求方法的核心
-    procedure DoRequest(const AMethod, APath: string;
-      const AHttpHeaders: THttpHeader;
-      const ARequestBody: TCrossHttpChunkDataFunc;
-      const AResponseStream: TStream;
-      const AInitProc: TCrossHttpRequestInitProc;
-      const ACallback: TCrossHttpResponseProc); virtual;
 
     property Protocol: string read GetProtocol;
     property Host: string read GetHost;
@@ -701,6 +739,9 @@ type
     {$region '裸数据请求方法(body部分需要提前按协议要求打包好)'}
     procedure DoRequest(const AMethod, APath: string;
       const AChunkSource: TCrossHttpChunkDataFunc;
+      const ACallback: TCrossHttpResponseProc); overload;
+    procedure DoRequest(const AMethod, APath: string;
+      const ABody: Pointer; const ABodySize: NativeInt;
       const ACallback: TCrossHttpResponseProc); overload;
     {$endregion}
   public
@@ -781,24 +822,6 @@ type
     property StatusText: string read GetStatusText;
   end;
 
-  TRequestPack = record
-  public
-    Method, Path: string;
-    HttpHeaders: THttpHeader;
-    RequestBodyFunc: TCrossHttpChunkDataFunc;
-    ResponseStream: TStream;
-    InitProc: TCrossHttpRequestInitProc;
-    Callback: TCrossHttpResponseProc;
-
-    constructor Create(
-      const AMethod, APath: string;
-      const AHttpHeaders: THttpHeader;
-      const ARequestBodyFunc: TCrossHttpChunkDataFunc;
-      const AResponseStream: TStream;
-      const AInitProc: TCrossHttpRequestInitProc;
-      const ACallback: TCrossHttpResponseProc);
-  end;
-
   TRequestQueue = TList<TRequestPack>;
   TClientConnections = TList<ICrossHttpClientConnection>;
 
@@ -833,13 +856,7 @@ type
     procedure ProcNext;
 
     // 所有请求方法的核心
-    procedure DoRequest(
-      const AMethod, APath: string;
-      const AHttpHeaders: THttpHeader;
-      const ARequestBody: TCrossHttpChunkDataFunc;
-      const AResponseStream: TStream;
-      const AInitProc: TCrossHttpRequestInitProc;
-      const ACallback: TCrossHttpResponseProc); virtual;
+    procedure DoRequest(const ARequestPack: TRequestPack); overload;
   end;
 
   TServerDockDict = TObjectDictionary<string, TServerDock>;
@@ -873,12 +890,22 @@ type
     destructor Destroy; override;
 
     // 所有请求方法的核心
+    procedure DoRequest(const ARequestPack: TRequestPack); overload;
+
     procedure DoRequest(const AMethod, AUrl: string;
       const AHttpHeaders: THttpHeader;
       const ARequestBody: TCrossHttpChunkDataFunc;
       const AResponseStream: TStream;
       const AInitProc: TCrossHttpRequestInitProc;
-      const ACallback: TCrossHttpResponseProc); virtual;
+      const ACallback: TCrossHttpResponseProc); overload; virtual;
+
+    procedure DoRequest(const AMethod, AUrl: string;
+      const AHttpHeaders: THttpHeader;
+      const ARequestBody: Pointer;
+      const ABodySize: NativeInt;
+      const AResponseStream: TStream;
+      const AInitProc: TCrossHttpRequestInitProc;
+      const ACallback: TCrossHttpResponseProc); overload; virtual;
   end;
 
   TCrossHttpClient = class(TInterfacedObject, ICrossHttpClient)
@@ -1006,10 +1033,8 @@ begin
   FWatch := TSimpleWatch.Create;
 end;
 
-procedure TCrossHttpClientConnection.DoRequest(const AMethod, APath: string;
-  const AHttpHeaders: THttpHeader; const ARequestBody: TCrossHttpChunkDataFunc;
-  const AResponseStream: TStream; const AInitProc: TCrossHttpRequestInitProc;
-  const ACallback: TCrossHttpResponseProc);
+procedure TCrossHttpClientConnection.DoRequest(
+  const ARequestPack: TRequestPack);
 var
   LRequestObj: TCrossHttpClientRequest;
   LResponseObj: TCrossHttpClientResponse;
@@ -1026,18 +1051,30 @@ begin
   FResponse := LResponseObj;
 
   // 设置请求头
-  if (AHttpHeaders <> nil) then
-    LRequestObj.Header.Assign(AHttpHeaders);
+  if (ARequestPack.HttpHeaders <> nil) then
+    LRequestObj.Header.Assign(ARequestPack.HttpHeaders);
 
   // 设置响应数据流
-  LResponseObj._SetResponseStream(AResponseStream);
+  LResponseObj._SetResponseStream(ARequestPack.ResponseStream);
 
   // 调用初始化函数
-  if Assigned(AInitProc) then
-    AInitProc(FRequest);
+  if Assigned(ARequestPack.InitProc) then
+    ARequestPack.InitProc(FRequest);
 
   // 发起请求
-  LRequestObj.DoRequest(AMethod, APath, ARequestBody, ACallback);
+  if Assigned(ARequestPack.RequestBodyFunc) then
+    LRequestObj.DoRequest(
+      ARequestPack.Method,
+      ARequestPack.Path,
+      ARequestPack.RequestBodyFunc,
+      ARequestPack.Callback)
+  else
+    LRequestObj.DoRequest(
+      ARequestPack.Method,
+      ARequestPack.Path,
+      ARequestPack.RequestBody,
+      ARequestPack.RequestBodySize,
+      ARequestPack.Callback);
 end;
 
 function TCrossHttpClientConnection.GetHost: string;
@@ -1149,6 +1186,16 @@ begin
   FPath := APath;
 
   SendZCompress(AChunkSource, FCompressType, ACallback);
+end;
+
+procedure TCrossHttpClientRequest.DoRequest(const AMethod, APath: string;
+  const ABody: Pointer; const ABodySize: NativeInt;
+  const ACallback: TCrossHttpResponseProc);
+begin
+  FMethod := AMethod;
+  FPath := APath;
+
+  SendZCompress(ABody, ABodySize, FCompressType, ACallback);
 end;
 
 function TCrossHttpClientRequest.GetConnection: ICrossHttpClientConnection;
@@ -1466,6 +1513,12 @@ var
   P: PByte;
   LBodySize: NativeInt;
 begin
+  if (ACompressType = ctNone) then
+  begin
+    SendNoCompress(ABody, ABodySize, ACallback);
+    Exit;
+  end;
+
   P := ABody;
   LBodySize := ABodySize;
 
@@ -1496,8 +1549,6 @@ function TCrossHttpClientRequest._CreateHeader(const ABodySize: Int64;
 var
   LHeaderStr, LCookieStr: string;
 begin
-  Assert(FHeader <> nil, 'SHIT FHeader is nil');
-
   if (FHeader[HEADER_CACHE_CONTROL] = '') then
     FHeader[HEADER_CACHE_CONTROL] := 'no-cache';
 
@@ -1843,8 +1894,6 @@ begin
     LCallback(LResponse);
   except
   end;
-
-//  FConnection.FServerDock.ProcNext;
 end;
 
 procedure TCrossHttpClientResponse.TriggerResponseSuccess;
@@ -1862,8 +1911,6 @@ begin
     LCallback := FCallback;
     FCallback := nil;
 
-//    FConnection._SetRequestStatus(rsRespondSuccess);
-
     FConnection._UpdateWatch;
     FConnection._SetRequestStatus(rsIdle);
   finally
@@ -1877,8 +1924,6 @@ begin
     LCallback(LResponse);
   except
   end;
-
-//  FConnection.FServerDock.ProcNext;
 end;
 
 procedure TCrossHttpClientResponse.TriggerResponseTimeout;
@@ -1911,7 +1956,6 @@ begin
     LCallback(LResponse);
   except
   end;
-//  FConnection.FServerDock.ProcNext;
 end;
 
 procedure TCrossHttpClientResponse._Lock;
@@ -2014,37 +2058,56 @@ begin
   inherited;
 end;
 
+procedure TCrossHttpClientSocket.DoRequest(const ARequestPack: TRequestPack);
+var
+  LServerDock: TServerDock;
+begin
+  _LockServerDock;
+  try
+    LServerDock := _GetServerDock(ARequestPack.Protocol, ARequestPack.Host, ARequestPack.Port);
+
+    LServerDock.DoRequest(ARequestPack);
+  finally
+    _UnlockServerDock;
+  end;
+end;
+
 procedure TCrossHttpClientSocket.DoRequest(const AMethod, AUrl: string;
   const AHttpHeaders: THttpHeader; const ARequestBody: TCrossHttpChunkDataFunc;
   const AResponseStream: TStream; const AInitProc: TCrossHttpRequestInitProc;
   const ACallback: TCrossHttpResponseProc);
 var
-  LProtocol, LHost, LPath: string;
-  LPort: Word;
-  LServerDock: TServerDock;
+  LRequestPack: TRequestPack;
 begin
-  if not TCrossHttpUtils.ExtractUrl(AUrl, LProtocol, LHost, LPort, LPath) then
-  begin
-    if Assigned(ACallback) then
-      ACallback(TCrossHttpClientResponse.Create(400, 'Invalid URL'));
+  LRequestPack := TRequestPack.Create(
+    AMethod,
+    AUrl,
+    AHttpHeaders,
+    ARequestBody,
+    AResponseStream,
+    AInitProc,
+    ACallback);
+  DoRequest(LRequestPack);
+end;
 
-    Exit;
-  end;
-
-  _LockServerDock;
-  try
-    LServerDock := _GetServerDock(LProtocol, LHost, LPort);
-    LServerDock.DoRequest(
-      AMethod,
-      LPath,
-      AHttpHeaders,
-      ARequestBody,
-      AResponseStream,
-      AInitProc,
-      ACallback);
-  finally
-    _UnlockServerDock;
-  end;
+procedure TCrossHttpClientSocket.DoRequest(const AMethod, AUrl: string;
+  const AHttpHeaders: THttpHeader; const ARequestBody: Pointer;
+  const ABodySize: NativeInt; const AResponseStream: TStream;
+  const AInitProc: TCrossHttpRequestInitProc;
+  const ACallback: TCrossHttpResponseProc);
+var
+  LRequestPack: TRequestPack;
+begin
+  LRequestPack := TRequestPack.Create(
+    AMethod,
+    AUrl,
+    AHttpHeaders,
+    ARequestBody,
+    ABodySize,
+    AResponseStream,
+    AInitProc,
+    ACallback);
+  DoRequest(LRequestPack);
 end;
 
 procedure TCrossHttpClientSocket.LogicDisconnected(
@@ -2201,7 +2264,7 @@ begin
   begin
     if (FHttpCli = nil) then
     begin
-      FHttpCli := TCrossHttpClientSocket.Create(Self, FIoThreads, FMaxConnsPerServer, False, True);
+      FHttpCli := TCrossHttpClientSocket.Create(Self, FIoThreads, FMaxConnsPerServer, False, True, FCompressType);
       FHttpCliArr := FHttpCliArr + [FHttpCli];
     end;
 
@@ -2211,7 +2274,7 @@ begin
   begin
     if (FHttpsCli = nil) then
     begin
-      FHttpsCli := TCrossHttpClientSocket.Create(Self, FIoThreads, FMaxConnsPerServer, True, True);
+      FHttpsCli := TCrossHttpClientSocket.Create(Self, FIoThreads, FMaxConnsPerServer, True, True, FCompressType);
       FHttpCliArr := FHttpCliArr + [FHttpsCli];
     end;
 
@@ -2227,27 +2290,10 @@ procedure TCrossHttpClient.DoRequest(const AMethod, AUrl: string;
   const AInitProc: TCrossHttpRequestInitProc;
   const ACallback: TCrossHttpResponseProc);
 var
-  LProtocol, LHost, LPath: string;
-  LPort: Word;
   LHttpCli: ICrossHttpClientSocket;
+  LRequestPack: TRequestPack;
 begin
-  if not TCrossHttpUtils.ExtractUrl(AUrl, LProtocol, LHost, LPort, LPath) then
-  begin
-    if Assigned(ACallback) then
-      ACallback(TCrossHttpClientResponse.Create(400, 'Invalid URL'));
-
-    Exit;
-  end;
-
-  // 根据协议获取HttpCli对象
-  _Lock;
-  try
-    LHttpCli := CreateHttpCli(LProtocol);
-  finally
-    _Unlock;
-  end;
-
-  LHttpCli.DoRequest(
+  LRequestPack := TRequestPack.Create(
     AMethod,
     AUrl,
     AHttpHeaders,
@@ -2255,6 +2301,16 @@ begin
     AResponseStream,
     AInitProc,
     ACallback);
+
+  // 根据协议获取HttpCli对象
+  _Lock;
+  try
+    LHttpCli := CreateHttpCli(LRequestPack.Protocol);
+  finally
+    _Unlock;
+  end;
+
+  LHttpCli.DoRequest(LRequestPack);
 end;
 
 procedure TCrossHttpClient.DoRequest(const AMethod, AUrl: string;
@@ -2263,39 +2319,28 @@ procedure TCrossHttpClient.DoRequest(const AMethod, AUrl: string;
   const AInitProc: TCrossHttpRequestInitProc;
   const ACallback: TCrossHttpResponseProc);
 var
-  P: PByte;
-  LBodySize: NativeInt;
-  LChunkDataFunc: TCrossHttpChunkDataFunc;
+  LHttpCli: ICrossHttpClientSocket;
+  LRequestPack: TRequestPack;
 begin
-  P := ARequestBody;
-  LBodySize := ABodySize;
-
-  if (P <> nil) and (LBodySize > 0) then
-    LChunkDataFunc :=
-      function(const AData: PPointer; const ADataSize: PNativeInt): Boolean
-      begin
-        AData^ := P;
-        ADataSize^ := Min(LBodySize, SND_BUF_SIZE);
-        Result := (ADataSize^ > 0);
-
-        if (LBodySize > SND_BUF_SIZE) then
-        begin
-          Inc(P, SND_BUF_SIZE);
-          Dec(LBodySize, SND_BUF_SIZE);
-        end else
-        begin
-          LBodySize := 0;
-          P := nil;
-        end;
-      end
-  else
-    LChunkDataFunc := nil;
-
-  DoRequest(AMethod, AUrl, AHttpHeaders,
-    LChunkDataFunc,
+  LRequestPack := TRequestPack.Create(
+    AMethod,
+    AUrl,
+    AHttpHeaders,
+    ARequestBody,
+    ABodySize,
     AResponseStream,
     AInitProc,
     ACallback);
+
+  // 根据协议获取HttpCli对象
+  _Lock;
+  try
+    LHttpCli := CreateHttpCli(LRequestPack.Protocol);
+  finally
+    _Unlock;
+  end;
+
+  LHttpCli.DoRequest(LRequestPack);
 end;
 
 procedure TCrossHttpClient.DoRequest(const AMethod, AUrl: string;
@@ -2622,19 +2667,53 @@ end;
 
 { TRequestPack }
 
-constructor TRequestPack.Create(const AMethod, APath: string;
+constructor TRequestPack.Create(const AMethod, AUrl: string;
   const AHttpHeaders: THttpHeader;
   const ARequestBodyFunc: TCrossHttpChunkDataFunc;
   const AResponseStream: TStream; const AInitProc: TCrossHttpRequestInitProc;
   const ACallback: TCrossHttpResponseProc);
 begin
   Method := AMethod;
-  Path := APath;
+  Url := AUrl;
   HttpHeaders := AHttpHeaders;
   RequestBodyFunc := ARequestBodyFunc;
+  RequestBody := nil;
+  RequestBodySize := 0;
   ResponseStream := AResponseStream;
   InitProc := AInitProc;
   Callback := ACallback;
+
+  _ParseUrl;
+end;
+
+constructor TRequestPack.Create(const AMethod, AUrl: string;
+  const AHttpHeaders: THttpHeader; const ARequestBody: Pointer;
+  const ABodySize: NativeInt; const AResponseStream: TStream;
+  const AInitProc: TCrossHttpRequestInitProc;
+  const ACallback: TCrossHttpResponseProc);
+begin
+  Method := AMethod;
+  Url := AUrl;
+  HttpHeaders := AHttpHeaders;
+  RequestBodyFunc := nil;
+  RequestBody := ARequestBody;
+  RequestBodySize := ABodySize;
+  ResponseStream := AResponseStream;
+  InitProc := AInitProc;
+  Callback := ACallback;
+
+  _ParseUrl;
+end;
+
+procedure TRequestPack._ParseUrl;
+begin
+  if not TCrossHttpUtils.ExtractUrl(Url, Protocol, Host, Port, Path) then
+  begin
+    if Assigned(Callback) then
+      Callback(TCrossHttpClientResponse.Create(400, 'Invalid URL'));
+
+    Abort;
+  end;
 end;
 
 { TServerDock }
@@ -2673,25 +2752,18 @@ begin
   inherited;
 end;
 
-procedure TServerDock.DoRequest(
-  const AMethod, APath: string;
-  const AHttpHeaders: THttpHeader; const ARequestBody: TCrossHttpChunkDataFunc;
-  const AResponseStream: TStream; const AInitProc: TCrossHttpRequestInitProc;
-  const ACallback: TCrossHttpResponseProc);
+procedure TServerDock.DoRequest(const ARequestPack: TRequestPack);
 var
   LHttpConn: ICrossHttpClientConnection;
   LHttpConnObj: TCrossHttpClientConnection;
   LCallback: TCrossHttpResponseProc;
   LServerDock: TServerDock;
-  LRequestPack: TRequestPack;
 begin
   LCallback :=
     procedure(const AResponse: ICrossHttpClientResponse)
     begin
-      LCallback := nil;
-
-      if Assigned(ACallback) then
-        ACallback(AResponse);
+      if Assigned(ARequestPack.Callback) then
+        ARequestPack.Callback(AResponse);
 
       ProcNext;
     end;
@@ -2705,14 +2777,7 @@ begin
   if (LHttpConn <> nil) then
   begin
     LHttpConnObj := LHttpConn as TCrossHttpClientConnection;
-    LHttpConnObj.DoRequest(
-      AMethod,
-      APath,
-      AHttpHeaders,
-      ARequestBody,
-      AResponseStream,
-      AInitProc,
-      LCallback);
+    LHttpConnObj.DoRequest(ARequestPack);
 
     Exit;
   end;
@@ -2740,20 +2805,15 @@ begin
             LServerDock.AddConnection(LHttpConn);
 
             // 连接成功
-            LHttpConnObj.DoRequest(
-              AMethod,
-              APath,
-              AHttpHeaders,
-              ARequestBody,
-              AResponseStream,
-              AInitProc,
-              LCallback);
+            LHttpConnObj.DoRequest(ARequestPack);
           end else
           begin
             AtomicDecrement(FConnCount);
             if Assigned(LCallback) then
               LCallback(TCrossHttpClientResponse.Create(400, 'Connect failed'));
           end;
+
+          LCallback := nil;
         end);
 
       Exit;
@@ -2761,15 +2821,7 @@ begin
 
     // 没有空闲连接并且连接数已达限定值
     // 将请求放入队列
-    LRequestPack := TRequestPack.Create(
-      AMethod,
-      APath,
-      AHttpHeaders,
-      ARequestBody,
-      AResponseStream,
-      AInitProc,
-      LCallback);
-    PushRequest(LRequestPack);
+    PushRequest(ARequestPack);
   finally
     _UnlockQueue;
   end;
@@ -2836,14 +2888,7 @@ var
 begin
   if not PopRequest(LRequestPack) then Exit;
 
-  DoRequest(
-    LRequestPack.Method,
-    LRequestPack.Path,
-    LRequestPack.HttpHeaders,
-    LRequestPack.RequestBodyFunc,
-    LRequestPack.ResponseStream,
-    LRequestPack.InitProc,
-    LRequestPack.Callback);
+  DoRequest(LRequestPack);
 end;
 
 procedure TServerDock.PushRequest(const ARequestPack: TRequestPack);
