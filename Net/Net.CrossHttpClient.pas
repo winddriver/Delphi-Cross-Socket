@@ -119,6 +119,7 @@ type
   {$ENDREGION}
   TCrossHttpResponseProc = reference to procedure(const AResponse: ICrossHttpClientResponse);
 
+  PRequestPack = ^TRequestPack;
   TRequestPack = record
   private
     procedure _ParseUrl;
@@ -348,9 +349,13 @@ type
   ICrossHttpClient = interface
   ['{99CC5305-02FE-48DA-9D62-3AE1A5FA86D1}']
     function GetIdleout: Integer;
+    function GetIoThreads: Integer;
+    function GetMaxConnsPerServer: Integer;
     function GetTimeout: Integer;
 
     procedure SetIdleout(const AValue: Integer);
+    procedure SetIoThreads(const AValue: Integer);
+    procedure SetMaxConnsPerServer(const AValue: Integer);
     procedure SetTimeout(const AValue: Integer);
 
     {$REGION 'Documentation'}
@@ -652,6 +657,16 @@ type
     property Idleout: Integer read GetIdleout write SetIdleout;
 
     /// <summary>
+    ///   工作线程数
+    /// </summary>
+    property IoThreads: Integer read GetIoThreads write SetIoThreads;
+
+    /// <summary>
+    ///   工作线程数
+    /// </summary>
+    property MaxConnsPerServer: Integer read GetMaxConnsPerServer write SetMaxConnsPerServer;
+
+    /// <summary>
     ///   请求超时时间(秒, 从请求发送成功之后算起, 设置为0则不检查超时)
     /// </summary>
     property Timeout: Integer read GetTimeout write SetTimeout;
@@ -685,6 +700,7 @@ type
     procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); virtual;
 
     // 所有请求方法的核心
+    procedure DoRequest(const ARequestPack: TRequestPack; const ACallback: TCrossHttpResponseProc); overload;
     procedure DoRequest(const ARequestPack: TRequestPack); overload;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
@@ -932,9 +948,13 @@ type
     function CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket; virtual;
 
     function GetIdleout: Integer;
+    function GetIoThreads: Integer;
+    function GetMaxConnsPerServer: Integer;
     function GetTimeout: Integer;
 
     procedure SetIdleout(const AValue: Integer);
+    procedure SetIoThreads(const AValue: Integer);
+    procedure SetMaxConnsPerServer(const AValue: Integer);
     procedure SetTimeout(const AValue: Integer);
   public
     constructor Create(const AIoThreads, AMaxConnsPerServer: Integer;
@@ -1033,8 +1053,8 @@ begin
   FWatch := TSimpleWatch.Create;
 end;
 
-procedure TCrossHttpClientConnection.DoRequest(
-  const ARequestPack: TRequestPack);
+procedure TCrossHttpClientConnection.DoRequest(const ARequestPack: TRequestPack;
+  const ACallback: TCrossHttpResponseProc);
 var
   LRequestObj: TCrossHttpClientRequest;
   LResponseObj: TCrossHttpClientResponse;
@@ -1067,14 +1087,20 @@ begin
       ARequestPack.Method,
       ARequestPack.Path,
       ARequestPack.RequestBodyFunc,
-      ARequestPack.Callback)
+      ACallback)
   else
     LRequestObj.DoRequest(
       ARequestPack.Method,
       ARequestPack.Path,
       ARequestPack.RequestBody,
       ARequestPack.RequestBodySize,
-      ARequestPack.Callback);
+      ACallback);
+end;
+
+procedure TCrossHttpClientConnection.DoRequest(
+  const ARequestPack: TRequestPack);
+begin
+  DoRequest(ARequestPack, ARequestPack.Callback);
 end;
 
 function TCrossHttpClientConnection.GetHost: string;
@@ -2637,6 +2663,16 @@ begin
   Result := FIdleout;
 end;
 
+function TCrossHttpClient.GetIoThreads: Integer;
+begin
+  Result := FIoThreads;
+end;
+
+function TCrossHttpClient.GetMaxConnsPerServer: Integer;
+begin
+  Result := FMaxConnsPerServer;
+end;
+
 function TCrossHttpClient.GetTimeout: Integer;
 begin
   Result := FTimeout;
@@ -2658,6 +2694,16 @@ end;
 procedure TCrossHttpClient.SetIdleout(const AValue: Integer);
 begin
   FIdleout := AValue;
+end;
+
+procedure TCrossHttpClient.SetIoThreads(const AValue: Integer);
+begin
+  FIoThreads := AValue;
+end;
+
+procedure TCrossHttpClient.SetMaxConnsPerServer(const AValue: Integer);
+begin
+  FMaxConnsPerServer := AValue;
 end;
 
 procedure TCrossHttpClient.SetTimeout(const AValue: Integer);
@@ -2756,10 +2802,10 @@ procedure TServerDock.DoRequest(const ARequestPack: TRequestPack);
 var
   LHttpConn: ICrossHttpClientConnection;
   LHttpConnObj: TCrossHttpClientConnection;
-  LCallback: TCrossHttpResponseProc;
+  LNewCallback: TCrossHttpResponseProc;
   LServerDock: TServerDock;
 begin
-  LCallback :=
+  LNewCallback :=
     procedure(const AResponse: ICrossHttpClientResponse)
     begin
       if Assigned(ARequestPack.Callback) then
@@ -2777,7 +2823,9 @@ begin
   if (LHttpConn <> nil) then
   begin
     LHttpConnObj := LHttpConn as TCrossHttpClientConnection;
-    LHttpConnObj.DoRequest(ARequestPack);
+    LHttpConnObj.DoRequest(ARequestPack, LNewCallback);
+
+    LNewCallback := nil;
 
     Exit;
   end;
@@ -2805,15 +2853,15 @@ begin
             LServerDock.AddConnection(LHttpConn);
 
             // 连接成功
-            LHttpConnObj.DoRequest(ARequestPack);
+            LHttpConnObj.DoRequest(ARequestPack, LNewCallback);
           end else
           begin
             AtomicDecrement(FConnCount);
-            if Assigned(LCallback) then
-              LCallback(TCrossHttpClientResponse.Create(400, 'Connect failed'));
+            if Assigned(LNewCallback) then
+              LNewCallback(TCrossHttpClientResponse.Create(400, 'Connect failed'));
           end;
 
-          LCallback := nil;
+          LNewCallback := nil;
         end);
 
       Exit;
@@ -2822,6 +2870,7 @@ begin
     // 没有空闲连接并且连接数已达限定值
     // 将请求放入队列
     PushRequest(ARequestPack);
+    LNewCallback := nil;
   finally
     _UnlockQueue;
   end;
