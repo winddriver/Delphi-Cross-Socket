@@ -553,6 +553,8 @@ type
     class var FRef: Integer;
     class var FSslVersion: Longword;
 
+    class destructor Destroy;
+
     {$IFNDEF __SSL_STATIC__}
     class var FLibPath, FLibSSL, FLibCRYPTO: string;
     class var FSslLibHandle, FCryptoLibHandle: TLibHandle;
@@ -845,6 +847,12 @@ begin
   Result := FSslVersion;
 end;
 
+class destructor TSSLTools.Destroy;
+begin
+  if (@OPENSSL_cleanup <> nil) then
+    OPENSSL_cleanup();
+end;
+
 class procedure TSSLTools.FreeCTX(var AContext: PSSL_CTX);
 begin
   SSL_CTX_free(AContext);
@@ -1003,7 +1011,10 @@ begin
   {$ENDIF}
 
   // 回收资源
-  OPENSSL_cleanup();
+  // openssl 1.1.0及更高版本不再需要显示调用OPENSSL_cleanup()释放资源
+  // 在ssl库被卸载时资源会自动回收
+  // 在这里显示调用反倒会引起再次执行 OPENSSL_init_ssl() 和 OPENSSL_init_crypto() 失败
+//  OPENSSL_cleanup();
 end;
 
 {$IFNDEF __SSL_STATIC__}
