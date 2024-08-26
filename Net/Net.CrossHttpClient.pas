@@ -652,7 +652,7 @@ type
       const ACallback: TCrossHttpResponseProc); overload;
 
     /// <summary>
-    ///   连接空闲时间(秒, 空闲超过该时间连接将自动关闭, 设置为0则不检查空闲, 连接一直保留)
+    ///   连接空闲时间(秒, 空闲超过该时间连接将自动关闭, 设置为<=0则不检查空闲, 连接一直保留)
     /// </summary>
     property Idleout: Integer read GetIdleout write SetIdleout;
 
@@ -662,7 +662,7 @@ type
     property IoThreads: Integer read GetIoThreads write SetIoThreads;
 
     /// <summary>
-    ///   工作线程数
+    ///   每个主机最多使用连接数限制(如果设置为<=0的值则不做限制)
     /// </summary>
     property MaxConnsPerServer: Integer read GetMaxConnsPerServer write SetMaxConnsPerServer;
 
