@@ -382,7 +382,7 @@ begin
       if (inflateInit2(FZStream, ZLIB_WINDOW_BITS[LCompressType]) <> Z_OK) then
       begin
         _OnParseFailed(400, 'inflateInit2 failed');
-        Abort;
+        Exit;
       end;
     end;
   end;
@@ -479,6 +479,8 @@ procedure TCrossHttpParser._OnParseFailed(const ACode: Integer;
 begin
   if Assigned(FOnParseFailed) then
     FOnParseFailed(ACode, AError);
+
+  Abort;
 end;
 
 procedure TCrossHttpParser._OnParseSuccess;

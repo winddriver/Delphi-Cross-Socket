@@ -3298,6 +3298,8 @@ var
   LRequest: TCrossHttpRequest;
 begin
   LRequest := AConnection.Request as TCrossHttpRequest;
+  if (LRequest.Body = nil) then Exit;
+
   Inc(LRequest.FPostDataSize, ALen);
 
   case LRequest.GetBodyType of
@@ -3318,6 +3320,7 @@ var
   LUrlEncodedBody: THttpUrlParams;
 begin
   LRequest := AConnection.Request as TCrossHttpRequest;
+  if (LRequest.Body = nil) then Exit;
 
   case LRequest.GetBodyType of
     btUrlEncoded:
