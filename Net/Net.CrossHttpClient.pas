@@ -2837,13 +2837,19 @@ begin
     if (FClientSocket.FMaxConnsPerServer <= 0)
       or (AtomicCmpExchange(FConnCount, 0, 0) < FClientSocket.FMaxConnsPerServer) then
     begin
-      AtomicIncrement(FConnCount);
       LServerDock := Self;
       FClientSocket.Connect(FHost, FPort,
         procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
         begin
           if ASuccess then
           begin
+            // 连接成功之后才增加连接数
+            // 这样的好处是, 并发请求能尽快处理,
+            //   当要请求的服务器不可用时, 多个并发能快速连接失败, 否则并发请求越多后面的请求等待的时间就会越长
+            //   导致请求越堆积越多
+            // 坏处就是无法精确限制并发连接数
+            AtomicIncrement(FConnCount);
+
             LHttpConn := AConnection as ICrossHttpClientConnection;
             LHttpConnObj := LHttpConn as TCrossHttpClientConnection;
             LHttpConnObj.FProtocol := FProtocol;
@@ -2856,7 +2862,6 @@ begin
             LHttpConnObj.DoRequest(ARequestPack, LNewCallback);
           end else
           begin
-            AtomicDecrement(FConnCount);
             if Assigned(LNewCallback) then
               LNewCallback(TCrossHttpClientResponse.Create(400, 'Connect failed'));
           end;
