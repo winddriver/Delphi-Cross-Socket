@@ -529,6 +529,7 @@ destructor TCrossWebSocketClientConnection.Destroy;
 begin
   if (FWebSocket <> nil) then
   begin
+    FWebSocket.FStatus := wsShutdown;
     FWebSocket.FConnection := nil;
     FWebSocket := nil;
   end;
@@ -886,6 +887,9 @@ end;
 function TCrossWebSocket.GetStatus: TWsStatus;
 begin
   Result := FStatus;
+
+  if (FStatus = wsConnected) and (FConnection = nil) then
+    Result := wsDisconnected;
 end;
 
 function TCrossWebSocket.GetUrl: string;
@@ -1059,56 +1063,72 @@ procedure TCrossWebSocket.Send(const AData: Pointer; const ACount: NativeInt;
   const ACallback: TWsClientCallback);
 begin
   if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, ACount, ACallback);
+    FConnection.WsSend(AData, ACount, ACallback)
+  else if Assigned(ACallback) then
+    ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData; const ACount: NativeInt;
   const ACallback: TWsClientCallback);
 begin
   if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, ACount, ACallback);
+    FConnection.WsSend(AData, ACount, ACallback)
+  else if Assigned(ACallback) then
+    ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData: TBytes; const AOffset,
   ACount: NativeInt; const ACallback: TWsClientCallback);
 begin
   if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, AOffset, ACount, ACallback);
+    FConnection.WsSend(AData, AOffset, ACount, ACallback)
+  else if Assigned(ACallback) then
+    ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData: TBytes;
   const ACallback: TWsClientCallback);
 begin
   if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, ACallback);
+    FConnection.WsSend(AData, ACallback)
+  else if Assigned(ACallback) then
+    ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData: string;
   const ACallback: TWsClientCallback);
 begin
   if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, ACallback);
+    FConnection.WsSend(AData, ACallback)
+  else if Assigned(ACallback) then
+    ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData: TWsClientChunkDataFunc;
   const ACallback: TWsClientCallback);
 begin
   if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, ACallback);
+    FConnection.WsSend(AData, ACallback)
+  else if Assigned(ACallback) then
+    ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData: TStream; const AOffset,
   ACount: Int64; const ACallback: TWsClientCallback);
 begin
   if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, AOffset, ACount, ACallback);
+    FConnection.WsSend(AData, AOffset, ACount, ACallback)
+  else if Assigned(ACallback) then
+    ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData: TStream;
   const ACallback: TWsClientCallback);
 begin
   if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, ACallback);
+    FConnection.WsSend(AData, ACallback)
+  else if Assigned(ACallback) then
+    ACallback(False);
 end;
 
 procedure TCrossWebSocket.SetMaskingKey(const AValue: Cardinal);
@@ -1178,7 +1198,6 @@ begin
 
   _Lock;
   try
-    FStatus := wsConnected;
     LOnOpenRequestEvents := FOnOpenRequestEvents.ToArray;
   finally
     _Unlock;
@@ -1198,7 +1217,6 @@ begin
 
   _Lock;
   try
-    FStatus := wsConnected;
     LOnOpenResponseEvents := FOnOpenResponseEvents.ToArray;
   finally
     _Unlock;
