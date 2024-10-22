@@ -611,6 +611,7 @@ begin
   try
     while (LAddrInfo <> nil) do
     begin
+      LListen := nil;
       LListenSocket := WSASocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
         LAddrInfo.ai_protocol, nil, 0, WSA_FLAG_OVERLAPPED);
       if (LListenSocket = INVALID_SOCKET) then
