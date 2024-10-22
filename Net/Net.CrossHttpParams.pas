@@ -1428,6 +1428,11 @@ begin
   pEnd := p + Length(AEncodedParams);
   while (p < pEnd) do
   begin
+    // 跳过多余的#13#10
+    while (p < pEnd) and ((p^ = #13) or (p^ = #10)) do
+      Inc(p);
+    if (p >= pEnd) then Break;
+
     q := p;
     LSize := 0;
     while (p < pEnd) and (p^ <> ':') do
@@ -1435,8 +1440,10 @@ begin
       Inc(LSize);
       Inc(p);
     end;
+
     SetLength(LName, LSize);
     Move(q^, Pointer(LName)^, LSize * SizeOf(Char));
+
     // 跳过多余的':'
     while (p < pEnd) and ((p^ = ':') or (p^ = ' ')) do
       Inc(p);
@@ -1450,11 +1457,11 @@ begin
     end;
     SetLength(LValue, LSize);
     Move(q^, Pointer(LValue)^, LSize * SizeOf(Char));
+    Add(LName, LValue);
+
     // 跳过多余的#13#10
     while (p < pEnd) and ((p^ = #13) or (p^ = #10)) do
       Inc(p);
-
-    Add(LName, LValue);
   end;
 
   Result := (Self.Count > 0);
