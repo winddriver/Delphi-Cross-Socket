@@ -4276,6 +4276,9 @@ end;
 procedure TCrossHttpResponse.SetStatusCode(Value: Integer);
 begin
   FStatusCode := Value;
+
+  if (FStatusCode >= 400) then
+    FHeader[HEADER_CONNECTION] := 'close';
 end;
 
 procedure TCrossHttpResponse.SetStatusText(const Value: string);
@@ -4620,7 +4623,7 @@ end;
 procedure TCrossHttpResponse.SendStatus(const AStatusCode: Integer;
   const ADescription: string; const ACallback: TCrossConnectionCallback);
 begin
-  FStatusCode := AStatusCode;
+  SetStatusCode(AStatusCode);
   Send(ADescription, ACallback);
 end;
 
