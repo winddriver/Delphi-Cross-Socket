@@ -237,7 +237,6 @@ procedure TIocpCrossSocket._HandleConnect(const APerIoData: PPerIoData);
 var
   LClientSocket: TSocket;
   LConnection: ICrossConnection;
-  LSuccess: Boolean;
 
   procedure _Failed1;
   begin
@@ -277,9 +276,7 @@ begin
   TriggerConnecting(LConnection);
   TriggerConnected(LConnection);
 
-  LSuccess := _NewReadZero(LConnection);
-
-  if not LSuccess then
+  if not _NewReadZero(LConnection) then
     LConnection.Close;
 end;
 
@@ -700,6 +697,10 @@ begin
   if (WSASend(AConnection.Socket, @LPerIoData.Buffer.DataBuf, 1, LBytes, LFlags, PWSAOverlapped(LPerIoData), nil) < 0)
     and (WSAGetLastError <> WSA_IO_PENDING) then
   begin
+    {$IFDEF DEBUG}
+    _LogLastOsError(Format('TIocpCrossSocket.Send.WSASend(socket=%d)', [AConnection.Socket]));
+    {$ENDIF}
+
     // 出错多半是 WSAENOBUFS, 也就是投递的 WSASend 过多, 来不及发送
     // 导致非页面内存资源全部被锁定, 要避免这种情况必须上层发送逻辑
     // 保证不能无节制的调用Send发送大量数据, 最好发送完一个再继续下
