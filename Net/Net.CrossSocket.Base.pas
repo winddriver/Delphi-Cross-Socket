@@ -565,7 +565,8 @@ type
 
   TCrossData = class abstract(TInterfacedObject, ICrossData)
   private
-    class var FCrossUID: UInt64;
+    // 在 FPC 中, 32位程序的 AtomicIncrement 只支持32位整数
+    class var FCrossUID: {$IF defined(DELPHI) or defined(CPU64)}UInt64{$ELSE}UInt32{$ENDIF};
   private
     FOwner: TCrossSocketBase;
     FSocket: TSocket;
@@ -1517,18 +1518,13 @@ end;
 
 procedure TCrossConnectionBase.Close;
 begin
-  _Lock;
-  try
-    if (_SetConnectStatus(csClosed) = csClosed) then Exit;
+  if (_SetConnectStatus(csClosed) = csClosed) then Exit;
 
-    if (FSocket <> INVALID_SOCKET) then
-    begin
-      TSocketAPI.CloseSocket(FSocket);
-      FOwner.TriggerDisconnected(Self);
-      FSocket := INVALID_SOCKET;
-    end;
-  finally
-    _Unlock;
+  if (FSocket <> INVALID_SOCKET) then
+  begin
+    TSocketAPI.CloseSocket(FSocket);
+    FOwner.TriggerDisconnected(Self);
+    FSocket := INVALID_SOCKET;
   end;
 end;
 

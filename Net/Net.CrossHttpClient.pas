@@ -81,7 +81,12 @@ type
     /// <summary>
     ///   响应超时
     /// </summary>
-    rsRespondTimeout);
+    rsRespondTimeout,
+
+    /// <summary>
+    ///   响应包含Connection: close, 连接需要关闭
+    /// </summary>
+    rsClose);
 
   {$REGION 'Documentation'}
   /// <summary>
@@ -1083,18 +1088,21 @@ begin
 
   // 发起请求
   if Assigned(ARequestPack.RequestBodyFunc) then
+  begin
     LRequestObj.DoRequest(
       ARequestPack.Method,
       ARequestPack.Path,
       ARequestPack.RequestBodyFunc,
-      ACallback)
-  else
+      ACallback);
+  end else
+  begin
     LRequestObj.DoRequest(
       ARequestPack.Method,
       ARequestPack.Path,
       ARequestPack.RequestBody,
       ARequestPack.RequestBodySize,
       ACallback);
+  end;
 end;
 
 procedure TCrossHttpClientConnection.DoRequest(
@@ -1147,7 +1155,8 @@ end;
 
 function TCrossHttpClientConnection._IsIdle: Boolean;
 begin
-  Result := (GetRequestStatus in [rsIdle])
+  Result := (ConnectStatus = csConnected)
+    and (GetRequestStatus in [rsIdle])
     and (AtomicCmpExchange(FPending, 0, 0) = 0);
 end;
 
@@ -1746,7 +1755,7 @@ end;
 destructor TCrossHttpClientResponse.Destroy;
 begin
   if Assigned(FCallback) then
-    TriggerResponseFailed(400, 'Connection lost');
+    TriggerResponseFailed(400, 'Connection destroyed');
 
   FreeAndNil(FHeader);
   FreeAndNil(FCookies);
@@ -1898,6 +1907,8 @@ var
   LCallback: TCrossHttpResponseProc;
   LResponse: ICrossHttpClientResponse;
 begin
+  _Log('%d TriggerResponseFailed', [Connection.UID]);
+
   _Lock;
   try
     LCallback := FCallback;
@@ -1927,6 +1938,8 @@ var
   LCallback: TCrossHttpResponseProc;
   LResponse: ICrossHttpClientResponse;
 begin
+  _Log('%d TriggerResponseSuccess', [Connection.UID]);
+
   _Lock;
   try
     // 只有在等待响应状态的情况才应该触发完成响应回调
@@ -1937,8 +1950,15 @@ begin
     LCallback := FCallback;
     FCallback := nil;
 
-    FConnection._UpdateWatch;
-    FConnection._SetRequestStatus(rsIdle);
+    if SameText(FHeader[HEADER_CONNECTION], 'close') then
+    begin
+      FConnection._SetRequestStatus(rsClose);
+      FConnection.Close;
+    end else
+    begin
+      FConnection._UpdateWatch;
+      FConnection._SetRequestStatus(rsIdle);
+    end;
   finally
     _Unlock;
     FConnection._EndRequest;
@@ -1957,6 +1977,8 @@ var
   LCallback: TCrossHttpResponseProc;
   LResponse: ICrossHttpClientResponse;
 begin
+  _Log('%d TriggerResponseTimeout', [Connection.UID]);
+
   _Lock;
   try
     LCallback := FCallback;
@@ -2144,6 +2166,8 @@ var
   LConnObj: TCrossHttpClientConnection;
   LResponseObj: TCrossHttpClientResponse;
 begin
+  _Log('%d LogicDisconnected', [AConnection.UID]);
+
   LConn := AConnection as ICrossHttpClientConnection;
   LConnObj := LConn as TCrossHttpClientConnection;
 
@@ -2515,11 +2539,11 @@ procedure TCrossHttpClient._ProcTimeout;
 
       for LConn in LConns.Values do
       begin
+        LHttpConn := LConn as ICrossHttpClientConnection;
+        LHttpConnObj := LHttpConn as TCrossHttpClientConnection;
+
         if not LConn.IsClosed then
         begin
-          LHttpConn := LConn as ICrossHttpClientConnection;
-          LHttpConnObj := LHttpConn as TCrossHttpClientConnection;
-
           if LHttpConnObj._IsTimeout then
             LTimeoutArr := LTimeoutArr + [LHttpConn]
           else if LHttpConnObj._IsIdleout then
@@ -2556,7 +2580,7 @@ procedure TCrossHttpClient._ProcTimeout;
 
     if (LFirstIdleConn <> nil) then
     begin
-      _Log('first idle conn [%d] idle watch: %d ms / start-time: %s', [
+      _Log('first idle conn [%u] idle watch: %d ms / start-time: %s', [
         LFirstIdleConn.UID,
         LFirstIdleConn.FWatch.ElapsedMilliseconds,
         FormatDateTime('hh":"nn":"ss.zzz', LFirstIdleConn.FWatch.LastTime)
@@ -2822,6 +2846,7 @@ begin
 
   if (LHttpConn <> nil) then
   begin
+    // _Log('%s, 找到空闲连接[%d]', [ARequestPack.Url, LHttpConn.UID]);
     LHttpConnObj := LHttpConn as TCrossHttpClientConnection;
     LHttpConnObj.DoRequest(ARequestPack, LNewCallback);
 
@@ -2843,6 +2868,7 @@ begin
         begin
           if ASuccess then
           begin
+            // _Log('%s, 已建立新连接[%d]', [ARequestPack.Url, AConnection.UID]);
             // 连接成功之后才增加连接数
             // 这样的好处是, 并发请求能尽快处理,
             //   当要请求的服务器不可用时, 多个并发能快速连接失败, 否则并发请求越多后面的请求等待的时间就会越长
@@ -2876,6 +2902,7 @@ begin
     // 将请求放入队列
     PushRequest(ARequestPack);
     LNewCallback := nil;
+    // _Log('%s, 没有可用连接, 已将请求放入队列', [ARequestPack.Url]);
   finally
     _UnlockQueue;
   end;
