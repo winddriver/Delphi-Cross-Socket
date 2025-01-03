@@ -41,7 +41,6 @@ uses
   Net.SocketAPI,
   Net.CrossSocket.Base,
 
-  Utils.Logger,
   Utils.SyncObjs;
 
 type
@@ -50,6 +49,7 @@ type
 
   TEpollListen = class(TCrossListenBase)
   private
+    FEpollHandle: Integer;
     FIoEvents: TIoEvents;
     FOpCode: Integer;
 
@@ -74,13 +74,24 @@ type
 
   TEpollConnection = class(TCrossConnectionBase)
   private
+    FEpollHandle: Integer;
     FSendQueue: TSendQueue;
     FIoEvents: TIoEvents;
+    FEpLock: ILock;
     FOpCode: Integer;
 
     function _ReadEnabled: Boolean; inline;
     function _WriteEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
+
+    procedure _ClearSendQueue;
+
+    // 为了减少死锁的可能, 不使用父类的 _Lock/_Unlock
+    // 因为父类的 _Lock/_Unlock 主要用于连接事件和接收数据事件
+    // 这里的 _EpLock/_EpUnlock 主要用于发送队列和Epoll事件
+    // 在接收完数据之后马上发送数据, 如果使用同一把锁可能会引起死锁
+    procedure _EpLock; inline;
+    procedure _EpUnlock; inline;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
@@ -162,8 +173,6 @@ type
 
 implementation
 
-{$I Net.Posix.inc}
-
 { create a file descriptor for event notification }
 {$IFDEF DELPHI}
 function eventfd(initval: Cardinal; flags: Integer): Integer; cdecl;
@@ -183,6 +192,7 @@ begin
   inherited;
 
   FOpCode := EPOLL_CTL_ADD;
+  FEpollHandle := TEpollCrossSocket(Owner).FEpollHandle;
 end;
 
 function TEpollListen._ReadEnabled: Boolean;
@@ -192,14 +202,11 @@ end;
 
 function TEpollListen._UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
 var
-  LOwner: TEpollCrossSocket;
   LEvent: TEPoll_Event;
 begin
   FIoEvents := AIoEvents;
 
   if (FIoEvents = []) or IsClosed then Exit(False);
-
-  LOwner := TEpollCrossSocket(Owner);
 
   LEvent.Events := EPOLLET or EPOLLONESHOT;
   LEvent.Data.u64 := Self.UID;
@@ -207,13 +214,11 @@ begin
   if _ReadEnabled then
     LEvent.Events := LEvent.Events or EPOLLIN;
 
-  Result := (epoll_ctl(LOwner.FEpollHandle, FOpCode, Socket, @LEvent) >= 0);
+  Result := (epoll_ctl(FEpollHandle, FOpCode, Socket, @LEvent) >= 0);
   FOpCode := EPOLL_CTL_MOD;
 
-  {$IFDEF DEBUG}
   if not Result then
-    _Log('listen %d epoll_ctl error %d', [UID, GetLastError]);
-  {$ENDIF}
+    _LogLastOsError('listen epoll_ctl, %s', [Self.DebugInfo]);
 end;
 
 { TSendQueue }
@@ -241,19 +246,46 @@ constructor TEpollConnection.Create(const AOwner: TCrossSocketBase;
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 
+  FEpLock := TLock.Create;
   FSendQueue := TSendQueue.Create;
 
+  FEpollHandle := TEpollCrossSocket(Owner).FEpollHandle;
   FOpCode := EPOLL_CTL_ADD;
 end;
 
 destructor TEpollConnection.Destroy;
+begin
+  _ClearSendQueue;
+
+  FreeAndNil(FSendQueue);
+
+  inherited;
+end;
+
+procedure TEpollConnection.Close;
+begin
+  _EpLock;
+  try
+    if (GetConnectStatus = csClosed) then Exit;
+
+    _ClearSendQueue;
+
+    epoll_ctl(FEpollHandle, EPOLL_CTL_DEL, Socket, nil);
+
+    inherited Close;
+  finally
+    _EpUnlock;
+  end;
+end;
+
+procedure TEpollConnection._ClearSendQueue;
 var
   LConnection: ICrossConnection;
   LSendItem: PSendItem;
 begin
   LConnection := Self;
 
-  _Lock;
+  _EpLock;
   try
     // 连接释放时, 调用所有发送队列的回调, 告知发送失败
     if (FSendQueue.Count > 0) then
@@ -264,23 +296,19 @@ begin
 
       FSendQueue.Clear;
     end;
-
-    FreeAndNil(FSendQueue);
   finally
-    _Unlock;
+    _EpUnlock;
   end;
-
-  inherited;
 end;
 
-procedure TEpollConnection.Close;
-var
-  LOwner: TEpollCrossSocket;
+procedure TEpollConnection._EpLock;
 begin
-  LOwner := TEpollCrossSocket(Owner);
-  epoll_ctl(LOwner.FEpollHandle, EPOLL_CTL_DEL, Socket, nil);
+  FEpLock.Enter;
+end;
 
-  inherited Close;
+procedure TEpollConnection._EpUnlock;
+begin
+  FEpLock.Leave;
 end;
 
 function TEpollConnection._ReadEnabled: Boolean;
@@ -290,14 +318,11 @@ end;
 
 function TEpollConnection._UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
 var
-  LOwner: TEpollCrossSocket;
   LEvent: TEPoll_Event;
 begin
   FIoEvents := AIoEvents;
 
   if (FIoEvents = []) or IsClosed then Exit(False);
-
-  LOwner := TEpollCrossSocket(Owner);
 
   LEvent.Events := EPOLLET or EPOLLONESHOT or EPOLLERR or EPOLLHUP;
   LEvent.Data.u64 := Self.UID;
@@ -308,15 +333,13 @@ begin
   if _WriteEnabled then
     LEvent.Events := LEvent.Events or EPOLLOUT;
 
-  Result := (epoll_ctl(LOwner.FEpollHandle, FOpCode, Socket, @LEvent) >= 0);
+  Result := (epoll_ctl(FEpollHandle, FOpCode, Socket, @LEvent) >= 0);
   FOpCode := EPOLL_CTL_MOD;
 
   if not Result then
   begin
-    {$IFDEF DEBUG}
-    _Log('connection %.16x epoll_ctl socket=%d events=0x%.8x error %d',
-      [UID, LEvent.Events, Socket, GetLastError]);
-    {$ENDIF}
+    _LogLastOsError('connection epoll_ctl, %s, events=0x%.8x',
+      [Self.DebugInfo, LEvent.Events]);
     Close;
   end;
 end;
@@ -374,6 +397,9 @@ begin
     begin
       LError := GetLastError;
 
+      if (LError = EAGAIN) or (LError = EWOULDBLOCK) then
+      begin
+      end else
       // 当句柄用完了的时候, 释放事先占用的临时句柄
       // 然后再次 accept, 然后将 accept 的句柄关掉
       // 这样可以保证在文件句柄耗尽的时候依然能响应连接请求
@@ -389,7 +415,8 @@ begin
         finally
           FIdleLock.Leave;
         end;
-      end;
+      end else
+        _LogLastOsError('Accept');
 
       Break;
     end;
@@ -404,11 +431,11 @@ begin
 
     // 连接建立后监视Socket的读事件
     LEpConnection := LConnection as TEpollConnection;
-    LEpConnection._Lock;
+    LEpConnection._EpLock;
     try
       LSuccess := LEpConnection._UpdateIoEvent([ieRead]);
     finally
-      LEpConnection._Unlock;
+      LEpConnection._EpUnlock;
     end;
 
     if not LSuccess then
@@ -449,9 +476,9 @@ begin
     // 对方主动断开连接
     if (LRcvd = 0) then
     begin
-//      _Log('connection=%.16x socket=%d read 0', [LConnection.UID, LConnection.Socket]);
+      _Log('Recv=0(Close), %s', [LConnection.DebugInfo]);
       LConnection.Close;
-      Exit;
+      Break;
     end;
 
     if (LRcvd < 0) then
@@ -467,9 +494,10 @@ begin
       else
       // 接收出错
       begin
-//        _Log('connection=%.16x socket=%d read error %d', [LConnection.UID, LConnection.Socket, GetLastError]);
+        _LogLastOsError('Recv<0, %s', [LConnection.DebugInfo]);
+
         LConnection.Close;
-        Exit;
+        Break;
       end;
     end;
 
@@ -484,68 +512,75 @@ var
   LConnection: ICrossConnection;
   LEpConnection: TEpollConnection;
   LSendItem: PSendItem;
-  LCallback: TCrossConnectionCallback;
-  LSent: Integer;
+  LSent, LError: Integer;
 begin
   LConnection := AConnection;
   LEpConnection := LConnection as TEpollConnection;
 
-  LEpConnection._Lock;
+  LEpConnection._EpLock;
+  try
+    while True do
+    begin
+      // 检查队列中有没有数据
+      if (LEpConnection.FSendQueue.Count <= 0) then Break;
 
-  // 队列中没有数据了, 清除 ioWrite 标志
-  if (LEpConnection.FSendQueue.Count <= 0) then
-  begin
-    LEpConnection._UpdateIoEvent([]);
-    LEpConnection._Unlock;
-    Exit;
+      // 获取Socket发送队列中的第一条数据
+      LSendItem := LEpConnection.FSendQueue.Items[0];
+
+      // 发送数据
+      LSent := TSocketAPI.Send(LConnection.Socket, LSendItem.Data^, LSendItem.Size, MSG_NOSIGNAL);
+
+      // 对方主动断开连接
+      if (LSent = 0) then
+      begin
+        _Log('Send=0(close), %s', [LConnection.DebugInfo]);
+
+        LConnection.Close;
+        Break;
+      end;
+
+      // 连接断开或发送错误
+      if (LSent < 0) then
+      begin
+        LError := GetLastError;
+
+        // 被系统信号中断, 可以重新send
+        if (LError = EINTR) then
+          Continue
+        // 发送缓冲区已被填满了, 需要等下次唤醒发送线程再继续发送
+        else if (LError = EAGAIN) or (LError = EWOULDBLOCK) then
+          Break
+        // 发送出错
+        else
+        begin
+          _LogLastOsError('Send<0, %s', [LConnection.DebugInfo]);
+
+          LConnection.Close;
+          Break;
+        end;
+      end;
+
+      // 全部发送完成
+      if (LSent >= LSendItem.Size) then
+      begin
+        // 调用回调
+        if Assigned(LSendItem.Callback) then
+          LSendItem.Callback(LConnection, True);
+
+        // 发送成功, 移除已发送成功的数据
+        if (LEpConnection.FSendQueue.Count > 0) then
+          LEpConnection.FSendQueue.Delete(0);
+      end else
+      begin
+        // 部分发送成功, 在下一次唤醒发送线程时继续处理剩余部分
+        Dec(LSendItem.Size, LSent);
+        Inc(LSendItem.Data, LSent);
+      end;
+    end;
+  finally
+    LEpConnection._EpUnlock;
   end;
-
-  // 获取Socket发送队列中的第一条数据
-  LSendItem := LEpConnection.FSendQueue.Items[0];
-
-  // 发送数据
-  LSent := PosixSend(LConnection.Socket, LSendItem.Data, LSendItem.Size);
-
-  {$region '全部发送完成'}
-  if (LSent >= LSendItem.Size) then
-  begin
-    // 先保存回调函数, 避免后面删除队列后将其释放
-    LCallback := LSendItem.Callback;
-
-    // 发送成功, 移除已发送成功的数据
-    if (LEpConnection.FSendQueue.Count > 0) then
-      LEpConnection.FSendQueue.Delete(0);
-
-    // 队列中没有数据了, 清除 ioWrite 标志
-    if (LEpConnection.FSendQueue.Count <= 0) then
-      LEpConnection._UpdateIoEvent([]);
-
-    LEpConnection._Unlock;
-
-    if Assigned(LCallback) then
-      LCallback(LConnection, True);
-
-    Exit;
-  end;
-  {$endregion}
-
-  {$region '连接断开或发送错误'}
-  // 发送失败的回调会在连接对象的destroy方法中被调用
-  if (LSent < 0) then
-  begin
-    LEpConnection._Unlock;
-    Exit;
-  end;
-  {$endregion}
-
-  {$region '部分发送成功,在下一次唤醒发送线程时继续处理剩余部分'}
-  Dec(LSendItem.Size, LSent);
-  Inc(LSendItem.Data, LSent);
-  {$endregion}
-
-  LEpConnection._Unlock;
 end;
-
 
 procedure TEpollCrossSocket._OpenIdleHandle;
 begin
@@ -643,21 +678,22 @@ procedure TEpollCrossSocket.Connect(const AHost: string; const APort: Word;
       TriggerConnecting(LConnection);
       LEpConnection := LConnection as TEpollConnection;
 
-      LEpConnection._Lock;
+      LEpConnection._EpLock;
       try
         LEpConnection.ConnectStatus := csConnecting;
         if not LEpConnection._UpdateIoEvent([ieWrite]) then
         begin
           if Assigned(ACallback) then
             ACallback(LConnection, False);
-          LConnection.Close;
           Exit(False);
         end;
       finally
-        LEpConnection._Unlock;
+        LEpConnection._EpUnlock;
       end;
     end else
     begin
+      _LogLastOsError('Connect');
+
       if Assigned(ACallback) then
         ACallback(nil, False);
       TSocketAPI.CloseSocket(ASocket);
@@ -691,6 +727,8 @@ begin
         LAddrInfo.ai_protocol);
       if (LSocket = INVALID_SOCKET) then
       begin
+        _LogLastOsError('NewSocket');
+
         _Failed1;
         Exit;
       end;
@@ -730,17 +768,19 @@ var
   LListenSocket: TSocket;
   LListen: ICrossListen;
   LEpListen: TEpollListen;
-  LSuccess: Boolean;
+  LListenSuccess, LUpdateIoEventSuccess: Boolean;
 
   procedure _Failed;
   begin
-    if Assigned(ACallback) then
+    _LogLastOsError('Listen');
+
+    if not LListenSuccess and Assigned(ACallback) then
       ACallback(nil, False);
   end;
 
 begin
+  LListenSuccess := False;
   FillChar(LHints, SizeOf(TRawAddrInfo), 0);
-
   LHints.ai_flags := AI_PASSIVE;
   LHints.ai_family := AF_UNSPEC;
   LHints.ai_socktype := SOCK_STREAM;
@@ -785,19 +825,19 @@ begin
       // 读事件到达表明有新连接
       LEpListen._Lock;
       try
-        LSuccess := LEpListen._UpdateIoEvent([ieRead]);
+        LUpdateIoEventSuccess := LEpListen._UpdateIoEvent([ieRead]);
       finally
         LEpListen._Unlock;
       end;
 
-      if not LSuccess then
+      if not LUpdateIoEventSuccess then
       begin
         _Failed;
-
         Exit;
       end;
 
       // 监听成功
+      LListenSuccess := True;
       TriggerListened(LListen);
       if Assigned(ACallback) then
         ACallback(LListen, True);
@@ -822,7 +862,6 @@ begin
   // 测试过先发送, 然后将剩余部分放入发送队列的做法
   // 发现会引起内存访问异常, 放到队列里到IO线程中发送则不会有问题
   {$region '放入发送队列'}
-//  GetMem(LSendItem, SizeOf(TSendItem));
   System.New(LSendItem);
   FillChar(LSendItem^, SizeOf(TSendItem), 0);
   LSendItem.Data := ABuf;
@@ -831,7 +870,7 @@ begin
 
   LEpConnection := AConnection as TEpollConnection;
 
-  LEpConnection._Lock;
+  LEpConnection._Eplock;
   try
     // 将数据放入队列
     LEpConnection.FSendQueue.Add(LSendItem);
@@ -841,7 +880,7 @@ begin
     if not LEpConnection._WriteEnabled then
       LEpConnection._UpdateIoEvent([ieRead, ieWrite]);
   finally
-    LEpConnection._Unlock;
+    LEpConnection._EpUnlock;
   end;
   {$endregion}
 end;
@@ -865,6 +904,7 @@ begin
   LRet := epoll_wait(FEpollHandle, @FEventList[0], MAX_EVENT_COUNT, -1);
   if (LRet < 0) then
   begin
+    _LogLastOsError('epoll_wait');
     LRet := GetLastError;
     // EINTR, epoll_wait 调用被系统信号打断, 可以进行重试
     Exit(LRet = EINTR);
@@ -891,7 +931,8 @@ begin
         begin
           LListens := LockListens;
           try
-            if not LListens.TryGetValue(LCrossUID, LListen) then
+            if not LListens.TryGetValue(LCrossUID, LListen)
+              or (LListen = nil) then
               Continue;
           finally
             UnlockListens;
@@ -932,9 +973,11 @@ begin
       if (LEvent.Events and EPOLLERR <> 0)
         or (LEvent.Events and EPOLLHUP <> 0) then
       begin
-        {$IFDEF DEBUG}
-        _Log('epoll conn [%d] closed', [LConnection.UID]);
-        {$ENDIF}
+        _Log('epoll_wait, %s, EPOLLERR=%d, EPOLLHUP=%d', [
+          LConnection.DebugInfo,
+          LEvent.Events and EPOLLERR,
+          LEvent.Events and EPOLLHUP
+        ]);
         LConnection.Close;
         Continue;
       end;
@@ -956,7 +999,7 @@ begin
       if not LConnection.IsClosed then
       begin
         LEpConnection := LConnection as TEpollConnection;
-        LEpConnection._Lock;
+        LEpConnection._EpLock;
         try
           if (LEpConnection.FSendQueue.Count > 0) then
             LIoEvents := [ieRead, ieWrite]
@@ -964,11 +1007,8 @@ begin
             LIoEvents := [ieRead];
           LSuccess := LEpConnection._UpdateIoEvent(LIoEvents);
         finally
-          LEpConnection._Unlock;
+          LEpConnection._EpUnlock;
         end;
-
-        if not LSuccess then
-          LConnection.Close;
       end;
     end;
     {$endregion}

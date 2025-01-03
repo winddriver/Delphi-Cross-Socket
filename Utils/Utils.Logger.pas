@@ -271,7 +271,7 @@ var
   LLastTime: TDateTime;
   I: Integer;
   LLogItem: TLogItem;
-  LBuffer: TBytesStream;
+  LBuffer: TMemoryStream;
 
   procedure _WriteLogToBuffer(const ALogItem: TLogItem);
   var
@@ -288,15 +288,13 @@ var
   procedure _WriteBufferToFile(const ALogFile: string);
   var
     LStream: TFileStream;
-    LBytes: TBytes;
   begin
     try
       LStream := TFileUtils.OpenWrite(ALogFile);
       try
         LStream.Seek(0, TSeekOrigin.soEnd);
-        LBytes := LBuffer.Bytes;
-        SetLength(LBytes, LBuffer.Size);
-        LStream.Write(LBytes, Length(LBytes));
+        LStream.Write(LBuffer.Memory^, LBuffer.Size);
+        LBuffer.Clear;
       finally
         FreeAndNil(LStream);
       end;
@@ -312,7 +310,7 @@ begin
     LLogDir := GetLogDir;
     ForceDirectories(LLogDir);
 
-    LBuffer := TBytesStream.Create(nil);
+    LBuffer := TMemoryStream.Create;
     try
       for I := 0 to FBuffer[ALogType].Count - 1 do
       begin
@@ -325,7 +323,6 @@ begin
           LLastTime := LLogItem.Time;
           LLogFile := LLogDir + GetLogFileName(ALogType, LLogItem.Time);
           _WriteBufferToFile(LLogFile);
-          LBuffer.Clear;
         end;
       end;
       FBuffer[ALogType].Clear;

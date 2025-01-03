@@ -52,6 +52,8 @@ uses
   SysUtils,
   Classes,
 
+  Net.CrossSocket.Base,
+
   Utils.Hash,
   Utils.Base64,
   Utils.Utils;
@@ -72,6 +74,7 @@ type
 
   TWsOnCommand = reference to procedure(const AOpCode: Byte; const AData: TBytes);
   TWsOnMessage = reference to procedure(const AType: TWsMessageType; const AData: TBytes);
+  TWsOnFailed = reference to procedure;
 
   TCrossWebSocketParser = class
   private
@@ -88,14 +91,19 @@ type
 
     FOnCommand: TWsOnCommand;
     FOnMessage: TWsOnMessage;
+    FWsOnFailed: TWsOnFailed;
 
     procedure _ResetFrameHeader;
     procedure _ResetRequest;
   protected
     procedure TriggerCommand(const AOpCode: Byte; const AData: TBytes);
     procedure TriggerMessage(const AType: TWsMessageType; const AData: TBytes);
+    procedure TriggerFailed;
+    function IsValidOpCode(const AOpCode: Byte): Boolean; virtual;
+    function IsValidBodySize(const ABodySize: UInt64): Boolean; virtual;
   public
-    constructor Create(const AOnCommand: TWsOnCommand; const AOnMessage: TWsOnMessage);
+    constructor Create(const AOnCommand: TWsOnCommand;
+      const AOnMessage: TWsOnMessage; const AWsOnFailed: TWsOnFailed);
     destructor Destroy; override;
 
     procedure Decode(var ABuf: Pointer; var ALen: Integer);
@@ -112,10 +120,11 @@ implementation
 { TCrossWebSocketParser }
 
 constructor TCrossWebSocketParser.Create(const AOnCommand: TWsOnCommand;
-  const AOnMessage: TWsOnMessage);
+  const AOnMessage: TWsOnMessage; const AWsOnFailed: TWsOnFailed);
 begin
   FOnCommand := AOnCommand;
   FOnMessage := AOnMessage;
+  FWsOnFailed := AWsOnFailed;
 
   FWsFrameHeader := TMemoryStream.Create;
   FWsMessageBody := TMemoryStream.Create;
@@ -130,13 +139,32 @@ begin
   inherited;
 end;
 
+function TCrossWebSocketParser.IsValidBodySize(
+  const ABodySize: UInt64): Boolean;
+begin
+  Result := (ABodySize < High(Cardinal));
+end;
+
+function TCrossWebSocketParser.IsValidOpCode(const AOpCode: Byte): Boolean;
+begin
+  case AOpCode of
+    WS_OP_CONTINUATION, WS_OP_TEXT, WS_OP_BINARY, WS_OP_CLOSE, WS_OP_PING, WS_OP_PONG:
+      Result := True;
+  else
+    Result := False;
+  end;
+end;
+
 procedure TCrossWebSocketParser.Decode(var ABuf: Pointer; var ALen: Integer);
 var
   PBuf, PHeader: PByte;
   LByte: Byte;
   LMessageData: TBytes;
+  LPreLen: Integer;
 begin
   PBuf := ABuf;
+
+  LPreLen := ALen;
 
   while (ALen > 0) do
   begin
@@ -180,6 +208,13 @@ begin
                 Inc(FWsHeaderSize, 4);
                 FWsMaskKeyShift := 0;
               end;
+
+              if not IsValidOpCode(FWsOpCode) then
+              begin
+                _Log('websocket decode, invalid opcode[%d]', [FWsOpCode]);
+                TriggerFailed;
+                Break;
+              end;
             end;
 
             if (FWsFrameHeader.Size = FWsHeaderSize) then
@@ -203,6 +238,13 @@ begin
                   + UInt64(PHeader[3]) shl 48
                   + UInt64(PHeader[2]) shl 56
                   ;
+
+              if not IsValidBodySize(FWsBodySize) then
+              begin
+                _Log('websocket decode, invalid bodysize[%u]', [FWsBodySize]);
+                TriggerFailed;
+                Break;
+              end;
 
               // 接收完一帧
               if (FWsBodySize <= 0) then
@@ -373,6 +415,12 @@ procedure TCrossWebSocketParser.TriggerCommand(const AOpCode: Byte;
 begin
   if Assigned(FOnCommand) then
     FOnCommand(AOpCode, AData);
+end;
+
+procedure TCrossWebSocketParser.TriggerFailed;
+begin
+  if Assigned(FWsOnFailed) then
+    FWsOnFailed();
 end;
 
 procedure TCrossWebSocketParser.TriggerMessage(const AType: TWsMessageType;

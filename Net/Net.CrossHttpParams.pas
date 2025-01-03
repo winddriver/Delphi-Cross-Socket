@@ -1840,7 +1840,7 @@ end;
 function THttpMultiPartFormData.Decode(
   const AStream: TStream): TFormDataDecodeResult;
 const
-  BUF_SIZE = 1024;
+  BUF_SIZE = 1024 * 32;
 var
   LBuffer: array [0..BUF_SIZE - 1] of Byte;
   N: Integer;

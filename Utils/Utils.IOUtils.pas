@@ -7,6 +7,7 @@ interface
 uses
   SysUtils,
   Classes,
+  RtlConsts,
   Masks,
   {$IFDEF MSWINDOWS}
   Windows,
@@ -29,6 +30,7 @@ uses
 
   {$IFDEF FPC}
   DTF.RTL,
+  bufstream,
   {$ENDIF}
 
   Utils.DateTime,
@@ -36,7 +38,42 @@ uses
   Utils.Utils;
 
 type
-  { TFileUtils }
+  /// <summary>
+  ///    Adapted from delphi rtl source code
+  ///    TFastFileStream adds buffering to the TFileStream. This optimizes
+  ///    multiple consecutive small writes or reads. TFastFileStream will
+  ///    not give performance gain, when there are random position reads or
+  ///    writes, or large reads or writes. TFastFileStream may be used
+  ///    as a drop in replacement for TFileStream.
+  /// </summary>
+  TFastFileStream = class(TFileStream)
+  private
+    FFilePos, FBufStartPos, FBufEndPos: Int64;
+    FBuffer: PByte;
+    FBufferSize: Integer;
+    FModified: Boolean;
+    FBuffered: Boolean;
+  protected
+    procedure SetSize(const ANewSize: Int64); override;
+    /// <summary>
+    ///    SyncBuffer writes buffered and not yet written data to the file.
+    ///    When ReRead is True, then buffer will be repopulated from the file.
+    ///    When ReRead is False, then buffer will be emptied, so next read or
+    ///    write operation will repopulate buffer.
+    /// </summary>
+    procedure SyncBuffer(AReRead: Boolean);
+  public
+    constructor Create(const AFileName: string; AMode: Word; ABufferSize: Integer = 32768); overload;
+    constructor Create(const AFileName: string; AMode: Word; ARights: Cardinal; ABufferSize: Integer = 32768); overload;
+    destructor Destroy; override;
+    /// <summary>
+    ///    FlushBuffer writes buffered and not yet written data to the file.
+    /// </summary>
+    procedure FlushBuffer; inline;
+    function Read(var ABuffer; ACount: Longint): Longint; override;
+    function Write(const ABuffer; ACount: Longint): Longint; override;
+    function Seek(const AOffset: Int64; AOrigin: TSeekOrigin): Int64; override;
+  end;
 
   TFileUtils = class
   private
@@ -49,6 +86,7 @@ type
     class function OpenCreate(const AFileName: string): TFileStream; static;
     class function OpenRead(const AFileName: string): TFileStream; static;
     class function OpenWrite(const AFileName: string): TFileStream; static;
+    class function CreateTempFile(const ATempPath: string = ''): TFileStream; static;
 
     class function ReadAllBytes(const AFileName: string): TBytes; static;
     class function ReadAllText(const AFileName: string; const AEncoding: TEncoding = nil): string; static;
@@ -61,6 +99,8 @@ type
 
     class procedure AppendAllText(const AFileName, AContents: string;
       const AEncoding: TEncoding = nil); static;
+
+    class function GetSize(const AFileName: string): Int64; static;
 
     class function GetDateTimeInfo(const APath: string; out ACreationTime,
         ALastAccessTime, ALastWriteTime: TDateTime): Boolean; static;
@@ -170,7 +210,7 @@ type
     class function MatchesPattern(const AFileName, APattern: string): Boolean; static;
   end;
 
-  TTempFileStream = class(TFileStream)
+  TTempFileStream = class(TFastFileStream)
   private
     FTempFileName: string;
   public
@@ -191,6 +231,183 @@ implementation
 function GetLogicalDriveStrings(nBufferLength: DWORD; lpBuffer: LPWSTR): DWORD; stdcall;
   external 'kernel32' name 'GetLogicalDriveStringsW';
 {$ENDIF}
+
+{ TFastFileStream }
+
+constructor TFastFileStream.Create(const AFileName: string; AMode: Word;
+  ABufferSize: Integer);
+begin
+{$IF Defined(MSWINDOWS)}
+  Create(AFilename, AMode, 0, ABufferSize);
+{$ELSEIF Defined(POSIX)}
+  Create(AFilename, AMode,
+    S_IRUSR or S_IWUSR or S_IRGRP or S_IWGRP or S_IROTH or S_IWOTH,
+    ABufferSize);
+{$ENDIF POSIX}
+end;
+
+constructor TFastFileStream.Create(const AFileName: string; AMode: Word;
+  ARights: Cardinal; ABufferSize: Integer);
+begin
+  inherited Create(AFileName, AMode, ARights);
+  FBufferSize := ABufferSize;
+  GetMem(FBuffer, FBufferSize);
+  FBuffered := True;
+  SyncBuffer(True);
+end;
+
+destructor TFastFileStream.Destroy;
+begin
+  SyncBuffer(False);
+  FreeMem(FBuffer, FBufferSize);
+  inherited Destroy;
+end;
+
+procedure TFastFileStream.SyncBuffer(AReRead: boolean);
+var
+  LLen: Longint;
+begin
+  if FModified then
+  begin
+    if inherited Seek(FBufStartPos, soBeginning) <> FBufStartPos then
+      raise EWriteError.Create(SWriteError);
+    LLen := Longint(FBufEndPos - FBufStartPos);
+    if inherited Write(FBuffer^, LLen) <> LLen then
+      raise EWriteError.Create(SWriteError);
+    FModified := False;
+  end;
+  if AReRead then
+  begin
+    FBufStartPos := inherited Seek(FFilePos, soBeginning);
+    FBufEndPos := FBufStartPos + inherited Read(FBuffer^, FBufferSize);
+  end
+  else
+  begin
+    inherited Seek(FFilePos, soBeginning);
+    FBufEndPos := FBufStartPos;
+  end;
+end;
+
+procedure TFastFileStream.FlushBuffer;
+begin
+  SyncBuffer(False);
+end;
+
+function TFastFileStream.Read(var ABuffer; ACount: Longint): Longint;
+var
+  PSrc: PByte;
+begin
+  if ACount >= FBufferSize then
+  begin
+    SyncBuffer(False);
+    Result := inherited Read(ABuffer, ACount)
+  end
+  else
+  begin
+    if (FBufStartPos > FFilePos) or (FFilePos + ACount > FBufEndPos) then
+      SyncBuffer(True);
+    if ACount < FBufEndPos - FFilePos then
+      Result := ACount
+    else
+      Result := FBufEndPos - FFilePos;
+    PSrc := FBuffer + (FFilePos - FBufStartPos);
+{$IF DEFINED(CPUARM32)}
+    Move(PSrc^, ABuffer, Result);
+{$ELSE}
+    case Result of
+      SizeOf(Byte):
+        PByte(@ABuffer)^ := PByte(PSrc)^;
+      SizeOf(Word):
+        PWord(@ABuffer)^ := PWord(PSrc)^;
+      SizeOf(Cardinal):
+        PCardinal(@ABuffer)^ := PCardinal(PSrc)^;
+      SizeOf(UInt64):
+        PUInt64(@ABuffer)^ := PUInt64(PSrc)^;
+    else
+      Move(PSrc^, ABuffer, Result);
+    end;
+{$ENDIF}
+  end;
+  FFilePos := FFilePos + Result;
+end;
+
+function TFastFileStream.Write(const ABuffer; ACount: Longint): Longint;
+var
+  PDest: PByte;
+begin
+  if ACount >= FBufferSize then
+  begin
+    SyncBuffer(False);
+    Result := inherited Write(ABuffer, ACount);
+    FFilePos := FFilePos + Result;
+  end
+  else
+  begin
+    if (FBufStartPos > FFilePos) or (FFilePos + ACount > FBufStartPos + FBufferSize) then
+      SyncBuffer(True);
+    Result := ACount;
+    PDest := FBuffer + (FFilePos - FBufStartPos);
+{$IF DEFINED(CPUARM32)}
+    Move(ABuffer, PDest^, Result);
+{$ELSE}
+    case Result of
+      SizeOf(Byte):
+        PByte(PDest)^ := PByte(@ABuffer)^;
+      SizeOf(Word):
+        PWord(PDest)^ := PWord(@ABuffer)^;
+      SizeOf(Cardinal):
+        PCardinal(PDest)^ := PCardinal(@ABuffer)^;
+      SizeOf(UInt64):
+        PUInt64(PDest)^ := PUInt64(@ABuffer)^;
+    else
+      Move(ABuffer, PDest^, Result);
+    end;
+{$ENDIF}
+    FModified := True;
+    FFilePos := FFilePos + Result;
+    if FFilePos > FBufEndPos then
+      FBufEndPos := FFilePos;
+  end;
+end;
+
+function TFastFileStream.Seek(const AOffset: Int64; AOrigin: TSeekOrigin): Int64;
+begin
+  if not FBuffered then
+    FFilePos := inherited Seek(AOffset, AOrigin)
+  else
+    case AOrigin of
+      soBeginning:
+        begin
+          if (AOffset < FBufStartPos) or (AOffset > FBufEndPos) then
+            SyncBuffer(False);
+          FFilePos := AOffset;
+        end;
+      soCurrent:
+        begin
+          if (FFilePos + AOffset < FBufStartPos) or (FFilePos + AOffset > FBufEndPos) then
+            SyncBuffer(False);
+          FFilePos := FFilePos + AOffset;
+        end;
+      soEnd:
+        begin
+          SyncBuffer(False);
+          FFilePos := inherited Seek(AOffset, soEnd);
+        end;
+    end;
+  Result := FFilePos;
+end;
+
+procedure TFastFileStream.SetSize(const ANewSize: Int64);
+begin
+  if ANewSize < FBufEndPos then
+    SyncBuffer(False);
+  FBuffered := False;
+  try
+    inherited SetSize(ANewSize);
+  finally
+    FBuffered := True;
+  end;
+end;
 
 { TFileUtils }
 
@@ -229,6 +446,11 @@ begin
   end;
 
   Result := True;
+end;
+
+class function TFileUtils.CreateTempFile(const ATempPath: string): TFileStream;
+begin
+  Result := TTempFileStream.Create(ATempPath);
 end;
 
 class function TFileUtils.Delete(const AFileName: string): Boolean;
@@ -281,6 +503,18 @@ begin
   GetDateTimeInfo(APath, LTemp1, LTemp2, Result);
 end;
 
+class function TFileUtils.GetSize(const AFileName: string): Int64;
+var
+  LTempStream: TStream;
+begin
+  LTempStream := OpenRead(AFileName);
+  try
+    Result := LTempStream.Size;
+  finally
+    FreeAndNil(LTempStream);
+  end;
+end;
+
 class function TFileUtils.Move(const ASrcFileName,
   ADstFileName: string): Boolean;
 var
@@ -302,22 +536,22 @@ class function TFileUtils.OpenCreate(const AFileName: string): TFileStream;
 begin
   if not FileExists(AFileName) then
     TDirectoryUtils.CreateDirectory(ExtractFilePath(AFileName));
-  Result := TFileStream.Create(AFileName, fmCreate or fmShareDenyWrite);
+  Result := TFastFileStream.Create(AFileName, fmCreate or fmShareDenyWrite);
 end;
 
 class function TFileUtils.OpenRead(const AFileName: string): TFileStream;
 begin
-  Result := TFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
+  Result := TFastFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
 end;
 
 class function TFileUtils.OpenWrite(const AFileName: string): TFileStream;
 begin
   if FileExists(AFileName) then
-    Result := TFileStream.Create(AFileName, fmOpenReadWrite or fmShareDenyWrite)
+    Result := TFastFileStream.Create(AFileName, fmOpenReadWrite or fmShareDenyWrite)
   else
   begin
     TDirectoryUtils.CreateDirectory(ExtractFilePath(AFileName));
-    Result := TFileStream.Create(AFileName, fmCreate or fmShareDenyWrite);
+    Result := TFastFileStream.Create(AFileName, fmCreate or fmShareDenyWrite);
   end;
 end;
 
@@ -496,8 +730,6 @@ begin
   LFileStream := nil;
   try
     LFileStream := OpenCreate(AFileName);
-    LFileStream.Size := Length(ABytes);
-    LFileStream.Seek(0, TSeekOrigin.soBeginning);
     LFileStream.WriteBuffer(ABytes, Length(ABytes));
   finally
     FreeAndNil(LFileStream);
@@ -555,7 +787,7 @@ begin
   else
     LEncoding := TEncoding.UTF8;
 
-  LFileStream := OpenCreate(AFileName);
+  LFileStream := OpenWrite(AFileName);
   try
     LFileStream.Seek(0, soEnd);
     LBytes := LEncoding.GetBytes(AContents);

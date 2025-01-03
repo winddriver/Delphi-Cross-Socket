@@ -454,6 +454,11 @@ begin
       LConnection := Self;
       LWsServer := Owner as TCrossWebSocketServer;
       LWsServer._OnMessage(LConnection, AType, AData);
+    end,
+
+    procedure
+    begin
+      Self.Close;
     end);
 end;
 

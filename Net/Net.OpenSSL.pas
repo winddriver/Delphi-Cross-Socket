@@ -107,8 +107,6 @@ const
       {$ENDIF}
     {$ENDIF};
 
-  _PU = '';
-
   SSL_ERROR_NONE                              = 0;
   SSL_ERROR_SSL                               = 1;
   SSL_ERROR_WANT_READ                         = 2;
@@ -371,137 +369,137 @@ type
 
 {$IFDEF __SSL_STATIC__}
 
-{$REGION 'LIBSSL-FUNC'}
-function OPENSSL_init_ssl(opts: UInt64; settings: Pointer): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'OPENSSL_init_ssl';
-
-function TLS_method: PSSL_METHOD; cdecl;
-  external LIBSSL_NAME name _PU + 'TLS_method';
-function TLS_client_method: PSSL_METHOD; cdecl;
-  external LIBSSL_NAME name _PU + 'TLS_client_method';
-function TLS_server_method: PSSL_METHOD; cdecl;
-  external LIBSSL_NAME name _PU + 'TLS_server_method';
-
-function SSL_CTX_new(meth: PSSL_METHOD): PSSL_CTX; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_CTX_new';
-procedure SSL_CTX_free(ctx: PSSL_CTX); cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_CTX_free';
-function SSL_CTX_ctrl(ctx: PSSL_CTX; Cmd: Integer; LArg: Integer; PArg: MarshaledAString): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_CTX_ctrl';
-procedure SSL_CTX_set_verify(ctx: PSSL_CTX; mode: Integer; callback: TSetVerifyCb); cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_CTX_set_verify';
-function SSL_CTX_set_cipher_list(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_CTX_set_cipher_list';
-function SSL_CTX_use_PrivateKey(ctx: PSSL_CTX; pkey: PEVP_PKEY): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_CTX_use_PrivateKey';
-function SSL_CTX_use_certificate(ctx: PSSL_CTX; cert: PX509): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_CTX_use_certificate';
-function SSL_CTX_check_private_key(ctx: PSSL_CTX): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_CTX_check_private_key';
-
-function SSL_new(ctx: PSSL_CTX): PSSL; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_new';
-procedure SSL_set_bio(s: PSSL; rbio, wbio: PBIO); cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_set_bio';
-function SSL_get_error(s: PSSL; ret_code: Integer): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_get_error';
-
-function SSL_ctrl(S: PSSL; Cmd: Integer; LArg: Integer; PArg: Pointer): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_ctrl';
-
-function SSL_shutdown(s: PSSL): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_shutdown';
-procedure SSL_free(s: PSSL); cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_free';
-
-procedure SSL_set_connect_state(s: PSSL); cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_set_connect_state';
-procedure SSL_set_accept_state(s: PSSL); cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_set_accept_state';
-function SSL_set_fd(s: PSSL; fd: Integer): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_set_fd';
-function SSL_accept(S: PSSL): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_accept';
-function SSL_connect(S: PSSL): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_connect';
-function SSL_do_handshake(S: PSSL): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_do_handshake';
-function SSL_read(s: PSSL; buf: Pointer; num: Integer): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_read';
-function SSL_write(s: PSSL; const buf: Pointer; num: Integer): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_write';
-function SSL_pending(s: PSSL): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_pending';
-function SSL_is_init_finished(s: PSSL): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_is_init_finished';
-
-function SSL_CTX_get_cert_store(const Ctx: PSSL_CTX): PX509_STORE; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_CTX_get_cert_store';
-function SSL_CTX_add_client_CA(C: PSSL_CTX; CaCert: PX509): Integer; cdecl;
-  external LIBSSL_NAME name _PU + 'SSL_CTX_add_client_CA';
-{$ENDREGION}
-
 {$REGION 'LIBCRYPTO-FUNC'}
 function OpenSSL_version_num: Longword; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'OpenSSL_version_num';
+  external LIBCRYPTO_NAME name 'OpenSSL_version_num';
 function OPENSSL_init_crypto(opts: UInt64; settings: Pointer): Integer; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'OPENSSL_init_crypto';
+  external LIBCRYPTO_NAME name 'OPENSSL_init_crypto';
 procedure OPENSSL_cleanup; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'OPENSSL_cleanup';
+  external LIBCRYPTO_NAME name 'OPENSSL_cleanup';
 
 procedure ERR_error_string_n(err: Cardinal; buf: MarshaledAString; len: size_t); cdecl;
-  external LIBCRYPTO_NAME name _PU + 'ERR_error_string_n';
+  external LIBCRYPTO_NAME name 'ERR_error_string_n';
 function ERR_get_error: Cardinal; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'ERR_get_error';
+  external LIBCRYPTO_NAME name 'ERR_get_error';
 
 procedure EVP_PKEY_free(pkey: PEVP_PKEY); cdecl;
-  external LIBCRYPTO_NAME name _PU + 'EVP_PKEY_free';
+  external LIBCRYPTO_NAME name 'EVP_PKEY_free';
 
 function BIO_new(BioMethods: PBIO_METHOD): PBIO; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'BIO_new';
+  external LIBCRYPTO_NAME name 'BIO_new';
 function BIO_ctrl(bp: PBIO; cmd: Integer; larg: Longint; parg: Pointer): Longint; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'BIO_ctrl';
+  external LIBCRYPTO_NAME name 'BIO_ctrl';
 function BIO_new_mem_buf(buf: Pointer; len: Integer): PBIO; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'BIO_new_mem_buf';
+  external LIBCRYPTO_NAME name 'BIO_new_mem_buf';
 function BIO_free(b: PBIO): Integer; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'BIO_free';
+  external LIBCRYPTO_NAME name 'BIO_free';
 function BIO_s_mem: PBIO_METHOD; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'BIO_s_mem';
+  external LIBCRYPTO_NAME name 'BIO_s_mem';
 function BIO_read(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'BIO_read';
+  external LIBCRYPTO_NAME name 'BIO_read';
 function BIO_write(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'BIO_write';
+  external LIBCRYPTO_NAME name 'BIO_write';
 
 function EC_KEY_new_by_curve_name(nid: Integer): PEC_KEY; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'EC_KEY_new_by_curve_name';
+  external LIBCRYPTO_NAME name 'EC_KEY_new_by_curve_name';
 procedure EC_KEY_free(key: PEC_KEY); cdecl;
-  external LIBCRYPTO_NAME name _PU + 'EC_KEY_free';
+  external LIBCRYPTO_NAME name 'EC_KEY_free';
 
 function X509_get_issuer_name(cert: PX509): PX509_NAME; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'X509_get_issuer_name';
+  external LIBCRYPTO_NAME name 'X509_get_issuer_name';
 function X509_get_subject_name(cert: PX509): PX509_NAME; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'X509_get_subject_name';
+  external LIBCRYPTO_NAME name 'X509_get_subject_name';
 procedure X509_free(cert: PX509); cdecl;
-  external LIBCRYPTO_NAME name _PU + 'X509_free';
+  external LIBCRYPTO_NAME name 'X509_free';
 function X509_NAME_print_ex(bout: PBIO; nm: PX509_NAME; indent: Integer; flags: Cardinal): Integer; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'X509_NAME_print_ex';
+  external LIBCRYPTO_NAME name 'X509_NAME_print_ex';
 function X509_get_ext_d2i(x: PX509; nid: Integer; var crit, idx: Integer): Pointer; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'X509_get_ext_d2i';
+  external LIBCRYPTO_NAME name 'X509_get_ext_d2i';
 
 function X509_STORE_add_cert(Store: PX509_STORE; Cert: PX509): Integer; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'X509_STORE_add_cert';
+  external LIBCRYPTO_NAME name 'X509_STORE_add_cert';
 
 function OPENSSL_sk_num(stack: PSTACK): Integer; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'OPENSSL_sk_num';
+  external LIBCRYPTO_NAME name 'OPENSSL_sk_num';
 function OPENSSL_sk_pop(stack: PSTACK): Pointer; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'OPENSSL_sk_pop';
+  external LIBCRYPTO_NAME name 'OPENSSL_sk_pop';
 
 function PEM_read_bio_X509(bp: PBIO; x: PPX509; cb: TPemPasswordCb; u: Pointer): PX509; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'PEM_read_bio_X509';
+  external LIBCRYPTO_NAME name 'PEM_read_bio_X509';
 function PEM_read_bio_X509_AUX(bp: PBIO; x: PPX509; cb: TPemPasswordCb; u: Pointer): PX509; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'PEM_read_bio_X509_AUX';
+  external LIBCRYPTO_NAME name 'PEM_read_bio_X509_AUX';
 function PEM_read_bio_PrivateKey(bp: PBIO; x: PPEVP_PKEY; cb: TPemPasswordCb; u: Pointer): PEVP_PKEY; cdecl;
-  external LIBCRYPTO_NAME name _PU + 'PEM_read_bio_PrivateKey';
+  external LIBCRYPTO_NAME name 'PEM_read_bio_PrivateKey';
+{$ENDREGION}
+
+{$REGION 'LIBSSL-FUNC'}
+function OPENSSL_init_ssl(opts: UInt64; settings: Pointer): Integer; cdecl;
+  external LIBSSL_NAME name 'OPENSSL_init_ssl';
+
+function TLS_method: PSSL_METHOD; cdecl;
+  external LIBSSL_NAME name 'TLS_method';
+function TLS_client_method: PSSL_METHOD; cdecl;
+  external LIBSSL_NAME name 'TLS_client_method';
+function TLS_server_method: PSSL_METHOD; cdecl;
+  external LIBSSL_NAME name 'TLS_server_method';
+
+function SSL_CTX_new(meth: PSSL_METHOD): PSSL_CTX; cdecl;
+  external LIBSSL_NAME name 'SSL_CTX_new';
+procedure SSL_CTX_free(ctx: PSSL_CTX); cdecl;
+  external LIBSSL_NAME name 'SSL_CTX_free';
+function SSL_CTX_ctrl(ctx: PSSL_CTX; Cmd: Integer; LArg: Integer; PArg: MarshaledAString): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_CTX_ctrl';
+procedure SSL_CTX_set_verify(ctx: PSSL_CTX; mode: Integer; callback: TSetVerifyCb); cdecl;
+  external LIBSSL_NAME name 'SSL_CTX_set_verify';
+function SSL_CTX_set_cipher_list(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_CTX_set_cipher_list';
+function SSL_CTX_use_PrivateKey(ctx: PSSL_CTX; pkey: PEVP_PKEY): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_CTX_use_PrivateKey';
+function SSL_CTX_use_certificate(ctx: PSSL_CTX; cert: PX509): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_CTX_use_certificate';
+function SSL_CTX_check_private_key(ctx: PSSL_CTX): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_CTX_check_private_key';
+
+function SSL_new(ctx: PSSL_CTX): PSSL; cdecl;
+  external LIBSSL_NAME name 'SSL_new';
+procedure SSL_set_bio(s: PSSL; rbio, wbio: PBIO); cdecl;
+  external LIBSSL_NAME name 'SSL_set_bio';
+function SSL_get_error(s: PSSL; ret_code: Integer): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_get_error';
+
+function SSL_ctrl(S: PSSL; Cmd: Integer; LArg: Integer; PArg: Pointer): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_ctrl';
+
+function SSL_shutdown(s: PSSL): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_shutdown';
+procedure SSL_free(s: PSSL); cdecl;
+  external LIBSSL_NAME name 'SSL_free';
+
+procedure SSL_set_connect_state(s: PSSL); cdecl;
+  external LIBSSL_NAME name 'SSL_set_connect_state';
+procedure SSL_set_accept_state(s: PSSL); cdecl;
+  external LIBSSL_NAME name 'SSL_set_accept_state';
+function SSL_set_fd(s: PSSL; fd: Integer): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_set_fd';
+function SSL_accept(S: PSSL): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_accept';
+function SSL_connect(S: PSSL): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_connect';
+function SSL_do_handshake(S: PSSL): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_do_handshake';
+function SSL_read(s: PSSL; buf: Pointer; num: Integer): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_read';
+function SSL_write(s: PSSL; const buf: Pointer; num: Integer): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_write';
+function SSL_pending(s: PSSL): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_pending';
+function SSL_is_init_finished(s: PSSL): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_is_init_finished';
+
+function SSL_CTX_get_cert_store(const Ctx: PSSL_CTX): PX509_STORE; cdecl;
+  external LIBSSL_NAME name 'SSL_CTX_get_cert_store';
+function SSL_CTX_add_client_CA(C: PSSL_CTX; CaCert: PX509): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_CTX_add_client_CA';
 {$ENDREGION}
 
 {$ENDIF __SSL_STATIC__}
@@ -613,6 +611,43 @@ type
 {$IFNDEF __SSL_STATIC__}
 
 var
+  {$REGION 'LIBCRYPTO-FUNC'}
+  OpenSSL_version_num: function: Longword; cdecl;
+  OPENSSL_init_crypto: function(opts: UInt64; settings: Pointer): Integer; cdecl;
+  OPENSSL_cleanup: procedure; cdecl;
+
+  ERR_error_string_n: procedure(err: Cardinal; buf: MarshaledAString; len: size_t); cdecl;
+  ERR_get_error: function: Cardinal; cdecl;
+
+  EVP_PKEY_free: procedure(pkey: PEVP_PKEY); cdecl;
+
+  BIO_new: function(BioMethods: PBIO_METHOD): PBIO; cdecl;
+  BIO_ctrl: function(bp: PBIO; cmd: Integer; larg: Longint; parg: Pointer): Longint; cdecl;
+  BIO_new_mem_buf: function(buf: Pointer; len: Integer): PBIO; cdecl;
+  BIO_free: function(b: PBIO): Integer; cdecl;
+  BIO_s_mem: function: PBIO_METHOD; cdecl;
+  BIO_read: function(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
+  BIO_write: function(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
+
+  EC_KEY_new_by_curve_name: function(nid: Integer): PEC_KEY; cdecl;
+  EC_KEY_free: procedure(key: PEC_KEY); cdecl;
+
+  X509_get_issuer_name: function(cert: PX509): PX509_NAME; cdecl;
+  X509_get_subject_name: function(cert: PX509): PX509_NAME; cdecl;
+  X509_free: procedure(cert: PX509); cdecl;
+  X509_NAME_print_ex: function(bout: PBIO; nm: PX509_NAME; indent: Integer; flags: Cardinal): Integer; cdecl;
+  X509_get_ext_d2i: function(x: PX509; nid: Integer; var crit, idx: Integer): Pointer; cdecl;
+
+  X509_STORE_add_cert: function(Store: PX509_STORE; Cert: PX509): Integer; cdecl;
+
+  OPENSSL_sk_num: function(stack: PSTACK): Integer; cdecl;
+  OPENSSL_sk_pop: function(stack: PSTACK): Pointer; cdecl;
+
+  PEM_read_bio_X509: function(bp: PBIO; x: PPX509; cb: TPemPasswordCb; u: Pointer): PX509; cdecl;
+  PEM_read_bio_X509_AUX: function(bp: PBIO; x: PPX509; cb: TPemPasswordCb; u: Pointer): PX509; cdecl;
+  PEM_read_bio_PrivateKey: function(bp: PBIO; x: PPEVP_PKEY; cb: TPemPasswordCb; u: Pointer): PEVP_PKEY; cdecl;
+  {$ENDREGION}
+
   {$REGION 'SSL-FUNC'}
   OPENSSL_init_ssl: function(opts: UInt64; settings: Pointer): Integer; cdecl;
 
@@ -651,43 +686,6 @@ var
 
   SSL_CTX_get_cert_store: function(const Ctx: PSSL_CTX): PX509_STORE; cdecl;
   SSL_CTX_add_client_CA: function(C: PSSL_CTX; CaCert: PX509): Integer; cdecl;
-  {$ENDREGION}
-
-  {$REGION 'LIBCRYPTO-FUNC'}
-  OpenSSL_version_num: function: Longword; cdecl;
-  OPENSSL_init_crypto: function(opts: UInt64; settings: Pointer): Integer; cdecl;
-  OPENSSL_cleanup: procedure; cdecl;
-
-  ERR_error_string_n: procedure(err: Cardinal; buf: MarshaledAString; len: size_t); cdecl;
-  ERR_get_error: function: Cardinal; cdecl;
-
-  EVP_PKEY_free: procedure(pkey: PEVP_PKEY); cdecl;
-
-  BIO_new: function(BioMethods: PBIO_METHOD): PBIO; cdecl;
-  BIO_ctrl: function(bp: PBIO; cmd: Integer; larg: Longint; parg: Pointer): Longint; cdecl;
-  BIO_new_mem_buf: function(buf: Pointer; len: Integer): PBIO; cdecl;
-  BIO_free: function(b: PBIO): Integer; cdecl;
-  BIO_s_mem: function: PBIO_METHOD; cdecl;
-  BIO_read: function(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
-  BIO_write: function(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
-
-  EC_KEY_new_by_curve_name: function(nid: Integer): PEC_KEY; cdecl;
-  EC_KEY_free: procedure(key: PEC_KEY); cdecl;
-
-  X509_get_issuer_name: function(cert: PX509): PX509_NAME; cdecl;
-  X509_get_subject_name: function(cert: PX509): PX509_NAME; cdecl;
-  X509_free: procedure(cert: PX509); cdecl;
-  X509_NAME_print_ex: function(bout: PBIO; nm: PX509_NAME; indent: Integer; flags: Cardinal): Integer; cdecl;
-  X509_get_ext_d2i: function(x: PX509; nid: Integer; var crit, idx: Integer): Pointer; cdecl;
-
-  X509_STORE_add_cert: function(Store: PX509_STORE; Cert: PX509): Integer; cdecl;
-
-  OPENSSL_sk_num: function(stack: PSTACK): Integer; cdecl;
-  OPENSSL_sk_pop: function(stack: PSTACK): Pointer; cdecl;
-
-  PEM_read_bio_X509: function(bp: PBIO; x: PPX509; cb: TPemPasswordCb; u: Pointer): PX509; cdecl;
-  PEM_read_bio_X509_AUX: function(bp: PBIO; x: PPX509; cb: TPemPasswordCb; u: Pointer): PX509; cdecl;
-  PEM_read_bio_PrivateKey: function(bp: PBIO; x: PPEVP_PKEY; cb: TPemPasswordCb; u: Pointer): PEVP_PKEY; cdecl;
   {$ENDREGION}
 
 {$ENDIF}

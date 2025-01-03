@@ -11,14 +11,19 @@ uses
 type
   TSimpleWatch = record
   private
-    FLastTime: TDateTime;
+    FStartTime: TDateTime;
+    FRunning: Boolean;
+    FElapsed: Int64;
   public
     class function Create: TSimpleWatch; static;
 
     procedure Reset;
+    procedure Start;
+    procedure Stop;
+
     function ElapsedMilliseconds: Int64;
 
-    property LastTime: TDateTime read FLastTime;
+    property LastTime: TDateTime read FStartTime;
   end;
 
 implementation
@@ -32,12 +37,31 @@ end;
 
 function TSimpleWatch.ElapsedMilliseconds: Int64;
 begin
-  Result := Now.MilliSecondsDiffer(FLastTime);
+  Result := FElapsed;
+
+  if FRunning then
+    Result := Result + Now.MilliSecondsDiffer(FStartTime);
 end;
 
 procedure TSimpleWatch.Reset;
 begin
-  FLastTime := Now;
+  FElapsed := 0;
+  FStartTime := Now;
+  Start;
+end;
+
+procedure TSimpleWatch.Start;
+begin
+  FRunning := True;
+end;
+
+procedure TSimpleWatch.Stop;
+begin
+  if FRunning then
+  begin
+    FRunning := False;
+    FElapsed := FElapsed + Now.MilliSecondsDiffer(FStartTime);
+  end;
 end;
 
 end.

@@ -34,7 +34,8 @@ uses
 
   Net.SocketAPI,
   Utils.StrUtils,
-  Utils.SyncObjs;
+  Utils.SyncObjs,
+  Utils.Rtti;
 
 const
   // 唯一编号类别
@@ -143,6 +144,11 @@ type
     ///   关闭套接字
     /// </summary>
     procedure Close;
+
+    /// <summary>
+    ///   调试信息
+    /// </summary>
+    function DebugInfo: string;
 
     /// <summary>
     ///   宿主对象
@@ -606,6 +612,8 @@ type
     procedure UpdateAddr; virtual;
     procedure Close; virtual; abstract;
 
+    function DebugInfo: string; virtual; abstract;
+
     property Owner: TCrossSocketBase read GetOwner;
     property Socket: TSocket read GetSocket;
     property UID: UInt64 read GetUID;
@@ -635,6 +643,7 @@ type
       const AFamily, ASockType, AProtocol: Integer); reintroduce; virtual;
 
     procedure Close; override;
+    function DebugInfo: string; override;
   end;
 
   TCrossConnectionBase = class(TCrossData, ICrossConnection)
@@ -679,6 +688,8 @@ type
       const ACallback: TCrossConnectionCallback = nil); overload; inline;
     procedure SendStream(const AStream: TStream;
       const ACallback: TCrossConnectionCallback = nil);
+
+    function DebugInfo: string; override;
 
     property PeerAddr: string read GetPeerAddr;
     property PeerPort: Word read GetPeerPort;
@@ -841,7 +852,8 @@ type
   function GetTagByUID(const AUID: UInt64): Byte;
 
   procedure _SetCrossLogger(const ALogger: TCrossLogger);
-  procedure _LogLastOsError(const ATag: string = '');
+  procedure _LogLastOsError(const ATag: string = ''); overload;
+  procedure _LogLastOsError(const ATagFmt: string; const ATagArgs: array of const); overload;
   procedure _Log(const S: string); overload;
   procedure _Log(const Fmt: string; const Args: array of const); overload;
 
@@ -900,6 +912,12 @@ begin
   LErrMsg := LErrMsg + TStrUtils.Format('System Error: %0:d(0x%0:.4x), %1:s',
     [LError, SysErrorMessage(LError)]);
   _Log(LErrMsg);
+end;
+
+procedure _LogLastOsError(const ATagFmt: string; const ATagArgs: array of const);
+begin
+  if CrossSocketLogEnabled then
+    _LogLastOsError(Format(ATagFmt, ATagArgs));
 end;
 
 { TIoEventThread }
@@ -1198,23 +1216,34 @@ var
   LConnObj: TCrossConnectionBase;
 begin
   LConnObj := AConnection as TCrossConnectionBase;
-  AConnection.UpdateAddr;
-  AConnection.ConnectStatus := csConnected;
 
-  LogicConnected(AConnection);
+  LConnObj._Lock;
+  try
+    AConnection.UpdateAddr;
+    AConnection.ConnectStatus := csConnected;
 
-  if Assigned(LConnObj.FConnectCb) then
-  begin
-    LConnObj.FConnectCb(AConnection, True);
-    LConnObj.FConnectCb := nil;
+    LogicConnected(AConnection);
+
+    if Assigned(LConnObj.FConnectCb) then
+    begin
+      LConnObj.FConnectCb(AConnection, True);
+      LConnObj.FConnectCb := nil;
+    end;
+
+    if Assigned(FOnConnected) then
+      FOnConnected(Self, AConnection);
+  finally
+    LConnObj._Unlock;
   end;
-
-  if Assigned(FOnConnected) then
-    FOnConnected(Self, AConnection);
 end;
 
 procedure TCrossSocketBase.TriggerDisconnected(const AConnection: ICrossConnection);
+var
+  LConnObj: TCrossConnectionBase;
 begin
+  LConnObj := AConnection as TCrossConnectionBase;
+
+  LConnObj._Lock;
   try
     AConnection.ConnectStatus := csClosed;
 
@@ -1223,6 +1252,8 @@ begin
     if Assigned(FOnDisconnected) then
       FOnDisconnected(Self, AConnection);
   finally
+    LConnObj._Unlock;
+
     _LockConnections;
     try
       FConnections.Remove(AConnection.UID);
@@ -1277,20 +1308,38 @@ end;
 
 procedure TCrossSocketBase.TriggerReceived(const AConnection: ICrossConnection;
   const ABuf: Pointer; const ALen: Integer);
+var
+  LConnObj: TCrossConnectionBase;
 begin
-  LogicReceived(AConnection, ABuf, ALen);
+  LConnObj := AConnection as TCrossConnectionBase;
 
-  if Assigned(FOnReceived) then
-    FOnReceived(Self, AConnection, ABuf, ALen);
+  LConnObj._Lock;
+  try
+    LogicReceived(AConnection, ABuf, ALen);
+
+    if Assigned(FOnReceived) then
+      FOnReceived(Self, AConnection, ABuf, ALen);
+  finally
+    LConnObj._Unlock;
+  end;
 end;
 
 procedure TCrossSocketBase.TriggerSent(const AConnection: ICrossConnection;
   const ABuf: Pointer; const ALen: Integer);
+var
+  LConnObj: TCrossConnectionBase;
 begin
-  LogicSent(AConnection, ABuf, ALen);
+  LConnObj := AConnection as TCrossConnectionBase;
 
-  if Assigned(FOnSent) then
-    FOnSent(Self, AConnection, ABuf, ALen);
+  LConnObj._Lock;
+  try
+    LogicSent(AConnection, ABuf, ALen);
+
+    if Assigned(FOnSent) then
+      FOnSent(Self, AConnection, ABuf, ALen);
+  finally
+    LConnObj._Unlock;
+  end;
 end;
 
 procedure TCrossSocketBase.UnlockConnections;
@@ -1462,6 +1511,14 @@ begin
   FClosed := 0;
 end;
 
+function TCrossListenBase.DebugInfo: string;
+begin
+  Result := TStrUtils.Format('socket=%d, listen=(%s:%d)', [
+    Socket,
+    LocalAddr, LocalPort
+  ]);
+end;
+
 procedure TCrossListenBase.Close;
 begin
   if (AtomicExchange(FClosed, 1) = 1) then Exit;
@@ -1526,6 +1583,16 @@ begin
     FOwner.TriggerDisconnected(Self);
     FSocket := INVALID_SOCKET;
   end;
+end;
+
+function TCrossConnectionBase.DebugInfo: string;
+begin
+  Result := TStrUtils.Format('socket=%d, type=%s, local=(%s:%d), remote=(%s:%d)', [
+    Socket,
+    TRttiUtils.EnumToStr<TConnectType>(ConnectType),
+    LocalAddr, LocalPort,
+    PeerAddr, PeerPort
+  ]);
 end;
 
 destructor TCrossConnectionBase.Destroy;

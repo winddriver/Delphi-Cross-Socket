@@ -138,7 +138,7 @@ begin
   if (LClientSocket = INVALID_SOCKET) then
   begin
     {$IFDEF DEBUG}
-    _LogLastOsError('TIocpCrossSocket._NewAccept.WSASocket');
+    _LogLastOsError('TIocpCrossSocket._NewAccept.WSASocket, %s', [AListen.DebugInfo]);
     {$ENDIF}
     Exit;
   end;
@@ -156,7 +156,7 @@ begin
     and (WSAGetLastError <> WSA_IO_PENDING) then
   begin
     {$IFDEF DEBUG}
-    _LogLastOsError('TIocpCrossSocket._NewAccept.AcceptEx');
+    _LogLastOsError('TIocpCrossSocket._NewAccept.AcceptEx, %s', [AListen.DebugInfo]);
     {$ENDIF}
     TSocketAPI.CloseSocket(LClientSocket);
     _FreeIoData(LPerIoData);
@@ -181,7 +181,7 @@ begin
     and (WSAGetLastError <> WSA_IO_PENDING) then
   begin
     {$IFDEF DEBUG}
-    _LogLastOsError(Format('TIocpCrossSocket._NewReadZero.WSARecv(socket=%d)', [AConnection.Socket]));
+    _LogLastOsError('TIocpCrossSocket._NewReadZero.WSARecv, %s', [AConnection.DebugInfo]);
     {$ENDIF}
     _FreeIoData(LPerIoData);
     Exit(False);
@@ -301,6 +301,7 @@ begin
     // 对方主动断开连接
     if (LRcvd = 0) then
     begin
+      _Log('Recv=0(Close), %s', [LConnection.DebugInfo]);
       LConnection.Close;
       Exit;
     end;
@@ -318,6 +319,7 @@ begin
       // 接收出错
       else
       begin
+        _LogLastOsError('Recv<0, %s', [LConnection.DebugInfo]);
         LConnection.Close;
         Exit;
       end;
@@ -334,12 +336,6 @@ end;
 
 procedure TIocpCrossSocket._HandleWrite(const APerIoData: PPerIoData);
 begin
-//  if (GetLastError = WSA_IO_PENDING) then
-//  begin
-//    _HandleRead(APerIoData);
-//    Exit;
-//  end;
-
   if Assigned(APerIoData.Callback) then
     APerIoData.Callback(APerIoData.CrossData as ICrossConnection, True);
 end;
@@ -373,8 +369,9 @@ procedure TIocpCrossSocket.StopLoop;
     begin
       GetQueuedCompletionStatus(FIocpHandle, LBytes, ULONG_PTR(LSocket), POverlapped(LPerIoData), 10);
 
-      if (LPerIoData <> nil) then
-      begin
+      if (LPerIoData = nil) then Continue;
+
+      try
         if Assigned(LPerIoData.Callback) then
         begin
           if (LPerIoData.CrossData <> nil)
@@ -390,7 +387,7 @@ procedure TIocpCrossSocket.StopLoop;
           LPerIoData.CrossData.Close
         else
           TSocketAPI.CloseSocket(LPerIoData.Socket);
-
+      finally
         _FreeIoData(LPerIoData);
       end;
     end;
@@ -698,7 +695,7 @@ begin
     and (WSAGetLastError <> WSA_IO_PENDING) then
   begin
     {$IFDEF DEBUG}
-    _LogLastOsError(Format('TIocpCrossSocket.Send.WSASend(socket=%d)', [AConnection.Socket]));
+    _LogLastOsError('WSASend, %s', [AConnection.DebugInfo]);
     {$ENDIF}
 
     // 出错多半是 WSAENOBUFS, 也就是投递的 WSASend 过多, 来不及发送

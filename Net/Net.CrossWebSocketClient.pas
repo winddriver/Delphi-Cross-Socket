@@ -522,6 +522,11 @@ begin
     begin
       if (FWebSocket <> nil) then
         FWebSocket._OnMessage(AType, AData);
+    end,
+
+    procedure
+    begin
+      Self.Close;
     end);
 end;
 
@@ -822,7 +827,7 @@ function TCrossWebSocket.Close: ICrossWebSocket;
 begin
   Result := Self;
 
-  if (FStatus = wsConnected) then
+  if (GetStatus = wsConnected) then
     FConnection.WsClose;
 end;
 
@@ -886,10 +891,15 @@ end;
 
 function TCrossWebSocket.GetStatus: TWsStatus;
 begin
-  Result := FStatus;
+  _Lock;
+  try
+    Result := FStatus;
 
-  if (FStatus = wsConnected) and (FConnection = nil) then
-    Result := wsDisconnected;
+    if (FStatus = wsConnected) and (FConnection = nil) then
+      Result := wsDisconnected;
+  finally
+    _Unlock;
+  end;
 end;
 
 function TCrossWebSocket.GetUrl: string;
@@ -905,8 +915,6 @@ begin
   finally
     _Unlock;
   end;
-
-  FConnection := nil;
 
   Result := Self;
 end;
@@ -986,9 +994,11 @@ end;
 
 function TCrossWebSocket.Open: ICrossWebSocket;
 var
+  LWebSocket: ICrossWebSocket;
   LSecWebSocketKey, LSecWebSocketAccept: string;
 begin
-  Result := Self;
+  LWebSocket := Self;
+  Result := LWebSocket;
 
   _Lock;
   try
@@ -1014,7 +1024,6 @@ begin
         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
         Sec-WebSocket-Version: 13
       }
-
       ARequest.Header[HEADER_UPGRADE] := WEBSOCKET;
       ARequest.Header[HEADER_CONNECTION] := HEADER_UPGRADE;
       ARequest.Header[HEADER_SEC_WEBSOCKET_KEY] := LSecWebSocketKey;
@@ -1029,27 +1038,31 @@ begin
         Connection: Upgrade
         Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
       }
-      _OnOpenResponse(AResponse);
-      // 连接失败
-      if (AResponse = nil) then
-      begin
-        _OnClose;
-        Exit;
+      try
+        _OnOpenResponse(AResponse);
+        // 连接失败
+        if (AResponse = nil) then
+        begin
+          _OnClose;
+          Exit;
+        end;
+
+        // 验证失败
+        if (LSecWebSocketAccept <> AResponse.Header[HEADER_SEC_WEBSOCKET_ACCEPT]) then
+        begin
+          _OnClose;
+          Exit;
+        end;
+
+        // 握手成功
+        FConnection := AResponse.Connection as TCrossWebSocketClientConnection;
+        FConnection.FWebSocket := Self;
+        FConnection.FIsWebSocket := True;
+
+        _OnOpen;
+      finally
+        LWebSocket := nil;
       end;
-
-      // 验证失败
-      if (LSecWebSocketAccept <> AResponse.Header[HEADER_SEC_WEBSOCKET_ACCEPT]) then
-      begin
-        _OnClose;
-        Exit;
-      end;
-
-      // 握手成功
-      FConnection := AResponse.Connection as TCrossWebSocketClientConnection;
-      FConnection.FWebSocket := Self;
-      FConnection.FIsWebSocket := True;
-
-      _OnOpen;
     end);
 end;
 
@@ -1146,27 +1159,25 @@ var
   LOnCloseEvents: TArray<TWsClientOnClose>;
   LOnCloseEvent: TWsClientOnClose;
 begin
-  if (FStatus = wsShutdown) then Exit;
+  if (GetStatus = wsShutdown) then Exit;
 
   _Lock;
   try
     FStatus := wsDisconnected;
     LOnCloseEvents := FOnCloseEvents.ToArray;
-  finally
-    _Unlock;
-  end;
 
-  try
-    for LOnCloseEvent in LOnCloseEvents do
-      if Assigned(LOnCloseEvent) then
-        LOnCloseEvent();
-  finally
     if (FConnection <> nil) then
     begin
       FConnection.FWebSocket := nil;
       FConnection := nil;
     end;
+  finally
+    _Unlock;
   end;
+
+  for LOnCloseEvent in LOnCloseEvents do
+    if Assigned(LOnCloseEvent) then
+      LOnCloseEvent();
 end;
 
 procedure TCrossWebSocket._OnMessage(const AMessageType: TWsMessageType;
@@ -1175,7 +1186,7 @@ var
   LOnMessageEvents: TArray<TWsOnMessage>;
   LOnMessageEvent: TWsOnMessage;
 begin
-  if (FStatus = wsShutdown) then Exit;
+  if (GetStatus = wsShutdown) then Exit;
 
   _Lock;
   try
@@ -1194,7 +1205,7 @@ var
   LOnOpenRequestEvents: TArray<TWsClientOnOpenRequest>;
   LOnOpenRequestEvent: TWsClientOnOpenRequest;
 begin
-  if (FStatus = wsShutdown) then Exit;
+  if (GetStatus = wsShutdown) then Exit;
 
   _Lock;
   try
@@ -1213,7 +1224,7 @@ var
   LOnOpenResponseEvents: TArray<TWsClientOnOpenResponse>;
   LOnOpenResponseEvent: TWsClientOnOpenResponse;
 begin
-  if (FStatus = wsShutdown) then Exit;
+  if (GetStatus = wsShutdown) then Exit;
 
   _Lock;
   try
@@ -1232,7 +1243,7 @@ var
   LOnOpenEvents: TArray<TWsClientOnOpen>;
   LOnOpenEvent: TWsClientOnOpen;
 begin
-  if (FStatus = wsShutdown) then Exit;
+  if (GetStatus = wsShutdown) then Exit;
 
   _Lock;
   try
@@ -1252,7 +1263,7 @@ var
   LOnPingEvents: TArray<TWsClientOnPing>;
   LOnPingEvent: TWsClientOnClose;
 begin
-  if (FStatus = wsShutdown) then Exit;
+  if (GetStatus = wsShutdown) then Exit;
 
   _Lock;
   try
@@ -1271,7 +1282,7 @@ var
   LOnPongEvents: TArray<TWsClientOnPing>;
   LOnPongEvent: TWsClientOnClose;
 begin
-  if (FStatus = wsShutdown) then Exit;
+  if (GetStatus = wsShutdown) then Exit;
 
   _Lock;
   try

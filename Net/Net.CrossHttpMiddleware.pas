@@ -81,6 +81,8 @@ type
     ///   维基百科: HTTP严格传输安全</see>
     /// </remarks>
     class function HSTS: TCrossHttpRouterProc2; static;
+
+    class function NoCache: TCrossHttpRouterProc2; static;
   end;
 
 implementation
@@ -227,6 +229,18 @@ begin
     begin
       AHandled := False;
       AResponse.Header['Strict-Transport-Security'] := 'max-age=31536000; includeSubDomains';
+    end;
+end;
+
+class function TNetCrossMiddleware.NoCache: TCrossHttpRouterProc2;
+begin
+  Result :=
+    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
+    begin
+      AHandled := False;
+      AResponse.Header['Cache-Control'] := 'no-store';
+      AResponse.Header['Pragma'] := 'no-cache';
+      AResponse.Header['Expires'] := 'Thu, 01 Jan 1970 00:00:00 GMT';
     end;
 end;
 
