@@ -16,8 +16,6 @@ unit Net.CrossHttpServer;
   sudo apt-get install zlib1g-dev
 }
 
-{.$DEFINE __NEW_REQUEST_RESPONSE__}
-
 interface
 
 uses
@@ -63,6 +61,8 @@ type
   ICrossHttpResponse = interface;
 
   TCrossHttpServer = class;
+  TCrossHttpRequest = class;
+  TCrossHttpResponse = class;
 
   /// <summary>
   ///   HTTP连接接口
@@ -1059,9 +1059,6 @@ type
     function GetOnRequest: TCrossHttpRequestEvent;
     function GetOnRequestEnd: TCrossHttpAfterRequestEvent;
     function GetOnRequestException: TCrossHttpRequestExceptionEvent;
-    function GetOnPostDataBegin: TCrossHttpConnEvent;
-    function GetOnPostData: TCrossHttpDataEvent;
-    function GetOnPostDataEnd: TCrossHttpConnEvent;
 
     procedure SetStoragePath(const Value: string);
     procedure SetAutoDeleteFiles(const Value: Boolean);
@@ -1075,9 +1072,6 @@ type
     procedure SetOnRequest(const Value: TCrossHttpRequestEvent);
     procedure SetOnRequestEnd(const Value: TCrossHttpAfterRequestEvent);
     procedure SetOnRequestException(const Value: TCrossHttpRequestExceptionEvent);
-    procedure SetOnPostDataBegin(const Value: TCrossHttpConnEvent);
-    procedure SetOnPostData(const Value: TCrossHttpDataEvent);
-    procedure SetOnPostDataEnd(const Value: TCrossHttpConnEvent);
 
     /// <summary>
     ///   创建路由对象
@@ -1784,20 +1778,23 @@ type
     property OnRequest: TCrossHttpRequestEvent read GetOnRequest write SetOnRequest;
     property OnRequestEnd: TCrossHttpAfterRequestEvent read GetOnRequestEnd write SetOnRequestEnd;
     property OnRequestException: TCrossHttpRequestExceptionEvent read GetOnRequestException write SetOnRequestException;
-    property OnPostDataBegin: TCrossHttpConnEvent read GetOnPostDataBegin write SetOnPostDataBegin;
-    property OnPostData: TCrossHttpDataEvent read GetOnPostData write SetOnPostData;
-    property OnPostDataEnd: TCrossHttpConnEvent read GetOnPostDataEnd write SetOnPostDataEnd;
   end;
 
   TCrossHttpConnection = class(TCrossServerConnection, ICrossHttpConnection)
   private
     FServer: TCrossHttpServer;
+    FRequestObj: TCrossHttpRequest;
     FRequest: ICrossHttpRequest;
+    FResponseObj: TCrossHttpResponse;
     FResponse: ICrossHttpResponse;
     FHttpParser: TCrossHttpParser;
 
-    FInitCount, FUninitCount: Integer;
-
+    {$region 'HttpParser事件'}
+    // 以下事件都在 FHttpParser.Decode 中被触发
+    // 而 FHttpParser.Decode 在 ParseRecvData 中被调用
+    // ParseRecvData 在 FServer.LogicReceived 中被调用
+    // FServer.LogicReceived 被 TCrossConnectionBase._Lock 保护
+    // 所以无需担心以下事件的多线程安全问题
     procedure _OnHeaderData(const ADataPtr: Pointer; const ADataSize: Integer);
     function _OnGetHeaderValue(const AHeaderName: string; out AHeaderValue: string): Boolean;
     procedure _OnBodyBegin;
@@ -1806,15 +1803,17 @@ type
     procedure _OnParseBegin;
     procedure _OnParseSuccess;
     procedure _OnParseFailed(const ACode: Integer; const AError: string);
+    {$endregion}
 
-    procedure _InitResource;
-    procedure _UninitResource;
+    // 发送完响应数据后触发
+    procedure _DoOnRequestEnd(const ASuccess: Boolean);
   protected
     function GetRequest: ICrossHttpRequest;
     function GetResponse: ICrossHttpResponse;
     function GetServer: ICrossHttpServer;
 
     procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); virtual;
+
     procedure ReleaseRequest; virtual;
     procedure ReleaseResponse; virtual;
   public
@@ -1860,9 +1859,8 @@ type
     FRequestHost: string;
     FRequestConnection: string;
 
-    // Request 是 Connection 的子对象, 它的生命周期跟随 Connection
-    // 这里使用弱引用, 不增加 Connection 的引用计数, 避免循环引用造成接口对象无法自动释放
-    FConnection: TCrossHttpConnection;
+    FConnectionObj: TCrossHttpConnection;
+    FConnection: ICrossHttpConnection;
     FServer: TCrossHttpServer;
     FHeader: THttpHeader;
     FCookies: TRequestCookies;
@@ -1966,9 +1964,8 @@ type
   public const
     SND_BUF_SIZE = TCrossConnection.SND_BUF_SIZE;
   private
-    // Response 是 Connection 的子对象, 它的生命周期跟随 Connection
-    // 这里使用弱引用, 不增加 Connection 的引用计数, 避免循环引用造成接口对象无法自动释放
-    FConnection: TCrossHttpConnection;
+    FConnectionObj: TCrossHttpConnection;
+    FConnection: ICrossHttpConnection;
     FRequest: ICrossHttpRequest;
     FStatusCode: Integer;
     FStatusText: string;
@@ -2096,9 +2093,6 @@ type
     FOnRequestEnd: TCrossHttpAfterRequestEvent;
     FOnRequest: TCrossHttpRequestEvent;
     FOnRequestException: TCrossHttpRequestExceptionEvent;
-    FOnPostDataBegin: TCrossHttpConnEvent;
-    FOnPostData: TCrossHttpDataEvent;
-    FOnPostDataEnd: TCrossHttpConnEvent;
     FCompressible: Boolean;
 
     function RegisterRouter(const AMethod, APath: string;
@@ -2124,9 +2118,6 @@ type
     function GetOnRequestEnd: TCrossHttpAfterRequestEvent;
     function GetOnRequestBegin: TCrossHttpBeforeRequestEvent;
     function GetOnRequestException: TCrossHttpRequestExceptionEvent;
-    function GetOnPostDataBegin: TCrossHttpConnEvent;
-    function GetOnPostData: TCrossHttpDataEvent;
-    function GetOnPostDataEnd: TCrossHttpConnEvent;
 
     procedure SetStoragePath(const Value: string);
     procedure SetAutoDeleteFiles(const Value: Boolean);
@@ -2140,9 +2131,6 @@ type
     procedure SetOnRequestBegin(const Value: TCrossHttpBeforeRequestEvent);
     procedure SetOnRequestEnd(const Value: TCrossHttpAfterRequestEvent);
     procedure SetOnRequestException(const Value: TCrossHttpRequestExceptionEvent);
-    procedure SetOnPostDataBegin(const Value: TCrossHttpConnEvent);
-    procedure SetOnPostData(const Value: TCrossHttpDataEvent);
-    procedure SetOnPostDataEnd(const Value: TCrossHttpConnEvent);
   protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
@@ -2155,16 +2143,6 @@ type
 
     procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
   protected
-    procedure TriggerPostDataBegin(const AConnection: ICrossHttpConnection); virtual;
-    procedure TriggerPostData(const AConnection: ICrossHttpConnection;
-      const ABuf: Pointer; const ALen: Integer); virtual;
-    procedure TriggerPostDataEnd(const AConnection: ICrossHttpConnection); virtual;
-
-    procedure TriggerParseRequestBegin(const AConnection: ICrossHttpConnection); virtual;
-    procedure TriggerParseRequestSuccess(const AConnection: ICrossHttpConnection); virtual;
-    procedure TriggerParseRequestFailed(const AConnection: ICrossHttpConnection;
-      const AStatusCode: Integer; const AStatusText: string = ''); virtual;
-
     // 处理请求前
     procedure DoOnRequestBegin(const AConnection: ICrossHttpConnection); virtual;
 
@@ -2262,9 +2240,6 @@ type
     property OnRequest: TCrossHttpRequestEvent read GetOnRequest write SetOnRequest;
     property OnRequestEnd: TCrossHttpAfterRequestEvent read GetOnRequestEnd write SetOnRequestEnd;
     property OnRequestException: TCrossHttpRequestExceptionEvent read GetOnRequestException write SetOnRequestException;
-    property OnPostDataBegin: TCrossHttpConnEvent read GetOnPostDataBegin write SetOnPostDataBegin;
-    property OnPostData: TCrossHttpDataEvent read GetOnPostData write SetOnPostData;
-    property OnPostDataEnd: TCrossHttpConnEvent read GetOnPostDataEnd write SetOnPostDataEnd;
   end;
 
 implementation
@@ -2302,11 +2277,6 @@ begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 
   FServer := AOwner as TCrossHttpServer;
-
-  {$IFNDEF __NEW_REQUEST_RESPONSE__}
-  FRequest := TCrossHttpRequest.Create(Self);
-  FResponse := TCrossHttpResponse.Create(Self);
-  {$ENDIF}
 
   FHttpParser := TCrossHttpParser.Create;
   FHttpParser.MaxHeaderSize := FServer.MaxHeaderSize;
@@ -2357,49 +2327,106 @@ end;
 
 procedure TCrossHttpConnection.ReleaseRequest;
 begin
-  {$IFDEF __NEW_REQUEST_RESPONSE__}
   FRequest := nil;
-  {$ELSE}
-  (FRequest as TCrossHttpRequest).Reset;
-  {$ENDIF}
+  FRequestObj := nil;
 end;
 
 procedure TCrossHttpConnection.ReleaseResponse;
 begin
-  {$IFDEF __NEW_REQUEST_RESPONSE__}
   FResponse := nil;
-  {$ELSE}
-  (FResponse as TCrossHttpResponse).Reset;
-  {$ENDIF}
+  FResponseObj := nil;
 end;
 
-procedure TCrossHttpConnection._InitResource;
+procedure TCrossHttpConnection._DoOnRequestEnd(const ASuccess: Boolean);
 begin
-  {$IFDEF __NEW_REQUEST_RESPONSE__}
-  FRequest := TCrossHttpRequest.Create(Self);
-  FResponse := TCrossHttpResponse.Create(Self);
-  {$ELSE}
-  (FRequest as TCrossHttpRequest).Reset;
-  (FResponse as TCrossHttpResponse).Reset;
-  {$ENDIF}
-
-  Inc(FInitCount);
+  _Lock;
+  try
+    FServer.DoOnRequestEnd(Self, ASuccess);
+  finally
+    try
+      ReleaseRequest;
+      ReleaseResponse;
+    finally
+      _Unlock;
+    end;
+  end;
 end;
 
 procedure TCrossHttpConnection._OnBodyBegin;
+var
+  LMultiPart: THttpMultiPartFormData;
 begin
-  FServer.TriggerPostDataBegin(Self);
+  {$region '创建Body'}
+  case FRequestObj.GetBodyType of
+    btMultiPart:
+      begin
+        if (FServer.FStoragePath <> '') and not DirectoryExists(FServer.FStoragePath) then
+          ForceDirectories(FServer.FStoragePath);
+
+        LMultiPart := THttpMultiPartFormData.Create;
+        LMultiPart.StoragePath := FServer.FStoragePath;
+        LMultiPart.AutoDeleteFiles := FServer.FAutoDeleteFiles;
+        LMultiPart.InitWithBoundary(FRequestObj.RequestBoundary);
+        FreeAndNil(FRequestObj.FBody);
+        FRequestObj.FBody := LMultiPart;
+      end;
+
+    btUrlEncoded, btBinary:
+      begin
+        FreeAndNil(FRequestObj.FBody);
+        FRequestObj.FBody := TMemoryStream.Create;
+      end;
+  end;
+  {$endregion}
 end;
 
 procedure TCrossHttpConnection._OnBodyData(const ADataPtr: Pointer;
   const ADataSize: Integer);
 begin
-  FServer.TriggerPostData(Self, ADataPtr, ADataSize);
+  if (FRequestObj.FBody = nil) then Exit;
+
+  Inc(FRequestObj.FPostDataSize, ADataSize);
+
+  case FRequestObj.GetBodyType of
+    btMultiPart:
+      (FRequestObj.FBody as THttpMultiPartFormData).Decode(ADataPtr, ADataSize);
+
+    btUrlEncoded, btBinary:
+      (FRequestObj.FBody as TStream).Write(ADataPtr^, ADataSize);
+  end;
 end;
 
 procedure TCrossHttpConnection._OnBodyEnd;
+var
+  LUrlEncodedStr: string;
+  LUrlEncodedBody: THttpUrlParams;
 begin
-  FServer.TriggerPostDataEnd(Self);
+  if (FRequestObj.FBody = nil) then Exit;
+
+  case FRequestObj.GetBodyType of
+    btUrlEncoded:
+      begin
+        SetString(LUrlEncodedStr,
+          MarshaledAString((FRequestObj.FBody as TMemoryStream).Memory),
+          (FRequestObj.FBody as TMemoryStream).Size);
+        LUrlEncodedBody := THttpUrlParams.Create;
+        if LUrlEncodedBody.Decode(LUrlEncodedStr) then
+        begin
+          FreeAndNil(FRequestObj.FBody);
+          FRequestObj.FBody := LUrlEncodedBody;
+        end else
+        begin
+          FreeAndNil(LUrlEncodedBody);
+          // 如果按 UrlEncoded 方式解码失败, 则保留原始数据
+          // 并将类型改为 btBinary
+          FRequestObj.FBodyType := btBinary;
+          (FRequestObj.FBody as TStream).Position := 0;
+        end;
+      end;
+
+    btBinary:
+      (FRequestObj.FBody as TStream).Position := 0;
+  end;
 end;
 
 function TCrossHttpConnection._OnGetHeaderValue(const AHeaderName: string;
@@ -2416,36 +2443,25 @@ end;
 
 procedure TCrossHttpConnection._OnParseBegin;
 begin
-  _Lock;
-  try
-    _InitResource;
-  finally
-    _Unlock;
-  end;
-
-  FServer.TriggerParseRequestBegin(Self);
+  FRequestObj := TCrossHttpRequest.Create(Self);
+  FRequest := FRequestObj;
+  FResponseObj := TCrossHttpResponse.Create(Self);
+  FResponse := FResponseObj;
 end;
 
 procedure TCrossHttpConnection._OnParseFailed(const ACode: Integer;
   const AError: string);
 begin
-  FServer.TriggerParseRequestFailed(Self, ACode, AError);
+  FResponse.SendStatus(ACode, AError);
 end;
 
 procedure TCrossHttpConnection._OnParseSuccess;
+var
+  LConnection: ICrossHttpConnection;
 begin
-  FServer.TriggerParseRequestSuccess(Self);
-end;
-
-procedure TCrossHttpConnection._UninitResource;
-begin
-  Inc(FUninitCount);
-
-  if (FInitCount = FUninitCount) then
-  begin
-    ReleaseRequest;
-    ReleaseResponse;
-  end;
+  LConnection := Self;
+  FServer.DoOnRequestBegin(LConnection);
+  FServer.DoOnRequest(LConnection);
 end;
 
 { TCrossHttpRouter }
@@ -2782,40 +2798,21 @@ end;
 
 procedure TCrossHttpServer.DoOnRequestBegin(
   const AConnection: ICrossHttpConnection);
-var
-  LConnObj: TCrossHttpConnection;
 begin
-  LConnObj := AConnection as TCrossHttpConnection;
-
-  LConnObj._Lock;
-  try
-    if Assigned(FOnRequestBegin) then
-      FOnRequestBegin(Self, AConnection);
-  finally
-    LConnObj._Unlock;
-  end;
+  if Assigned(FOnRequestBegin) then
+    FOnRequestBegin(Self, AConnection);
 end;
 
 procedure TCrossHttpServer.DoOnRequestEnd(
   const AConnection: ICrossHttpConnection; const ASuccess: Boolean);
-var
-  LConnObj: TCrossHttpConnection;
 begin
-  LConnObj := AConnection as TCrossHttpConnection;
-
-  LConnObj._Lock;
-  try
-    if Assigned(FOnRequestEnd) then
-      FOnRequestEnd(Self, AConnection, ASuccess);
-
-    LConnObj._UninitResource;
-  finally
-    LConnObj._Unlock;
-  end;
+  if Assigned(FOnRequestEnd) then
+    FOnRequestEnd(Self, AConnection, ASuccess);
 end;
 
 procedure TCrossHttpServer.DoOnRequest(const AConnection: ICrossHttpConnection);
 var
+  LHttpConnectionObj: TCrossHttpConnection;
   LRequest: ICrossHttpRequest;
   LResponse: ICrossHttpResponse;
   LSessionID: string;
@@ -2823,8 +2820,9 @@ var
   LRouter, LMiddleware: ICrossHttpRouter;
   LMiddlewares, LRouters: TArray<ICrossHttpRouter>;
 begin
-  LRequest := AConnection.Request;
-  LResponse := AConnection.Response;
+  LHttpConnectionObj := AConnection as TCrossHttpConnection;
+  LRequest := LHttpConnectionObj.FRequest;
+  LResponse := LHttpConnectionObj.FResponse;
   LHandled := False;
 
   try
@@ -2982,21 +2980,6 @@ begin
   Result := FMinCompressSize;
 end;
 
-function TCrossHttpServer.GetOnPostData: TCrossHttpDataEvent;
-begin
-  Result := FOnPostData;
-end;
-
-function TCrossHttpServer.GetOnPostDataBegin: TCrossHttpConnEvent;
-begin
-  Result := FOnPostDataBegin;
-end;
-
-function TCrossHttpServer.GetOnPostDataEnd: TCrossHttpConnEvent;
-begin
-  Result := FOnPostDataEnd;
-end;
-
 function TCrossHttpServer.GetOnRequest: TCrossHttpRequestEvent;
 begin
   Result := FOnRequest;
@@ -3055,21 +3038,6 @@ end;
 procedure TCrossHttpServer.SetMinCompressSize(const Value: Int64);
 begin
   FMinCompressSize := Value;
-end;
-
-procedure TCrossHttpServer.SetOnPostData(const Value: TCrossHttpDataEvent);
-begin
-  FOnPostData := Value;
-end;
-
-procedure TCrossHttpServer.SetOnPostDataBegin(const Value: TCrossHttpConnEvent);
-begin
-  FOnPostDataBegin := Value;
-end;
-
-procedure TCrossHttpServer.SetOnPostDataEnd(const Value: TCrossHttpConnEvent);
-begin
-  FOnPostDataEnd := Value;
 end;
 
 procedure TCrossHttpServer.SetOnRequest(const Value: TCrossHttpRequestEvent);
@@ -3260,127 +3228,6 @@ begin
   Result := Self;
 end;
 
-procedure TCrossHttpServer.TriggerPostDataBegin(
-  const AConnection: ICrossHttpConnection);
-var
-  LRequest: TCrossHttpRequest;
-  LMultiPart: THttpMultiPartFormData;
-  LStream: TStream;
-begin
-  LRequest := AConnection.Request as TCrossHttpRequest;
-
-  {$region '创建Body'}
-  case LRequest.BodyType of
-    btMultiPart:
-      begin
-        if (FStoragePath <> '') and not DirectoryExists(FStoragePath) then
-          ForceDirectories(FStoragePath);
-
-        LMultiPart := THttpMultiPartFormData.Create;
-        LMultiPart.StoragePath := FStoragePath;
-        LMultiPart.AutoDeleteFiles := FAutoDeleteFiles;
-        LMultiPart.InitWithBoundary(LRequest.RequestBoundary);
-        FreeAndNil(LRequest.FBody);
-        LRequest.FBody := LMultiPart;
-      end;
-
-    btUrlEncoded:
-      begin
-        LStream := TMemoryStream.Create;
-        FreeAndNil(LRequest.FBody);
-        LRequest.FBody := LStream;
-      end;
-
-    btBinary:
-      begin
-        LStream := TMemoryStream.Create;
-        FreeAndNil(LRequest.FBody);
-        LRequest.FBody := LStream;
-      end;
-  end;
-  {$endregion}
-
-  if Assigned(FOnPostDataBegin) then
-    FOnPostDataBegin(Self, AConnection);
-end;
-
-procedure TCrossHttpServer.TriggerPostData(const AConnection: ICrossHttpConnection;
-  const ABuf: Pointer; const ALen: Integer);
-var
-  LRequest: TCrossHttpRequest;
-begin
-  LRequest := AConnection.Request as TCrossHttpRequest;
-  if (LRequest.Body = nil) then Exit;
-
-  Inc(LRequest.FPostDataSize, ALen);
-
-  case LRequest.GetBodyType of
-    btMultiPart: (LRequest.Body as THttpMultiPartFormData).Decode(ABuf, ALen);
-    btUrlEncoded: (LRequest.Body as TStream).Write(ABuf^, ALen);
-    btBinary: (LRequest.Body as TStream).Write(ABuf^, ALen);
-  end;
-
-  if Assigned(FOnPostData) then
-    FOnPostData(Self, AConnection, ABuf, ALen);
-end;
-
-procedure TCrossHttpServer.TriggerPostDataEnd(
-  const AConnection: ICrossHttpConnection);
-var
-  LRequest: TCrossHttpRequest;
-  LUrlEncodedStr: string;
-  LUrlEncodedBody: THttpUrlParams;
-begin
-  LRequest := AConnection.Request as TCrossHttpRequest;
-  if (LRequest.Body = nil) then Exit;
-
-  case LRequest.GetBodyType of
-    btUrlEncoded:
-      begin
-        SetString(LUrlEncodedStr,
-          MarshaledAString((LRequest.Body as TMemoryStream).Memory),
-          (LRequest.Body as TMemoryStream).Size);
-        LUrlEncodedBody := THttpUrlParams.Create;
-        if LUrlEncodedBody.Decode(LUrlEncodedStr) then
-        begin
-          FreeAndNil(LRequest.FBody);
-          LRequest.FBody := LUrlEncodedBody;
-        end else
-        begin
-          FreeAndNil(LUrlEncodedBody);
-          LRequest.FBodyType := btBinary;
-        end;
-      end;
-
-    btBinary:
-      begin
-        (LRequest.Body as TStream).Position := 0;
-      end;
-  end;
-
-  if Assigned(FOnPostDataEnd) then
-    FOnPostDataEnd(Self, AConnection);
-end;
-
-procedure TCrossHttpServer.TriggerParseRequestBegin(
-  const AConnection: ICrossHttpConnection);
-begin
-end;
-
-procedure TCrossHttpServer.TriggerParseRequestFailed(
-  const AConnection: ICrossHttpConnection; const AStatusCode: Integer;
-  const AStatusText: string);
-begin
-  AConnection.Response.SendStatus(AStatusCode, AStatusText);
-end;
-
-procedure TCrossHttpServer.TriggerParseRequestSuccess(
-  const AConnection: ICrossHttpConnection);
-begin
-  DoOnRequestBegin(AConnection);
-  DoOnRequest(AConnection);
-end;
-
 function TCrossHttpServer.LockMiddlewares: TCrossHttpRouters;
 begin
   Result := FMiddlewares;
@@ -3494,6 +3341,7 @@ end;
 
 constructor TCrossHttpRequest.Create(const AConnection: TCrossHttpConnection);
 begin
+  FConnectionObj := AConnection;
   FConnection := AConnection;
   FServer := FConnection.Owner as TCrossHttpServer;
 
@@ -3846,8 +3694,9 @@ end;
 
 constructor TCrossHttpResponse.Create(const AConnection: TCrossHttpConnection);
 begin
+  FConnectionObj := AConnection;
   FConnection := AConnection;
-  FRequest := AConnection.Request;
+  FRequest := FConnectionObj.FRequest;
   FHeader := THttpHeader.Create;
   FCookies := TResponseCookies.Create;
   FStatusCode := 200;
@@ -4366,13 +4215,15 @@ procedure TCrossHttpResponse._Send(const ASource: TCrossHttpChunkDataFunc;
   const ACallback: TCrossConnectionCallback);
 var
   LHttpConnection: ICrossHttpConnection;
+  LHttpConnectionObj: TCrossHttpConnection;
   LSender: TCrossConnectionCallback;
   LKeepAlive: Boolean;
   LStatusCode: Integer;
 begin
   AtomicIncrement(FSendStatus);
 
-  LHttpConnection := GetConnection;
+  LHttpConnection := FConnection;
+  LHttpConnectionObj := FConnectionObj;
   LKeepAlive := FRequest.KeepAlive;
   LStatusCode := FStatusCode;
 
@@ -4385,14 +4236,12 @@ begin
       if not ASuccess then
       begin
         if Assigned(ACallback) then
-          ACallback(LHttpConnection, False);
+          ACallback(AConnection, False);
 
-        if Assigned(LHttpConnection)
-          and Assigned(LHttpConnection.Server) then
-          (LHttpConnection.Server as TCrossHttpServer).DoOnRequestEnd(LHttpConnection, False);
+        LHttpConnectionObj.Close;
+        LHttpConnectionObj._DoOnRequestEnd(False);
 
-        LHttpConnection.Close;
-
+        LHttpConnection := nil;
         LSender := nil;
 
         Exit;
@@ -4406,22 +4255,21 @@ begin
         or (LCount <= 0) then
       begin
         if Assigned(ACallback) then
-          ACallback(LHttpConnection, True);
-
-        if Assigned(LHttpConnection)
-          and Assigned(LHttpConnection.Server) then
-          (LHttpConnection.Server as TCrossHttpServer).DoOnRequestEnd(LHttpConnection, True);
+          ACallback(AConnection, True);
 
         if not LKeepAlive
           or (LStatusCode >= 400{如果发送的是出错状态码, 则发送完成之后断开连接}) then
-          LHttpConnection.Disconnect;
+          LHttpConnectionObj.Disconnect;
 
+        LHttpConnectionObj._DoOnRequestEnd(True);
+
+        LHttpConnection := nil;
         LSender := nil;
 
         Exit;
       end;
 
-      LHttpConnection.SendBuf(LData^, LCount, LSender);
+      AConnection.SendBuf(LData^, LCount, LSender);
     end;
 
   LSender(LHttpConnection, True);

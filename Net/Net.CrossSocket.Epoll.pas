@@ -487,15 +487,17 @@ begin
 
       // 被系统信号中断, 可以重新recv
       if (LError = EINTR) then
+      begin
+        _LogLastOsError('Recv=EINTR, %s', [LConnection.DebugInfo]);
         Continue
+      end else
       // 接收缓冲区中数据已经被取完了
-      else if (LError = EAGAIN) or (LError = EWOULDBLOCK) then
+      if (LError = EAGAIN) or (LError = EWOULDBLOCK) then
         Break
       else
       // 接收出错
       begin
         _LogLastOsError('Recv<0, %s', [LConnection.DebugInfo]);
-
         LConnection.Close;
         Break;
       end;
@@ -513,6 +515,7 @@ var
   LEpConnection: TEpollConnection;
   LSendItem: PSendItem;
   LSent, LError: Integer;
+  LSendCb: TCrossConnectionCallback;
 begin
   LConnection := AConnection;
   LEpConnection := LConnection as TEpollConnection;
@@ -533,8 +536,7 @@ begin
       // 对方主动断开连接
       if (LSent = 0) then
       begin
-        _Log('Send=0(close), %s', [LConnection.DebugInfo]);
-
+        _Log('Send=0(Close), %s', [LConnection.DebugInfo]);
         LConnection.Close;
         Break;
       end;
@@ -546,15 +548,17 @@ begin
 
         // 被系统信号中断, 可以重新send
         if (LError = EINTR) then
-          Continue
+        begin
+          _LogLastOsError('Send=EINTR, %s', [LConnection.DebugInfo]);
+          Continue;
+        end else
         // 发送缓冲区已被填满了, 需要等下次唤醒发送线程再继续发送
-        else if (LError = EAGAIN) or (LError = EWOULDBLOCK) then
+        if (LError = EAGAIN) or (LError = EWOULDBLOCK) then
           Break
         // 发送出错
         else
         begin
           _LogLastOsError('Send<0, %s', [LConnection.DebugInfo]);
-
           LConnection.Close;
           Break;
         end;
@@ -563,18 +567,24 @@ begin
       // 全部发送完成
       if (LSent >= LSendItem.Size) then
       begin
-        // 调用回调
-        if Assigned(LSendItem.Callback) then
-          LSendItem.Callback(LConnection, True);
+        LSendCb := LSendItem.Callback;
 
         // 发送成功, 移除已发送成功的数据
+        // 必须先从队列移除已发完的数据项, 然后再执行发送成功的回调
+        // 因为回调里可能还会发送新的数据, 如果先执行回调再去移除,
+        // 就会错误的将回调中放到队列里的新数据移除
         if (LEpConnection.FSendQueue.Count > 0) then
           LEpConnection.FSendQueue.Delete(0);
+
+        // 调用回调
+        if Assigned(LSendCb) then
+          LSendCb(LConnection, True);
       end else
       begin
         // 部分发送成功, 在下一次唤醒发送线程时继续处理剩余部分
         Dec(LSendItem.Size, LSent);
         Inc(LSendItem.Data, LSent);
+        Break;
       end;
     end;
   finally

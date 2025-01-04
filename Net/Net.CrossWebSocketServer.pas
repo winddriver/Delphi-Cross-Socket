@@ -465,6 +465,7 @@ end;
 destructor TCrossWebSocketConnection.Destroy;
 begin
   FreeAndNil(FWsParser);
+  inherited ReleaseRequest;
   inherited;
 end;
 
