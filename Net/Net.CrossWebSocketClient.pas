@@ -526,6 +526,7 @@ begin
 
     procedure
     begin
+      _Log('websocket_client recved invalid data, %s', [Self.DebugInfo]);
       Self.Close;
     end);
 end;

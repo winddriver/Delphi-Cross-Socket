@@ -160,11 +160,8 @@ var
   PBuf, PHeader: PByte;
   LByte: Byte;
   LMessageData: TBytes;
-  LPreLen: Integer;
 begin
   PBuf := ABuf;
-
-  LPreLen := ALen;
 
   while (ALen > 0) do
   begin
@@ -211,7 +208,11 @@ begin
 
               if not IsValidOpCode(FWsOpCode) then
               begin
-                _Log('websocket decode, invalid opcode[%d]', [FWsOpCode]);
+                _Log('websocket decode, invalid opcode[%d], ABuf=0x%p, ALen=%d', [
+                  FWsOpCode, ABuf, ALen
+                ]);
+                Inc(PBuf, ALen);
+                ALen := 0;
                 TriggerFailed;
                 Break;
               end;
@@ -241,7 +242,11 @@ begin
 
               if not IsValidBodySize(FWsBodySize) then
               begin
-                _Log('websocket decode, invalid bodysize[%u]', [FWsBodySize]);
+                _Log('websocket decode, invalid bodysize[%u], ABuf=0x%p, ALen=%d', [
+                  FWsBodySize, ABuf, ALen
+                ]);
+                Inc(PBuf, ALen);
+                ALen := 0;
                 TriggerFailed;
                 Break;
               end;
