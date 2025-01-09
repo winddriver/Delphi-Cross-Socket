@@ -86,12 +86,9 @@ type
   private
     FKqueueHandle: Integer;
     FSendQueue: TSendQueue;
-    FIoEvents: TIoEvents;
     FKqLock: ILock;
     FInPending, FOutPending: Integer;
 
-    function _ReadEnabled: Boolean; inline;
-    function _WriteEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
 
     procedure _ClearSendQueue;
@@ -339,20 +336,13 @@ begin
   FKqLock.Leave;
 end;
 
-function TKqueueConnection._ReadEnabled: Boolean;
-begin
-  Result := (ieRead in FIoEvents);
-end;
-
 function TKqueueConnection._UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
 var
   LCrossData: Pointer;
   LEvents: array [0..1] of TKEvent;
   N: Integer;
 begin
-  FIoEvents := AIoEvents;
-
-  if (FIoEvents = []) or IsClosed then Exit(False);
+  if (AIoEvents = []) or IsClosed then Exit(False);
 
   LCrossData := Pointer(Self);
   N := 0;
@@ -365,7 +355,7 @@ begin
   // 注意关闭连接一定要使用shutdown而不能直接close, 否则无法触发kqueue事件,
   // 导致引用计数无法回收
 
-  if _ReadEnabled and (AtomicCmpExchange(FInPending, 0, 0) = 0) then
+  if (ieRead in AIoEvents) and (AtomicCmpExchange(FInPending, 0, 0) = 0) then
   begin
     Self._AddRef;
 
@@ -375,7 +365,7 @@ begin
     Inc(N);
   end;
 
-  if _WriteEnabled and (AtomicCmpExchange(FOutPending, 0, 0) = 0) then
+  if (ieWrite in AIoEvents) and (AtomicCmpExchange(FOutPending, 0, 0) = 0) then
   begin
     Self._AddRef;
 
@@ -403,11 +393,6 @@ begin
 
     Self.Close;
   end;
-end;
-
-function TKqueueConnection._WriteEnabled: Boolean;
-begin
-  Result := (ieWrite in FIoEvents);
 end;
 
 { TKqueueCrossSocket }
@@ -681,6 +666,14 @@ begin
   // 调用回调
   for LSendCb in LSendCbArr do
     LSendCb(LConnection, True);
+
+  LKqConnection._KqLock;
+  try
+    if (LKqConnection.FSendQueue.Count > 0) then
+      LKqConnection._UpdateIoEvent([ieWrite]);
+  finally
+    LKqConnection._KqUnlock;
+  end;
 end;
 
 procedure TKqueueCrossSocket._OpenIdleHandle;
@@ -978,8 +971,7 @@ begin
 
     // 由于 kqueue 队列中每个套接字的读写事件是分开的两条记录
     // 所以发送只需要添加写事件即可, 不用管读事件, 否则反而会引起引用计数异常
-    if not LKqConnection._WriteEnabled then
-      LKqConnection._UpdateIoEvent([ieWrite]);
+    LKqConnection._UpdateIoEvent([ieWrite]);
   finally
     LKqConnection._KqUnlock;
   end;

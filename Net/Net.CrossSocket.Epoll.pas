@@ -51,10 +51,8 @@ type
   TEpollListen = class(TCrossListenBase)
   private
     FEpollHandle: Integer;
-    FIoEvents: TIoEvents;
     FOpCode: Integer;
 
-    function _ReadEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
@@ -77,15 +75,11 @@ type
   private
     FEpollHandle: Integer;
     FSendQueue: TSendQueue;
-    FIoEvents: TIoEvents;
     FEpLock: ILock;
     FOpCode: Integer;
     FInPending, FOutPending: Integer;
 
-    function _ReadEnabled: Boolean; inline;
-    function _WriteEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
-
     procedure _ClearSendQueue;
 
     // 为了减少死锁的可能, 不使用父类的 _Lock/_Unlock
@@ -197,23 +191,16 @@ begin
   FEpollHandle := TEpollCrossSocket(Owner).FEpollHandle;
 end;
 
-function TEpollListen._ReadEnabled: Boolean;
-begin
-  Result := (ieRead in FIoEvents);
-end;
-
 function TEpollListen._UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
 var
   LEvent: TEPoll_Event;
 begin
-  FIoEvents := AIoEvents;
-
-  if (FIoEvents = []) or IsClosed then Exit(False);
+  if (AIoEvents = []) or IsClosed then Exit(False);
 
   LEvent.Events := EPOLLET or EPOLLONESHOT;
   LEvent.Data.u64 := Self.UID;
 
-  if _ReadEnabled then
+  if (ieRead in AIoEvents) then
     LEvent.Events := LEvent.Events or EPOLLIN;
 
   Result := (epoll_ctl(FEpollHandle, FOpCode, Socket, @LEvent) >= 0);
@@ -313,25 +300,18 @@ begin
   FEpLock.Leave;
 end;
 
-function TEpollConnection._ReadEnabled: Boolean;
-begin
-  Result := (ieRead in FIoEvents);
-end;
-
 function TEpollConnection._UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
 var
   LEvent: TEPoll_Event;
 begin
-  FIoEvents := AIoEvents;
-
-  if (FIoEvents = []) or IsClosed then Exit(False);
+  if (AIoEvents = []) or IsClosed then Exit(False);
 
   LEvent.Events := 0;
 
-  if _ReadEnabled and (AtomicCmpExchange(FInPending, 0, 0) = 0) then
+  if (ieRead in AIoEvents) and (AtomicCmpExchange(FInPending, 0, 0) = 0) then
     LEvent.Events := LEvent.Events or EPOLLIN;
 
-  if _WriteEnabled and (AtomicCmpExchange(FOutPending, 0, 0) = 0) then
+  if (ieWrite in AIoEvents) and (AtomicCmpExchange(FOutPending, 0, 0) = 0) then
     LEvent.Events := LEvent.Events or EPOLLOUT;
 
   if (LEvent.Events = 0) then Exit(False);
@@ -348,12 +328,6 @@ begin
       [Self.DebugInfo, LEvent.Events]);
     Close;
   end;
-end;
-
-
-function TEpollConnection._WriteEnabled: Boolean;
-begin
-  Result := (ieWrite in FIoEvents);
 end;
 
 { TEpollCrossSocket }
@@ -903,8 +877,7 @@ begin
 
     // 由于epoll队列中每个套接字只有一条记录, 为了避免监视发送数据的时候
     // 无法接收数据, 这里必须同时监视读和写
-    if not LEpConnection._WriteEnabled then
-      LEpConnection._UpdateIoEvent([ieRead, ieWrite]);
+    LEpConnection._UpdateIoEvent([ieRead, ieWrite]);
   finally
     LEpConnection._EpUnlock;
   end;
