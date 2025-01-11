@@ -88,12 +88,12 @@ type
     // 在接收完数据之后马上发送数据, 如果使用同一把锁可能会引起死锁
     procedure _EpLock; inline;
     procedure _EpUnlock; inline;
+  protected
+    procedure InternalClose; override;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
-
-    procedure Close; override;
   end;
 
   // KQUEUE 与 EPOLL 队列的差异
@@ -251,20 +251,17 @@ begin
   inherited;
 end;
 
-procedure TEpollConnection.Close;
+procedure TEpollConnection.InternalClose;
 begin
   _EpLock;
   try
-    if (GetConnectStatus = csClosed) then Exit;
-
     _ClearSendQueue;
-
     epoll_ctl(FEpollHandle, EPOLL_CTL_DEL, Socket, nil);
-
-    inherited Close;
   finally
     _EpUnlock;
   end;
+
+  inherited InternalClose;
 end;
 
 procedure TEpollConnection._ClearSendQueue;

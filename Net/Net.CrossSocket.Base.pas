@@ -666,6 +666,7 @@ type
     function _SetConnectStatus(const AStatus: TConnectStatus): TConnectStatus; inline;
     procedure SetConnectStatus(const AValue: TConnectStatus);
 
+    procedure InternalClose; virtual;
     procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); virtual;
   public
@@ -1579,7 +1580,7 @@ begin
 
   if (FSocket <> INVALID_SOCKET) then
   begin
-    TSocketAPI.CloseSocket(FSocket);
+    InternalClose;
     FOwner.TriggerDisconnected(Self);
     FSocket := INVALID_SOCKET;
   end;
@@ -1669,6 +1670,11 @@ end;
 function TCrossConnectionBase.GetUIDTag: Byte;
 begin
   Result := UID_CONNECTION;
+end;
+
+procedure TCrossConnectionBase.InternalClose;
+begin
+  TSocketAPI.CloseSocket(FSocket);
 end;
 
 procedure TCrossConnectionBase.SendBuf(const ABuffer: Pointer;

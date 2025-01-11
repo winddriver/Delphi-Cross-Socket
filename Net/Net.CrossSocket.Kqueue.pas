@@ -95,12 +95,12 @@ type
 
     procedure _KqLock; inline;
     procedure _KqUnlock; inline;
+  protected
+    procedure InternalClose; override;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
-
-    procedure Close; override;
   end;
 
   // KQUEUE 与 EPOLL 队列的差异
@@ -268,20 +268,6 @@ end;
 
 { TKqueueConnection }
 
-procedure TKqueueConnection.Close;
-begin
-  _KqLock;
-  try
-    if (GetConnectStatus = csClosed) then Exit;
-
-    _ClearSendQueue;
-
-    inherited Close;
-  finally
-    _KqUnlock;
-  end;
-end;
-
 constructor TKqueueConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback);
@@ -299,6 +285,18 @@ begin
   _ClearSendQueue;
 
   inherited;
+end;
+
+procedure TKqueueConnection.InternalClose;
+begin
+  _KqLock;
+  try
+    _ClearSendQueue;
+  finally
+    _KqUnlock;
+  end;
+
+  inherited InternalClose;
 end;
 
 procedure TKqueueConnection._ClearSendQueue;
