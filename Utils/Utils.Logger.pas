@@ -73,7 +73,8 @@ type
     FWriteThread: TThread;
 
     class var FDefault: ILogger;
-    class function GetLogger: ILogger; static;
+    class function GetDefault: ILogger; static;
+    class procedure SetDefault(const Value: ILogger); static;
 
     function GetFilters: TLogTypeSets;
     procedure SetFilters(const Value: TLogTypeSets);
@@ -106,7 +107,7 @@ type
 
     property Filters: TLogTypeSets read GetFilters write SetFilters;
 
-    class property &Default: ILogger read GetLogger;
+    class property &Default: ILogger read GetDefault write SetDefault;
   end;
 
 procedure AppendLog(const ALog: string; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
@@ -194,7 +195,7 @@ begin
   Result := Result + TStrUtils.FormatDateTime('YYYY-MM-DD', ADate) + '.log';
 end;
 
-class function TLogger.GetLogger: ILogger;
+class function TLogger.GetDefault: ILogger;
 var
   LDefault: ILogger;
 begin
@@ -212,6 +213,17 @@ end;
 procedure TLogger.SetFilters(const Value: TLogTypeSets);
 begin
   FFilters := Value;
+end;
+
+class procedure TLogger.SetDefault(const Value: ILogger);
+var
+  LOldDefault: ILogger;
+begin
+  LOldDefault := ILogger(AtomicExchange(Pointer(FDefault), Pointer(Value)));
+  if (LOldDefault <> nil) then
+    LOldDefault._Release;
+  if (FDefault <> nil) then
+    FDefault._AddRef;
 end;
 
 procedure TLogger._CreateWriteThread;
