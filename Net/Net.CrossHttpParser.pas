@@ -209,15 +209,6 @@ begin
               FContentLength := StrToInt64Def(LContentLength, -1);
               FIsChunked := TStrUtils.SameText(FTransferEncoding, 'chunked');
 
-              // 响应头中没有 Content-Length,Transfer-Encoding
-              // 然后还是保持连接的, 这一定是非法数据
-              if (FContentLength < 0) and not FIsChunked
-                and TStrUtils.SameText(FConnectionStr, 'keep-alive') then
-              begin
-                _OnParseFailed(400, 'Invalid response data.');
-                Exit;
-              end;
-
               // 先通过响应头中的内容大小检查下是否超大了
               if (FMaxBodyDataSize > 0) and (FContentLength > FMaxBodyDataSize) then
               begin
