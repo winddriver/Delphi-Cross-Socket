@@ -30,7 +30,6 @@ uses
 
   {$IFDEF FPC}
   DTF.RTL,
-  bufstream,
   {$ENDIF}
 
   Utils.DateTime,
@@ -39,7 +38,7 @@ uses
 
 type
   /// <summary>
-  ///    Adapted from delphi rtl source code
+  ///    Adapted from delphi rtl source code (TBufferedFileStream)
   ///    TFastFileStream adds buffering to the TFileStream. This optimizes
   ///    multiple consecutive small writes or reads. TFastFileStream will
   ///    not give performance gain, when there are random position reads or
@@ -206,6 +205,8 @@ type
 
     class function GetFullPath(const APath: string): string; static;
     class function GetDirectoryName(const AFileName: string): string; static;
+
+    class function GetHomePath: string; static;
 
     class function MatchesPattern(const AFileName, APattern: string): Boolean; static;
   end;
@@ -1360,6 +1361,11 @@ end;
 class function TPathUtils.GetFullPath(const APath: string): string;
 begin
   Result := ExpandFileName(APath);
+end;
+
+class function TPathUtils.GetHomePath: string;
+begin
+  Result := SysUtils.{$IFDEF DELPHI}GetHomePath{$ELSE}GetUserDir{$ENDIF};
 end;
 
 class function TPathUtils.MatchesPattern(const AFileName,

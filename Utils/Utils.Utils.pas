@@ -58,6 +58,7 @@ type
   TUtils = class
   private class var
     FAppFile, FAppPath, FAppHome, FAppDocuments, FAppName: string;
+    FSysPath: string;
   private
     class constructor Create;
   public
@@ -80,6 +81,7 @@ type
     class function ClearStr(const AStr: string; const AKeepChars: array of Char): string; static;
 
     class function IsSpaceChar(const C: Char): Boolean; static;
+    class function IsSpaceStr(const S: string): Boolean; static;
     class function UnicodeTrim(const S: string): string; static;
     class function UnicodeTrimLeft(const S: string): string; static;
     class function UnicodeTrimRight(const S: string): string; static;
@@ -101,9 +103,9 @@ type
 
     // 内存数据转16进制字符串(由于系统自带的转出来是大写, 我希望转成小写的, 所以自己写了这个方法)
     class procedure BinToHex(ABinBuf: Pointer; ABufSize: Integer; AText: PChar); overload; static;
-    class function BinToHex(ABinBuf: Pointer; ABufSize: Integer): string; overload; static; inline;
-    class function BytesToHex(const ABytes: TBytes; AOffset, ACount: Integer): string; overload; static; inline;
-    class function BytesToHex(const ABytes: TBytes): string; overload; static; inline;
+    class function BinToHex(ABinBuf: Pointer; ABufSize: Integer): string; overload; static; //inline;
+    class function BytesToHex(const ABytes: TBytes; AOffset, ACount: Integer): string; overload; static; //inline;
+    class function BytesToHex(const ABytes: TBytes): string; overload; static; //inline;
 
     class function HexCharToByte(const AHexChar: Char; out AByte: Byte): Boolean; static;
     class function HexToBin(AText: PChar; ABinBuf: Pointer; ABufSize: Integer): Integer; overload; static;
@@ -157,6 +159,8 @@ type
     class property AppHome: string read FAppHome;
     class property AppDocuments: string read FAppDocuments; // ios, android 可写
     class property AppName: string read FAppName;
+
+    class property SysPath: string read FSysPath;
   end;
 
   TEncodingHelper = class helper for TEncoding
@@ -186,6 +190,14 @@ begin
   FAppDocuments := IncludeTrailingPathDelimiter(TPath.GetDocumentsPath);
   {$ELSE}
   FAppDocuments := IncludeTrailingPathDelimiter(TPath.Combine(TPath.GetDocumentsPath, FAppName));
+  {$ENDIF}
+
+  {$IFDEF MSWINDOWS}
+  SetLength(FSysPath, MAX_PATH);
+  Windows.GetSystemDirectoryW(PChar(FSysPath), MAX_PATH);
+  SetLength(FSysPath, StrLen(PChar(FSysPath)));
+  {$ELSE}
+  FSysPath := '/';
   {$ENDIF}
 end;
 
@@ -544,6 +556,17 @@ begin
     TUnicodeCategory.ucUnassigned,
     TUnicodeCategory.ucSpaceSeparator
   ]);
+end;
+
+class function TUtils.IsSpaceStr(const S: string): Boolean;
+var
+  LChar: Char;
+begin
+  for LChar in S do
+    if not IsSpaceChar(LChar) then
+      Exit(False);
+
+  Result := True;
 end;
 
 class function TUtils.IsUTF8(const ABuf: Pointer; const ABufSize: Integer): Boolean;
@@ -974,6 +997,8 @@ end;
 
 class function TUtils.BinToHex(ABinBuf: Pointer; ABufSize: Integer): string;
 begin
+  if (ABinBuf = nil) or (ABufSize <= 0) then Exit('');
+
   SetLength(Result, ABufSize * 2);
   BinToHex(ABinBuf, ABufSize, PChar(Result));
 end;
@@ -981,6 +1006,9 @@ end;
 class function TUtils.BytesToHex(const ABytes: TBytes; AOffset,
   ACount: Integer): string;
 begin
+  if (ABytes = nil) or (AOffset < 0)
+    or (AOffset + ACount > Length(ABytes)) then Exit('');
+
   Result := BinToHex(@ABytes[AOffset], ACount);
 end;
 

@@ -699,7 +699,11 @@ begin
         Inc(P);
     end;
     if (P + 2 = PEnd) and (P[0] = ')') and (P[1] = '/') then
-      ADateTime := TDateTime(UnixDateDelta + (LMSecsSince1970 / MSecsPerDay))
+      //ADateTime := TDateTime(UnixDateDelta + (LMSecsSince1970 / MSecsPerDay))
+    	 // fpc 在开启 delphi 模式, 并且目标设置为 32位的情况,
+      // 将 Extended 类型强制转换为 TDateTime 会编译报错,
+      // 直接赋值倒是能编译通过
+      ADateTime := UnixDateDelta + (LMSecsSince1970 / MSecsPerDay)
     else
       Exit(False); // invalid format
   end else

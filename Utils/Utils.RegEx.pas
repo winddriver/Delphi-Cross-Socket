@@ -114,7 +114,7 @@ type
     constructor Create(const ARegEx: IRegEx; const AInput: string;
       const AStartPos: Integer);
 
-  	 function GetEnumerator: TMatchCollectionEnumerator;
+  	function GetEnumerator: TMatchCollectionEnumerator;
     property Count: Integer read GetCount;
     property Item[const AIndex: Integer]: TMatch read GetItem; default;
   end;
