@@ -1022,7 +1022,7 @@ var
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 
-  FHttpParser := TCrossHttpParser.Create;
+  FHttpParser := TCrossHttpParser.Create(pmClient);
   FHttpParser.OnHeaderData := _OnHeaderData;
   FHttpParser.OnGetHeaderValue := _OnGetHeaderValue;
   FHttpParser.OnBodyBegin := _OnBodyBegin;
@@ -1145,7 +1145,8 @@ begin
   _UpdateWatch;
 
 //  _Log('ParseRecvData, %s, 0x%x, %d', [Self.DebugInfo, NativeUInt(ABuf), ALen]);
-  FHttpParser.Decode(ABuf, ALen);
+  if (FHttpParser <> nil) then
+    FHttpParser.Decode(ABuf, ALen);
 end;
 
 procedure TCrossHttpClientConnection.SendNoCompress(

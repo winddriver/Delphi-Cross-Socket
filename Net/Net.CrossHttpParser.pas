@@ -24,6 +24,7 @@ uses
   Utils.StrUtils;
 
 type
+  TCrossHttpParseMode = (pmServer, pmClient);
   TCrossHttpParseState = (psIdle, psHeader, psBodyData, psChunkSize, psChunkData, psChunkEnd, psDone);
 
   TOnHeaderData = procedure(const ADataPtr: Pointer; const ADataSize: Integer) of object;
@@ -37,6 +38,7 @@ type
 
   TCrossHttpParser = class
   private
+    FMode: TCrossHttpParseMode;
     FMaxHeaderSize, FMaxBodyDataSize: Integer;
     FOnHeaderData: TOnHeaderData;
     FOnGetHeaderValue: TOnGetHeaderValue;
@@ -77,7 +79,7 @@ type
 
     procedure _Reset;
   public
-    constructor Create;
+    constructor Create(const AMode: TCrossHttpParseMode);
     destructor Destroy; override;
 
     procedure Decode(var ABuf: Pointer; var ALen: Integer);
@@ -99,15 +101,16 @@ implementation
 
 { TCrossHttpParser }
 
-constructor TCrossHttpParser.Create;
+constructor TCrossHttpParser.Create(const AMode: TCrossHttpParseMode);
 begin
+  FMode := AMode;
   FHeaderStream := TMemoryStream.Create;
   FParseState := psIdle;
 end;
 
 destructor TCrossHttpParser.Destroy;
 begin
-  if (FParseState = psBodyData) and FHasBody then
+  if (FMode = pmClient) and (FParseState = psBodyData) and FHasBody then
   begin
     FParseState := psDone;
     _OnBodyEnd;
@@ -209,15 +212,6 @@ begin
               FContentLength := StrToInt64Def(LContentLength, -1);
               FIsChunked := TStrUtils.SameText(FTransferEncoding, 'chunked');
 
-              // 响应头中没有 Content-Length,Transfer-Encoding
-              // 然后还是保持连接的, 这一定是非法数据
-              if (FContentLength < 0) and not FIsChunked
-                and TStrUtils.SameText(FConnectionStr, 'keep-alive') then
-              begin
-                _OnParseFailed(400, 'Invalid response data.');
-                Exit;
-              end;
-
               // 先通过响应头中的内容大小检查下是否超大了
               if (FMaxBodyDataSize > 0) and (FContentLength > FMaxBodyDataSize) then
               begin
@@ -230,8 +224,22 @@ begin
               //   还有种特殊情况就是 ContentLength 和 Chunked 都没有
               //   并且响应头中包含 Connection: close
               //   这种需要在连接断开时处理body
-              FHasBody := (FContentLength > 0) or FIsChunked
-                or TStrUtils.SameText(FConnectionStr, 'close');
+              if (FMode = pmServer) then
+                FHasBody := (FContentLength > 0) or FIsChunked
+              else
+              begin
+                // 响应头中没有 Content-Length,Transfer-Encoding
+                // 然后还是保持连接的, 这一定是非法数据
+                if (FContentLength < 0) and not FIsChunked
+                  and TStrUtils.SameText(FConnectionStr, 'keep-alive') then
+                begin
+                  _OnParseFailed(400, 'Invalid response data.');
+                  Exit;
+                end;
+
+                FHasBody := (FContentLength > 0) or FIsChunked
+                  or TStrUtils.SameText(FConnectionStr, 'close');
+              end;
 
               // 如果需要接收 body 数据
               if FHasBody then

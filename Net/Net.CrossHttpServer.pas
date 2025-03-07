@@ -2278,7 +2278,7 @@ begin
 
   FServer := AOwner as TCrossHttpServer;
 
-  FHttpParser := TCrossHttpParser.Create;
+  FHttpParser := TCrossHttpParser.Create(pmServer);
   FHttpParser.MaxHeaderSize := FServer.MaxHeaderSize;
   FHttpParser.MaxBodyDataSize := FServer.MaxPostDataSize;
   FHttpParser.OnHeaderData := _OnHeaderData;
