@@ -293,12 +293,14 @@ type
     function GetMaxConnsPerServer: Integer;
     function GetReUseConnection: Boolean;
     function GetTimeout: Integer;
+    function GetAutoUrlEncode: Boolean;
 
     procedure SetIdleout(const AValue: Integer);
     procedure SetIoThreads(const AValue: Integer);
     procedure SetMaxConnsPerServer(const AValue: Integer);
     procedure SetReUseConnection(const AValue: Boolean);
     procedure SetTimeout(const AValue: Integer);
+    procedure SetAutoUrlEncode(const AValue: Boolean);
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -617,6 +619,11 @@ type
     ///   请求超时时间(秒, 从请求发送成功之后算起, 设置为0则不检查超时)
     /// </summary>
     property Timeout: Integer read GetTimeout write SetTimeout;
+
+    /// <summary>
+    ///   自动对url参数进行编码(默认为True)
+    /// </summary>
+    property AutoUrlEncode: Boolean read GetAutoUrlEncode write SetAutoUrlEncode;
   end;
 
   TCrossHttpClientConnection = class(TCrossSslConnection, ICrossHttpClientConnection)
@@ -629,6 +636,7 @@ type
     FStatus: Integer; // TRequestStatus
 
     FCompressType: TCompressType;
+    FAutoUrlEncode: Boolean;
     FCallback: TCrossHttpResponseProc;
 
     FRequestObj: TCrossHttpClientRequest;
@@ -659,6 +667,8 @@ type
     procedure _ReqUnlock; inline;
     function _CreateRequestHeader(const ABodySize: Int64; AChunked: Boolean): TBytes;
   protected
+    procedure InternalClose; override;
+
     procedure TriggerResponseSuccess; virtual;
     procedure TriggerResponseFailed(const AStatusCode: Integer; const AStatusText: string = ''); virtual;
     procedure TriggerResponseTimeout; virtual;
@@ -847,7 +857,7 @@ type
   TCrossHttpClientSocket = class(TCrossSslSocket, ICrossHttpClientSocket)
   private
     FHttpClient: TCrossHttpClient;
-    FReUseConnection: Boolean;
+    FReUseConnection, FAutoUrlEncode: Boolean;
     FCompressType: TCompressType;
     FServerDockDict: TServerDockDict;
     FServerDockLock: ILock;
@@ -868,7 +878,8 @@ type
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
   public
     constructor Create(const AHttpClient: TCrossHttpClient;
-      const AIoThreads, AMaxConnsPerServer: Integer; const ASsl, AReUseConnection: Boolean;
+      const AIoThreads, AMaxConnsPerServer: Integer;
+      const ASsl, AReUseConnection, AAutoUrlEncode: Boolean;
       const ACompressType: TCompressType = ctNone); reintroduce; virtual;
     destructor Destroy; override;
 
@@ -891,7 +902,7 @@ type
     FHttpCli, FHttpsCli: ICrossHttpClientSocket;
     FHttpCliArr: TArray<ICrossHttpClientSocket>;
     FTimeout, FIdleout: Integer;
-    FReUseConnection: Boolean;
+    FReUseConnection, FAutoUrlEncode: Boolean;
 
     procedure _ProcTimeout;
   protected
@@ -905,12 +916,14 @@ type
     function GetMaxConnsPerServer: Integer;
     function GetReUseConnection: Boolean;
     function GetTimeout: Integer;
+    function GetAutoUrlEncode: Boolean;
 
     procedure SetIdleout(const AValue: Integer);
     procedure SetIoThreads(const AValue: Integer);
     procedure SetMaxConnsPerServer(const AValue: Integer);
     procedure SetReUseConnection(const AValue: Boolean);
     procedure SetTimeout(const AValue: Integer);
+    procedure SetAutoUrlEncode(const AValue: Boolean);
   public
     constructor Create(const AIoThreads, AMaxConnsPerServer: Integer;
       const ACompressType: TCompressType = ctNone); overload;
@@ -991,6 +1004,7 @@ type
     property MaxConnsPerServer: Integer read GetMaxConnsPerServer write SetMaxConnsPerServer;
     property ReUseConnection: Boolean read GetReUseConnection write SetReUseConnection;
     property Timeout: Integer read GetTimeout write SetTimeout;
+    property AutoUrlEncode: Boolean read GetAutoUrlEncode write SetAutoUrlEncode;
   end;
 
 const
@@ -1003,6 +1017,8 @@ implementation
 constructor TCrossHttpClientConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AConnectCb: TCrossConnectionCallback);
+var
+  LHttpClientSocket: TCrossHttpClientSocket;
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
 
@@ -1023,7 +1039,10 @@ begin
 
   FWatch := TSimpleWatch.Create;
   FReqLock := TLock.Create;
-  FCompressType := (AOwner as TCrossHttpClientSocket).FCompressType;
+
+  LHttpClientSocket := AOwner as TCrossHttpClientSocket;
+  FCompressType := LHttpClientSocket.FCompressType;
+  FAutoUrlEncode := LHttpClientSocket.FAutoUrlEncode;
 end;
 
 procedure TCrossHttpClientConnection.DoRequest(const ARequest: ICrossHttpClientRequest;
@@ -1091,8 +1110,6 @@ begin
     _Unlock;
   end;
 
-  FreeAndNil(FHttpParser);
-
   inherited;
 end;
 
@@ -1114,6 +1131,12 @@ end;
 function TCrossHttpClientConnection.GetRequestStatus: TRequestStatus;
 begin
   Result := TRequestStatus(AtomicCmpExchange(FStatus, 0, 0));
+end;
+
+procedure TCrossHttpClientConnection.InternalClose;
+begin
+  inherited;
+  FreeAndNil(FHttpParser);
 end;
 
 procedure TCrossHttpClientConnection.ParseRecvData(var ABuf: Pointer;
@@ -1565,7 +1588,7 @@ end;
 function TCrossHttpClientConnection._CreateRequestHeader(const ABodySize: Int64;
   AChunked: Boolean): TBytes;
 var
-  LHeaderStr, LCookieStr: string;
+  LHeaderStr, LCookieStr, LPathStr: string;
 begin
   _ReqLock;
   try
@@ -1611,9 +1634,13 @@ begin
     if (FRequestObj.FHeader[HEADER_CROSS_HTTP_CLIENT] = '') then
       FRequestObj.FHeader[HEADER_CROSS_HTTP_CLIENT] := CROSS_HTTP_CLIENT_NAME;
 
+    LPathStr := FRequestObj.FPath;
+    if FAutoUrlEncode then
+      LPathStr := TCrossHttpUtils.UrlEncode(FRequestObj.FPath, ['/', '?', '=', '&']);
+
     // 设置请求行
     LHeaderStr := FRequestObj.FMethod + ' '
-      + TCrossHttpUtils.UrlEncode(FRequestObj.FPath, ['/', '?', '=', '&']) + ' '
+      + LPathStr + ' '
       + HTTP_VER_STR[FRequestObj.FHttpVersion] + CRLF;
 
     LHeaderStr := LHeaderStr + FRequestObj.FHeader.Encode;
@@ -2087,11 +2114,13 @@ end;
 { TCrossHttpClientSocket }
 
 constructor TCrossHttpClientSocket.Create(const AHttpClient: TCrossHttpClient;
-  const AIoThreads, AMaxConnsPerServer: Integer; const ASsl, AReUseConnection: Boolean;
+  const AIoThreads, AMaxConnsPerServer: Integer;
+  const ASsl, AReUseConnection, AAutoUrlEncode: Boolean;
   const ACompressType: TCompressType);
 begin
   FHttpClient := AHttpClient;
   FReUseConnection := AReUseConnection;
+  FAutoUrlEncode := AAutoUrlEncode;
   FMaxConnsPerServer := AMaxConnsPerServer;
   FCompressType := ACompressType;
 
@@ -2285,7 +2314,10 @@ begin
   begin
     if (FHttpCli = nil) then
     begin
-      FHttpCli := TCrossHttpClientSocket.Create(Self, FIoThreads, FMaxConnsPerServer, False, FReUseConnection, FCompressType);
+      FHttpCli := TCrossHttpClientSocket.Create(Self, FIoThreads,
+        FMaxConnsPerServer, False,
+        FReUseConnection, FAutoUrlEncode,
+        FCompressType);
       FHttpCliArr := FHttpCliArr + [FHttpCli];
     end;
 
@@ -2295,7 +2327,10 @@ begin
   begin
     if (FHttpsCli = nil) then
     begin
-      FHttpsCli := TCrossHttpClientSocket.Create(Self, FIoThreads, FMaxConnsPerServer, True, FReUseConnection, FCompressType);
+      FHttpsCli := TCrossHttpClientSocket.Create(Self, FIoThreads,
+        FMaxConnsPerServer, True,
+        FReUseConnection, FAutoUrlEncode,
+        FCompressType);
       FHttpCliArr := FHttpCliArr + [FHttpsCli];
     end;
 
@@ -2642,6 +2677,11 @@ begin
     end);
 end;
 
+function TCrossHttpClient.GetAutoUrlEncode: Boolean;
+begin
+  Result := FAutoUrlEncode;
+end;
+
 class function TCrossHttpClient.GetDefault: ICrossHttpClient;
 var
   LDefault: ICrossHttpClient;
@@ -2693,6 +2733,11 @@ begin
   finally
     _Unlock;
   end;
+end;
+
+procedure TCrossHttpClient.SetAutoUrlEncode(const AValue: Boolean);
+begin
+  FAutoUrlEncode := AValue;
 end;
 
 procedure TCrossHttpClient.SetIdleout(const AValue: Integer);

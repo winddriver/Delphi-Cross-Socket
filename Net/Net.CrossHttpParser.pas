@@ -48,7 +48,7 @@ type
     FOnParseFailed: TOnParseFailed;
 
     FContentLength: Int64;
-    FTransferEncoding, FContentEncoding: string;
+    FTransferEncoding, FContentEncoding, FConnectionStr: string;
     FIsChunked: Boolean;
 
     FParsedBodySize: Int64;
@@ -56,6 +56,7 @@ type
     FCRCount, FLFCount: Integer;
     FHeaderStream, FChunkSizeStream: TMemoryStream;
     FChunkSize, FChunkLeftSize: Integer;
+    FHasBody: Boolean;
 
     // 动态解压
     FZCompressed: Boolean;
@@ -106,6 +107,13 @@ end;
 
 destructor TCrossHttpParser.Destroy;
 begin
+  if (FParseState = psBodyData) and FHasBody then
+  begin
+    FParseState := psDone;
+    _OnBodyEnd;
+    _OnParseSuccess;
+  end;
+
   FreeAndNil(FHeaderStream);
 
   inherited;
@@ -195,17 +203,38 @@ begin
               // br: Brotli压缩算法, Brotli通常比gzip和deflate更高效
               _OnGetHeaderValue(HEADER_CONTENT_ENCODING, FContentEncoding);
 
+              // 读取响应头中连接保持方式
+              _OnGetHeaderValue(HEADER_CONNECTION, FConnectionStr);
+
               FContentLength := StrToInt64Def(LContentLength, -1);
               FIsChunked := TStrUtils.SameText(FTransferEncoding, 'chunked');
 
+              // 响应头中没有 Content-Length,Transfer-Encoding
+              // 然后还是保持连接的, 这一定是非法数据
+              if (FContentLength < 0) and not FIsChunked
+                and TStrUtils.SameText(FConnectionStr, 'keep-alive') then
+              begin
+                _OnParseFailed(400, 'Invalid response data.');
+                Exit;
+              end;
+
+              // 先通过响应头中的内容大小检查下是否超大了
               if (FMaxBodyDataSize > 0) and (FContentLength > FMaxBodyDataSize) then
               begin
                 _OnParseFailed(400, 'Post data too large.');
                 Exit;
               end;
 
-              // 如果 ContentLength 大于 0, 或者是 Chunked 编码, 则还需要接收 body 数据
-              if (FContentLength > 0) or FIsChunked then
+              // 是否有body数据
+              // 如果 ContentLength 大于 0, 或者是 Chunked 编码
+              //   还有种特殊情况就是 ContentLength 和 Chunked 都没有
+              //   并且响应头中包含 Connection: close
+              //   这种需要在连接断开时处理body
+              FHasBody := (FContentLength > 0) or FIsChunked
+                or TStrUtils.SameText(FConnectionStr, 'close');
+
+              // 如果需要接收 body 数据
+              if FHasBody then
               begin
                 FParsedBodySize := 0;
 
@@ -228,7 +257,9 @@ begin
         // 非Chunked编码的Post数据(有 ContentLength)
         psBodyData:
           begin
-            LChunkSize := Min((FContentLength - FParsedBodySize), LPtrEnd - LPtr);
+            LChunkSize := LPtrEnd - LPtr;
+            if (FContentLength > 0) then
+              LChunkSize := Min(FContentLength - FParsedBodySize, LChunkSize);
             if (FMaxBodyDataSize > 0) and (FParsedBodySize + LChunkSize > FMaxBodyDataSize) then
             begin
               _OnParseFailed(400, 'Post data too large.');
@@ -240,7 +271,7 @@ begin
             Inc(FParsedBodySize, LChunkSize);
             Inc(LPtr, LChunkSize);
 
-            if (FParsedBodySize >= FContentLength) then
+            if (FContentLength > 0) and (FParsedBodySize >= FContentLength) then
             begin
               FParseState := psDone;
               _OnBodyEnd();

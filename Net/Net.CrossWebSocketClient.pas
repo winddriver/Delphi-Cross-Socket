@@ -1329,7 +1329,8 @@ begin
   begin
     if (FWsCli = nil) then
     begin
-      FWsCli := TCrossWebSocketClient.Create(Self, FIoThreads, -1, False, False, ctNone);
+      FWsCli := TCrossWebSocketClient.Create(Self, FIoThreads, -1, False,
+        False, False, ctNone);
       FWsCliArr := FWsCliArr + [FWsCli];
     end;
 
@@ -1339,7 +1340,8 @@ begin
   begin
     if (FWssCli = nil) then
     begin
-      FWssCli := TCrossWebSocketClient.Create(Self, FIoThreads, -1, True, False, ctNone);
+      FWssCli := TCrossWebSocketClient.Create(Self, FIoThreads, -1, True,
+        False, False, ctNone);
       FWsCliArr := FWsCliArr + [FWssCli];
     end;
 
