@@ -110,6 +110,7 @@ end;
 
 destructor TCrossHttpParser.Destroy;
 begin
+  // 只有 client 模式才需要在断开连接时继续处理 body 数据
   if (FMode = pmClient) and (FParseState = psBodyData) and FHasBody then
   begin
     FParseState := psDone;
@@ -219,12 +220,10 @@ begin
                 Exit;
               end;
 
-              // 是否有body数据
-              // 如果 ContentLength 大于 0, 或者是 Chunked 编码
-              //   还有种特殊情况就是 ContentLength 和 Chunked 都没有
-              //   并且响应头中包含 Connection: close
-              //   这种需要在连接断开时处理body
+              // 根据不同模式确认是否有body数据
               if (FMode = pmServer) then
+                // server 模式要求客户端必须要传 Content-Length 或 Transfer-Encoding
+                // 才表示有 body 数据
                 FHasBody := (FContentLength > 0) or FIsChunked
               else
               begin
@@ -237,6 +236,10 @@ begin
                   Exit;
                 end;
 
+                // 如果 ContentLength 大于 0, 或者是 Chunked 编码
+                //   还有种特殊情况就是 ContentLength 和 Chunked 都没有
+                //   并且响应头中包含 Connection: close
+                //   这种需要在连接断开时处理body
                 FHasBody := (FContentLength > 0) or FIsChunked
                   or TStrUtils.SameText(FConnectionStr, 'close');
               end;
