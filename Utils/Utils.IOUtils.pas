@@ -142,7 +142,7 @@ type
     class function Exists(const APath: string): Boolean; inline; static;
 
     class function Delete(const APath: string; const ARecursive: Boolean = False): Boolean; static;
-    class function Move(const ASourceDirName, ADestDirName: string): Boolean; static;
+    class function Move(const ASourceDirName, ADestDirName: string; const AOverwrite: Boolean = True): Boolean; static;
 
     class function GetLogicalDrives: TArray<string>; static;
 
@@ -1107,7 +1107,7 @@ end;
 {$ENDIF}
 
 class function TDirectoryUtils.Move(const ASourceDirName,
-  ADestDirName: string): Boolean;
+  ADestDirName: string; const AOverwrite: Boolean): Boolean;
 var
   LPreCallback: TDirectoryWalkProc;
   LPostCallback: TDirectoryWalkProc;
@@ -1143,6 +1143,7 @@ begin
     function (const APath: string; const AFileInfo: TSearchRec): Boolean
     var
       LRelativeDir, LCompleteSrc, LCompleteDest: string;
+      LDestFileExists: Boolean;
     begin
       Result := True;
 
@@ -1188,12 +1189,23 @@ begin
               FileSetAttr(LCompleteSrc, SysUtils.faNormal);
               {$WARN SYMBOL_PLATFORM ON}
               {$ENDIF MSWINDOWS}
-              RenameFile(LCompleteSrc, LCompleteDest);
-              {$IFDEF MSWINDOWS}
-              {$WARN SYMBOL_PLATFORM OFF}
-              FileSetAttr(LCompleteDest, AFileInfo.Attr);
-              {$WARN SYMBOL_PLATFORM ON}
-              {$ENDIF MSWINDOWS}
+
+              LDestFileExists := TFileUtils.Exists(LCompleteDest);
+              if LDestFileExists then
+              begin
+                if not AOverwrite then Exit;
+
+                TFileUtils.Delete(LCompleteDest);
+              end;
+
+              if RenameFile(LCompleteSrc, LCompleteDest) then
+              begin
+                {$IFDEF MSWINDOWS}
+                {$WARN SYMBOL_PLATFORM OFF}
+                FileSetAttr(LCompleteDest, AFileInfo.Attr);
+                {$WARN SYMBOL_PLATFORM ON}
+                {$ENDIF MSWINDOWS}
+              end;
             end;
         end;
       end;
