@@ -1112,12 +1112,10 @@ var
   LPreCallback: TDirectoryWalkProc;
   LPostCallback: TDirectoryWalkProc;
 begin
-  Result := False;
-
   LPreCallback :=
     function (const APath: string; const AFileInfo: TSearchRec): Boolean
     var
-      LCompletePath: string;
+      LRelativeDir, LCompletePath: string;
     begin
       Result := True;
 
@@ -1130,8 +1128,11 @@ begin
           LCompletePath := ADestDirName
         // get the difference between APath and ASourceDirName
         else
-          LCompletePath := TPathUtils.Combine(ADestDirName,
-            TStrUtils.StuffString(APath, 1, Length(ASourceDirName) + Length(TPathUtils.DIRECTORY_SEPARATOR_CHAR), ''));
+        begin
+          LRelativeDir := ExtractRelativePath(ASourceDirName, APath);
+          LCompletePath := TPathUtils.Combine(ADestDirName, LRelativeDir);
+        end;
+
         LCompletePath := TPathUtils.Combine(LCompletePath, AFileInfo.Name);
 
         CreateDir(LCompletePath);
@@ -1141,8 +1142,7 @@ begin
   LPostCallback :=
     function (const APath: string; const AFileInfo: TSearchRec): Boolean
     var
-      LCompleteSrc: string;
-      LCompleteDest: string;
+      LRelativeDir, LCompleteSrc, LCompleteDest: string;
     begin
       Result := True;
 
@@ -1173,8 +1173,10 @@ begin
                 LCompleteDest := ADestDirName
               // get the difference between APath and ASourceDirName
               else
-                LCompleteDest := TPathUtils.Combine(ADestDirName,
-                  TStrUtils.StuffString(APath, 1, Length(ASourceDirName) + Length(TPathUtils.DIRECTORY_SEPARATOR_CHAR), ''));
+              begin
+                LRelativeDir := ExtractRelativePath(ASourceDirName, APath);
+                LCompleteDest := TPathUtils.Combine(ADestDirName, LRelativeDir);
+              end;
               // add the file name to the destination
               LCompleteDest := TPathUtils.Combine(LCompleteDest, AFileInfo.Name);
 
@@ -1197,19 +1199,19 @@ begin
       end;
     end;
 
-    // create the destination directory
-    TDirectoryUtils.CreateDirectory(ADestDirName);
+  // create the destination directory
+  TDirectoryUtils.CreateDirectory(ADestDirName);
 
-    // move all directories and files
-    WalkThroughDirectory(ASourceDirName, '*', LPreCallback, LPostCallback, True); // DO NOT LOCALIZE
+  // move all directories and files
+  WalkThroughDirectory(ASourceDirName, '*', LPreCallback, LPostCallback, True); // DO NOT LOCALIZE
 
-    // delete the remaining source directory
-    {$IFDEF MSWINDOWS}
-    {$WARN SYMBOL_PLATFORM OFF}
-    FileSetAttr(ASourceDirName, SysUtils.faDirectory);
-    {$WARN SYMBOL_PLATFORM ON}
-    {$ENDIF MSWINDOWS}
-    RemoveDir(ASourceDirName);
+  // delete the remaining source directory
+  {$IFDEF MSWINDOWS}
+  {$WARN SYMBOL_PLATFORM OFF}
+  FileSetAttr(ASourceDirName, SysUtils.faDirectory);
+  {$WARN SYMBOL_PLATFORM ON}
+  {$ENDIF MSWINDOWS}
+  Result := RemoveDir(ASourceDirName);
 end;
 
 class procedure TDirectoryUtils.WalkThroughDirectory(const APath,
