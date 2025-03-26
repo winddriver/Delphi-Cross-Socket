@@ -707,7 +707,8 @@ type
     procedure DoRequest(const ARequest: ICrossHttpClientRequest; const ACallback: TCrossHttpResponseProc);
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
 
     property Protocol: string read GetProtocol;
@@ -873,7 +874,8 @@ type
     FMaxConnsPerServer: Integer;
 
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
     procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
   public
@@ -1016,11 +1018,11 @@ implementation
 
 constructor TCrossHttpClientConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectCb: TCrossConnectionCallback);
+  const AHost: string; const AConnectCb: TCrossConnectionCallback);
 var
   LHttpClientSocket: TCrossHttpClientSocket;
 begin
-  inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  inherited Create(AOwner, AClientSocket, AConnectType, AHost, AConnectCb);
 
   FHttpParser := TCrossHttpParser.Create(pmClient);
   FHttpParser.OnHeaderData := _OnHeaderData;
@@ -1135,7 +1137,7 @@ end;
 
 procedure TCrossHttpClientConnection.InternalClose;
 begin
-  inherited;
+  inherited InternalClose;
   FreeAndNil(FHttpParser);
 end;
 
@@ -2133,9 +2135,14 @@ end;
 
 function TCrossHttpClientSocket.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectCb: TCrossConnectionCallback): ICrossConnection;
+  const AHost: string; const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
-  Result := TCrossHttpClientConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  Result := TCrossHttpClientConnection.Create(
+    AOwner,
+    AClientSocket,
+    AConnectType,
+    AHost,
+    AConnectCb);
 end;
 
 destructor TCrossHttpClientSocket.Destroy;
@@ -2189,6 +2196,8 @@ begin
   finally
     _UnlockServerDock;
   end;
+
+  inherited LogicDisconnected(AConnection);
 end;
 
 procedure TCrossHttpClientSocket.LogicReceived(const AConnection: ICrossConnection;
@@ -2204,6 +2213,8 @@ begin
 
   while (LLen > 0) do
     LConnObj.ParseRecvData(LBuf, LLen);
+
+  inherited LogicReceived(AConnection, ABuf, ALen);
 end;
 
 function TCrossHttpClientSocket._GetServerDock(const AProtocol, AHost: string;

@@ -235,6 +235,7 @@ type
   ['{13C2A39E-C918-49B9-BBD3-A99110F94D1B}']
     function GetPeerAddr: string;
     function GetPeerPort: Word;
+    function GetPeerHost: string;
     function GetConnectType: TConnectType;
     function GetConnectStatus: TConnectStatus;
 
@@ -329,6 +330,11 @@ type
     ///   连接端口
     /// </summary>
     property PeerPort: Word read GetPeerPort;
+
+    /// <summary>
+    ///   连接地址名(只有Connect产生的连接这个属性才有值)
+    /// </summary>
+    property PeerHost: string read GetPeerHost;
 
     /// <summary>
     ///   连接类型
@@ -652,6 +658,7 @@ type
   private
     FPeerAddr: string;
     FPeerPort: Word;
+    FPeerHost: string;
     FConnectType: TConnectType;
     FConnectStatus: Integer;
     FRecvLock, FSentLock: ILock;
@@ -666,6 +673,7 @@ type
     function GetUIDTag: Byte; override;
     function GetPeerAddr: string;
     function GetPeerPort: Word;
+    function GetPeerHost: string;
     function GetConnectType: TConnectType;
     function GetConnectStatus: TConnectStatus;
     function GetIsClosed: Boolean; override;
@@ -678,7 +686,7 @@ type
       const ACallback: TCrossConnectionCallback = nil); virtual;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType;
+      const AConnectType: TConnectType; const AHost: string;
       const AConnectedCb: TCrossConnectionCallback); reintroduce; virtual;
     destructor Destroy; override;
 
@@ -701,6 +709,7 @@ type
 
     property PeerAddr: string read GetPeerAddr;
     property PeerPort: Word read GetPeerPort;
+    property PeerHost: string read GetPeerHost;
     property ConnectType: TConnectType read GetConnectType;
     property ConnectStatus: TConnectStatus read GetConnectStatus write SetConnectStatus;
   end;
@@ -777,9 +786,10 @@ type
 
     // 创建连接对象
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; overload; virtual; abstract;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback): ICrossConnection; overload; virtual; abstract;
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType): ICrossConnection; overload;
+      const AConnectType: TConnectType; const AHost: string): ICrossConnection; overload;
 
     // 创建监听对象
     function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
@@ -1023,10 +1033,10 @@ begin
 end;
 
 function TCrossSocketBase.CreateConnection(const AOwner: TCrossSocketBase;
-  const AClientSocket: TSocket;
-  const AConnectType: TConnectType): ICrossConnection;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
+  const AHost: string): ICrossConnection;
 begin
-  Result := CreateConnection(AOwner, AClientSocket, AConnectType, nil);
+  Result := CreateConnection(AOwner, AClientSocket, AConnectType, AHost, nil);
 end;
 
 destructor TCrossSocketBase.Destroy;
@@ -1138,25 +1148,39 @@ begin
 end;
 
 procedure TCrossSocketBase.LogicConnected(const AConnection: ICrossConnection);
+var
+  LConnObj: TCrossConnectionBase;
 begin
+  LConnObj := AConnection as TCrossConnectionBase;
 
+  if Assigned(LConnObj.FConnectCb) then
+  begin
+    LConnObj.FConnectCb(AConnection, True);
+    LConnObj.FConnectCb := nil;
+  end;
+
+  if Assigned(FOnConnected) then
+    FOnConnected(Self, AConnection);
 end;
 
 procedure TCrossSocketBase.LogicDisconnected(const AConnection: ICrossConnection);
 begin
-
+  if Assigned(FOnDisconnected) then
+    FOnDisconnected(Self, AConnection);
 end;
 
 procedure TCrossSocketBase.LogicReceived(const AConnection: ICrossConnection;
   const ABuf: Pointer; const ALen: Integer);
 begin
-
+  if Assigned(FOnReceived) then
+    FOnReceived(Self, AConnection, ABuf, ALen);
 end;
 
 procedure TCrossSocketBase.LogicSent(const AConnection: ICrossConnection;
   const ABuf: Pointer; const ALen: Integer);
 begin
-
+  if Assigned(FOnSent) then
+    FOnSent(Self, AConnection, ABuf, ALen);
 end;
 
 function TCrossSocketBase.SetKeepAlive(const ASocket: TSocket): Integer;
@@ -1207,15 +1231,24 @@ begin
 end;
 
 procedure TCrossSocketBase.TriggerConnecting(const AConnection: ICrossConnection);
+var
+  LConnObj: TCrossConnectionBase;
 begin
-  AConnection.ConnectStatus := csConnecting;
+  LConnObj := AConnection as TCrossConnectionBase;
 
-  _LockConnections;
+  LConnObj._Lock;
   try
-    FConnections.AddOrSetValue(AConnection.UID, AConnection);
-    FConnectionsCount := FConnections.Count;
+    AConnection.ConnectStatus := csConnecting;
+
+    _LockConnections;
+    try
+      FConnections.AddOrSetValue(AConnection.UID, AConnection);
+      FConnectionsCount := FConnections.Count;
+    finally
+      _UnlockConnections;
+    end;
   finally
-    _UnlockConnections;
+    LConnObj._Unlock;
   end;
 end;
 
@@ -1231,15 +1264,6 @@ begin
     AConnection.ConnectStatus := csConnected;
 
     LogicConnected(AConnection);
-
-    if Assigned(LConnObj.FConnectCb) then
-    begin
-      LConnObj.FConnectCb(AConnection, True);
-      LConnObj.FConnectCb := nil;
-    end;
-
-    if Assigned(FOnConnected) then
-      FOnConnected(Self, AConnection);
   finally
     LConnObj._Unlock;
   end;
@@ -1255,9 +1279,6 @@ begin
   try
     AConnection.ConnectStatus := csClosed;
     LogicDisconnected(AConnection);
-
-    if Assigned(FOnDisconnected) then
-      FOnDisconnected(Self, AConnection);
   finally
     LConnObj._Unlock;
 
@@ -1323,9 +1344,6 @@ begin
   LConnObj._LockRecv;
   try
     LogicReceived(AConnection, ABuf, ALen);
-
-    if Assigned(FOnReceived) then
-      FOnReceived(Self, AConnection, ABuf, ALen);
   finally
     LConnObj._UnlockRecv;
   end;
@@ -1341,9 +1359,6 @@ begin
   LConnObj._LockSent;
   try
     LogicSent(AConnection, ABuf, ALen);
-
-    if Assigned(FOnSent) then
-      FOnSent(Self, AConnection, ABuf, ALen);
   finally
     LConnObj._UnlockSent;
   end;
@@ -1567,11 +1582,12 @@ end;
 
 constructor TCrossConnectionBase.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectedCb: TCrossConnectionCallback);
+  const AHost: string; const AConnectedCb: TCrossConnectionCallback);
 begin
   inherited Create(AOwner, AClientSocket);
 
   FConnectType := AConnectType;
+  FPeerHost := AHost;
   FConnectCb := AConnectedCb;
 
   FRecvLock := TLock.Create;
@@ -1669,6 +1685,11 @@ end;
 function TCrossConnectionBase.GetPeerAddr: string;
 begin
   Result := FPeerAddr;
+end;
+
+function TCrossConnectionBase.GetPeerHost: string;
+begin
+  Result := FPeerHost;
 end;
 
 function TCrossConnectionBase.GetPeerPort: Word;

@@ -1818,7 +1818,8 @@ type
     procedure ReleaseResponse; virtual;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
 
     property Request: ICrossHttpRequest read GetRequest;
@@ -2133,7 +2134,8 @@ type
     procedure SetOnRequestException(const Value: TCrossHttpRequestExceptionEvent);
   protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
 
     function CreateRouter(const AMethod, APath: string;
       const ARouterProc: TCrossHttpRouterProc;
@@ -2272,9 +2274,9 @@ end;
 
 constructor TCrossHttpConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectCb: TCrossConnectionCallback);
+  const AHost: string; const AConnectCb: TCrossConnectionCallback);
 begin
-  inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  inherited Create(AOwner, AClientSocket, AConnectType, AHost, AConnectCb);
 
   FServer := AOwner as TCrossHttpServer;
 
@@ -2724,9 +2726,14 @@ end;
 
 function TCrossHttpServer.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectCb: TCrossConnectionCallback): ICrossConnection;
+  const AHost: string; const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
-  Result := TCrossHttpConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  Result := TCrossHttpConnection.Create(
+    AOwner,
+    AClientSocket,
+    AConnectType,
+    AHost,
+    AConnectCb);
 end;
 
 function TCrossHttpServer.CreateRouter(const AMethod, APath: string;
@@ -3253,6 +3260,8 @@ begin
 
   while (LLen > 0) do
     LConnObj.ParseRecvData(LBuf, LLen);
+
+  inherited LogicReceived(AConnection, ABuf, ALen);
 end;
 
 function TCrossHttpServer.Use(const AMethod, APath: string;

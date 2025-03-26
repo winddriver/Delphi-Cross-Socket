@@ -74,7 +74,8 @@ type
       const ACallback: TCrossConnectionCallback = nil); override;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectedCb: TCrossConnectionCallback); override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectedCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
   end;
 
@@ -101,7 +102,8 @@ type
     procedure TriggerReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
 
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
   public
     constructor Create(const AIoThreads: Integer; const ASsl: Boolean); override;
     destructor Destroy; override;
@@ -116,9 +118,9 @@ implementation
 
 constructor TCrossOpenSslConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectedCb: TCrossConnectionCallback);
+  const AHost: string; const AConnectedCb: TCrossConnectionCallback);
 begin
-  inherited Create(AOwner, AClientSocket, AConnectType, AConnectedCb);
+  inherited Create(AOwner, AClientSocket, AConnectType, AHost, AConnectedCb);
 
   if Ssl then
   begin
@@ -131,7 +133,10 @@ begin
     if (ConnectType = ctAccept) then
       SSL_set_accept_state(FSslData)   // 服务端连接
     else
+    begin
       SSL_set_connect_state(FSslData); // 客户端连接
+      SSL_set_tlsext_host_name(FSslData, MarshaledAString(AnsiString(AHost)));
+    end;
   end;
 end;
 
@@ -215,9 +220,40 @@ begin
   Result := BIO_read(FBIOOut, Buf, Len);
 end;
 
+//function TCrossOpenSslConnection._BIO_read: TBytes;
+//const
+//  BLOCK_SIZE = 4096;
+//var
+//  LReadedCount, LBlockSize, LRetCode: Integer;
+//  P: PByte;
+//begin
+//  LReadedCount := 0;
+//  Result := nil;
+//
+//  while (_BIO_pending > 0) do
+//  begin
+//    if (LReadedCount >= Length(Result)) then
+//      SetLength(Result, Length(Result) + BLOCK_SIZE);
+//
+//    P := PByte(@Result[0]) + LReadedCount;
+//
+//    LBlockSize := Length(Result) - LReadedCount;
+//
+//    // 从内存 BIO 读取加密后的数据
+//    LRetCode := _BIO_read(P, LBlockSize);
+//
+//    if (LRetCode <= 0) then
+//    begin
+//      _SSL_print_error(LRetCode, 'BIO_read');
+//      Break;
+//    end;
+//
+//    Inc(LReadedCount, LRetCode);
+//  end;
+//
+//  SetLength(Result, LReadedCount);
+//end;
 function TCrossOpenSslConnection._BIO_read: TBytes;
-const
-  BLOCK_SIZE = 4096;
 var
   LReadedCount, LBlockSize, LRetCode: Integer;
   P: PByte;
@@ -225,14 +261,13 @@ begin
   LReadedCount := 0;
   Result := nil;
 
-  while (_BIO_pending > 0) do
+  while True do
   begin
-    if (LReadedCount >= Length(Result)) then
-      SetLength(Result, Length(Result) + BLOCK_SIZE);
+    LBlockSize := _BIO_pending;
+    if (LBlockSize <= 0) then Break;
 
+    SetLength(Result, Length(Result) + LBlockSize);
     P := PByte(@Result[0]) + LReadedCount;
-
-    LBlockSize := Length(Result) - LReadedCount;
 
     // 从内存 BIO 读取加密后的数据
     LRetCode := _BIO_read(P, LBlockSize);
@@ -245,36 +280,7 @@ begin
 
     Inc(LReadedCount, LRetCode);
   end;
-
-  SetLength(Result, LReadedCount);
 end;
-//var
-//  P: PByte;
-//  LCount, LRetCode: Integer;
-//begin
-//  LCount := _BIO_pending;
-//  if (LCount <= 0) then Exit(nil);
-//
-//  SetLength(Result, LCount);
-//  P := PByte(@Result[0]);
-//  LCount := 0;
-//
-//  while True do
-//  begin
-//    // 从内存 BIO 读取加密后的数据
-//    LRetCode := _BIO_read(P, Length(Result) - LCount);
-//    if (LRetCode <= 0) then
-//    begin
-//      _SSL_print_error(LRetCode, 'BIO_read');
-//      Break;
-//    end;
-//
-//    Inc(LCount, LRetCode);
-//    if (LCount >= Length(Result)) then Break;
-//
-//    Inc(P, LRetCode);
-//  end;
-//end;
 
 function TCrossOpenSslConnection._BIO_write(Buf: Pointer; Len: Integer
   ): Integer;
@@ -413,9 +419,14 @@ end;
 
 function TCrossOpenSslSocket.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectCb: TCrossConnectionCallback): ICrossConnection;
+  const AHost: string; const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
-  Result := TCrossOpenSslConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  Result := TCrossOpenSslConnection.Create(
+    AOwner,
+    AClientSocket,
+    AConnectType,
+    AHost,
+    AConnectCb);
 end;
 
 procedure TCrossOpenSslSocket._InitSslCtx;
@@ -427,6 +438,9 @@ begin
   // 创建 SSL/TLS 上下文对象
   // 这里使用 TLS_method(), 该方法会让程序自动协商使用能支持的最高版本 TLS
   FSslCtx := TSSLTools.NewCTX(TLS_method());
+
+  SSL_CTX_set_min_proto_version(FSslCtx, 0);
+  SSL_CTX_set_max_proto_version(FSslCtx, TLS1_3_VERSION);
 
   // 设置证书验证方式
   // SSL_VERIFY_NONE 不进行证书验证，即不验证服务器的证书
@@ -455,7 +469,23 @@ begin
     SSL_OP_CIPHER_SERVER_PREFERENCE
   );
 
-  // 设置加密套件的使用顺序
+  // SSL会话缓存配置
+  SSL_CTX_set_session_cache_mode(FSslCtx,
+    SSL_SESS_CACHE_CLIENT or
+    SSL_SESS_CACHE_SERVER or
+    SSL_SESS_CACHE_NO_INTERNAL or
+    SSL_SESS_CACHE_NO_AUTO_CLEAR);
+
+  // TLSv1.3及以上加密套件设置(OpenSSL 1.1.1+)
+  SSL_CTX_set_ciphersuites(FSslCtx,
+    'TLS_AES_256_GCM_SHA384' +
+    ':TLS_CHACHA20_POLY1305_SHA256' +
+    ':TLS_AES_128_GCM_SHA256' +
+    ':TLS_AES_128_CCM_SHA256' +
+    ':TLS_AES_128_CCM_8_SHA256'
+  );
+
+  // TLS 1.2及以下加密套件设置
   SSL_CTX_set_cipher_list(FSslCtx,
     // from nodejs(node_constants.h)
     // #define DEFAULT_CIPHER_LIST_CORE

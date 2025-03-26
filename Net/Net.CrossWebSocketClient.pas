@@ -337,7 +337,8 @@ type
     procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); override;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
 
     procedure WsClose;
@@ -357,7 +358,8 @@ type
   TCrossWebSocketClient = class(TCrossHttpClientSocket)
   protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
   end;
 
@@ -484,9 +486,10 @@ implementation
 
 constructor TCrossWebSocketClientConnection.Create(
   const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-  const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback);
+  const AConnectType: TConnectType; const AHost: string;
+  const AConnectCb: TCrossConnectionCallback);
 begin
-  inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  inherited Create(AOwner, AClientSocket, AConnectType, AHost, AConnectCb);
 
   FWsParser := TCrossWebSocketParser.Create(
     procedure(const AOpCode: Byte; const AData: TBytes)
@@ -805,9 +808,14 @@ end;
 
 function TCrossWebSocketClient.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectCb: TCrossConnectionCallback): ICrossConnection;
+  const AHost: string; const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
-  Result := TCrossWebSocketClientConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  Result := TCrossWebSocketClientConnection.Create(
+    AOwner,
+    AClientSocket,
+    AConnectType,
+    AHost,
+    AConnectCb);
 end;
 
 procedure TCrossWebSocketClient.LogicDisconnected(

@@ -87,7 +87,8 @@ type
     function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
 
     procedure StartLoop; override;
     procedure StopLoop; override;
@@ -225,7 +226,7 @@ begin
     Exit;
   end;
 
-  LConnection := CreateConnection(Self, LClientSocket, ctAccept);
+  LConnection := CreateConnection(Self, LClientSocket, ctAccept, '');
   TriggerConnecting(LConnection);
   TriggerConnected(LConnection);
 
@@ -272,8 +273,11 @@ begin
     Exit;
   end;
 
-  LConnection := CreateConnection(Self, LClientSocket, ctConnect, APerIoData.Callback);
-  TriggerConnecting(LConnection);
+//  LConnection := CreateConnection(Self, LClientSocket, ctConnect, APerIoData.Callback);
+//  TriggerConnecting(LConnection);
+//  TriggerConnected(LConnection);
+
+  LConnection := APerIoData.CrossData as ICrossConnection;
   TriggerConnected(LConnection);
 
   if not _NewReadZero(LConnection) then
@@ -445,6 +449,7 @@ var
     LSockAddr: TRawSockAddrIn;
     LPerIoData: PPerIoData;
     LBytes: Cardinal;
+    LConnection: ICrossConnection;
   begin
     FillChar(LSockAddr, SizeOf(TRawSockAddrIn), 0);
     LSockAddr.AddrLen := AAddr.ai_addrlen;
@@ -476,8 +481,12 @@ var
       Exit(False);
     end;
 
+    LConnection := CreateConnection(Self, ASocket, ctConnect, AHost, ACallback);
+    TriggerConnecting(LConnection);
+
     LPerIoData := _NewIoData;
     LPerIoData.Action := ioConnect;
+    LPerIoData.CrossData := LConnection;
     LPerIoData.Socket := ASocket;
     LPerIoData.Callback := ACallback;
     if not ConnectEx(ASocket, AAddr.ai_addr, AAddr.ai_addrlen, nil, 0, LBytes, PWSAOverlapped(LPerIoData)) and
@@ -488,6 +497,7 @@ var
       {$ENDIF}
       _FreeIoData(LPerIoData);
       _Failed2;
+      TriggerDisconnected(LConnection);
       Exit(False);
     end;
 
@@ -547,9 +557,9 @@ end;
 
 function TIocpCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectCb: TCrossConnectionCallback): ICrossConnection;
+  const AHost: string; const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
-  Result := TIocpConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  Result := TIocpConnection.Create(AOwner, AClientSocket, AConnectType, AHost, AConnectCb);
 end;
 
 function TIocpCrossSocket.CreateListen(const AOwner: TCrossSocketBase;

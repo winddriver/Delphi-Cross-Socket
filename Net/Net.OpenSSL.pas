@@ -171,9 +171,34 @@ const
   SSL_CTRL_GET_MAX_CERT_LIST                  = 50;
   SSL_CTRL_SET_MAX_CERT_LIST                  = 51;
   SSL_CTRL_SET_MAX_SEND_FRAGMENT              = 52;
+  SSL_CTRL_SET_TLSEXT_SERVERNAME_CB           = 53;
+  SSL_CTRL_SET_TLSEXT_SERVERNAME_ARG          = 54;
+  SSL_CTRL_SET_TLSEXT_HOSTNAME                = 55;
+  SSL_CTRL_SET_TLSEXT_DEBUG_CB                = 56;
+  SSL_CTRL_SET_TLSEXT_DEBUG_ARG               = 57;
+  SSL_CTRL_GET_TLSEXT_TICKET_KEYS             = 58;
+  SSL_CTRL_SET_TLSEXT_TICKET_KEYS             = 59;
+///*# define SSL_CTRL_SET_TLSEXT_OPAQUE_PRF_INPUT    60 */
+///*# define SSL_CTRL_SET_TLSEXT_OPAQUE_PRF_INPUT_CB 61 */
+///*# define SSL_CTRL_SET_TLSEXT_OPAQUE_PRF_INPUT_CB_ARG 62 */
+  SSL_CTRL_SET_TLSEXT_STATUS_REQ_CB           = 63;
+  SSL_CTRL_SET_TLSEXT_STATUS_REQ_CB_ARG       = 64;
+  SSL_CTRL_SET_TLSEXT_STATUS_REQ_TYPE         = 65;
+  SSL_CTRL_GET_TLSEXT_STATUS_REQ_EXTS         = 66;
+  SSL_CTRL_SET_TLSEXT_STATUS_REQ_EXTS         = 67;
+  SSL_CTRL_GET_TLSEXT_STATUS_REQ_IDS          = 68;
+  SSL_CTRL_SET_TLSEXT_STATUS_REQ_IDS          = 69;
+  SSL_CTRL_GET_TLSEXT_STATUS_REQ_OCSP_RESP    = 70;
+  SSL_CTRL_SET_TLSEXT_STATUS_REQ_OCSP_RESP    = 71;
+  DTLS_CTRL_GET_TIMEOUT                       = 73;
+  DTLS_CTRL_HANDLE_TIMEOUT                    = 74;
+  SSL_CTRL_SET_TLS_EXT_SRP_USERNAME_CB        = 75;
   SSL_CTRL_GET_RI_SUPPORT                     = 76;
   SSL_CTRL_CLEAR_OPTIONS                      = 77;
   SSL_CTRL_CLEAR_MODE                         = 78;
+  SSL_CTRL_SET_TLS_EXT_SRP_USERNAME           = 79;
+  SSL_CTRL_SET_TLS_EXT_SRP_STRENGTH           = 80;
+  SSL_CTRL_SET_TLS_EXT_SRP_PASSWORD           = 81;
   SSL_CTRL_GET_EXTRA_CHAIN_CERTS              = 82;
   SSL_CTRL_CLEAR_EXTRA_CHAIN_CERTS            = 83;
   SSL_CTRL_CHAIN                              = 88;
@@ -210,48 +235,97 @@ const
   SSL_CTRL_SET_MAX_PROTO_VERSION              = 124;
   SSL_CTRL_SET_SPLIT_SEND_FRAGMENT            = 125;
   SSL_CTRL_SET_MAX_PIPELINES                  = 126;
+  SSL_CTRL_GET_TLSEXT_STATUS_REQ_TYPE         = 127;
+  SSL_CTRL_GET_TLSEXT_STATUS_REQ_CB           = 128;
+  SSL_CTRL_GET_TLSEXT_STATUS_REQ_CB_ARG       = 129;
+  SSL_CTRL_GET_MIN_PROTO_VERSION              = 130;
+  SSL_CTRL_GET_MAX_PROTO_VERSION              = 131;
+  SSL_CTRL_GET_SIGNATURE_NID                  = 132;
+  SSL_CTRL_GET_TMP_KEY                        = 133;
+  SSL_CTRL_GET_NEGOTIATED_GROUP               = 134;
+  SSL_CTRL_SET_RETRY_VERIFY                   = 136;
+  SSL_CTRL_GET_VERIFY_CERT_STORE              = 137;
+  SSL_CTRL_GET_CHAIN_CERT_STORE               = 138;
+
+  // NameType value from RFC3546
+  TLSEXT_NAMETYPE_host_name = 0;
+  // status request value from RFC3546
+  TLSEXT_STATUSTYPE_ocsp    = 1;
 
   SSL_MODE_ENABLE_PARTIAL_WRITE       = $00000001;
   SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER = $00000002;
   SSL_MODE_AUTO_RETRY                 = $00000004;
   SSL_MODE_NO_AUTO_CHAIN              = $00000008;
 
-  SSL_OP_MICROSOFT_SESS_ID_BUG                = $00000001;
-  SSL_OP_NETSCAPE_CHALLENGE_BUG               = $00000002;
-  SSL_OP_NETSCAPE_REUSE_CIPHER_CHANGE_BUG     = $00000008;
-  SSL_OP_TLSEXT_PADDING                       = $00000010;
-  SSL_OP_SSLREF2_REUSE_CERT_TYPE_BUG          = $00000000;
-  SSL_OP_MICROSOFT_BIG_SSLV3_BUFFER           = $00000020;
-  SSL_OP_SAFARI_ECDHE_ECDSA_BUG               = $00000040;
-  SSL_OP_MSIE_SSLV2_RSA_PADDING               = $00000000;
-  SSL_OP_SSLEAY_080_CLIENT_DH_BUG             = $00000080;
-  SSL_OP_TLS_D5_BUG                           = $00000100;
-  SSL_OP_TLS_BLOCK_PADDING_BUG                = $00000200;
-  SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS          = $00000800;
-  SSL_OP_ALL                                  = $00000BFF;
-  SSL_OP_NO_QUERY_MTU                         = $00001000;
-  SSL_OP_COOKIE_EXCHANGE                      = $00002000;
-  SSL_OP_NO_TICKET                            = $00004000;
-  SSL_OP_CISCO_ANYCONNECT                     = $00008000;
-  SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION  = $00010000;
-  SSL_OP_NO_COMPRESSION                       = $00020000;
-  SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION    = $00040000;
-  SSL_OP_SINGLE_ECDH_USE                      = $0;
-  SSL_OP_SINGLE_DH_USE                        = $00100000;
-  SSL_OP_EPHEMERAL_RSA                        = $00200000;
-  SSL_OP_CIPHER_SERVER_PREFERENCE             = $00400000;
-  SSL_OP_TLS_ROLLBACK_BUG                     = $00800000;
-  SSL_OP_NO_SSLv2                             = $0;
-  SSL_OP_NO_SSLv3                             = $02000000;
-  SSL_OP_NO_TLSv1                             = $04000000;
-  SSL_OP_NO_TLSv1_2                           = $08000000;
-  SSL_OP_NO_TLSv1_1                           = $10000000;
-  SSL_OP_NO_TLSv1_3                           = $20000000;
-  SSL_OP_PKCS1_CHECK_1                        = $00000000;
-  SSL_OP_PKCS1_CHECK_2                        = $00000000;
-  SSL_OP_NETSCAPE_CA_DN_BUG                   = $20000000;
-  SSL_OP_NETSCAPE_DEMO_CIPHER_CHANGE_BUG      = $40000000;
-  SSL_OP_CRYPTOPRO_TLSEXT_BUG                 = $80000000;
+  // OBSOLETE OPTIONS retained for compatibility
+  SSL_OP_MICROSOFT_SESS_ID_BUG                    = 0;
+  SSL_OP_NETSCAPE_CHALLENGE_BUG                   = 0;
+  SSL_OP_NETSCAPE_REUSE_CIPHER_CHANGE_BUG         = 0;
+  SSL_OP_SSLREF2_REUSE_CERT_TYPE_BUG              = 0;
+  SSL_OP_MICROSOFT_BIG_SSLV3_BUFFER               = 0;
+  SSL_OP_MSIE_SSLV2_RSA_PADDING                   = 0;
+  SSL_OP_SSLEAY_080_CLIENT_DH_BUG                 = 0;
+  SSL_OP_TLS_D5_BUG                               = 0;
+  SSL_OP_TLS_BLOCK_PADDING_BUG                    = 0;
+  SSL_OP_SINGLE_ECDH_USE                          = 0;
+  SSL_OP_SINGLE_DH_USE                            = 0;
+  SSL_OP_EPHEMERAL_RSA                            = 0;
+  SSL_OP_NO_SSLv2                                 = 0;
+  SSL_OP_PKCS1_CHECK_1                            = 0;
+  SSL_OP_PKCS1_CHECK_2                            = 0;
+  SSL_OP_NETSCAPE_CA_DN_BUG                       = 0;
+  SSL_OP_NETSCAPE_DEMO_CIPHER_CHANGE_BUG          = 0;
+
+  // SSL/TLS connection options
+  SSL_OP_NO_EXTENDED_MASTER_SECRET          = 1 shl 0;  // 禁用扩展主密钥
+  SSL_OP_CLEANSE_PLAINTEXT                  = 1 shl 1;  // 清除交付给应用程序的明文数据副本
+  SSL_OP_LEGACY_SERVER_CONNECT              = 1 shl 2;  // 允许连接到不支持RI的旧服务器
+  SSL_OP_ENABLE_KTLS                        = 1 shl 3;  // 启用内核TLS支持
+  SSL_OP_TLSEXT_PADDING                     = 1 shl 4;  // TLS扩展填充
+  SSL_OP_SAFARI_ECDHE_ECDSA_BUG             = 1 shl 6;  // 修复Safari ECDHE-ECDSA兼容性问题
+  SSL_OP_IGNORE_UNEXPECTED_EOF              = 1 shl 7;  // 忽略意外的EOF
+  SSL_OP_ALLOW_CLIENT_RENEGOTIATION         = 1 shl 8;  // 允许客户端重新协商
+  SSL_OP_DISABLE_TLSEXT_CA_NAMES            = 1 shl 9;  // 禁用TLS扩展CA名称
+  SSL_OP_ALLOW_NO_DHE_KEX                   = 1 shl 10; // 在TLS1.3中允许非(EC)DHE密钥交换
+  SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS        = 1 shl 11; // 禁用空片段插入（CBC漏洞修复）
+
+  // DTLS选项
+  SSL_OP_NO_QUERY_MTU                       = 1 shl 12; // 禁用MTU查询
+  SSL_OP_COOKIE_EXCHANGE                    = 1 shl 13; // 启用Cookie交换（仅服务器端）
+  SSL_OP_NO_TICKET                          = 1 shl 14; // 禁用RFC4507票据扩展
+
+{$IFNDEF OPENSSL_NO_DTLS1_METHOD}
+  SSL_OP_CISCO_ANYCONNECT                   = 1 shl 15; // 使用Cisco的DTLS版本标识
+{$ENDIF}
+
+  SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION = 1 shl 16; // 服务器端禁止在重新协商时恢复会话
+  SSL_OP_NO_COMPRESSION                     = 1 shl 17; // 禁用压缩
+  SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION  = 1 shl 18; // 允许不安全的旧式重新协商
+  SSL_OP_NO_ENCRYPT_THEN_MAC                = 1 shl 19; // 禁用Encrypt-then-MAC
+  SSL_OP_ENABLE_MIDDLEBOX_COMPAT            = 1 shl 20; // 启用TLS1.3中间件兼容模式
+  SSL_OP_PRIORITIZE_CHACHA                  = 1 shl 21; // 优先使用ChaCha20-Poly1305
+  SSL_OP_CIPHER_SERVER_PREFERENCE           = 1 shl 22; // 服务器端密码套件优先
+  SSL_OP_TLS_ROLLBACK_BUG                   = 1 shl 23; // 允许SSLv3版本号回滚
+  SSL_OP_NO_ANTI_REPLAY                     = 1 shl 24; // 禁用TLS1.3反重放保护
+  SSL_OP_NO_SSLV3                           = 1 shl 25; // 禁用SSLv3
+  SSL_OP_NO_TLSV1                           = 1 shl 26; // 禁用TLS1.0
+  SSL_OP_NO_TLSV1_2                         = 1 shl 27; // 禁用TLS1.2
+  SSL_OP_NO_TLSV1_1                         = 1 shl 28; // 禁用TLS1.1
+  SSL_OP_NO_TLSV1_3                         = 1 shl 29; // 禁用TLS1.3
+  SSL_OP_NO_DTLSV1                          = 1 shl 26; // 禁用DTLS1.0
+  SSL_OP_NO_DTLSV1_2                        = 1 shl 27; // 禁用DTLS1.2
+  SSL_OP_NO_RENEGOTIATION                   = 1 shl 30; // 禁止所有重新协商
+  SSL_OP_CRYPTOPRO_TLSEXT_BUG               = 1 shl 31; // Cryptopro TLS扩展兼容模式
+
+  SSL_SESS_CACHE_OFF                      = $0000;
+  SSL_SESS_CACHE_CLIENT                   = $0001;
+  SSL_SESS_CACHE_SERVER                   = $0002;
+  SSL_SESS_CACHE_BOTH                     = (SSL_SESS_CACHE_CLIENT or SSL_SESS_CACHE_SERVER);
+  SSL_SESS_CACHE_NO_AUTO_CLEAR            = $0080;
+  SSL_SESS_CACHE_NO_INTERNAL_LOOKUP       = $0100;
+  SSL_SESS_CACHE_NO_INTERNAL_STORE        = $0200;
+  SSL_SESS_CACHE_NO_INTERNAL              = (SSL_SESS_CACHE_NO_INTERNAL_LOOKUP or SSL_SESS_CACHE_NO_INTERNAL_STORE);
+  SSL_SESS_CACHE_UPDATE_TIME              = $0400;
 
   NID_X9_62_prime192v1            = 409;
   NID_X9_62_prime192v2            = 410;
@@ -430,6 +504,9 @@ function PEM_read_bio_X509_AUX(bp: PBIO; x: PPX509; cb: TPemPasswordCb; u: Point
   external LIBCRYPTO_NAME name 'PEM_read_bio_X509_AUX';
 function PEM_read_bio_PrivateKey(bp: PBIO; x: PPEVP_PKEY; cb: TPemPasswordCb; u: Pointer): PEVP_PKEY; cdecl;
   external LIBCRYPTO_NAME name 'PEM_read_bio_PrivateKey';
+
+function EVP_PKEY_CTX_new_id(id: Integer; e: Pointer): PEVP_PKEY; cdecl;
+  external LIBCRYPTO_NAME name 'EVP_PKEY_CTX_new_id';
 {$ENDREGION}
 
 {$REGION 'LIBSSL-FUNC'}
@@ -453,6 +530,8 @@ procedure SSL_CTX_set_verify(ctx: PSSL_CTX; mode: Integer; callback: TSetVerifyC
   external LIBSSL_NAME name 'SSL_CTX_set_verify';
 function SSL_CTX_set_cipher_list(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
   external LIBSSL_NAME name 'SSL_CTX_set_cipher_list';
+function SSL_CTX_set_ciphersuites(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_CTX_set_ciphersuites';
 function SSL_CTX_use_PrivateKey(ctx: PSSL_CTX; pkey: PEVP_PKEY): Integer; cdecl;
   external LIBSSL_NAME name 'SSL_CTX_use_PrivateKey';
 function SSL_CTX_use_certificate(ctx: PSSL_CTX; cert: PX509): Integer; cdecl;
@@ -498,8 +577,10 @@ function SSL_is_init_finished(s: PSSL): Integer; cdecl;
 
 function SSL_CTX_get_cert_store(const Ctx: PSSL_CTX): PX509_STORE; cdecl;
   external LIBSSL_NAME name 'SSL_CTX_get_cert_store';
-function SSL_CTX_add_client_CA(C: PSSL_CTX; CaCert: PX509): Integer; cdecl;
+function SSL_CTX_add_client_CA(const Ctx: PSSL_CTX; CaCert: PX509): Integer; cdecl;
   external LIBSSL_NAME name 'SSL_CTX_add_client_CA';
+function SSL_CTX_set_default_verify_paths(const Ctx: PSSL_CTX): Integer; cdecl;
+  external LIBSSL_NAME name 'SSL_CTX_set_default_verify_paths';
 {$ENDREGION}
 
 {$ENDIF __SSL_STATIC__}
@@ -509,20 +590,26 @@ function SSL_CTX_set_tmp_rsa(ctx: PSSL_CTX; rsa: MarshaledAString): Integer; inl
 function SSL_CTX_set_tmp_dh(ctx: PSSL_CTX; dh: MarshaledAString): Integer; inline;
 function SSL_CTX_set_tmp_ecdh(ctx: PSSL_CTX; ecdh: PEC_KEY): Integer; inline;
 function SSL_CTX_add_extra_chain_cert(ctx: PSSL_CTX; cert: PX509): Integer; inline;
-function SSL_need_tmp_rsa(ssl: PSSL): Integer; inline;
-function SSL_set_tmp_rsa(ssl: PSSL; rsa: MarshaledAString): Integer; inline;
-function SSL_set_tmp_dh(ssl: PSSL; dh: MarshaledAString): Integer; inline;
-function SSL_set_tmp_ecdh(ssl: PSSL; ecdh: MarshaledAString): Integer; inline;
-
 function SSL_CTX_set_options(ctx: PSSL_CTX; Op: Integer): Integer; inline;
 function SSL_CTX_get_options(ctx: PSSL_CTX): Integer; inline;
 function SSL_CTX_set_mode(ctx: PSSL_CTX; op: Integer): Integer; inline;
 function SSL_CTX_clear_mode(ctx: PSSL_CTX; op: Integer): Integer; inline;
 function SSL_CTX_get_mode(ctx: PSSL_CTX): Integer; inline;
+function SSL_CTX_get_min_proto_version(ctx: PSSL_CTX): Integer; inline;
+function SSL_CTX_set_min_proto_version(ctx: PSSL_CTX; version: Integer): Integer; inline;
+function SSL_CTX_get_max_proto_version(ctx: PSSL_CTX): Integer; inline;
+function SSL_CTX_set_max_proto_version(ctx: PSSL_CTX; version: Integer): Integer; inline;
+function SSL_CTX_get_session_cache_mode(ctx: PSSL_CTX): Integer; inline;
+function SSL_CTX_set_session_cache_mode(ctx: PSSL_CTX; m: Integer): Integer; inline;
 
+function SSL_need_tmp_rsa(ssl: PSSL): Integer; inline;
+function SSL_set_tmp_rsa(ssl: PSSL; rsa: MarshaledAString): Integer; inline;
+function SSL_set_tmp_dh(ssl: PSSL; dh: MarshaledAString): Integer; inline;
+function SSL_set_tmp_ecdh(ssl: PSSL; ecdh: MarshaledAString): Integer; inline;
 function SSL_set_options(ssl: PSSL; Op: Integer): Integer; inline;
 function SSL_get_options(ssl: PSSL): Integer; inline;
 function SSL_clear_options(ssl: PSSL; Op: Integer): Integer; inline;
+function SSL_set_tlsext_host_name(ssl: PSSL; name: MarshaledAString): Integer; inline;
 
 function BIO_eof(bp: PBIO): Boolean; inline;
 function BIO_pending(bp: PBIO): Integer; inline;
@@ -660,6 +747,7 @@ var
   SSL_CTX_ctrl: function(ctx: PSSL_CTX; Cmd: Integer; LArg: Integer; PArg: MarshaledAString): Integer; cdecl;
   SSL_CTX_set_verify: procedure(ctx: PSSL_CTX; mode: Integer; callback: TSetVerifyCb); cdecl;
   SSL_CTX_set_cipher_list: function(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
+  SSL_CTX_set_ciphersuites: function(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
   SSL_CTX_use_PrivateKey: function(ctx: PSSL_CTX; pkey: PEVP_PKEY): Integer; cdecl;
   SSL_CTX_use_certificate: function(ctx: PSSL_CTX; cert: PX509): Integer; cdecl;
   SSL_CTX_check_private_key: function(ctx: PSSL_CTX): Integer; cdecl;
@@ -685,7 +773,9 @@ var
   SSL_is_init_finished: function (s: PSSL): Integer; cdecl;
 
   SSL_CTX_get_cert_store: function(const Ctx: PSSL_CTX): PX509_STORE; cdecl;
-  SSL_CTX_add_client_CA: function(C: PSSL_CTX; CaCert: PX509): Integer; cdecl;
+  SSL_CTX_add_client_CA: function(const Ctx: PSSL_CTX; CaCert: PX509): Integer; cdecl;
+
+  SSL_CTX_set_default_verify_paths: function(const Ctx: PSSL_CTX): Integer; cdecl;
   {$ENDREGION}
 
 {$ENDIF}
@@ -762,6 +852,36 @@ begin
   Result := SSL_CTX_ctrl(ctx, SSL_CTRL_MODE, 0, nil);
 end;
 
+function SSL_CTX_get_min_proto_version(ctx: PSSL_CTX): Integer;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_GET_MIN_PROTO_VERSION, 0, nil);
+end;
+
+function SSL_CTX_set_min_proto_version(ctx: PSSL_CTX; version: Integer): Integer;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_SET_MIN_PROTO_VERSION, version, nil);
+end;
+
+function SSL_CTX_get_max_proto_version(ctx: PSSL_CTX): Integer;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_GET_MAX_PROTO_VERSION, 0, nil);
+end;
+
+function SSL_CTX_set_max_proto_version(ctx: PSSL_CTX; version: Integer): Integer;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_SET_MAX_PROTO_VERSION, version, nil);
+end;
+
+function SSL_CTX_get_session_cache_mode(ctx: PSSL_CTX): Integer;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_GET_SESS_CACHE_MODE, 0, nil);
+end;
+
+function SSL_CTX_set_session_cache_mode(ctx: PSSL_CTX; m: Integer): Integer;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_SET_SESS_CACHE_MODE, m, nil);
+end;
+
 function SSL_set_options(ssl: PSSL; Op: Integer): Integer;
 begin
   Result := SSL_ctrl(ssl, SSL_CTRL_OPTIONS, Op, nil);
@@ -775,6 +895,11 @@ end;
 function SSL_clear_options(ssl: PSSL; Op: Integer): Integer;
 begin
   Result := SSL_ctrl(ssl, SSL_CTRL_CLEAR_OPTIONS, Op, nil);
+end;
+
+function SSL_set_tlsext_host_name(ssl: PSSL; name: MarshaledAString): Integer; inline;
+begin
+  Result := SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, name);
 end;
 
 function BIO_eof(bp: PBIO): Boolean;
@@ -1138,6 +1263,7 @@ begin
     @SSL_CTX_ctrl := GetSslLibProc(FSslLibHandle, 'SSL_CTX_ctrl');
     @SSL_CTX_set_verify := GetSslLibProc(FSslLibHandle, 'SSL_CTX_set_verify');
     @SSL_CTX_set_cipher_list := GetSslLibProc(FSslLibHandle, 'SSL_CTX_set_cipher_list');
+    @SSL_CTX_set_ciphersuites := GetSslLibProc(FSslLibHandle, 'SSL_CTX_set_ciphersuites');
     @SSL_CTX_use_PrivateKey := GetSslLibProc(FSslLibHandle, 'SSL_CTX_use_PrivateKey');
     @SSL_CTX_use_certificate := GetSslLibProc(FSslLibHandle, 'SSL_CTX_use_certificate');
     @SSL_CTX_check_private_key := GetSslLibProc(FSslLibHandle, 'SSL_CTX_check_private_key');
@@ -1164,6 +1290,8 @@ begin
 
     @SSL_CTX_get_cert_store := GetSslLibProc(FSslLibHandle, 'SSL_CTX_get_cert_store');
     @SSL_CTX_add_client_CA := GetSslLibProc(FSslLibHandle, 'SSL_CTX_add_client_CA');
+
+    @SSL_CTX_set_default_verify_paths := GetSslLibProc(FSslLibHandle, 'SSL_CTX_set_default_verify_paths');
   end;
 end;
 

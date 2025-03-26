@@ -303,7 +303,8 @@ type
     procedure ReleaseRequest; override;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
 
     function IsWebSocket: Boolean;
@@ -384,7 +385,8 @@ type
     procedure SetMaskingKey(const AValue: Cardinal);
   protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
 
     procedure DoOnRequest(const AConnection: ICrossHttpConnection); override;
@@ -408,9 +410,9 @@ implementation
 
 constructor TCrossWebSocketConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectCb: TCrossConnectionCallback);
+  const AHost: string; const AConnectCb: TCrossConnectionCallback);
 begin
-  inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  inherited Create(AOwner, AClientSocket, AConnectType, AHost, AConnectCb);
 
   FWsParser := TCrossWebSocketParser.Create(
     procedure(const AOpCode: Byte; const AData: TBytes)
@@ -961,9 +963,14 @@ end;
 
 function TCrossWebSocketServer.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectCb: TCrossConnectionCallback): ICrossConnection;
+  const AHost: string; const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
-  Result := TCrossWebSocketConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  Result := TCrossWebSocketConnection.Create(
+    AOwner,
+    AClientSocket,
+    AConnectType,
+    AHost,
+    AConnectCb);
 end;
 
 procedure TCrossWebSocketServer.DoOnRequest(

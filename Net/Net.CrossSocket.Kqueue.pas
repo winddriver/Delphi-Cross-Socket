@@ -99,7 +99,8 @@ type
     procedure InternalClose; override;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback); override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
   end;
 
@@ -173,7 +174,8 @@ type
     procedure _HandleWrite(const AConnection: ICrossConnection);
   protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
     function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
 
@@ -270,9 +272,9 @@ end;
 
 constructor TKqueueConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectCb: TCrossConnectionCallback);
+  const AHost: string; const AConnectCb: TCrossConnectionCallback);
 begin
-  inherited Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  inherited Create(AOwner, AClientSocket, AConnectType, AHost, AConnectCb);
 
   FKqLock := TLock.Create;
   FSendQueue := TSendQueue.Create;
@@ -467,7 +469,7 @@ begin
     SetKeepAlive(LClientSocket);
     _SetNoSigPipe(LClientSocket);
 
-    LConnection := CreateConnection(Self, LClientSocket, ctAccept);
+    LConnection := CreateConnection(Self, LClientSocket, ctAccept, '');
     TriggerConnecting(LConnection);
     TriggerConnected(LConnection);
 
@@ -770,7 +772,7 @@ procedure TKqueueCrossSocket.Connect(const AHost: string; const APort: Word;
     if (TSocketAPI.Connect(ASocket, AAddr.ai_addr, AAddr.ai_addrlen) = 0)
       or (GetLastError = EINPROGRESS) then
     begin
-      LConnection := CreateConnection(Self, ASocket, ctConnect, ACallback);
+      LConnection := CreateConnection(Self, ASocket, ctConnect, AHost, ACallback);
       TriggerConnecting(LConnection);
       LKqConnection := LConnection as TKqueueConnection;
 
@@ -843,9 +845,14 @@ end;
 
 function TKqueueCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectCb: TCrossConnectionCallback): ICrossConnection;
+  const AHost: string; const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
-  Result := TKqueueConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  Result := TKqueueConnection.Create(
+    AOwner,
+    AClientSocket,
+    AConnectType,
+    AHost,
+    AConnectCb);
 end;
 
 function TKqueueCrossSocket.CreateListen(const AOwner: TCrossSocketBase;
