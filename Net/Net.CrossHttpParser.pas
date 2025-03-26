@@ -237,10 +237,11 @@ begin
                 end;
 
                 // 如果 ContentLength 大于 0, 或者是 Chunked 编码
-                //   还有种特殊情况就是 ContentLength 和 Chunked 都没有
-                //   并且响应头中包含 Connection: close
+                //   还有种特殊情况就是 Content-Length 和 Transfer-Encoding 都没有
+                //   并且响应头中包含 Connection: close, 甚至根本就没有 Connection
                 //   这种需要在连接断开时处理body
                 FHasBody := (FContentLength > 0) or FIsChunked
+                  or (FConnectionStr = '')
                   or TStrUtils.SameText(FConnectionStr, 'close');
               end;
 
