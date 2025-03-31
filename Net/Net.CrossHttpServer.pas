@@ -4199,7 +4199,7 @@ begin
 
   if AChunked then
     FHeader[HEADER_TRANSFER_ENCODING] := 'chunked'
-  else if (ABodySize > 0) then
+  else
     FHeader[HEADER_CONTENT_LENGTH] := ABodySize.ToString;
 
   if (FHeader[HEADER_CROSS_HTTP_SERVER] = '') then

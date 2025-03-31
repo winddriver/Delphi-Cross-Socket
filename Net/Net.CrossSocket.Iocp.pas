@@ -488,7 +488,7 @@ var
     LPerIoData.Action := ioConnect;
     LPerIoData.CrossData := LConnection;
     LPerIoData.Socket := ASocket;
-    LPerIoData.Callback := ACallback;
+    LPerIoData.Callback := nil;
     if not ConnectEx(ASocket, AAddr.ai_addr, AAddr.ai_addrlen, nil, 0, LBytes, PWSAOverlapped(LPerIoData)) and
       (WSAGetLastError <> WSA_IO_PENDING) then
     begin
