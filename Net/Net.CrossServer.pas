@@ -62,7 +62,8 @@ type
     procedure SetActive(const Value: Boolean);
   protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-      const AConnectType: TConnectType; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
+      const AConnectType: TConnectType; const AHost: string;
+      const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
   public
     procedure Start(const ACallback: TCrossListenCallback = nil); virtual;
     procedure Stop; virtual;
@@ -78,9 +79,14 @@ implementation
 
 function TCrossServer.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
-  const AConnectCb: TCrossConnectionCallback): ICrossConnection;
+  const AHost: string; const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
-  Result := TCrossServerConnection.Create(AOwner, AClientSocket, AConnectType, AConnectCb);
+  Result := TCrossServerConnection.Create(
+    AOwner,
+    AClientSocket,
+    AConnectType,
+    AHost,
+    AConnectCb);
 end;
 
 function TCrossServer.GetActive: Boolean;
