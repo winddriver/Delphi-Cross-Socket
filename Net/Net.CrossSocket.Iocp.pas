@@ -96,7 +96,7 @@ type
     procedure Listen(const AHost: string; const APort: Word;
       const ACallback: TCrossListenCallback = nil); override;
 
-    procedure Connect(const AHost: string; const APort: Word;
+    procedure Connect(const AHost: string; const APort, ALocalPort: Word;
       const ACallback: TCrossConnectionCallback = nil); override;
 
     procedure Send(const AConnection: ICrossConnection; const ABuf: Pointer;
@@ -425,8 +425,8 @@ begin
   CloseHandle(FIocpHandle);
 end;
 
-procedure TIocpCrossSocket.Connect(const AHost: string; const APort: Word;
-  const ACallback: TCrossConnectionCallback);
+procedure TIocpCrossSocket.Connect(const AHost: string;
+  const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
 var
   LHints: TRawAddrInfo;
   P, LAddrInfo: PRawAddrInfo;
@@ -453,15 +453,14 @@ var
   begin
     FillChar(LSockAddr, SizeOf(TRawSockAddrIn), 0);
     LSockAddr.AddrLen := AAddr.ai_addrlen;
-    Move(AAddr.ai_addr^, LSockAddr.Addr, AAddr.ai_addrlen);
     if (AAddr.ai_family = AF_INET6) then
     begin
-      LSockAddr.Addr6.sin6_addr := in6addr_any;
-      LSockAddr.Addr6.sin6_port := 0;
+      LSockAddr.Addr6.sin6_family := AAddr.ai_family;
+      LSockAddr.Addr6.sin6_port := htons(ALocalPort);
     end else
     begin
-      LSockAddr.Addr.sin_addr.S_addr := INADDR_ANY;
-      LSockAddr.Addr.sin_port := 0;
+      LSockAddr.Addr.sin_family := AAddr.ai_family;
+      LSockAddr.Addr.sin_port := htons(ALocalPort);
     end;
     if (TSocketAPI.Bind(ASocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
     begin
@@ -496,8 +495,8 @@ var
       _LogLastOsError('TIocpCrossSocket._Connect.ConnectEx');
       {$ENDIF}
       _FreeIoData(LPerIoData);
+      LConnection.Close;
       _Failed2;
-      TriggerDisconnected(LConnection);
       Exit(False);
     end;
 

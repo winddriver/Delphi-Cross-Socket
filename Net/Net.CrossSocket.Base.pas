@@ -450,7 +450,25 @@ type
     ///   回调匿名函数
     /// </param>
     procedure Connect(const AHost: string; const APort: Word;
-      const ACallback: TCrossConnectionCallback = nil);
+      const ACallback: TCrossConnectionCallback = nil); overload;
+
+    /// <summary>
+    ///   连接到主机
+    /// </summary>
+    /// <param name="AHost">
+    ///   主机地址
+    /// </param>
+    /// <param name="APort">
+    ///   主机端口
+    /// </param>
+    /// <param name="ALocalPort">
+    ///   本地端口(一般不需要指定, 传0由系统随机分配)
+    /// </param>
+    /// <param name="ACallback">
+    ///   回调匿名函数
+    /// </param>
+    procedure Connect(const AHost: string; const APort, ALocalPort: Word;
+      const ACallback: TCrossConnectionCallback = nil); overload;
 
     /// <summary>
     ///   发送数据
@@ -828,8 +846,10 @@ type
     procedure Listen(const AHost: string; const APort: Word;
       const ACallback: TCrossListenCallback = nil); virtual; abstract;
 
+    procedure Connect(const AHost: string; const APort, ALocalPort: Word;
+      const ACallback: TCrossConnectionCallback = nil); overload; virtual; abstract;
     procedure Connect(const AHost: string; const APort: Word;
-      const ACallback: TCrossConnectionCallback = nil); virtual; abstract;
+      const ACallback: TCrossConnectionCallback = nil); overload;
 
     procedure Send(const AConnection: ICrossConnection; const ABuf: Pointer;
       const ALen: Integer; const ACallback: TCrossConnectionCallback = nil); virtual; abstract;
@@ -1019,6 +1039,12 @@ begin
 
   for LListen in LListenArr do
     LListen.Close;
+end;
+
+procedure TCrossSocketBase.Connect(const AHost: string; const APort: Word;
+  const ACallback: TCrossConnectionCallback);
+begin
+  Connect(AHost, APort, 0, ACallback);
 end;
 
 constructor TCrossSocketBase.Create(const AIoThreads: Integer);

@@ -25,6 +25,7 @@ uses
   Posix.UniStd,
   Posix.NetDB,
   Posix.Pthread,
+  Posix.ArpaInet,
   Posix.Errno,
   Linux.epoll,
   {$ELSE}
@@ -157,7 +158,7 @@ type
     procedure Listen(const AHost: string; const APort: Word;
       const ACallback: TCrossListenCallback = nil); override;
 
-    procedure Connect(const AHost: string; const APort: Word;
+    procedure Connect(const AHost: string; const APort, ALocalPort: Word;
       const ACallback: TCrossConnectionCallback = nil); override;
 
     procedure Send(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer;
@@ -656,8 +657,8 @@ begin
   _CloseStopHandle;
 end;
 
-procedure TEpollCrossSocket.Connect(const AHost: string; const APort: Word;
-  const ACallback: TCrossConnectionCallback);
+procedure TEpollCrossSocket.Connect(const AHost: string;
+	const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
 
   procedure _Failed1;
   begin
@@ -666,10 +667,37 @@ procedure TEpollCrossSocket.Connect(const AHost: string; const APort: Word;
   end;
 
   function _Connect(ASocket: TSocket; AAddr: PRawAddrInfo): Boolean;
+    procedure _Failed2;
+    begin
+      if Assigned(ACallback) then
+        ACallback(nil, False);
+      TSocketAPI.CloseSocket(ASocket);
+    end;
   var
+    LSockAddr: TRawSockAddrIn;
     LConnection: ICrossConnection;
     LEpConnection: TEpollConnection;
   begin
+    FillChar(LSockAddr, SizeOf(TRawSockAddrIn), 0);
+    LSockAddr.AddrLen := AAddr.ai_addrlen;
+    if (AAddr.ai_family = AF_INET6) then
+    begin
+      LSockAddr.Addr6.sin6_family := AAddr.ai_family;
+      LSockAddr.Addr6.sin6_port := htons(ALocalPort);
+    end else
+    begin
+      LSockAddr.Addr.sin_family := AAddr.ai_family;
+      LSockAddr.Addr.sin_port := htons(ALocalPort);
+    end;
+    if (TSocketAPI.Bind(ASocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
+    begin
+      {$IFDEF DEBUG}
+      _LogLastOsError('TEpollCrossSocket._Connect.Bind');
+      {$ENDIF}
+      _Failed2;
+      Exit(False);
+    end;
+
     if (TSocketAPI.Connect(ASocket, AAddr.ai_addr, AAddr.ai_addrlen) = 0)
       or (GetLastError = EINPROGRESS) then
     begin
@@ -682,8 +710,8 @@ procedure TEpollCrossSocket.Connect(const AHost: string; const APort: Word;
         LEpConnection.ConnectStatus := csConnecting;
         if not LEpConnection._UpdateIoEvent([ieWrite]) then
         begin
-          if Assigned(ACallback) then
-            ACallback(LConnection, False);
+          LConnection.Close;
+          _Failed2;
           Exit(False);
         end;
       finally
@@ -693,9 +721,7 @@ procedure TEpollCrossSocket.Connect(const AHost: string; const APort: Word;
     begin
       _LogLastOsError('Connect');
 
-      if Assigned(ACallback) then
-        ACallback(nil, False);
-      TSocketAPI.CloseSocket(ASocket);
+      _Failed2;
       Exit(False);
     end;
 

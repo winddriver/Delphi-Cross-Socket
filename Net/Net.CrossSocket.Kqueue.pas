@@ -24,6 +24,7 @@ uses
   Posix.UniStd,
   Posix.NetDB,
   Posix.Pthread,
+  Posix.ArpaInet,
   Posix.Errno,
   {$ELSE}
   baseunix,
@@ -185,7 +186,7 @@ type
     procedure Listen(const AHost: string; const APort: Word;
       const ACallback: TCrossListenCallback = nil); override;
 
-    procedure Connect(const AHost: string; const APort: Word;
+    procedure Connect(const AHost: string; const APort, ALocalPort: Word;
       const ACallback: TCrossConnectionCallback = nil); override;
 
     procedure Send(const AConnection: ICrossConnection; const ABuf: Pointer;
@@ -755,8 +756,8 @@ begin
   _CloseStopHandle;
 end;
 
-procedure TKqueueCrossSocket.Connect(const AHost: string; const APort: Word;
-  const ACallback: TCrossConnectionCallback);
+procedure TKqueueCrossSocket.Connect(const AHost: string;
+  const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
 
   procedure _Failed1;
   begin
@@ -765,11 +766,38 @@ procedure TKqueueCrossSocket.Connect(const AHost: string; const APort: Word;
   end;
 
   function _Connect(const ASocket: TSocket; const AAddr: PRawAddrInfo): Boolean;
+    procedure _Failed2;
+    begin
+      if Assigned(ACallback) then
+        ACallback(nil, False);
+      TSocketAPI.CloseSocket(ASocket);
+    end;
   var
+    LSockAddr: TRawSockAddrIn;
     LConnection: ICrossConnection;
     LKqConnection: TKqueueConnection;
   begin
-    if (TSocketAPI.Connect(ASocket, AAddr.ai_addr, AAddr.ai_addrlen) = 0)
+    FillChar(LSockAddr, SizeOf(TRawSockAddrIn), 0);
+    LSockAddr.AddrLen := AAddr.ai_addrlen;
+    if (AAddr.ai_family = AF_INET6) then
+    begin
+      LSockAddr.Addr6.sin6_family := AAddr.ai_family;
+      LSockAddr.Addr6.sin6_port := htons(ALocalPort);
+    end else
+    begin
+      LSockAddr.Addr.sin_family := AAddr.ai_family;
+      LSockAddr.Addr.sin_port := htons(ALocalPort);
+    end;
+    if (TSocketAPI.Bind(ASocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
+    begin
+      {$IFDEF DEBUG}
+      _LogLastOsError('TKqueueCrossSocket._Connect.Bind');
+      {$ENDIF}
+      _Failed2;
+      Exit(False);
+    end;
+
+    if (TSocketAPI.Connect(ASocket, @LSockAddr.Addr, LSockAddr.AddrLen) = 0)
       or (GetLastError = EINPROGRESS) then
     begin
       LConnection := CreateConnection(Self, ASocket, ctConnect, AHost, ACallback);
@@ -782,8 +810,7 @@ procedure TKqueueCrossSocket.Connect(const AHost: string; const APort: Word;
         if not LKqConnection._UpdateIoEvent([ieWrite]) then
         begin
           LConnection.Close;
-          if Assigned(ACallback) then
-            ACallback(LConnection, False);
+          _Failed2;
           Exit(False);
         end;
       finally
@@ -791,9 +818,7 @@ procedure TKqueueCrossSocket.Connect(const AHost: string; const APort: Word;
       end;
     end else
     begin
-      if Assigned(ACallback) then
-        ACallback(nil, False);
-      TSocketAPI.CloseSocket(ASocket);
+      _Failed2;
       Exit(False);
     end;
 
