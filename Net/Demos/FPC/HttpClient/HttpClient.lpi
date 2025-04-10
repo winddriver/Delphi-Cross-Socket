@@ -35,7 +35,6 @@
             <Optimizations>
               <OptimizationLevel Value="3"/>
             </Optimizations>
-            <SmallerCode Value="True"/>
           </CodeGeneration>
           <Linking>
             <Debugging>
@@ -45,11 +44,6 @@
             </Debugging>
             <LinkSmart Value="True"/>
           </Linking>
-          <Other>
-            <ConfigFile>
-              <WriteConfigFilePath Value=""/>
-            </ConfigFile>
-          </Other>
         </CompilerOptions>
       </Item>
       <Item Name="Linux-ARM64">
@@ -81,11 +75,6 @@
             </Debugging>
             <LinkSmart Value="True"/>
           </Linking>
-          <Other>
-            <ConfigFile>
-              <WriteConfigFilePath Value=""/>
-            </ConfigFile>
-          </Other>
         </CompilerOptions>
       </Item>
       <Item Name="Linux-龙芯">
@@ -117,11 +106,63 @@
             </Debugging>
             <LinkSmart Value="True"/>
           </Linking>
-          <Other>
-            <ConfigFile>
-              <WriteConfigFilePath Value=""/>
-            </ConfigFile>
-          </Other>
+        </CompilerOptions>
+      </Item>
+      <Item Name="MacOS-ARM64">
+        <CompilerOptions>
+          <Version Value="11"/>
+          <PathDelim Value="\"/>
+          <Target>
+            <Filename Value="bin\$(TargetCPU)-$(TargetOS)\HttpClient"/>
+          </Target>
+          <SearchPaths>
+            <IncludeFiles Value="$(ProjOutDir);..\..\..\.."/>
+            <OtherUnitFiles Value="..\..\..\..\Net;..\..\..\..\Utils;..\..\..\..\DelphiToFPC"/>
+            <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
+          </SearchPaths>
+          <CodeGeneration>
+            <SmartLinkUnit Value="True"/>
+            <TargetCPU Value="aarch64"/>
+            <TargetOS Value="darwin"/>
+            <Optimizations>
+              <OptimizationLevel Value="3"/>
+            </Optimizations>
+            <SmallerCode Value="True"/>
+          </CodeGeneration>
+          <Linking>
+            <Debugging>
+              <GenerateDebugInfo Value="False"/>
+              <RunWithoutDebug Value="True"/>
+              <StripSymbols Value="True"/>
+            </Debugging>
+            <LinkSmart Value="True"/>
+          </Linking>
+        </CompilerOptions>
+      </Item>
+      <Item Name="Linux-ARM64-debug">
+        <CompilerOptions>
+          <Version Value="11"/>
+          <PathDelim Value="\"/>
+          <Target>
+            <Filename Value="bin\$(TargetCPU)-$(TargetOS)\HttpClient"/>
+          </Target>
+          <SearchPaths>
+            <IncludeFiles Value="$(ProjOutDir);..\..\..\.."/>
+            <OtherUnitFiles Value="..\..\..\..\Net;..\..\..\..\Utils;..\..\..\..\DelphiToFPC"/>
+            <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
+          </SearchPaths>
+          <CodeGeneration>
+            <TargetCPU Value="aarch64"/>
+            <TargetOS Value="linux"/>
+            <Optimizations>
+              <OptimizationLevel Value="0"/>
+            </Optimizations>
+          </CodeGeneration>
+          <Linking>
+            <Debugging>
+              <UseValgrind Value="True"/>
+            </Debugging>
+          </Linking>
         </CompilerOptions>
       </Item>
     </BuildModes>
@@ -132,6 +173,11 @@
     <RunParams>
       <FormatVersion Value="2"/>
     </RunParams>
+    <RequiredPackages>
+      <Item>
+        <PackageName Value="LazUtils"/>
+      </Item>
+    </RequiredPackages>
     <Units>
       <Unit>
         <Filename Value="HttpClient.lpr"/>
@@ -151,26 +197,20 @@
       <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <CodeGeneration>
-      <SmartLinkUnit Value="True"/>
       <TargetCPU Value="x86_64"/>
       <TargetOS Value="win64"/>
       <Optimizations>
-        <OptimizationLevel Value="3"/>
+        <OptimizationLevel Value="0"/>
       </Optimizations>
-      <SmallerCode Value="True"/>
     </CodeGeneration>
     <Linking>
       <Debugging>
-        <GenerateDebugInfo Value="False"/>
-        <RunWithoutDebug Value="True"/>
-        <StripSymbols Value="True"/>
+        <DebugInfoType Value="dsDwarf3"/>
+        <UseValgrind Value="True"/>
       </Debugging>
-      <LinkSmart Value="True"/>
     </Linking>
     <Other>
-      <ConfigFile>
-        <WriteConfigFilePath Value=""/>
-      </ConfigFile>
+      <CustomOptions Value="-k&quot;-lssl -lcrypto -lws2_32 -ladvapi32 -lcrypt32 -lkernel32 -luser32 -lmingwex -lmsvcrt&quot;"/>
     </Other>
   </CompilerOptions>
   <Debugging>
