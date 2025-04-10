@@ -271,6 +271,9 @@ type
   {$ENDREGION}
   ICrossHttpClientSocket = interface(ICrossSslSocket)
   ['{F689E29A-0489-4F1E-A0B8-64DA80B0862E}']
+    function GetLocalPort: Word;
+    procedure SetLocalPort(const AValue: Word);
+
     {$REGION 'Documentation'}
     /// <summary>
     ///   发出请求
@@ -278,7 +281,13 @@ type
     /// <param name="ARequest">
     ///   请求对象
     /// </param>
+    {$ENDREGION}
     procedure DoRequest(const ARequest: ICrossHttpClientRequest); overload;
+
+    /// <summary>
+    ///   本地端口(一般不需要指定, 设置为0由系统随机分配, 默认为0; 一定要在首次调用请求之前设置)
+    /// </summary>
+    property LocalPort: Word read GetLocalPort write SetLocalPort;
   end;
 
   {$REGION 'Documentation'}
@@ -294,6 +303,7 @@ type
     function GetReUseConnection: Boolean;
     function GetTimeout: Integer;
     function GetAutoUrlEncode: Boolean;
+    function GetLocalPort: Word;
 
     procedure SetIdleout(const AValue: Integer);
     procedure SetIoThreads(const AValue: Integer);
@@ -301,6 +311,7 @@ type
     procedure SetReUseConnection(const AValue: Boolean);
     procedure SetTimeout(const AValue: Integer);
     procedure SetAutoUrlEncode(const AValue: Boolean);
+    procedure SetLocalPort(const AValue: Word);
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -624,6 +635,11 @@ type
     ///   自动对url参数进行编码(默认为True)
     /// </summary>
     property AutoUrlEncode: Boolean read GetAutoUrlEncode write SetAutoUrlEncode;
+
+    /// <summary>
+    ///   本地端口(一般不需要指定, 设置为0由系统随机分配, 默认为0; 一定要在首次调用请求之前设置)
+    /// </summary>
+    property LocalPort: Word read GetLocalPort write SetLocalPort;
   end;
 
   TCrossHttpClientConnection = class(TCrossSslConnection, ICrossHttpClientConnection)
@@ -824,7 +840,7 @@ type
   private
     FClientSocket: TCrossHttpClientSocket;
     FProtocol, FHost: string;
-    FPort: Word;
+    FPort, FLocalPort: Word;
     FRequestQueue: TRequestQueue;
     FConnections: TClientConnections;
     FConnCount: Integer;
@@ -834,7 +850,7 @@ type
     procedure _Unlock; inline;
   public
     constructor Create(const AClientSocket: TCrossHttpClientSocket;
-      const AProtocol, AHost: string; const APort: Word);
+      const AProtocol, AHost: string; const APort, ALocalPort: Word);
     destructor Destroy; override;
 
     procedure AddConnection(const AConnection: ICrossHttpClientConnection);
@@ -860,8 +876,10 @@ type
     FHttpClient: TCrossHttpClient;
     FReUseConnection, FAutoUrlEncode: Boolean;
     FCompressType: TCompressType;
+    FMaxConnsPerServer: Integer;
     FServerDockDict: TServerDockDict;
     FServerDockLock: ILock;
+    FLocalPort: Word;
 
     procedure _LockServerDock; inline;
     procedure _UnlockServerDock; inline;
@@ -871,8 +889,9 @@ type
       out AServerDock: TServerDock): Boolean; overload;
     function _GetServerDock(const AProtocol, AHost: string; const APort: Word): TServerDock; overload;
   protected
-    FMaxConnsPerServer: Integer;
-
+    function GetLocalPort: Word;
+    procedure SetLocalPort(const AValue: Word);
+  protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AHost: string;
       const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
@@ -887,6 +906,8 @@ type
 
     // 所有请求方法的核心
     procedure DoRequest(const ARequest: ICrossHttpClientRequest); overload;
+
+    property LocalPort: Word read GetLocalPort write SetLocalPort;
   end;
 
   TCrossHttpClient = class(TInterfacedObject, ICrossHttpClient)
@@ -905,6 +926,7 @@ type
     FHttpCliArr: TArray<ICrossHttpClientSocket>;
     FTimeout, FIdleout: Integer;
     FReUseConnection, FAutoUrlEncode: Boolean;
+    FLocalPort: Word;
 
     procedure _ProcTimeout;
   protected
@@ -919,6 +941,7 @@ type
     function GetReUseConnection: Boolean;
     function GetTimeout: Integer;
     function GetAutoUrlEncode: Boolean;
+    function GetLocalPort: Word;
 
     procedure SetIdleout(const AValue: Integer);
     procedure SetIoThreads(const AValue: Integer);
@@ -926,6 +949,7 @@ type
     procedure SetReUseConnection(const AValue: Boolean);
     procedure SetTimeout(const AValue: Integer);
     procedure SetAutoUrlEncode(const AValue: Boolean);
+    procedure SetLocalPort(const AValue: Word);
   public
     constructor Create(const AIoThreads, AMaxConnsPerServer: Integer;
       const ACompressType: TCompressType = ctNone); overload;
@@ -1007,6 +1031,7 @@ type
     property ReUseConnection: Boolean read GetReUseConnection write SetReUseConnection;
     property Timeout: Integer read GetTimeout write SetTimeout;
     property AutoUrlEncode: Boolean read GetAutoUrlEncode write SetAutoUrlEncode;
+    property LocalPort: Word read GetLocalPort write SetLocalPort;
   end;
 
 const
@@ -2170,6 +2195,11 @@ begin
   LServerDock.DoRequest(ARequest);
 end;
 
+function TCrossHttpClientSocket.GetLocalPort: Word;
+begin
+  Result := FLocalPort;
+end;
+
 procedure TCrossHttpClientSocket.LogicDisconnected(
   const AConnection: ICrossConnection);
 var
@@ -2217,6 +2247,11 @@ begin
   inherited LogicReceived(AConnection, ABuf, ALen);
 end;
 
+procedure TCrossHttpClientSocket.SetLocalPort(const AValue: Word);
+begin
+  FLocalPort := AValue;
+end;
+
 function TCrossHttpClientSocket._GetServerDock(const AProtocol, AHost: string;
   const APort: Word): TServerDock;
 var
@@ -2225,9 +2260,10 @@ begin
   LKey := _MakeServerDockKey(AProtocol, AHost, APort);
   if not FServerDockDict.TryGetValue(LKey, Result) then
   begin
-    Result := TServerDock.Create(Self, AProtocol, AHost, APort);
+    Result := TServerDock.Create(Self, AProtocol, AHost, APort, FLocalPort);
     FServerDockDict.Add(LKey, Result);
-  end;
+  end else
+    Result.FLocalPort := FLocalPort;
 end;
 
 function TCrossHttpClientSocket._GetServerDock(const AProtocol, AHost: string;
@@ -2349,6 +2385,8 @@ begin
     Result := FHttpsCli;
   end else
     raise ECrossHttpClient.CreateFmt('Invalid protocol:%s', [AProtocol]);
+
+  Result.LocalPort := FLocalPort;
 end;
 
 procedure TCrossHttpClient.DoRequest(const AMethod, AUrl: string;
@@ -2719,6 +2757,11 @@ begin
   Result := FIoThreads;
 end;
 
+function TCrossHttpClient.GetLocalPort: Word;
+begin
+  Result := FLocalPort;
+end;
+
 function TCrossHttpClient.GetMaxConnsPerServer: Integer;
 begin
   Result := FMaxConnsPerServer;
@@ -2762,6 +2805,11 @@ begin
   FIoThreads := AValue;
 end;
 
+procedure TCrossHttpClient.SetLocalPort(const AValue: Word);
+begin
+  FLocalPort := AValue;
+end;
+
 procedure TCrossHttpClient.SetMaxConnsPerServer(const AValue: Integer);
 begin
   FMaxConnsPerServer := AValue;
@@ -2791,12 +2839,13 @@ begin
 end;
 
 constructor TServerDock.Create(const AClientSocket: TCrossHttpClientSocket;
-  const AProtocol, AHost: string; const APort: Word);
+  const AProtocol, AHost: string; const APort, ALocalPort: Word);
 begin
   FClientSocket := AClientSocket;
   FProtocol := AProtocol;
   FHost := AHost;
   FPort := APort;
+  FLocalPort := ALocalPort;
 
   FRequestQueue := TRequestQueue.Create;
   FConnections := TClientConnections.Create;
@@ -2873,7 +2922,7 @@ begin
     or (AtomicCmpExchange(FConnCount, 0, 0) < FClientSocket.FMaxConnsPerServer) then
   begin
     LServerDock := Self;
-    FClientSocket.Connect(FHost, FPort,
+    FClientSocket.Connect(FHost, FPort, FLocalPort,
       procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
       var
         LHttpConn: ICrossHttpClientConnection;
