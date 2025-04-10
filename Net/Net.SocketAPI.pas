@@ -385,6 +385,11 @@ type
     class function RecvdCount(const ASocket: TSocket): Integer; static;
 
     /// <summary>
+    ///   地址提纯
+    /// </summary>
+    class function PureAddr(const AHostName: string): string; static;
+
+    /// <summary>
     ///   解析地址信息, 支持 IPv6
     /// </summary>
     class function GetAddrInfo(const AHostName, AServiceName: string;
@@ -472,6 +477,13 @@ end;
 class function TSocketAPI.NewUdp: TSocket;
 begin
   Result := TSocketAPI.NewSocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+end;
+
+class function TSocketAPI.PureAddr(const AHostName: string): string;
+begin
+  Result := AHostName.Trim;
+  Result := Result.TrimLeft(['[']);
+  Result := Result.TrimRight([']']);
 end;
 
 class function TSocketAPI.Readable(const ASocket: TSocket; const ATimeout: Integer): Integer;
@@ -663,6 +675,7 @@ end;
 class function TSocketAPI.GetAddrInfo(const AHostName, AServiceName: string;
   const AHints: TRawAddrInfo): PRawAddrInfo;
 var
+  LHostName: string;
   M: TMarshaller;
   LHost, LService: Pointer;
   LRet: Integer;
@@ -670,9 +683,11 @@ var
 begin
   Result := nil;
 
+  LHostName := PureAddr(AHostName);
+
   {$IFDEF MSWINDOWS}
-  if (AHostName <> '') then
-    LHost := M.OutString(AHostName).ToPointer
+  if (LHostName <> '') then
+    LHost := M.OutString(LHostName).ToPointer
   else
     LHost := nil;
   if (AServiceName <> '') then
@@ -681,8 +696,8 @@ begin
     LService := nil;
   LRet := Net.Wship6.getaddrinfo(LHost, LService, @AHints, @LAddrInfo);
   {$ELSE}
-  if (AHostName <> '') then
-    LHost := M.AsAnsi(AHostName).ToPointer
+  if (LHostName <> '') then
+    LHost := M.AsAnsi(LHostName).ToPointer
   else
     LHost := nil;
   if (AServiceName <> '') then
