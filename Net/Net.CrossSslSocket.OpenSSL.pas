@@ -30,6 +30,7 @@ uses
   Net.SocketAPI,
   Net.CrossSocket.Base,
   Net.CrossSocket,
+  Net.CrossSslSocket.Types,
   Net.CrossSslSocket.Base,
   Net.OpenSSL,
 
@@ -77,6 +78,8 @@ type
       const AConnectType: TConnectType; const AHost: string;
       const AConnectedCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
+
+    function GetSslInfo(var ASslInfo: TSslInfo): Boolean; override;
   end;
 
   /// <remarks>
@@ -198,6 +201,11 @@ begin
     _Send(LEncryptedData, ACallback);
   end else
     _Send(ABuffer, ACount, ACallback);
+end;
+
+function TCrossOpenSslConnection.GetSslInfo(var ASslInfo: TSslInfo): Boolean;
+begin
+  Result := TSSLTools.GetSslInfo(FSslData, ASslInfo);
 end;
 
 procedure TCrossOpenSslConnection._Lock;
@@ -430,8 +438,8 @@ begin
 end;
 
 procedure TCrossOpenSslSocket._InitSslCtx;
-var
-  LEcdh: PEC_KEY;
+//var
+//  LEcdh: PEC_KEY;
 begin
   if (FSslCtx <> nil) then Exit;
 
@@ -515,14 +523,14 @@ begin
     '!CAMELLIA'
   );
 
-  // 创建一个椭圆曲线密钥对象
-  LEcdh := EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
-  if (LEcdh <> nil) then
-  begin
-    // 设置 SSL/TLS 上下文临时密钥
-    SSL_CTX_set_tmp_ecdh(FSslCtx, LEcdh);
-    EC_KEY_free(LEcdh);
-  end;
+//  // 创建一个椭圆曲线密钥对象
+//  LEcdh := EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+//  if (LEcdh <> nil) then
+//  begin
+//    // 设置 SSL/TLS 上下文临时密钥
+//    SSL_CTX_set_tmp_ecdh(FSslCtx, LEcdh);
+//    EC_KEY_free(LEcdh);
+//  end;
   {$endregion}
 end;
 
