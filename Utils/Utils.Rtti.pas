@@ -11,9 +11,6 @@ uses
 
   {$IFDEF FPC}
   ,DTF.Types
-  {$IFNDEF MSWINDOWS}
-  ,ffi.manager
-  {$ENDIF}
   {$ENDIF}
   ;
 
