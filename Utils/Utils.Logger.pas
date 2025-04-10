@@ -90,11 +90,11 @@ type
     procedure _Shutdown; inline;
   protected
     procedure _AppendLogToBuffer(const S: string; ALogType: TLogType);
-    function GetLogDir: string;
   public
     constructor Create(const ALogName: string = ''); virtual;
     destructor Destroy; override;
 
+    function GetLogDir: string;
     function GetLogFileName(ALogType: TLogType; ADate: TDateTime): string;
 
     procedure AppendLog(const ALog: string; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;
