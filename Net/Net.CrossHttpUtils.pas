@@ -1546,7 +1546,7 @@ end;
 class function TCrossHttpUtils.ExtractUrl(const AUrl: string; out AProtocol,
   AHost: string; out APort: Word; out APath: string): Boolean;
 var
-  LProtocolIndex, LIPv6Index, LPortIndex, LPathIndex, LQueryIndex: Integer;
+  LProtocolIndex, LIPv6Index, LPortIndex, LPathIndex, LQueryIndex, LPort: Integer;
   LPortStr: string;
 begin
   // http://www.test.com/abc
@@ -1558,6 +1558,8 @@ begin
   // www.test.com
   // http://[aabb::20:80:5:2]:8080/abc
   // [aabb::20:80:5:2]
+
+  Result := False;
 
   // 找 :// 定位协议类型
   LProtocolIndex := AUrl.IndexOf('://');
@@ -1621,7 +1623,9 @@ begin
 
     // 提取主机端口
     LPortStr := AUrl.Substring(LPortIndex + 1, LPathIndex - LPortIndex - 1);
-    APort := LPortStr.ToInteger;
+    if not TryStrToInt(LPortStr, LPort) then Exit;
+
+    APort := LPort;
   end else
   begin
     // 提取主机地址
