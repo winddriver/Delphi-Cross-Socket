@@ -21,6 +21,11 @@
 
 ## 更新记录
 
+#### 2025.04.10
+- ICrossHttpClient支持绑定本地端口(LocalPort属性)
+- ICrossSslConnection支持获取ssl详细信息(GetSSLInfo方法)
+- 其它一些小功能改进和修正
+
 #### 2023.09.18
 - 支持 FPC 3.3.1
 - 支持 OpenSSL 3.x

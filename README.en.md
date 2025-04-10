@@ -13,6 +13,11 @@ If you find this project useful, please consider making a donation.
 
 ## Update list
 
+#### 2025.04.10
+- ICrossHttpClient supports binding of local ports (LocalPort property)
+- ICrossSslConnection supports getting ssl details (GetSSLInfo method)
+- Some other small features improvements and corrections
+
 #### 2023.09.18
 - Supports FPC 3.3.1
 - Supports OpenSSL 3.x
