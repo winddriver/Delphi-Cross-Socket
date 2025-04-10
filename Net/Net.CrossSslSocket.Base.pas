@@ -1,4 +1,4 @@
-unit Net.CrossSslSocket.Base;
+ï»¿unit Net.CrossSslSocket.Base;
 
 interface
 
@@ -10,6 +10,7 @@ uses
 
   Net.CrossSocket.Base,
   Net.CrossSocket,
+  Net.CrossSslSocket.Types,
 
   Utils.IOUtils;
 
@@ -19,7 +20,12 @@ type
     function GetSsl: Boolean;
 
     /// <summary>
-    ///   ÊÇ·ñÒÑÆôÓÃ SSL
+    ///   è·å– SSL è¯¦ç»†ä¿¡æ¯(åœ¨è¿æ¥æˆåŠŸä¹‹åè°ƒç”¨)
+    /// </summary>
+    function GetSslInfo(var ASslInfo: TSslInfo): Boolean;
+
+    /// <summary>
+    ///   æ˜¯å¦å·²å¯ç”¨ SSL
     /// </summary>
     property Ssl: Boolean read GetSsl;
   end;
@@ -28,13 +34,13 @@ type
   ///   SSL Socket
   /// </summary>
   /// <remarks>
-  ///   ÕıÈ·µÄÊ¹ÓÃ²½Öè:
+  ///   æ­£ç¡®çš„ä½¿ç”¨æ­¥éª¤:
   ///   <list type="number">
   ///     <item>
-  ///       SetCertificateificate »ò SetCertificateificateFile
+  ///       SetCertificateificate æˆ– SetCertificateificateFile
   ///     </item>
   ///     <item>
-  ///       SetPrivateKey »ò SetPrivateKeyFile, ¿Í»§¶Ë²»ĞèÒªÕâÒ»²½
+  ///       SetPrivateKey æˆ– SetPrivateKeyFile, å®¢æˆ·ç«¯ä¸éœ€è¦è¿™ä¸€æ­¥
   ///     </item>
   ///     <item>
   ///       Connect / Listen
@@ -46,61 +52,61 @@ type
     function GetSsl: Boolean;
 
     /// <summary>
-    ///   ´ÓÄÚ´æ¼ÓÔØÖ¤Êé
+    ///   ä»å†…å­˜åŠ è½½è¯ä¹¦
     /// </summary>
     /// <param name="ACertBuf">
-    ///   Ö¤Êé»º³åÇø
+    ///   è¯ä¹¦ç¼“å†²åŒº
     /// </param>
     /// <param name="ACertBufSize">
-    ///   Ö¤Êé»º³åÇø´óĞ¡
+    ///   è¯ä¹¦ç¼“å†²åŒºå¤§å°
     /// </param>
     procedure SetCertificate(const ACertBuf: Pointer; const ACertBufSize: Integer); overload;
 
     /// <summary>
-    ///   ´Ó×Ö·û´®¼ÓÔØÖ¤Êé
+    ///   ä»å­—ç¬¦ä¸²åŠ è½½è¯ä¹¦
     /// </summary>
     /// <param name="ACertStr">
-    ///   Ö¤Êé×Ö·û´®
+    ///   è¯ä¹¦å­—ç¬¦ä¸²
     /// </param>
     procedure SetCertificate(const ACertStr: string); overload;
 
     /// <summary>
-    ///   ´ÓÎÄ¼ş¼ÓÔØÖ¤Êé
+    ///   ä»æ–‡ä»¶åŠ è½½è¯ä¹¦
     /// </summary>
     /// <param name="ACertFile">
-    ///   Ö¤ÊéÎÄ¼ş
+    ///   è¯ä¹¦æ–‡ä»¶
     /// </param>
     procedure SetCertificateFile(const ACertFile: string);
 
     /// <summary>
-    ///   ´ÓÄÚ´æ¼ÓÔØË½Ô¿
+    ///   ä»å†…å­˜åŠ è½½ç§é’¥
     /// </summary>
     /// <param name="APKeyBuf">
-    ///   Ë½Ô¿»º³åÇø
+    ///   ç§é’¥ç¼“å†²åŒº
     /// </param>
     /// <param name="APKeyBufSize">
-    ///   Ë½Ô¿»º³åÇø´óĞ¡
+    ///   ç§é’¥ç¼“å†²åŒºå¤§å°
     /// </param>
     procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer); overload;
 
     /// <summary>
-    ///   ´Ó×Ö·û´®¼ÓÔØË½Ô¿
+    ///   ä»å­—ç¬¦ä¸²åŠ è½½ç§é’¥
     /// </summary>
     /// <param name="APKeyStr">
-    ///   Ë½Ô¿×Ö·û´®
+    ///   ç§é’¥å­—ç¬¦ä¸²
     /// </param>
     procedure SetPrivateKey(const APKeyStr: string); overload;
 
     /// <summary>
-    ///   ´ÓÎÄ¼ş¼ÓÔØË½Ô¿
+    ///   ä»æ–‡ä»¶åŠ è½½ç§é’¥
     /// </summary>
     /// <param name="APKeyFile">
-    ///   Ë½Ô¿ÎÄ¼ş
+    ///   ç§é’¥æ–‡ä»¶
     /// </param>
     procedure SetPrivateKeyFile(const APKeyFile: string);
 
     /// <summary>
-    ///   ÊÇ·ñÒÑÆôÓÃ SSL
+    ///   æ˜¯å¦å·²å¯ç”¨ SSL
     /// </summary>
     property Ssl: Boolean read GetSsl;
   end;
@@ -111,6 +117,8 @@ type
   protected
     function GetSsl: Boolean;
   public
+    function GetSslInfo(var ASslInfo: TSslInfo): Boolean; virtual;
+
     property Ssl: Boolean read GetSsl;
   end;
 
@@ -187,6 +195,11 @@ end;
 function TCrossSslConnectionBase.GetSsl: Boolean;
 begin
   Result := TCrossSslSocketBase(Owner).Ssl;
+end;
+
+function TCrossSslConnectionBase.GetSslInfo(var ASslInfo: TSslInfo): Boolean;
+begin
+  Result := False;
 end;
 
 end.
