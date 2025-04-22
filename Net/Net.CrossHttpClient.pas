@@ -34,6 +34,7 @@ uses
   Utils.EasyTimer,
   Utils.ArrayUtils,
   Utils.SimpleWatch,
+  Utils.Punycode,
   Utils.Utils;
 
 const
@@ -135,6 +136,7 @@ type
     function GetHost: string;
     function GetPort: Word;
     function GetProtocol: string;
+    function GetRawHost: string;
     function GetRequestStatus: TRequestStatus;
 
     {$REGION 'Documentation'}
@@ -146,7 +148,7 @@ type
 
     {$REGION 'Documentation'}
     /// <summary>
-    ///   主机地址
+    ///   主机地址(如果主机地址包含Unicode字符, 该地址会被转换为Punycode)
     /// </summary>
     {$ENDREGION}
     property Host: string read GetHost;
@@ -157,6 +159,13 @@ type
     /// </summary>
     {$ENDREGION}
     property Port: Word read GetPort;
+
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   主机原始地址
+    /// </summary>
+    {$ENDREGION}
+    property RawHost: string read GetRawHost;
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -644,7 +653,7 @@ type
 
   TCrossHttpClientConnection = class(TCrossSslConnection, ICrossHttpClientConnection)
   private
-    FProtocol, FHost: string;
+    FProtocol, FRawHost, FHost: string;
     FPort: Word;
     FServerDock: TServerDock;
     FPending: Integer;
@@ -692,6 +701,7 @@ type
     function GetHost: string;
     function GetPort: Word;
     function GetProtocol: string;
+    function GetRawHost: string;
     function GetRequestStatus: TRequestStatus;
 
     procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); virtual;
@@ -730,6 +740,7 @@ type
     property Protocol: string read GetProtocol;
     property Host: string read GetHost;
     property Port: Word read GetPort;
+    property RawHost: string read GetRawHost;
     property RequestStatus: TRequestStatus read GetRequestStatus;
   end;
 
@@ -839,7 +850,7 @@ type
   TServerDock = class
   private
     FClientSocket: TCrossHttpClientSocket;
-    FProtocol, FHost: string;
+    FProtocol, FRawHost, FHost: string;
     FPort, FLocalPort: Word;
     FRequestQueue: TRequestQueue;
     FConnections: TClientConnections;
@@ -1153,6 +1164,11 @@ end;
 function TCrossHttpClientConnection.GetProtocol: string;
 begin
   Result := FProtocol;
+end;
+
+function TCrossHttpClientConnection.GetRawHost: string;
+begin
+  Result := FRawHost;
 end;
 
 function TCrossHttpClientConnection.GetRequestStatus: TRequestStatus;
@@ -2843,7 +2859,8 @@ constructor TServerDock.Create(const AClientSocket: TCrossHttpClientSocket;
 begin
   FClientSocket := AClientSocket;
   FProtocol := AProtocol;
-  FHost := AHost;
+  FRawHost := AHost;
+  FHost := TPunycode.EncodeDomain(FRawHost);
   FPort := APort;
   FLocalPort := ALocalPort;
 
@@ -2942,6 +2959,7 @@ begin
           LHttpConn := AConnection as ICrossHttpClientConnection;
           LHttpConnObj := LHttpConn as TCrossHttpClientConnection;
           LHttpConnObj.FProtocol := FProtocol;
+          LHttpConnObj.FRawHost := FRawHost;
           LHttpConnObj.FHost := FHost;
           LHttpConnObj.FPort := FPort;
           LHttpConnObj.FServerDock := LServerDock;

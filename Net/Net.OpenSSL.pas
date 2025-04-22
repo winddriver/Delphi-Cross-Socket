@@ -48,6 +48,7 @@ unit Net.OpenSSL;
   {$DEFINE __SSL_STATIC__}
 {$ENDIF}
 
+{.$DEFINE __SSL_STATIC__}
 {$IFDEF __SSL_STATIC__}
   {$DEFINE __SSL3__}
 
@@ -896,7 +897,7 @@ type
     length: size_t;              // current number of bytes
     data: Pointer;
     max: size_t;                 // size of buffer
-    flags: Cardinal;
+    flags: LongWord;
   end;
   BUF_MEM = buf_mem_st;
   PBUF_MEM = ^BUF_MEM;
