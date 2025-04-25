@@ -138,7 +138,7 @@ type
         const APreCallback, APostCallback: TDirectoryWalkProc;
         const ARecursive: Boolean); static;
 
-    class procedure CreateDirectory(const APath: string); static;
+    class function CreateDirectory(const ADir: string): Boolean; static;
     class function Exists(const APath: string): Boolean; inline; static;
 
     class function Delete(const APath: string; const ARecursive: Boolean = False): Boolean; static;
@@ -819,10 +819,50 @@ end;
 
 { TDirectoryUtils }
 
-class procedure TDirectoryUtils.CreateDirectory(const APath: string);
+class function TDirectoryUtils.CreateDirectory(const ADir: string): Boolean;
+  function _CreateDir(const Dir: string): Boolean;
+  begin
+    // 不直接使用 CreateDir 的返回值, 当返回 False, 还应该进一步检查错误码
+    // 错误码是 ERROR_ALREADY_EXISTS 则表明目录已经存在了, 这种情况也应该算作创建成功
+    // 这样处理可以在多线程并发创建同一个目录时都能返回 True
+    Result := SysUtils.CreateDir(Dir)
+      or (GetLastError =
+        {$IFDEF MSWINDOWS}ERROR_ALREADY_EXISTS{$ELSE}ESysEEXIST{$ENDIF}
+      );
+  end;
+var
+  LDir: string;
+  H: Integer;
 begin
-  if (APath <> '') then
-    ForceDirectories(APath);
+  if (ADir = '') then Exit(False);
+
+  Result := True;
+  LDir := ADir;
+
+  H := High(LDir);
+  // Don't attempt to remove the root path delimiter
+  if (H > 1) and IsPathDelimiter(LDir, H)
+    {$IFDEF MSWINDOWS}
+    and not IsDelimiter(DriveDelim, LDir, H - 1)
+    {$ENDIF} then
+    SetLength(LDir, Length(LDir) - 1);
+  if DirectoryExists(LDir) then Exit;
+
+  {$IFDEF MSWINDOWS}
+  if (Length(LDir) < 3) or (ExtractFilePath(LDir) = LDir) then
+  begin
+    Result := _CreateDir(LDir);
+  end else
+  {$ENDIF}
+  {$IFDEF POSIX}
+  LDir := ExpandFileName(LDir);
+  if (LDir = '') then
+    Exit
+  else
+  {$ENDIF POSIX}
+  begin
+    Result := CreateDirectory(ExtractFilePath(LDir)) and _CreateDir(LDir);
+  end;
 end;
 
 class function TDirectoryUtils.Delete(const APath: string;
