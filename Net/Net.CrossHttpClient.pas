@@ -1680,7 +1680,7 @@ begin
 
     LPathStr := FRequestObj.FPath;
     if FAutoUrlEncode then
-      LPathStr := TCrossHttpUtils.UrlEncode(FRequestObj.FPath, ['/', '?', '=', '&']);
+      LPathStr := TCrossHttpUtils.UrlEncode(LPathStr, ['/', '?', '=', '&']);
 
     // 设置请求行
     LHeaderStr := FRequestObj.FMethod + ' '
@@ -2335,6 +2335,9 @@ begin
 
   // 默认重用连接
   FReUseConnection := True;
+
+  // 默认UrlEncode
+  FAutoUrlEncode := True;
 
   FIoThreads := AIoThreads;
   FMaxConnsPerServer := AMaxConnsPerServer;
