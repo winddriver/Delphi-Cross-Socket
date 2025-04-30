@@ -1631,8 +1631,8 @@ begin
 
   if (FSocket <> INVALID_SOCKET) then
   begin
-    InternalClose;
     FOwner.TriggerDisconnected(Self);
+    InternalClose;
     FSocket := INVALID_SOCKET;
   end;
 end;
