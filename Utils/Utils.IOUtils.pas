@@ -209,6 +209,10 @@ type
     class function GetHomePath: string; static;
 
     class function MatchesPattern(const AFileName, APattern: string): Boolean; static;
+
+    class function IsDriveRooted(const APath: string): Boolean; static;
+    class function IsUNCRooted(const APath: string): Boolean; static;
+    class function IsRelativePath(const APath: string): Boolean; static;
   end;
 
   TTempFileStream = class(TFastFileStream)
@@ -728,9 +732,8 @@ class procedure TFileUtils.WriteAllBytes(const AFileName: string;
 var
   LFileStream: TFileStream;
 begin
-  LFileStream := nil;
+  LFileStream := OpenCreate(AFileName);
   try
-    LFileStream := OpenCreate(AFileName);
     LFileStream.WriteBuffer(ABytes, Length(ABytes));
   finally
     FreeAndNil(LFileStream);
@@ -1158,6 +1161,8 @@ var
   LPreCallback: TDirectoryWalkProc;
   LPostCallback: TDirectoryWalkProc;
 begin
+  if not DirectoryExists(ASourceDirName) then Exit(False);
+
   LPreCallback :=
     function (const APath: string; const AFileInfo: TSearchRec): Boolean
     var
@@ -1420,12 +1425,43 @@ end;
 
 class function TPathUtils.GetFullPath(const APath: string): string;
 begin
-  Result := ExpandFileName(APath);
+  if IsRelativePath(APath) then
+    // 相对路径的文件名用程序所在路径补全
+    Result := Combine(TUtils.AppPath, APath)
+  else
+    Result := APath;
 end;
 
 class function TPathUtils.GetHomePath: string;
 begin
   Result := SysUtils.{$IFDEF DELPHI}GetHomePath{$ELSE}GetUserDir{$ENDIF};
+end;
+
+class function TPathUtils.IsDriveRooted(const APath: string): Boolean;
+begin
+  {$IFDEF MSWINDOWS}
+  Result:=(Length(aPath) > 1)
+    and CharInSet(APath[1], ['a'..'z', 'A'..'Z'])
+    and (APath[2] = ':');
+  {$ELSE}
+  Result:=False;
+  {$ENDIF}
+end;
+
+class function TPathUtils.IsRelativePath(const APath: string): Boolean;
+begin
+  Result:= not APath.StartsWith(PathDelim)
+    and not IsDriveRooted(aPath)
+    and not IsUNCRooted(aPath);
+end;
+
+class function TPathUtils.IsUNCRooted(const APath: string): Boolean;
+begin
+  {$IFDEF MSWINDOWS}
+  Result := APath.StartsWith('\\', False);
+  {$ELSE}
+  Result:=False;
+  {$ENDIF}
 end;
 
 class function TPathUtils.MatchesPattern(const AFileName,

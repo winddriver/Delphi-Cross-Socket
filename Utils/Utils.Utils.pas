@@ -18,7 +18,6 @@ uses
   Classes,
   Types,
   Math,
-  System.IOUtils,
   {$IFDEF DELPHI}
   System.Diagnostics,
   {$ELSE FPC}
@@ -57,7 +56,7 @@ type
 
   TUtils = class
   private class var
-    FAppFile, FAppPath, FAppHome, FAppDocuments, FAppName: string;
+    FAppFile, FAppPath, FAppHome, FAppName: string;
     FSysPath: string;
   private
     class constructor Create;
@@ -157,7 +156,6 @@ type
     class property AppFile: string read FAppFile;
     class property AppPath: string read FAppPath;
     class property AppHome: string read FAppHome;
-    class property AppDocuments: string read FAppDocuments; // ios, android 可写
     class property AppName: string read FAppName;
 
     class property SysPath: string read FSysPath;
@@ -172,6 +170,9 @@ type
 
 implementation
 
+uses
+  Utils.IOUtils;
+
 { TUtils }
 
 class constructor TUtils.Create;
@@ -179,18 +180,7 @@ begin
   FAppFile := ParamStr(0);
   FAppName := ChangeFileExt(ExtractFileName(FAppFile), '');
   FAppPath := IncludeTrailingPathDelimiter(ExtractFilePath(FAppFile));
-
-  {$IF defined(IOS) or defined(ANDROID)}
-  FAppHome := IncludeTrailingPathDelimiter(TPath.GetHomePath);
-  {$ELSE}
-  FAppHome := IncludeTrailingPathDelimiter(TPath.Combine(TPath.GetHomePath, FAppName));
-  {$ENDIF}
-
-  {$IF defined(IOS) or defined(ANDROID)}
-  FAppDocuments := IncludeTrailingPathDelimiter(TPath.GetDocumentsPath);
-  {$ELSE}
-  FAppDocuments := IncludeTrailingPathDelimiter(TPath.Combine(TPath.GetDocumentsPath, FAppName));
-  {$ENDIF}
+  FAppHome := IncludeTrailingPathDelimiter(TPathUtils.Combine(TPathUtils.GetHomePath, FAppName));
 
   {$IFDEF MSWINDOWS}
   SetLength(FSysPath, MAX_PATH);
@@ -291,7 +281,7 @@ class function TUtils.GetFileSize(const AFileName: string): Int64;
 var
   LFileStream: TStream;
 begin
-  LFileStream := TFile.Open(AFileName, TFileMode.fmOpen, TFileAccess.faRead, TFileShare.fsReadWrite);
+  LFileStream := TFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
   try
     Result := LFileStream.Size;
   finally
@@ -301,19 +291,7 @@ end;
 
 class function TUtils.GetFullFileName(const AFileName: string): string;
 begin
-  if
-    {$IFDEF MSWINDOWS}
-    // Windows 下不以驱动器号开头的文件名都视为相对路径
-    not TPath.DriveExists(AFileName)
-    {$ELSE}
-    // Posix 下直接调用相对路径的现成函数判断
-    TPath.IsRelativePath(AFileName)
-    {$ENDIF}
-  then
-    // 相对路径的文件名用程序所在路径补全
-    Result := TPath.Combine(TUtils.AppPath, AFileName)
-  else
-    Result := AFileName;
+  Result := TPathUtils.GetFullPath(AFileName);
 end;
 
 class function TUtils.GetGUID: string;
@@ -624,63 +602,13 @@ end;
 
 class function TUtils.MoveDir(const ASrcDirName, ADstDirName: string): Boolean;
 begin
-  Result := False;
-  if not TDirectory.Exists(ASrcDirName) then Exit;
-
-  TDirectory.CreateDirectory(ADstDirName);
-
-  TDirectory.GetFiles(ASrcDirName, '*', TSearchOption.soAllDirectories,
-    function(const ADirName: {$IFDEF DELPHI}string{$ELSE}AnsiString{$ENDIF}; const AFileInfo: TSearchRec): Boolean
-    var
-      LSrcFileName, LDstFileName: string;
-    begin
-      Result := False;
-
-      LSrcFileName := TPath.Combine(ADirName, AFileInfo.Name);
-      LDstFileName := TPath.Combine(ADstDirName, AFileInfo.Name);
-
-      if (AFileInfo.Attr and SysUtils.faDirectory = 0) then
-      begin
-        {$IFDEF MSWINDOWS}
-        {$WARN SYMBOL_PLATFORM OFF}
-        FileSetAttr(LSrcFileName, SysUtils.faNormal);
-        {$WARN SYMBOL_PLATFORM ON}
-        {$ENDIF MSWINDOWS}
-
-        MoveFile(LSrcFileName, LDstFileName);
-
-        {$IFDEF MSWINDOWS}
-        {$WARN SYMBOL_PLATFORM OFF}
-        FileSetAttr(LDstFileName, AFileInfo.Attr);
-        {$WARN SYMBOL_PLATFORM ON}
-        {$ENDIF MSWINDOWS}
-      end else
-      begin
-        TDirectory.CreateDirectory(LDstFileName);
-      end;
-    end);
-
-  if TDirectory.Exists(ASrcDirName) then
-    TDirectory.Delete(ASrcDirName, True);
-
-  Result := True;
+  Result := TDirectoryUtils.Move(ASrcDirName, ADstDirName);
 end;
 
 class function TUtils.MoveFile(const ASrcFileName,
   ADstFileName: string): Boolean;
-var
-  LDstDirName: string;
 begin
-  if not TFile.Exists(ASrcFileName) then Exit(False);
-
-  LDstDirName := TPath.GetDirectoryName(ADstFileName);
-  if (LDstDirName <> '') then
-    TDirectory.CreateDirectory(LDstDirName);
-
-  if TFile.Exists(ADstFileName) then
-    TFile.Delete(ADstFileName);
-
-  Result := RenameFile(ASrcFileName, ADstFileName);
+  Result := TFileUtils.Move(ASrcFileName, ADstFileName);
 end;
 
 class function TUtils.PCharToStr(const S: PChar): string;
@@ -800,21 +728,8 @@ end;
 
 class function TUtils.CopyFile(const ASrcFileName,
   ADstFileName: string): Boolean;
-var
-  LDstDirName: string;
 begin
-  if not TFile.Exists(ASrcFileName) then Exit(False);
-
-  LDstDirName := TPath.GetDirectoryName(ADstFileName);
-  if (LDstDirName <> '') then
-    TDirectory.CreateDirectory(LDstDirName);
-
-  if TFile.Exists(ADstFileName) then
-    TFile.Delete(ADstFileName);
-
-  TFile.Copy(ASrcFileName, ADstFileName, True);
-
-  Result := True;
+  Result := TFileUtils.Copy(ASrcFileName, ADstFileName);
 end;
 
 class function TUtils.StrSimilarity(const AStr1, AStr2: string): Single;
