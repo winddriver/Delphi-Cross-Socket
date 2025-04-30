@@ -299,6 +299,7 @@ type
     procedure _RespondPong(const AData: TBytes);
     procedure _RespondClose;
   protected
+    procedure InternalClose; override;
     procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); override;
     procedure ReleaseRequest; override;
   public
@@ -467,8 +468,14 @@ end;
 destructor TCrossWebSocketConnection.Destroy;
 begin
   FreeAndNil(FWsParser);
-  inherited ReleaseRequest;
   inherited;
+end;
+
+procedure TCrossWebSocketConnection.InternalClose;
+begin
+  if FIsWebSocket then
+    inherited ReleaseRequest;
+  inherited InternalClose;
 end;
 
 function TCrossWebSocketConnection.IsWebSocket: Boolean;
@@ -777,9 +784,9 @@ var
 begin
   LConnection := AConnection as ICrossWebSocketConnection;
   if LConnection.IsWebSocket then
-    _OnClose(LConnection)
-  else
-    inherited;
+    _OnClose(LConnection);
+
+  inherited LogicDisconnected(AConnection);
 end;
 
 function TCrossWebSocketServer.OnClose(const ACallback: TWsServerOnClose): ICrossWebSocketServer;
@@ -957,7 +964,8 @@ begin
   AConnection.Response.SendStatus(101, '',
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
-      ACallback(AConnection as ICrossWebSocketConnection, ASuccess);
+      if Assigned(ACallback) then
+        ACallback(AConnection as ICrossWebSocketConnection, ASuccess);
     end);
 end;
 
@@ -993,8 +1001,8 @@ begin
     Sec-WebSocket-Version: 13
   }
   // 判断是否收到 websocket 握手请求
-  if ContainsText(AConnection.Request.Header[HEADER_UPGRADE], WEBSOCKET)
-    and ContainsText(AConnection.Request.Header[HEADER_CONNECTION], HEADER_UPGRADE) then
+  if ContainsText(LConnection.Request.Header[HEADER_UPGRADE], WEBSOCKET)
+    and ContainsText(LConnection.Request.Header[HEADER_CONNECTION], HEADER_UPGRADE) then
   begin
     LConnectionObj.FIsWebSocket := True;
     _WebSocketHandshake(LConnection,
@@ -1004,7 +1012,7 @@ begin
           _OnOpen(AConnection);
       end);
   end else
-    inherited;
+    inherited DoOnRequest(LConnection);
 end;
 
 function TCrossWebSocketServer.GetMaskingKey: Cardinal;
