@@ -179,7 +179,7 @@ begin
       {$IF defined(MSWINDOWS) or defined(LINUX)}
       TUtils.AppPath
       {$ELSE}
-      TUtils.AppDocuments
+      TUtils.AppHome
       {$ENDIF};
 
   Result := Result +
