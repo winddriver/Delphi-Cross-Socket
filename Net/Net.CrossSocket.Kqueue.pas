@@ -292,12 +292,7 @@ end;
 
 procedure TKqueueConnection.InternalClose;
 begin
-  _KqLock;
-  try
-    _ClearSendQueue;
-  finally
-    _KqUnlock;
-  end;
+  _ClearSendQueue;
 
   inherited InternalClose;
 end;

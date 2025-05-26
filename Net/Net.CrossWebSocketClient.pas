@@ -1008,7 +1008,6 @@ var
 begin
   LWebSocket := Self;
   Result := LWebSocket;
-
   _Lock;
   try
     if (FStatus in [wsConnecting, wsConnected]) then Exit;

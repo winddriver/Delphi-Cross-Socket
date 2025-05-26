@@ -1729,8 +1729,18 @@ begin
 end;
 
 procedure TCrossConnectionBase.InternalClose;
+var
+  LConnectCb: TCrossConnectionCallback;
 begin
   TSocketAPI.CloseSocket(FSocket);
+
+  if Assigned(FConnectCb) then
+  begin
+    LConnectCb := FConnectCb;
+    FConnectCb := nil;
+
+    LConnectCb(Self, False);
+  end;
 end;
 
 procedure TCrossConnectionBase.SendBuf(const ABuffer: Pointer;

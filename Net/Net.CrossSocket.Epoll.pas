@@ -256,9 +256,10 @@ end;
 
 procedure TEpollConnection.InternalClose;
 begin
+  _ClearSendQueue;
+
   _EpLock;
   try
-    _ClearSendQueue;
     epoll_ctl(FEpollHandle, EPOLL_CTL_DEL, Socket, nil);
   finally
     _EpUnlock;
