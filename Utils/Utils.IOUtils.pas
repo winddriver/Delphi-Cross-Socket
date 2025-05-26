@@ -546,7 +546,7 @@ end;
 
 class function TFileUtils.OpenRead(const AFileName: string): TFileStream;
 begin
-  Result := TFastFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
+  Result := TFastFileStream.Create(AFileName, fmOpenRead or fmShareDenyWrite);
 end;
 
 class function TFileUtils.OpenWrite(const AFileName: string): TFileStream;
