@@ -368,8 +368,8 @@ var
 begin
   LError := _SSL_get_error(ARetCode);
   Result := SSL_is_fatal_error(LError);
-  if Result and IsConsole then
-    Writeln(Format(ATitle + ' error %d %s', [LError, ssl_error_message(LError)]));
+  if Result then
+    _Log(ATitle + ' error %d %s', [LError, ssl_error_message(LError)]);
 end;
 
 procedure TCrossOpenSslConnection._Send(const ABuffer: Pointer;
