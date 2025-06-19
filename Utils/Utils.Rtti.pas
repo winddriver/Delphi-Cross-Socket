@@ -118,6 +118,7 @@ type
 
     class function EnumToStr<T>(e: T): string; static;
     class function StrToEnum<T>(const s: string): T; static;
+    class function TryStrToEnum<T>(const s: string; out AEnum: T): Boolean; static;
 
     class function TryStrToType<T>(const S: string; out AOut: T): Boolean; static;
     class function StrToType<T>(const S: string): T; static;
@@ -332,11 +333,20 @@ begin
 end;
 
 class function TRttiUtils.StrToEnum<T>(const s: string): T;
+begin
+  if not (TryStrToEnum<T>(s, Result)) then
+    Result := Default(T);
+end;
+
+class function TRttiUtils.TryStrToEnum<T>(const s: string;
+  out AEnum: T): Boolean;
 var
   i: Integer;
 begin
   i := GetEnumValue(TypeInfo(T), s);
-  Result := T(Pointer(@i)^);
+  Result := (i >= 0);
+  if Result then
+    AEnum := T(Pointer(@i)^);
 end;
 
 class function TRttiUtils.TryStrToType<T>(const S: string;
