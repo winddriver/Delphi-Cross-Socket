@@ -15,6 +15,7 @@ interface
 uses
   SysUtils,
   Classes,
+  ZLib,
 
   {$IFDEF DELPHI}
   System.Hash,
@@ -62,6 +63,7 @@ type
     {$region '核心hash方法'}
     class function GetBlockSize: Integer; virtual; abstract;
     class function GetHashSize: Integer; virtual; abstract;
+    class function GetHashStrLen: Integer; virtual;
 
     // 基础 hash 方法
     // 调用顺序: Start -> Update -> Finish
@@ -233,6 +235,20 @@ type
     function Finish: TBytes; override;
   end;
 
+  THashCrc32 = class(THashBase)
+  private
+    FCrc32: UInt32;
+  public
+    class function CreateHash: THashBase; override;
+
+    class function GetBlockSize: Integer; override;
+    class function GetHashSize: Integer; override;
+
+    procedure Start; override;
+    procedure Update(const AData: Pointer; const ASize: NativeInt); override;
+    function Finish: TBytes; override;
+  end;
+
   THashBobJenkins = class(THashBase)
   private type
     TExternalHashBobJenkins = {$IFDEF _DTF_HASH__}DTF.Hash.{$ELSE}System.Hash.{$ENDIF}THashBobJenkins;
@@ -360,6 +376,11 @@ class function THashBase.GetHashStringFromStream(const AStream: TStream;
   const APos, ASize: Int64): string;
 begin
   Result := BytesToHex(GetHashBytesFromStream(AStream, APos, ASize));
+end;
+
+class function THashBase.GetHashStrLen: Integer;
+begin
+  Result := GetHashSize * 2;
 end;
 
 class function THashBase.GetHashStringFromFile(
@@ -932,6 +953,39 @@ begin
   {$ELSE}
   FSHA512.Update(AData^, ASize);
   {$ENDIF}
+end;
+
+{ THashCrc32 }
+
+class function THashCrc32.CreateHash: THashBase;
+begin
+  Result := THashCrc32.Create;
+end;
+
+function THashCrc32.Finish: TBytes;
+begin
+  SetLength(Result, GetHashSize);
+  Move(FCrc32, Result[0], GetHashSize);
+end;
+
+class function THashCrc32.GetBlockSize: Integer;
+begin
+  Result := 64;
+end;
+
+class function THashCrc32.GetHashSize: Integer;
+begin
+  Result := SizeOf(UInt32);
+end;
+
+procedure THashCrc32.Start;
+begin
+  FCrc32 := 0;
+end;
+
+procedure THashCrc32.Update(const AData: Pointer; const ASize: NativeInt);
+begin
+  FCrc32 := ZLib.crc32(FCrc32, AData, ASize);
 end;
 
 { THashBobJenkins }
