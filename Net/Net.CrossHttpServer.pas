@@ -1788,6 +1788,7 @@ type
     FResponseObj: TCrossHttpResponse;
     FResponse: ICrossHttpResponse;
     FHttpParser: TCrossHttpParser;
+    FPending: Integer;
 
     {$region 'HttpParser事件'}
     // 以下事件都在 FHttpParser.Decode 中被触发
@@ -2329,29 +2330,26 @@ end;
 
 procedure TCrossHttpConnection.ReleaseRequest;
 begin
-  FRequest := nil;
   FRequestObj := nil;
+  FRequest := nil;
 end;
 
 procedure TCrossHttpConnection.ReleaseResponse;
 begin
-  FResponse := nil;
   FResponseObj := nil;
+  FResponse := nil;
 end;
 
 procedure TCrossHttpConnection._DoOnRequestEnd(const ASuccess: Boolean);
 begin
-  _Lock;
-  try
-    FServer.DoOnRequestEnd(Self, ASuccess);
-  finally
-    try
-      ReleaseRequest;
-      ReleaseResponse;
-    finally
-      _Unlock;
-    end;
-  end;
+  // 请求结束之后先判断是否有新的请求开始了
+  // 如果有新的请求开始则不要在这里释放请求和响应对象
+  if (AtomicDecrement(FPending) > 0) then Exit;
+
+  FServer.DoOnRequestEnd(Self, ASuccess);
+
+  ReleaseRequest;
+  ReleaseResponse;
 end;
 
 procedure TCrossHttpConnection._OnBodyBegin;
@@ -2445,6 +2443,15 @@ end;
 
 procedure TCrossHttpConnection._OnParseBegin;
 begin
+  // 如果开始解析数据之前还有未释放的请求和响应对象
+  // 说明前一次请求的释放还没来得及执行, 新的请求已经来了
+  // 先释放它们
+  if (AtomicIncrement(FPending) > 1) then
+  begin
+    ReleaseRequest;
+    ReleaseResponse;
+  end;
+
   FRequestObj := TCrossHttpRequest.Create(Self);
   FRequest := FRequestObj;
   FResponseObj := TCrossHttpResponse.Create(Self);
