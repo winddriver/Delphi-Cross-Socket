@@ -4,11 +4,6 @@ Author: WiNDDRiVER(soulawing@gmail.com)
 
 ### [中文](README.md)
 
-## Donate
-If you find this project useful, please consider making a donation.
-
-[PaypalMe](https://www.paypal.me/winddriver)
-
 <br>
 
 ## Update list
