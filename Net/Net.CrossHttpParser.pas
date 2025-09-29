@@ -11,6 +11,9 @@ unit Net.CrossHttpParser;
 
 {$I zLib.inc}
 
+// 合并 header 缓存写入, 可以略微提升性能
+{$DEFINE __MERGE_HEADER_WRITE__}
+
 interface
 
 uses
@@ -125,7 +128,7 @@ end;
 
 procedure TCrossHttpParser.Decode(var ABuf: Pointer; var ALen: Integer);
 var
-  LPtr, LPtrEnd: PByte;
+  LPtr, LPtrEnd{$IFDEF __MERGE_HEADER_WRITE__}, LPtrHeader{$ENDIF}: PByte;
   LChunkSize: Integer;
   LLineStr, LContentLength: string;
 begin
@@ -159,6 +162,13 @@ begin
     LPtr := ABuf;
     LPtrEnd := LPtr + ALen;
 
+    {$IFDEF __MERGE_HEADER_WRITE__}
+    if (FParseState = psHeader) then
+      LPtrHeader := LPtr
+    else
+      LPtrHeader := nil;
+    {$ENDIF}
+
     // 使用循环处理粘包, 比递归调用节省资源
     while (LPtr < LPtrEnd) and (FParseState <> psDone) do
     begin
@@ -174,19 +184,28 @@ begin
             end;
 
             // Header尺寸超标
-            if (FMaxHeaderSize > 0) and (FHeaderStream.Size + 1 > FMaxHeaderSize) then
+            if (FMaxHeaderSize > 0) and (FHeaderStream.Size
+              {$IFDEF __MERGE_HEADER_WRITE__} + (LPtr - LPtrHeader){$ENDIF} + 1 > FMaxHeaderSize) then
             begin
               _OnParseFailed(400, 'Request header too large.');
               Exit;
             end;
 
             // 写入请求数据
+            {$IFNDEF __MERGE_HEADER_WRITE__}
             FHeaderStream.Write(LPtr^, 1);
+            {$ENDIF}
             Inc(LPtr);
 
             // HTTP头已接收完毕(\r\n\r\n是HTTP头结束的标志)
             if (FCRCount = 2) and (FLFCount = 2) then
             begin
+              {$IFDEF __MERGE_HEADER_WRITE__}
+              // 写入请求数据
+              FHeaderStream.Write(LPtrHeader^, LPtr - LPtrHeader);
+              LPtrHeader := nil;
+              {$ENDIF}
+
               FCRCount := 0;
               FLFCount := 0;
 
@@ -373,6 +392,16 @@ begin
       end;
     end;
 
+    {$IFDEF __MERGE_HEADER_WRITE__}
+    if (FParseState = psHeader) then
+    begin
+      if (LPtrHeader <> nil)  then
+      begin
+        FHeaderStream.Write(LPtrHeader^, LPtr - LPtrHeader);
+        LPtrHeader := nil;
+      end;
+    end else
+    {$ENDIF}
     // 响应数据接收完毕
     if (FParseState = psDone) then
     begin
