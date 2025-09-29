@@ -1495,8 +1495,8 @@ function BIO_get_mem_ptr(b: PBIO; pp: PPBUF_MEM): Integer; inline;
 function BIO_get_flags(b: PBIO): Integer; inline;
 function BIO_should_retry(b: PBIO): Boolean; inline;
 
-function SSL_is_fatal_error(ssl_error: Integer): Boolean;
-function SSL_error_message(ssl_error: Integer): string;
+function SSL_is_fatal_error(ssl_ret: Integer): Boolean;
+function SSL_error_message(ssl_error: Cardinal): string;
 function OPENSSL_malloc(num: Integer): Pointer; inline;
 procedure OPENSSL_free(str: Pointer); inline;
 
@@ -1915,9 +1915,9 @@ begin
   Result := ((BIO_get_flags(b) and BIO_FLAGS_SHOULD_RETRY) <> 0);
 end;
 
-function SSL_is_fatal_error(ssl_error: Integer): Boolean;
+function SSL_is_fatal_error(ssl_ret: Integer): Boolean;
 begin
-	case ssl_error of
+	case ssl_ret of
 		SSL_ERROR_NONE,
 		SSL_ERROR_WANT_READ,
 		SSL_ERROR_WANT_WRITE,
@@ -1928,7 +1928,7 @@ begin
 	end;
 end;
 
-function SSL_error_message(ssl_error: Integer): string;
+function SSL_error_message(ssl_error: Cardinal): string;
 var
   LPtr: TPtrWrapper;
 begin
