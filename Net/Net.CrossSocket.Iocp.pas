@@ -575,14 +575,17 @@ var
   LListenSocket: TSocket;
   LListen: ICrossListen;
   I: Integer;
+  LListenSuccess: Boolean;
 
   procedure _Failed;
   begin
-    if Assigned(ACallback) then
+    if not LListenSuccess and Assigned(ACallback) then
       ACallback(LListen, False);
 
     if (LListen <> nil) then
-      LListen.Close;
+      LListen.Close
+    else if (LListenSocket <> INVALID_SOCKET) then
+      TSocketAPI.CloseSocket(LListenSocket);
   end;
 
   procedure _Success;
@@ -593,7 +596,7 @@ var
       ACallback(LListen, True);
   end;
 begin
-  LListen := nil;
+  LListenSuccess := False;
   FillChar(LHints, SizeOf(TRawAddrInfo), 0);
 
   LHints.ai_flags := AI_PASSIVE;
@@ -666,6 +669,7 @@ begin
       for I := 1 to GetIoThreads do
         _NewAccept(LListen);
 
+      LListenSuccess := True;
       _Success;
 
       // 如果端口传入0，让所有地址统一用首个分配到的端口

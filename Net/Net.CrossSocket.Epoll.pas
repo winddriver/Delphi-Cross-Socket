@@ -803,10 +803,13 @@ var
 
   procedure _Failed;
   begin
-    _LogLastOsError('Listen');
-
     if not LListenSuccess and Assigned(ACallback) then
-      ACallback(nil, False);
+      ACallback(LListen, False);
+
+    if (LListen <> nil) then
+      LListen.Close
+    else if (LListenSocket <> INVALID_SOCKET) then
+      TSocketAPI.CloseSocket(LListenSocket);
   end;
 
 begin
@@ -819,6 +822,9 @@ begin
   LAddrInfo := TSocketAPI.GetAddrInfo(AHost, APort, LHints);
   if (LAddrInfo = nil) then
   begin
+    {$IFDEF DEBUG}
+    _LogLastOsError('TEpollCrossSocket.Listen.GetAddrInfo');
+    {$ENDIF}
     _Failed;
     Exit;
   end;
@@ -827,10 +833,14 @@ begin
   try
     while (LAddrInfo <> nil) do
     begin
+      LListen := nil;
       LListenSocket := TSocketAPI.NewSocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
         LAddrInfo.ai_protocol);
       if (LListenSocket = INVALID_SOCKET) then
       begin
+        {$IFDEF DEBUG}
+        _LogLastOsError('TEpollCrossSocket.Listen.NewSocket');
+        {$ENDIF}
         _Failed;
         Exit;
       end;
@@ -844,6 +854,9 @@ begin
       if (TSocketAPI.Bind(LListenSocket, LAddrInfo.ai_addr, LAddrInfo.ai_addrlen) < 0)
         or (TSocketAPI.Listen(LListenSocket) < 0) then
       begin
+        {$IFDEF DEBUG}
+        _LogLastOsError('TEpollCrossSocket.Listen.Bind');
+        {$ENDIF}
         _Failed;
         Exit;
       end;
