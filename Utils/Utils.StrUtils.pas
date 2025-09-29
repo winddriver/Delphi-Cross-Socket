@@ -6,7 +6,8 @@ interface
 
 uses
   SysUtils
-  ,Classes;
+  ,Classes
+  ,Math;
 
 type
   TStrBuilder = {$IFDEF FPC}TUnicodeStringBuilder{$ELSE}TStringBuilder{$ENDIF};
@@ -21,7 +22,7 @@ type
       const AFormatSettings: TFormatSettings): string; overload; static;
     class function FormatDateTime(const AFormat: string; const ADateTime: TDateTime): string; overload; static;
 
-    class function SameText(const AStr1, AStr2: string): Boolean; static;
+    class function SameText(const AStr1, AStr2: string): Boolean; static; inline;
 
     // 将字符串中指定部分替换为新内容
     class function StuffString(const AText: string; const AStart, ALength: Cardinal;
@@ -30,6 +31,9 @@ type
     // 字符串查找替换, 并保留具有指定标志区域的内容
     class function ReplaceReserve(const AInputStr, AOldStr, ANewStr: string;
       const AReserveStartTag, AReserveEndTag: string; const AReplaceFlags: TReplaceFlags = [rfReplaceAll]): string; static;
+
+    class function Left(const AStr: string; const ALen: Integer): string; static; inline;
+    class function Right(const AStr: string; const ALen: Integer): string; static; inline;
   end;
 
 implementation
@@ -66,6 +70,11 @@ begin
   Result := FormatDateTime(AFormat, ADateTime, LFormatSettings);
 end;
 
+class function TStrUtils.Left(const AStr: string; const ALen: Integer): string;
+begin
+  Result := AStr.Substring(0, ALen);
+end;
+
 class function TStrUtils.ReplaceReserve(const AInputStr, AOldStr, ANewStr,
   AReserveStartTag, AReserveEndTag: string;
   const AReplaceFlags: TReplaceFlags): string;
@@ -99,7 +108,8 @@ begin
     while (I < LInputLen) do
     begin
       // 检查起始标志
-      if (LReserveStartTagLen > 0)
+      if not LIsWithinFlags
+        and (LReserveStartTagLen > 0)
         and (I <= LInputLen - LReserveStartTagLen)
         and _SameText(P + I, PChar(AReserveStartTag), LReserveStartTagLen) then
       begin
@@ -110,7 +120,8 @@ begin
       end;
 
       // 检查结束标志
-      if (LReserveEndTagLen > 0)
+      if LIsWithinFlags
+        and (LReserveEndTagLen > 0)
         and (I <= LInputLen - LReserveEndTagLen)
         and _SameText(P + I, PChar(AReserveEndTag), LReserveEndTagLen) then
       begin
@@ -141,6 +152,11 @@ begin
   finally
     FreeAndNil(LStrBuilder);
   end;
+end;
+
+class function TStrUtils.Right(const AStr: string; const ALen: Integer): string;
+begin
+  Result := AStr.Substring(Max(AStr.Length - ALen, 0));
 end;
 
 class function TStrUtils.SameText(const AStr1, AStr2: string): Boolean;
