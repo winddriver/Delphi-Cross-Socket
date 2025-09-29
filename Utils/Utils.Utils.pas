@@ -621,7 +621,6 @@ class function TUtils.RandomStr(const ABaseChars: string;
 var
   LBaseLow, LBaseHigh, I: Integer;
 begin
-  Randomize;
   LBaseLow := Low(ABaseChars);
   LBaseHigh := High(ABaseChars);
   SetLength(Result, ASize);
