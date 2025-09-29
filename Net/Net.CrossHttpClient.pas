@@ -1560,7 +1560,7 @@ begin
     // 只有在等待响应状态的情况才应该触发完成响应回调
     // 因为有可能响应完成的数据在超时后才到来, 这时候请求状态已经被置为超时
     // 不应该再触发完成回调
-    if (RequestStatus <> rsResponding) then Exit;
+    if not (RequestStatus in [rsSending, rsResponding]) then Exit;
 
     LCallback := FCallback;
     FCallback := nil;
@@ -1801,7 +1801,12 @@ begin
   LHttpConnection := Self;
 
   // 标记正在发送请求
-  _SetRequestStatus(rsSending);
+  _ReqLock;
+  try
+    _SetRequestStatus(rsSending);
+  finally
+    _ReqUnlock;
+  end;
 
   // 更新计时器
   _UpdateWatch;
@@ -1837,7 +1842,14 @@ begin
         or (LCount <= 0) then
       begin
         // 标记正在等待响应
-        _SetRequestStatus(rsResponding);
+        _ReqLock;
+        try
+//          AtomicCmpExchange(FStatus, Integer(rsResponding), Integer(rsSending));
+          if (RequestStatus = rsSending) then
+            _SetRequestStatus(rsResponding);
+        finally
+          _ReqUnlock;
+        end;
         LHttpConnection := nil;
         LSender := nil;
 
@@ -1965,7 +1977,7 @@ begin
   if not TCrossHttpUtils.ExtractUrl(FUrl, FProtocol, FHost, FPort, FPath) then
   begin
     if Assigned(FCallback) then
-      FCallback(TCrossHttpClientResponse.Create(400, 'Invalid URL'));
+      FCallback(TCrossHttpClientResponse.Create(400, 'Invalid URL:' + FUrl));
 
     Abort;
   end;

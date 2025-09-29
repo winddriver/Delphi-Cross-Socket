@@ -2342,14 +2342,21 @@ end;
 
 procedure TCrossHttpConnection._DoOnRequestEnd(const ASuccess: Boolean);
 begin
-  // 请求结束之后先判断是否有新的请求开始了
-  // 如果有新的请求开始则不要在这里释放请求和响应对象
-  if (AtomicDecrement(FPending) > 0) then Exit;
+  _LockRecv;
+  try
+    Dec(FPending);
 
-  FServer.DoOnRequestEnd(Self, ASuccess);
+    FServer.DoOnRequestEnd(Self, ASuccess);
 
-  ReleaseRequest;
-  ReleaseResponse;
+    // 请求结束之后释放请求和响应对象
+    if (FPending = 0) then
+    begin
+      ReleaseRequest;
+      ReleaseResponse;
+    end;
+  finally
+    _UnlockRecv;
+  end;
 end;
 
 procedure TCrossHttpConnection._OnBodyBegin;
@@ -2443,19 +2450,25 @@ end;
 
 procedure TCrossHttpConnection._OnParseBegin;
 begin
-  // 如果开始解析数据之前还有未释放的请求和响应对象
-  // 说明前一次请求的释放还没来得及执行, 新的请求已经来了
-  // 先释放它们
-  if (AtomicIncrement(FPending) > 1) then
-  begin
-    ReleaseRequest;
-    ReleaseResponse;
-  end;
+  _LockRecv;
+  try
+    // 如果开始解析数据之前还有未释放的请求和响应对象
+    // 说明前一次请求的释放还没来得及执行, 新的请求已经来了
+    // 先释放它们
+    if (FPending > 0) then
+    begin
+      ReleaseRequest;
+      ReleaseResponse;
+    end;
+    Inc(FPending);
 
-  FRequestObj := TCrossHttpRequest.Create(Self);
-  FRequest := FRequestObj;
-  FResponseObj := TCrossHttpResponse.Create(Self);
-  FResponse := FResponseObj;
+    FRequestObj := TCrossHttpRequest.Create(Self);
+    FRequest := FRequestObj;
+    FResponseObj := TCrossHttpResponse.Create(Self);
+    FResponse := FResponseObj;
+  finally
+    _UnlockRecv;
+  end;
 end;
 
 procedure TCrossHttpConnection._OnParseFailed(const ACode: Integer;
@@ -3579,6 +3592,8 @@ var
   LRequestHeader: string;
   I, J: Integer;
 begin
+  Assert(Self <> nil, 'FRequest is nil');
+
   SetString(FRawRequestText, MarshaledAString(ADataPtr), ADataSize);
   I := FRawRequestText.IndexOf(#13#10);
   // 第一行是请求命令行
