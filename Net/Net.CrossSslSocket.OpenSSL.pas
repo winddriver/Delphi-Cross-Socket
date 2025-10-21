@@ -228,39 +228,6 @@ begin
   Result := BIO_read(FBIOOut, Buf, Len);
 end;
 
-//function TCrossOpenSslConnection._BIO_read: TBytes;
-//const
-//  BLOCK_SIZE = 4096;
-//var
-//  LReadedCount, LBlockSize, LRetCode: Integer;
-//  P: PByte;
-//begin
-//  LReadedCount := 0;
-//  Result := nil;
-//
-//  while (_BIO_pending > 0) do
-//  begin
-//    if (LReadedCount >= Length(Result)) then
-//      SetLength(Result, Length(Result) + BLOCK_SIZE);
-//
-//    P := PByte(@Result[0]) + LReadedCount;
-//
-//    LBlockSize := Length(Result) - LReadedCount;
-//
-//    // 从内存 BIO 读取加密后的数据
-//    LRetCode := _BIO_read(P, LBlockSize);
-//
-//    if (LRetCode <= 0) then
-//    begin
-//      _SSL_print_error(LRetCode, 'BIO_read');
-//      Break;
-//    end;
-//
-//    Inc(LReadedCount, LRetCode);
-//  end;
-//
-//  SetLength(Result, LReadedCount);
-//end;
 function TCrossOpenSslConnection._BIO_read: TBytes;
 var
   LReadedCount, LBlockSize, LRetCode: Integer;
@@ -364,12 +331,21 @@ end;
 
 function TCrossOpenSslConnection._SSL_print_error(const ARetCode: Integer; const ATitle: string): Boolean;
 var
-  LError: Integer;
+  LRet: Integer;
+  LError: Cardinal;
 begin
-  LError := _SSL_get_error(ARetCode);
-  Result := SSL_is_fatal_error(LError);
+  LRet := _SSL_get_error(ARetCode);
+  Result := SSL_is_fatal_error(LRet);
   if Result then
-    _Log(ATitle + ' error %d %s', [LError, ssl_error_message(LError)]);
+  begin
+    while True do
+    begin
+      LError := ERR_get_error();
+      if (LError = 0) then Break;
+
+      _Log(ATitle + ' error %d %s', [LError, SSL_error_message(LError)]);
+    end;
+  end;
 end;
 
 procedure TCrossOpenSslConnection._Send(const ABuffer: Pointer;
@@ -438,8 +414,6 @@ begin
 end;
 
 procedure TCrossOpenSslSocket._InitSslCtx;
-//var
-//  LEcdh: PEC_KEY;
 begin
   if (FSslCtx <> nil) then Exit;
 
@@ -447,7 +421,7 @@ begin
   // 这里使用 TLS_method(), 该方法会让程序自动协商使用能支持的最高版本 TLS
   FSslCtx := TSSLTools.NewCTX(TLS_method());
 
-  SSL_CTX_set_min_proto_version(FSslCtx, 0);
+  SSL_CTX_set_min_proto_version(FSslCtx, TLS1_2_VERSION);
   SSL_CTX_set_max_proto_version(FSslCtx, TLS1_3_VERSION);
 
   // 设置证书验证方式
@@ -468,22 +442,17 @@ begin
   // 这些模式选项可以根据需要进行组合使用，以满足特定的SSL/TLS连接需求。
   SSL_CTX_set_mode(FSslCtx, SSL_MODE_AUTO_RETRY);
 
-  {$region '采用新型加密套件进行加密'}
   // 设置 SSL 参数
   SSL_CTX_set_options(FSslCtx,
-    // 不使用已经不安全的 SSLv2/SSv3/TLSv1/TLSV1.1
-    SSL_OP_NO_SSLv2 or SSL_OP_NO_SSLv3 or SSL_OP_NO_TLSv1 or SSL_OP_NO_TLSv1_1 or
+    SSL_CTX_get_options(FSslCtx) or
     // 根据服务器偏好选择加密套件
-    SSL_OP_CIPHER_SERVER_PREFERENCE
-  );
+    SSL_OP_CIPHER_SERVER_PREFERENCE or
+    // 允许连接到不支持RI的旧服务器
+    SSL_OP_LEGACY_SERVER_CONNECT or
+    // 允许不安全的旧式重新协商(兼容工商银行ch5.dcep.ccb.com:443)
+    SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
 
-  // SSL会话缓存配置
-  SSL_CTX_set_session_cache_mode(FSslCtx,
-    SSL_SESS_CACHE_CLIENT or
-    SSL_SESS_CACHE_SERVER or
-    SSL_SESS_CACHE_NO_INTERNAL or
-    SSL_SESS_CACHE_NO_AUTO_CLEAR);
-
+  {$region '采用新型加密套件进行加密'}
   // TLSv1.3及以上加密套件设置(OpenSSL 1.1.1+)
   SSL_CTX_set_ciphersuites(FSslCtx,
     'TLS_AES_256_GCM_SHA384' +
@@ -522,15 +491,6 @@ begin
     '!SRP:' +
     '!CAMELLIA'
   );
-
-//  // 创建一个椭圆曲线密钥对象
-//  LEcdh := EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
-//  if (LEcdh <> nil) then
-//  begin
-//    // 设置 SSL/TLS 上下文临时密钥
-//    SSL_CTX_set_tmp_ecdh(FSslCtx, LEcdh);
-//    EC_KEY_free(LEcdh);
-//  end;
   {$endregion}
 end;
 

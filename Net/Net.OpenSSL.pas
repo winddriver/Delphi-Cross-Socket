@@ -1079,9 +1079,17 @@ var
   SSL_CTX_use_PrivateKey: function(ctx: PSSL_CTX; pkey: PEVP_PKEY): Integer; cdecl;
   SSL_CTX_use_certificate: function(ctx: PSSL_CTX; cert: PX509): Integer; cdecl;
   SSL_CTX_check_private_key: function(ctx: PSSL_CTX): Integer; cdecl;
-  SSL_CTX_get_cert_store: function(const Ctx: PSSL_CTX): PX509_STORE; cdecl;
-  SSL_CTX_add_client_CA: function(const Ctx: PSSL_CTX; CaCert: PX509): Integer; cdecl;
-  SSL_CTX_set_default_verify_paths: function(const Ctx: PSSL_CTX): Integer; cdecl;
+  SSL_CTX_get_cert_store: function(const ctx: PSSL_CTX): PX509_STORE; cdecl;
+  SSL_CTX_add_client_CA: function(const ctx: PSSL_CTX; CaCert: PX509): Integer; cdecl;
+  SSL_CTX_set_default_verify_paths: function(const ctx: PSSL_CTX): Integer; cdecl;
+  SSL_CTX_set_options: function(ctx: PSSL_CTX; Op: Integer): Integer; cdecl;
+  SSL_CTX_get_options: function(ctx: PSSL_CTX): Integer; cdecl;
+
+  SSL_CTX_set_security_level: procedure(ctx: PSSL_CTX; level: Integer); cdecl;
+  SSL_set_security_level: procedure(s: PSSL; level: Integer); cdecl;
+
+  SSL_CTX_get_security_level: function(const ctx: PSSL_CTX): Integer; cdecl;
+  SSL_get_security_level: function(const s: PSSL): Integer; cdecl;
 
   SSL_new: function(ctx: PSSL_CTX): PSSL; cdecl;
   SSL_set_bio: procedure(s: PSSL; rbio, wbio: PBIO); cdecl;
@@ -1392,12 +1400,25 @@ function SSL_CTX_use_certificate(ctx: PSSL_CTX; cert: PX509): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_use_certificate';
 function SSL_CTX_check_private_key(ctx: PSSL_CTX): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_check_private_key';
-function SSL_CTX_get_cert_store(const Ctx: PSSL_CTX): PX509_STORE; cdecl;
+function SSL_CTX_get_cert_store(const ctx: PSSL_CTX): PX509_STORE; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_get_cert_store';
-function SSL_CTX_add_client_CA(const Ctx: PSSL_CTX; CaCert: PX509): Integer; cdecl;
+function SSL_CTX_add_client_CA(const ctx: PSSL_CTX; CaCert: PX509): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_add_client_CA';
-function SSL_CTX_set_default_verify_paths(const Ctx: PSSL_CTX): Integer; cdecl;
+function SSL_CTX_set_default_verify_paths(const ctx: PSSL_CTX): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_set_default_verify_paths';
+function SSL_CTX_set_options(ctx: PSSL_CTX; Op: Integer): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_set_options';
+function SSL_CTX_get_options(ctx: PSSL_CTX): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_get_options';
+
+procedure SSL_CTX_set_security_level(ctx: PSSL_CTX; level: Integer); cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_set_security_level';
+procedure SSL_set_security_level(s: PSSL; level: Integer); cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_set_security_level';
+function SSL_CTX_get_security_level(const ctx: PSSL_CTX): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_get_security_level';
+function SSL_get_security_level(const s: PSSL): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_get_security_level';
 
 function SSL_new(ctx: PSSL_CTX): PSSL; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_new';
@@ -1464,8 +1485,6 @@ function SSL_CTX_set_tmp_rsa(ctx: PSSL_CTX; rsa: MarshaledAString): Integer; inl
 function SSL_CTX_set_tmp_dh(ctx: PSSL_CTX; dh: MarshaledAString): Integer; inline;
 function SSL_CTX_set_tmp_ecdh(ctx: PSSL_CTX; ecdh: PEC_KEY): Integer; inline;
 function SSL_CTX_add_extra_chain_cert(ctx: PSSL_CTX; cert: PX509): Integer; inline;
-function SSL_CTX_set_options(ctx: PSSL_CTX; Op: Integer): Integer; inline;
-function SSL_CTX_get_options(ctx: PSSL_CTX): Integer; inline;
 function SSL_CTX_set_mode(ctx: PSSL_CTX; op: Integer): Integer; inline;
 function SSL_CTX_clear_mode(ctx: PSSL_CTX; op: Integer): Integer; inline;
 function SSL_CTX_get_mode(ctx: PSSL_CTX): Integer; inline;
@@ -1790,16 +1809,6 @@ end;
 function SSL_set_tmp_ecdh(ssl: PSSL; ecdh: MarshaledAString): Integer;
 begin
   Result := SSL_ctrl(ssl, SSL_CTRL_SET_TMP_ECDH, 0, ecdh);
-end;
-
-function  SSL_CTX_set_options(ctx: PSSL_CTX; Op: Integer): Integer;
-begin
-  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_OPTIONS, Op, nil);
-end;
-
-function SSL_CTX_get_options(ctx: PSSL_CTX): Integer;
-begin
-  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_OPTIONS, 0, nil);
 end;
 
 function SSL_CTX_set_mode(ctx: PSSL_CTX; op: Integer): Integer;
@@ -3331,6 +3340,13 @@ begin
     @SSL_CTX_get_cert_store := GetSslLibProc(FSslLibHandle, 'SSL_CTX_get_cert_store');
     @SSL_CTX_add_client_CA := GetSslLibProc(FSslLibHandle, 'SSL_CTX_add_client_CA');
     @SSL_CTX_set_default_verify_paths := GetSslLibProc(FSslLibHandle, 'SSL_CTX_set_default_verify_paths');
+    @SSL_CTX_set_options := GetSslLibProc(FSslLibHandle, 'SSL_CTX_set_options');
+    @SSL_CTX_get_options := GetSslLibProc(FSslLibHandle, 'SSL_CTX_get_options');
+
+    @SSL_CTX_set_security_level := GetSslLibProc(FSslLibHandle, 'SSL_CTX_set_security_level');
+    @SSL_set_security_level := GetSslLibProc(FSslLibHandle, 'SSL_set_security_level');
+    @SSL_CTX_get_security_level := GetSslLibProc(FSslLibHandle, 'SSL_CTX_get_security_level');
+    @SSL_get_security_level := GetSslLibProc(FSslLibHandle, 'SSL_get_security_level');
 
     @SSL_new := GetSslLibProc(FSslLibHandle, 'SSL_new');
     @SSL_set_bio := GetSslLibProc(FSslLibHandle, 'SSL_set_bio');

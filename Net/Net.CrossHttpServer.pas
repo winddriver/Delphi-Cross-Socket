@@ -2616,6 +2616,8 @@ function TCrossHttpRouter.IsMatch(const ARequest: ICrossHttpRequest): Boolean;
     Result := Length(APath);
     if APath.EndsWith('/?', True) then
       Dec(Result, 2)
+    else if APath.EndsWith('/*', True) then
+      Dec(Result, 2)
     else if APath.EndsWith('?', True) then
       Dec(Result)
     else if APath.EndsWith('/', True) then
