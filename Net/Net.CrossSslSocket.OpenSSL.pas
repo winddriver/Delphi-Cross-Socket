@@ -51,13 +51,12 @@ type
     procedure _Unlock; inline;
 
     function _BIO_pending: Integer; inline;
-    function _BIO_read(Buf: Pointer; Len: Integer): Integer; overload; inline;
+    function _BIO_read(Buf: Pointer; Len: Integer): Integer; inline;
     function _BIO_read_all: TBytes; overload;
     function _BIO_write(Buf: Pointer; Len: Integer): Integer; inline;
 
-    function _SSL_pending: Integer; inline;
     function _SSL_read(Buf: Pointer; Len: Integer): Integer; overload; inline;
-    function _SSL_read: TBytes; overload;
+    function _SSL_read_all: TBytes; overload;
     function _SSL_write(Buf: Pointer; Len: Integer): Integer; inline;
 
     function _SSL_do_handshake: Integer; inline;
@@ -196,32 +195,58 @@ begin
 end;
 
 function TCrossOpenSslConnection._BIO_read_all: TBytes;
+const
+  INITIAL_BUF_SIZE = 16384; // 初始缓冲区大小 16KB
+  MAX_BUF_INCREMENT = 65536; // 最大增量 64KB
 var
   LReadedCount, LBlockSize, LRetCode: Integer;
+  LFreeSpace, LNewSize: Integer;
   P: PByte;
 begin
   LReadedCount := 0;
-  Result := nil;
+  // 初始分配合理大小的缓冲区
+  SetLength(Result, INITIAL_BUF_SIZE);
 
   while True do
   begin
+    // 获取当前可读数据量
     LBlockSize := _BIO_pending;
     if (LBlockSize <= 0) then Break;
 
-    SetLength(Result, Length(Result) + LBlockSize);
+    // 计算缓冲区剩余空间
+    LFreeSpace := Length(Result) - LReadedCount;
+
+    // 动态扩展缓冲区(按需增长)
+    if (LFreeSpace < LBlockSize) then
+    begin
+      // 指数增长策略: 每次翻倍, 上限为 MAX_BUF_INCREMENT
+      LNewSize := Length(Result) * 2;
+      if (LNewSize - LReadedCount < LBlockSize) then
+        LNewSize := LReadedCount + LBlockSize + MAX_BUF_INCREMENT
+      else if (LNewSize > Length(Result) + MAX_BUF_INCREMENT) then
+        LNewSize := Length(Result) + MAX_BUF_INCREMENT;
+      SetLength(Result, LNewSize);
+    end;
+
+    // 指向缓冲区当前写入位置
     P := PByte(@Result[0]) + LReadedCount;
 
-    // 从内存 BIO 读取加密后的数据
+    // 从 BIO 读取数据(最多读取 LBlockSize)
     LRetCode := _BIO_read(P, LBlockSize);
 
+    // 错误处理
     if (LRetCode <= 0) then
     begin
       _SSL_handle_error(LRetCode, 'BIO_read');
       Break;
     end;
 
+    // 更新已读取计数
     Inc(LReadedCount, LRetCode);
   end;
+
+  // 调整数组至实际数据大小
+  SetLength(Result, LReadedCount);
 end;
 
 function TCrossOpenSslConnection._BIO_write(Buf: Pointer; Len: Integer
@@ -230,48 +255,58 @@ begin
   Result := BIO_write(FBIOIn, Buf, Len);
 end;
 
-function TCrossOpenSslConnection._SSL_pending: Integer;
-begin
-  Result := SSL_pending(FSslData);
-end;
-
 function TCrossOpenSslConnection._SSL_read(Buf: Pointer; Len: Integer): Integer;
 begin
   Result := SSL_read(FSslData, Buf, Len);
 end;
 
-function TCrossOpenSslConnection._SSL_read: TBytes;
+function TCrossOpenSslConnection._SSL_read_all: TBytes;
 const
-  BLOCK_SIZE = 4096;
+  INITIAL_BUF_SIZE = 16384;  // 初始缓冲区 16KB
+  MAX_BUF_INCREMENT = 65536; // 最大增量 64KB
 var
-  LReadedCount, LBlockSize, LRetCode: Integer;
+  LReadedCount, LRetCode: Integer;
+  LFreeSpace, LNewSize: Integer;
   P: PByte;
 begin
   LReadedCount := 0;
-  Result := nil;
+  // 预分配初始缓冲区
+  SetLength(Result, INITIAL_BUF_SIZE);
 
   while True do
   begin
-    if (LReadedCount >= Length(Result)) then
-      SetLength(Result, Length(Result) + BLOCK_SIZE);
+    // 计算缓冲区剩余空间
+    LFreeSpace := Length(Result) - LReadedCount;
 
+    // 动态扩展缓冲区(按需增长)
+    if (LFreeSpace < 1024) then  // 预留安全空间
+    begin
+      // 指数增长策略: 每次翻倍, 上限为 MAX_BUF_INCREMENT
+      LNewSize := Length(Result) * 2;
+      if (LNewSize > Length(Result) + MAX_BUF_INCREMENT) then
+        LNewSize := Length(Result) + MAX_BUF_INCREMENT;
+      SetLength(Result, LNewSize);
+      LFreeSpace := Length(Result) - LReadedCount;
+    end;
+
+    // 指向缓冲区当前写入位置
     P := PByte(@Result[0]) + LReadedCount;
 
-    LBlockSize := Length(Result) - LReadedCount;
+    // 读取数据
+    LRetCode := _SSL_read(P, LFreeSpace);
 
-    // 读取解密后的数据
-    // 如果握手未完成, SSL_read 始终返回 -1
-    LRetCode := _SSL_read(P, LBlockSize);
-
+    // 错误处理
     if (LRetCode <= 0) then
     begin
       _SSL_handle_error(LRetCode, 'SSL_read');
       Break;
     end;
 
+    // 更新已读取计数
     Inc(LReadedCount, LRetCode);
   end;
 
+  // 调整数组至实际数据大小
   SetLength(Result, LReadedCount);
 end;
 
@@ -661,7 +696,7 @@ begin
           LTriggerConnected := True;
 
         // 读取解密后的数据
-        LDecryptedData := LConnectionObj._SSL_read;
+        LDecryptedData := LConnectionObj._SSL_read_all;
       end else
       if (LConnectionObj.ConnectStatus = csHandshaking) then
       begin
@@ -679,7 +714,7 @@ begin
         if (LRetCode = 1) then
         begin
           LTriggerConnected := True;
-          LDecryptedData := LConnectionObj._SSL_read;
+          LDecryptedData := LConnectionObj._SSL_read_all;
         end;
       end;
     finally
