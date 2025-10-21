@@ -52,7 +52,7 @@ type
 
     function _BIO_pending: Integer; inline;
     function _BIO_read(Buf: Pointer; Len: Integer): Integer; overload; inline;
-    function _BIO_read: TBytes; overload;
+    function _BIO_read_all: TBytes; overload;
     function _BIO_write(Buf: Pointer; Len: Integer): Integer; inline;
 
     function _SSL_pending: Integer; inline;
@@ -64,7 +64,13 @@ type
     function _SSL_is_init_finished: Integer; inline;
 
     function _SSL_get_error(const ARetCode: Integer): Integer; inline;
-    function _SSL_print_error(const ARetCode: Integer; const ATitle: string): Boolean;
+    function _SSL_handle_error(const ARetCode: Integer; const AOperation: string;
+      out AErrCode: Integer): Boolean; overload;
+    function _SSL_handle_error(const ARetCode: Integer; const AOperation: string): Boolean; overload;
+
+    // SSL数据发送(递归实现)
+    procedure _SslSend(const ABuf: PByte; const ALen: Integer;
+      const ACallback: TCrossConnectionCallback);
 
     procedure _Send(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); overload;
@@ -157,49 +163,10 @@ end;
 
 procedure TCrossOpenSslConnection.DirectSend(const ABuffer: Pointer;
   const ACount: Integer; const ACallback: TCrossConnectionCallback);
-var
-  P: PByte;
-  LCount, LRetCode: Integer;
-  LEncryptedData: TBytes;
 begin
   if Ssl then
-  begin
-    P := PByte(ABuffer);
-    LCount := ACount;
-
-    _Lock;
-    try
-      // 将待发送数据加密
-      while (LCount > 0) do
-      begin
-        // 如果调用 SSL_write 时写入的数据大小超过了SSL记录的大小限制，
-        // SSL库会尽力将尽可能多的数据写入到记录中，但仅限于单个记录的最大大小
-        // 所以如果数据比较大, 需要分多次写入
-        // TLS1.2 记录大小限制为16K
-        // TLS1.3 记录大小限制为1.5K
-        LRetCode := _SSL_write(P, LCount);
-        if (LRetCode <= 0) then
-        begin
-          if _SSL_print_error(LRetCode, 'SSL_write') then
-          begin
-            if Assigned(ACallback) then
-              ACallback(Self, False);
-            Exit;
-          end else
-            Continue;
-        end;
-
-        Dec(LCount, LRetCode);
-        Inc(P, LRetCode);
-      end;
-
-      LEncryptedData := _BIO_read;
-    finally
-      _Unlock;
-    end;
-
-    _Send(LEncryptedData, ACallback);
-  end else
+    _SslSend(ABuffer, ACount, ACallback)
+  else
     _Send(ABuffer, ACount, ACallback);
 end;
 
@@ -228,7 +195,7 @@ begin
   Result := BIO_read(FBIOOut, Buf, Len);
 end;
 
-function TCrossOpenSslConnection._BIO_read: TBytes;
+function TCrossOpenSslConnection._BIO_read_all: TBytes;
 var
   LReadedCount, LBlockSize, LRetCode: Integer;
   P: PByte;
@@ -249,7 +216,7 @@ begin
 
     if (LRetCode <= 0) then
     begin
-      _SSL_print_error(LRetCode, 'BIO_read');
+      _SSL_handle_error(LRetCode, 'BIO_read');
       Break;
     end;
 
@@ -298,7 +265,7 @@ begin
 
     if (LRetCode <= 0) then
     begin
-      _SSL_print_error(LRetCode, 'SSL_read');
+      _SSL_handle_error(LRetCode, 'SSL_read');
       Break;
     end;
 
@@ -329,13 +296,13 @@ begin
   Result := SSL_get_error(FSslData, ARetCode);
 end;
 
-function TCrossOpenSslConnection._SSL_print_error(const ARetCode: Integer; const ATitle: string): Boolean;
+function TCrossOpenSslConnection._SSL_handle_error(const ARetCode: Integer;
+  const AOperation: string; out AErrCode: Integer): Boolean;
 var
-  LRet: Integer;
   LError: Cardinal;
 begin
-  LRet := _SSL_get_error(ARetCode);
-  Result := SSL_is_fatal_error(LRet);
+  AErrCode := _SSL_get_error(ARetCode);
+  Result := SSL_is_fatal_error(AErrCode);
   if Result then
   begin
     while True do
@@ -343,9 +310,17 @@ begin
       LError := ERR_get_error();
       if (LError = 0) then Break;
 
-      _Log(ATitle + ' error %d %s', [LError, SSL_error_message(LError)]);
+      _Log(AOperation + ' error %d %s', [LError, SSL_error_message(LError)]);
     end;
   end;
+end;
+
+function TCrossOpenSslConnection._SSL_handle_error(const ARetCode: Integer;
+  const AOperation: string): Boolean;
+var
+  LError: Integer;
+begin
+  Result := _SSL_handle_error(ARetCode, AOperation, LError);
 end;
 
 procedure TCrossOpenSslConnection._Send(const ABuffer: Pointer;
@@ -375,6 +350,95 @@ begin
       if Assigned(ACallback) then
         ACallback(AConnection, ASuccess);
     end);
+end;
+
+procedure TCrossOpenSslConnection._SslSend(const ABuf: PByte;
+  const ALen: Integer; const ACallback: TCrossConnectionCallback);
+var
+  LConnection: ICrossConnection;
+  LWritten, LErrCode: Integer;
+  LEncryptedData: TBytes;
+begin
+  LConnection := Self as ICrossConnection;
+
+  if (ALen <= 0) then
+  begin
+    if Assigned(ACallback) then
+      ACallback(LConnection, True);
+    Exit;
+  end;
+
+  _Lock;
+  try
+    // 尝试写入数据到SSL
+    LWritten := _SSL_write(ABuf, ALen);
+
+    if (LWritten > 0) then
+    begin
+      // 成功写入部分或全部数据
+      // 获取加密后的数据并发送
+      LEncryptedData := _BIO_read_all;
+      if (LEncryptedData <> nil) then
+      begin
+        _Send(@LEncryptedData[0], Length(LEncryptedData),
+          procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+          begin
+            if ASuccess then
+            begin
+              // 网络发送成功, 检查是否还有剩余数据
+              if (LWritten < ALen) then
+                // 递归调用处理剩余数据
+                _SslSend(ABuf + LWritten, ALen - LWritten, ACallback)
+              else if Assigned(ACallback) then
+                ACallback(LConnection, True);
+            end else
+            if Assigned(ACallback) then
+              ACallback(LConnection, False);
+          end);
+      end else
+      begin
+        // 没有加密数据要发送, 直接递归处理剩余数据
+        if (LWritten < ALen) then
+          _SslSend(ABuf + LWritten, ALen - LWritten, ACallback)
+        else if Assigned(ACallback) then
+          ACallback(LConnection, True);
+      end;
+    end else
+    begin
+      // SSL写入失败
+      if not _SSL_handle_error(LWritten, 'SSL_write', LErrCode) then
+      begin
+        if (LErrCode in [SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE]) then
+        begin
+          // 可重试错误, 先发送BIO中已有的数据
+          LEncryptedData := _BIO_read_all;
+          if (LEncryptedData <> nil) then
+          begin
+            _Send(@LEncryptedData[0], Length(LEncryptedData),
+              procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+              begin
+                if ASuccess then
+                  // 网络发送成功后, 重试SSL写入
+                  _SslSend(ABuf, ALen, ACallback)
+                else if Assigned(ACallback) then
+                  ACallback(LConnection, False);
+              end);
+          end else
+          begin
+            // 没有数据要发送, 直接重试
+            _SslSend(ABuf, ALen, ACallback);
+          end;
+        end;
+      end else
+      begin
+        // 致命错误
+        if Assigned(ACallback) then
+          ACallback(LConnection, False);
+      end;
+    end;
+  finally
+    _Unlock;
+  end;
 end;
 
 { TCrossOpenSslSocket }
@@ -549,9 +613,9 @@ begin
       // 需要在 TriggerReceived 中检查握手状态, 握手没完成就还需要调用 SSL_do_handshake
       LRetCode := LConnection._SSL_do_handshake;
       if (LRetCode <> 1) then
-        LConnection._SSL_print_error(LRetCode, 'SSL_do_handshake(TriggerConnected)');
+        LConnection._SSL_handle_error(LRetCode, 'SSL_do_handshake(TriggerConnected)');
 
-      LHandshakeData := LConnection._BIO_read;
+      LHandshakeData := LConnection._BIO_read_all;
     finally
       LConnection._Unlock;
     end;
@@ -585,7 +649,7 @@ begin
       LRetCode := LConnectionObj._BIO_write(ABuf, ALen);
       if (LRetCode <> ALen) then
       begin
-        if LConnectionObj._SSL_print_error(LRetCode, 'BIO_write') then
+        if LConnectionObj._SSL_handle_error(LRetCode, 'BIO_write') then
           LConnectionObj.Close;
         Exit;
       end;
@@ -605,10 +669,10 @@ begin
         LRetCode := LConnectionObj._SSL_do_handshake;
 
         if (LRetCode <> 1) then
-          LConnectionObj._SSL_print_error(LRetCode, 'SSL_do_handshake(TriggerReceived)');
+          LConnectionObj._SSL_handle_error(LRetCode, 'SSL_do_handshake(TriggerReceived)');
 
         // 读取握手数据
-        LHandshakeData := LConnectionObj._BIO_read;
+        LHandshakeData := LConnectionObj._BIO_read_all;
 
         // 如果握手完成
         // 读取解密后的数据
