@@ -2668,6 +2668,11 @@ end;
 procedure TRouter.Execute(const ARequest: ICrossHttpRequest;
   const AResponse: ICrossHttpResponse; var AHandled: Boolean);
 var
+  LRouterProcArr: TArray<TCrossHttpRouterProc>;
+  LRouterMethodArr: TArray<TCrossHttpRouterMethod>;
+  LRouterProc2Arr: TArray<TCrossHttpRouterProc2>;
+  LRouterMethod2Arr: TArray<TCrossHttpRouterMethod2>;
+
   LRouterProc: TCrossHttpRouterProc;
   LRouterMethod: TCrossHttpRouterMethod;
   LRouterProc2: TCrossHttpRouterProc2;
@@ -2675,37 +2680,42 @@ var
 begin
   FLock.Enter;
   try
-    for LRouterProc2 in FRouterProc2List do
-    begin
-      if Assigned(LRouterProc2) then
-      begin
-        LRouterProc2(ARequest, AResponse, AHandled);
-        if AHandled then Break;
-      end;
-    end;
-
-    for LRouterMethod2 in FRouterMethod2List do
-    begin
-      if Assigned(LRouterMethod2) then
-      begin
-        LRouterMethod2(ARequest, AResponse, AHandled);
-        if AHandled then Break;
-      end;
-    end;
-
-    for LRouterProc in FRouterProcList do
-    begin
-      if Assigned(LRouterProc) then
-        LRouterProc(ARequest, AResponse);
-    end;
-
-    for LRouterMethod in FRouterMethodList do
-    begin
-      if Assigned(LRouterMethod) then
-        LRouterMethod(ARequest, AResponse);
-    end;
+    LRouterProcArr := FRouterProcList.ToArray;
+    LRouterProc2Arr := FRouterProc2List.ToArray;
+    LRouterMethodArr := FRouterMethodList.ToArray;
+    LRouterMethod2Arr := FRouterMethod2List.ToArray;
   finally
     FLock.Leave;
+  end;
+
+  for LRouterProc2 in LRouterProc2Arr do
+  begin
+    if Assigned(LRouterProc2) then
+    begin
+      LRouterProc2(ARequest, AResponse, AHandled);
+      if AHandled then Break;
+    end;
+  end;
+
+  for LRouterMethod2 in LRouterMethod2Arr do
+  begin
+    if Assigned(LRouterMethod2) then
+    begin
+      LRouterMethod2(ARequest, AResponse, AHandled);
+      if AHandled then Break;
+    end;
+  end;
+
+  for LRouterProc in LRouterProcArr do
+  begin
+    if Assigned(LRouterProc) then
+      LRouterProc(ARequest, AResponse);
+  end;
+
+  for LRouterMethod in LRouterMethodArr do
+  begin
+    if Assigned(LRouterMethod) then
+      LRouterMethod(ARequest, AResponse);
   end;
 end;
 
@@ -2974,7 +2984,7 @@ begin
   inherited Create;
 
   FRoot := TRouteNode.Create(rtStatic, TRouteSegment.Create('', '', [], rtStatic));
-  FLock := TReadWriteLockV2.Create;
+  FLock := TReadWriteLock.Create;
 end;
 
 destructor TCrossHttpRouterTree.Destroy;
