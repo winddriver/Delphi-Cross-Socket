@@ -1554,7 +1554,8 @@ type
       const AProcNames: array of string): Pointer; overload; static;
     class function GetSslLibProc(const ALibHandle: TLibHandle;
       const AProcName: string): Pointer; overload; static;
-    class function LoadSslLib(const ALibNames: array of string): TLibHandle; overload; static;
+    class function LoadSslLib(const ALibNames: array of string;
+      out ALoadedLibName: string): TLibHandle; overload; static;
     class procedure LoadSslLibs; static;
     class procedure UnloadSslLibs; static;
 
@@ -3012,17 +3013,22 @@ begin
 end;
 
 class function TSSLTools.LoadSslLib(
-  const ALibNames: array of string): TLibHandle;
+  const ALibNames: array of string; out ALoadedLibName: string): TLibHandle;
 var
   LLibPath, LLibName: string;
 begin
   LLibPath := GetSslLibPath;
 
+  ALoadedLibName := '';
   Result := 0;
   for LLibName in ALibNames do
   begin
     Result := LoadLib(LLibPath + LLibName);
-    if (Result > 0) then Break;
+    if (Result > 0) then
+    begin
+      ALoadedLibName := LLibName;
+      Break;
+    end;
   end;
 end;
 
@@ -3132,6 +3138,7 @@ class procedure TSSLTools.LoadSslLibs;
 {$IFNDEF __SSL_STATIC__}
 var
   LCryptoLibs, LSslLibs: TArray<string>;
+  LLoadedLibName: string;
 {$ENDIF}
 begin
   {$IFNDEF __SSL_STATIC__}
@@ -3162,9 +3169,12 @@ begin
       ];
     end;
 
-    FCryptoLibHandle := LoadSslLib(LCryptoLibs);
+    FCryptoLibHandle := LoadSslLib(LCryptoLibs, LLoadedLibName);
     if (FCryptoLibHandle = 0) then
       raise ESslInvalidLib.Create('No available libcrypto library.');
+
+    if (FLibCRYPTO = '') then
+      FLibCRYPTO := LLoadedLibName;
 
     @OpenSSL_version_num := GetSslLibProc(FCryptoLibHandle, 'OpenSSL_version_num');
     @OPENSSL_init_crypto := GetSslLibProc(FCryptoLibHandle, 'OPENSSL_init_crypto');
@@ -3318,9 +3328,12 @@ begin
       ];
     end;
 
-    FSslLibHandle := LoadSslLib(LSslLibs);
+    FSslLibHandle := LoadSslLib(LSslLibs, LLoadedLibName);
     if (FSslLibHandle = 0) then
       raise ESslInvalidLib.Create('No available libssl library.');
+
+    if (FLibSSL = '') then
+      FLibSSL := LLoadedLibName;
 
     @OPENSSL_init_ssl := GetSslLibProc(FSslLibHandle, 'OPENSSL_init_ssl');
 
