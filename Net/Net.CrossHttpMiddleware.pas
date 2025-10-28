@@ -50,7 +50,7 @@ type
     ///   <see cref="https://zh.wikipedia.org/wiki/HTTP%E5%9F%BA%E6%9C%AC%E8%AE%A4%E8%AF%81">
     ///   维基百科: HTTP基本认证</see>
     /// </remarks>
-    class function AuthenticateBasic(AAuthGetPasswordProc: TAuthGetPasswordProc; const ARealm: string = ''): TCrossHttpRouterProc2; static;
+    class function AuthenticateBasic(AAuthGetPasswordProc: TAuthGetPasswordProc; const ARealm: string = ''): TCrossHttpRouterProc; static;
 
     /// <summary>
     ///   HTTP摘要认证
@@ -62,7 +62,7 @@ type
     ///   <see cref="https://zh.wikipedia.org/wiki/HTTP%E6%91%98%E8%A6%81%E8%AE%A4%E8%AF%81">
     ///   维基百科: HTTP摘要认证</see>
     /// </remarks>
-    class function AuthenticateDigest(AAuthGetPasswordProc: TAuthGetPasswordProc; const ARealm: string = ''): TCrossHttpRouterProc2; static;
+    class function AuthenticateDigest(AAuthGetPasswordProc: TAuthGetPasswordProc; const ARealm: string = ''): TCrossHttpRouterProc; static;
 
     /// <summary>
     ///   跨来源资源共享
@@ -71,7 +71,7 @@ type
     ///   <see href="https://zh.wikipedia.org/wiki/%E8%B7%A8%E4%BE%86%E6%BA%90%E8%B3%87%E6%BA%90%E5%85%B1%E4%BA%AB">
     ///   维基百科: 跨来源资源共享</see>
     /// </remarks>
-    class function CORS: TCrossHttpRouterProc2; static;
+    class function CORS: TCrossHttpRouterProc; static;
 
     /// <summary>
     ///   HTTP严格传输安全
@@ -80,9 +80,9 @@ type
     ///   <see href="https://zh.wikipedia.org/wiki/HTTP%E4%B8%A5%E6%A0%BC%E4%BC%A0%E8%BE%93%E5%AE%89%E5%85%A8">
     ///   维基百科: HTTP严格传输安全</see>
     /// </remarks>
-    class function HSTS: TCrossHttpRouterProc2; static;
+    class function HSTS: TCrossHttpRouterProc; static;
 
-    class function NoCache: TCrossHttpRouterProc2; static;
+    class function NoCache: TCrossHttpRouterProc; static;
   end;
 
 implementation
@@ -90,7 +90,7 @@ implementation
 { TNetCrossMiddleware }
 
 class function TNetCrossMiddleware.AuthenticateBasic(AAuthGetPasswordProc: TAuthGetPasswordProc;
-  const ARealm: string): TCrossHttpRouterProc2;
+  const ARealm: string): TCrossHttpRouterProc;
 begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
@@ -135,7 +135,7 @@ begin
 end;
 
 class function TNetCrossMiddleware.AuthenticateDigest(
-  AAuthGetPasswordProc: TAuthGetPasswordProc; const ARealm: string): TCrossHttpRouterProc2;
+  AAuthGetPasswordProc: TAuthGetPasswordProc; const ARealm: string): TCrossHttpRouterProc;
 begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
@@ -210,7 +210,7 @@ begin
     end;
 end;
 
-class function TNetCrossMiddleware.CORS: TCrossHttpRouterProc2;
+class function TNetCrossMiddleware.CORS: TCrossHttpRouterProc;
 begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
@@ -222,7 +222,7 @@ begin
     end;
 end;
 
-class function TNetCrossMiddleware.HSTS: TCrossHttpRouterProc2;
+class function TNetCrossMiddleware.HSTS: TCrossHttpRouterProc;
 begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
@@ -232,7 +232,7 @@ begin
     end;
 end;
 
-class function TNetCrossMiddleware.NoCache: TCrossHttpRouterProc2;
+class function TNetCrossMiddleware.NoCache: TCrossHttpRouterProc;
 begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)

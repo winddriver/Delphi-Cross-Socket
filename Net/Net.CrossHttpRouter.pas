@@ -31,7 +31,7 @@ type
     /// <param name="ALocalDir">
     ///   本地目录
     /// </param>
-    class function &Static(const ALocalDir, AFileParamName: string): TCrossHttpRouterProc2; static;
+    class function &Static(const ALocalDir, AFileParamName: string): TCrossHttpRouterProc; static;
 
     /// <summary>
     ///   文件列表路由
@@ -42,7 +42,7 @@ type
     /// <param name="ALocalDir">
     ///   本地目录
     /// </param>
-    class function Dir(const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc2; static;
+    class function Dir(const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc; static;
 
     /// <summary>
     ///   含有默认首页文件的静态文件路由
@@ -53,7 +53,7 @@ type
     /// <param name="ADefIndexFiles">
     ///   默认的首页文件,按顺序选择,先找到哪个就使用哪个
     /// </param>
-    class function Index(const ALocalDir, AFileParamName: string; const ADefIndexFiles: TArray<string>): TCrossHttpRouterProc2; static;
+    class function Index(const ALocalDir, AFileParamName: string; const ADefIndexFiles: TArray<string>): TCrossHttpRouterProc; static;
   end;
 
 implementation
@@ -70,7 +70,7 @@ uses
 { TNetCrossRouter }
 
 class function TNetCrossRouter.Index(const ALocalDir, AFileParamName: string;
-  const ADefIndexFiles: TArray<string>): TCrossHttpRouterProc2;
+  const ADefIndexFiles: TArray<string>): TCrossHttpRouterProc;
 var
   LDefIndexFiles: TArray<string>;
 begin
@@ -122,7 +122,7 @@ begin
 end;
 
 class function TNetCrossRouter.Static(
-  const ALocalDir, AFileParamName: string): TCrossHttpRouterProc2;
+  const ALocalDir, AFileParamName: string): TCrossHttpRouterProc;
 begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
@@ -144,7 +144,7 @@ begin
 end;
 
 class function TNetCrossRouter.Dir(
-  const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc2;
+  const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc;
 begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
