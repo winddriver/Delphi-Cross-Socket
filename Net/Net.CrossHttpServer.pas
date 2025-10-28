@@ -45,6 +45,8 @@ uses
 const
   CROSS_HTTP_SERVER_NAME = 'CrossHttpServer/3.0';
   MIN_COMPRESS_SIZE = 512;
+  WILDCARD_CHAR = '*';
+  REGEX_CHARS: array of Char = [':', '*', '?', '(', ')', '[', '{', '|', '+', '.'];
 
 type
   ECrossHttpException = class(Exception)
@@ -947,21 +949,6 @@ type
     property Sent: Boolean read GetSent;
   end;
 
-  /// <summary>
-  ///   路由接口
-  /// </summary>
-  ICrossHttpRouter = interface
-  ['{2B095450-6A5D-450F-8DCD-6911526C733F}']
-    function GetMethod: string;
-    function GetPath: string;
-    function IsMatch(const ARequest: ICrossHttpRequest): Boolean;
-    procedure Execute(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean);
-
-    property Method: string read GetMethod;
-    property Path: string read GetPath;
-  end;
-  TCrossHttpRouters = TList<ICrossHttpRouter>;
-
   TCrossHttpRouterProc = reference to procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse);
   TCrossHttpRouterMethod = procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse) of object;
   TCrossHttpRouterProc2 = reference to procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean);
@@ -1072,31 +1059,6 @@ type
     procedure SetOnRequest(const Value: TCrossHttpRequestEvent);
     procedure SetOnRequestEnd(const Value: TCrossHttpAfterRequestEvent);
     procedure SetOnRequestException(const Value: TCrossHttpRequestExceptionEvent);
-
-    /// <summary>
-    ///   创建路由对象
-    /// </summary>
-    /// <param name="AMethod">
-    ///   请求方式
-    /// </param>
-    /// <param name="APath">
-    ///   请求路径
-    /// </param>
-    /// <param name="ARouterProc">
-    ///   路由匿名函数
-    /// </param>
-    /// <param name="ARouterMethod">
-    ///   路由方法
-    /// </param>
-    /// <param name="ARouterProc2">
-    ///   路由匿名函数
-    /// </param>
-    /// <param name="ARouterMethod2">
-    ///   路由方法
-    /// </param>
-    function CreateRouter(const AMethod, APath: string;
-      const ARouterProc: TCrossHttpRouterProc; const ARouterMethod: TCrossHttpRouterMethod;
-      const ARouterProc2: TCrossHttpRouterProc2; const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpRouter;
 
     /// <summary>
     ///   注册中间件
@@ -1666,27 +1628,17 @@ type
     /// <summary>
     ///   清除所有路由
     /// </summary>
-    function ClearRouter: ICrossHttpServer;
+    function ClearRouters: ICrossHttpServer;
 
     /// <summary>
-    ///   锁定并返回路由列表
+    ///   删除指定中间件
     /// </summary>
-    function LockRouters: TCrossHttpRouters;
+    function RemoveMiddleware(const AMethod, APath: string): ICrossHttpServer;
 
     /// <summary>
-    ///   解锁路由列表
+    ///   清除所有中间件
     /// </summary>
-    procedure UnlockRouters;
-
-    /// <summary>
-    ///   锁定并返回中间件列表
-    /// </summary>
-    function LockMiddlewares: TCrossHttpRouters;
-
-    /// <summary>
-    ///   解锁中间件列表
-    /// </summary>
-    procedure UnlockMiddlewares;
+    function ClearMiddlewares: ICrossHttpServer;
 
     /// <summary>
     ///   上传文件保存路径
@@ -2047,33 +1999,172 @@ type
     destructor Destroy; override;
   end;
 
-  TCrossHttpRouter = class(TInterfacedObject, ICrossHttpRouter)
+  /// <summary>
+  ///   路由参数定义
+  /// </summary>
+  TRouteParam = record
+    Name: string;     // 参数名
+    Pattern: string;  // 正则模式
+  end;
+
+  /// <summary>
+  ///   路由类型
+  /// </summary>
+  TRouteType = (
+    /// <summary>
+    ///   静态路由
+    /// </summary>
+    rtStatic,
+
+    /// <summary>
+    ///   正则路由
+    ///   例如: /users/:id, /users/:id/echo, /users/:id(\d+)
+    /// </summary>
+    rtRegex,
+
+    /// <summary>
+    ///   通配符路由
+    ///   例如: /files/*, 其中*就是通配符节点, 通配符节点只能出现在路径最后一段
+    /// </summary>
+    rtWildcard
+  );
+
+  /// <summary>
+  ///   路由
+  /// </summary>
+  TRouter = class
   private
-    FMethod, FPath: string;
-    FRouterProc: TCrossHttpRouterProc;
-    FRouterMethod: TCrossHttpRouterMethod;
-    FRouterProc2: TCrossHttpRouterProc2;
-    FRouterMethod2: TCrossHttpRouterMethod2;
-    FMethodPattern, FPathPattern: string;
-    FPathParamKeys: TArray<string>;
-    FMethodRegEx, FPathRegEx: IRegEx;
-    FRegExLock: ILock;
+    // 路由类型
+    FRouteType: TRouteType;
+    // 方法模式(如 "GET", "GET|POST", "*" 等)
+    FMethodPattern: string;
+    FLock: ILock;
 
-    function MakeMethodPattern(const AMethod: string): string;
-    function MakePathPattern(const APath: string; var AKeys: TArray<string>): string;
-    procedure RemakePattern;
+    // 路由处理函数
+    FRouterProcList: TList<TCrossHttpRouterProc>;
+    FRouterMethodList: TList<TCrossHttpRouterMethod>;
+    FRouterProc2List: TList<TCrossHttpRouterProc2>;
+    FRouterMethod2List: TList<TCrossHttpRouterMethod2>;
 
-    function GetMethod: string;
-    function GetPath: string;
+    // 正则表达式对象(仅用于正则模式)
+    FRegEx: IRegEx;
   public
-    constructor Create(const AMethod, APath: string;
-      const ARouterProc: TCrossHttpRouterProc;
-      const ARouterMethod: TCrossHttpRouterMethod;
-      const ARouterProc2: TCrossHttpRouterProc2;
-      const ARouterMethod2: TCrossHttpRouterMethod2);
+    constructor Create(const AMethodPattern: string);
+    destructor Destroy; override;
 
-    function IsMatch(const ARequest: ICrossHttpRequest): Boolean;
-    procedure Execute(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean);
+    procedure AddRouterProc(const ARouterProc: TCrossHttpRouterProc); overload;
+    procedure AddRouterProc(const ARouterProc: TCrossHttpRouterProc2); overload;
+    procedure AddRouterProc(const ARouterProc: TCrossHttpRouterMethod); overload;
+    procedure AddRouterProc(const ARouterProc: TCrossHttpRouterMethod2); overload;
+
+    procedure Execute(const ARequest: ICrossHttpRequest;
+      const AResponse: ICrossHttpResponse; var AHandled: Boolean);
+  end;
+
+  /// <summary>
+  ///   路由段
+  /// </summary>
+  TRouteSegment = class
+  private
+    FOriginal: string;              // 原始段
+    FPattern: string;               // 完整模式
+    FParams: TArray<TRouteParam>;   // 参数定义数组
+    FRouteType: TRouteType;         // 路由类型
+    FRegEx: IRegEx;                 // 正则表达式对象(仅用于正则模式)
+  public
+    constructor Create(const AOriginal, APattern: string;
+      const AParams: TArray<TRouteParam>; ARouteType: TRouteType);
+
+    // 正则匹配
+    // 只有正则匹配的路由才需要处理参数
+    function RegexMatch(const ASegment: string; const ARequest: ICrossHttpRequest): Boolean;
+
+    property Original: string read FOriginal;
+    property Pattern: string read FPattern;
+    property Params: TArray<TRouteParam> read FParams;
+    property RouteType: TRouteType read FRouteType;
+  end;
+
+  /// <summary>
+  ///   路由节点
+  /// </summary>
+  TRouteNode = class
+  private
+    FRouteType: TRouteType;  // 路由类型
+    FSegment: TRouteSegment; // 路由段
+
+    FStaticChildren: TObjectDictionary<string, TRouteNode>; // 静态子节点
+    FRegexChildren: TObjectList<TRouteNode>;                // 正则子节点
+    FWildcardChild: TRouteNode;                             // 通配符子节点
+
+    FStaticRouteMethodItems: TObjectDictionary<string, TRouter>; // 静态方法路由项列表
+    FRegexRouteMethodItems: TObjectList<TRouter>;                // 正则方法路由项列表
+    FWildcardRouteMethodItem: TRouter;                           // 通配符路由项
+
+    function GetChildNode(const ASegment: string; const ARouteType: TRouteType; out ARouteNode: TRouteNode): Boolean;
+    function CreateChildNode(const ASegment: TRouteSegment): TRouteNode;
+  public
+    constructor Create(ARouteType: TRouteType; const ASegment: TRouteSegment);
+    destructor Destroy; override;
+
+    // 注意: 添加和删除是使用的模式字符串(比如 GET POST GET|POST)
+    procedure AddRouter(const AMethodPattern: string; const ARouter: TRouter);
+    function GetRouter(const AMethodPattern: string; out ARouter: TRouter): Boolean;
+    function RemoveRouter(const AMethodPattern: string): Boolean;
+
+    // 注意: 查找使用的是确定的请求方法(比如 GET POST)
+    function MatchRouter(const AMethod: string; out ARouter: TRouter): Boolean;
+    function IsEmpty: Boolean;
+
+    property RouteType: TRouteType read FRouteType;
+    property Segment: TRouteSegment read FSegment;
+    property StaticChildren: TObjectDictionary<string, TRouteNode> read FStaticChildren;
+    property RegexChildren: TObjectList<TRouteNode> read FRegexChildren;
+    property WildcardChild: TRouteNode read FWildcardChild;
+  end;
+
+  /// <summary>
+  ///   路由树
+  /// </summary>
+  TCrossHttpRouterTree = class
+  private
+    FRoot: TRouteNode;
+    FLock: IReadWriteLock;
+
+    function ParsePath(const APath: string): TArray<string>;
+    function CreateSegment(const ASegment: string; const ARouteType: TRouteType): TRouteSegment;
+
+    // 注意: 添加和删除是使用的模式字符串(比如 GET POST GET|POST, /user/:id)
+    procedure AddRouterToNode(ANode: TRouteNode; const APathPatternSegments: TArray<string>;
+      AIndex: Integer; const AMethodPattern: string; const ARouter: TRouter);
+    function GetRouterFromNode(ANode: TRouteNode; const APathPatternSegments: TArray<string>;
+      AIndex: Integer; const AMethodPattern: string; out ARouter: TRouter): Boolean;
+    function RemoveRouterFromNode(ANode: TRouteNode; const APathPatternSegments: TArray<string>;
+      AIndex: Integer; const AMethodPattern: string): Boolean;
+
+    // 注意: 查找使用的是确定的请求方法和路径(比如 GET POST, /user/123)
+    function MatchRouterInNode(ANode: TRouteNode; const APathSegments: TArray<string>;
+      AIndex: Integer; const AMethod: string; const ARequest: ICrossHttpRequest;
+      out ARouter: TRouter): Boolean;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    // 注意: 添加和删除是使用的模式字符串(比如 GET POST GET|POST, /user/:id)
+    procedure AddRouter(const AMethodPattern, APathPattern: string; const ARouter: TRouter); overload;
+    function GetRouter(const AMethodPattern, APathPattern: string; out ARouter: TRouter): Boolean; overload;
+    function GetRouter(const AMethodPattern, APathPattern: string): TRouter; overload;
+
+    procedure AddRouter(const AMethodPattern, APathPattern: string; const ARouterProc: TCrossHttpRouterProc); overload;
+    procedure AddRouter(const AMethodPattern, APathPattern: string; const ARouterProc2: TCrossHttpRouterProc2); overload;
+    procedure AddRouter(const AMethodPattern, APathPattern: string; const ARouterMethod: TCrossHttpRouterMethod); overload;
+    procedure AddRouter(const AMethodPattern, APathPattern: string; const ARouterMethod2: TCrossHttpRouterMethod2); overload;
+
+    procedure RemoveRouter(const AMethodPattern, APathPattern: string);
+
+    // 注意: 查找与请求匹配的路由
+    function MatchRouter(const ARequest: ICrossHttpRequest; out ARouter: TRouter): Boolean;
+    procedure Clear;
   end;
 
   TCrossHttpServer = class(TCrossServer, ICrossHttpServer)
@@ -2086,27 +2177,16 @@ type
     FMaxHeaderSize: Int64;
     FMinCompressSize: Integer;
     FSessionIDCookieName: string;
-    FRouters: TCrossHttpRouters;
-    FRoutersLock: IReadWriteLock;
-    FMiddlewares: TCrossHttpRouters;
-    FMiddlewaresLock: IReadWriteLock;
+
+    FRouters: TCrossHttpRouterTree;
+    FMiddlewares: TCrossHttpRouterTree;
+
     FSessions: ISessions;
     FOnRequestBegin: TCrossHttpBeforeRequestEvent;
     FOnRequestEnd: TCrossHttpAfterRequestEvent;
     FOnRequest: TCrossHttpRequestEvent;
     FOnRequestException: TCrossHttpRequestExceptionEvent;
     FCompressible: Boolean;
-
-    function RegisterRouter(const AMethod, APath: string;
-      const ARouterProc: TCrossHttpRouterProc;
-      const ARouterMethod: TCrossHttpRouterMethod;
-      const ARouterProc2: TCrossHttpRouterProc2;
-      const ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
-    function RegisterMiddleware(const AMethod, APath: string;
-      const AMiddlewareProc: TCrossHttpRouterProc;
-      const AMiddlewareMethod: TCrossHttpRouterMethod;
-      const AMiddlewareProc2: TCrossHttpRouterProc2;
-      const AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
   protected
     function GetStoragePath: string;
     function GetAutoDeleteFiles: Boolean;
@@ -2137,12 +2217,6 @@ type
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AHost: string;
       const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
-
-    function CreateRouter(const AMethod, APath: string;
-      const ARouterProc: TCrossHttpRouterProc;
-      const ARouterMethod: TCrossHttpRouterMethod;
-      const ARouterProc2: TCrossHttpRouterProc2;
-      const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpRouter; virtual;
 
     procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
   protected
@@ -2222,13 +2296,10 @@ type
     function Index(const APath, ALocalDir: string; const ADefIndexFiles: TArray<string>): ICrossHttpServer;
 
     function RemoveRouter(const AMethod, APath: string): ICrossHttpServer;
-    function ClearRouter: ICrossHttpServer;
+    function ClearRouters: ICrossHttpServer;
 
-    function LockRouters: TCrossHttpRouters;
-    procedure UnlockRouters;
-
-    function LockMiddlewares: TCrossHttpRouters;
-    procedure UnlockMiddlewares;
+    function RemoveMiddleware(const AMethod, APath: string): ICrossHttpServer;
+    function ClearMiddlewares: ICrossHttpServer;
 
     property StoragePath: string read GetStoragePath write SetStoragePath;
     property AutoDeleteFiles: Boolean read GetAutoDeleteFiles write SetAutoDeleteFiles;
@@ -2486,219 +2557,813 @@ begin
   FServer.DoOnRequest(LConnection);
 end;
 
-{ TCrossHttpRouter }
-
-constructor TCrossHttpRouter.Create(const AMethod, APath: string;
-  const ARouterProc: TCrossHttpRouterProc; const ARouterMethod: TCrossHttpRouterMethod;
-  const ARouterProc2: TCrossHttpRouterProc2; const ARouterMethod2: TCrossHttpRouterMethod2);
+function IsRegEx(const APattern: string): Boolean; inline;
 begin
-  FMethod := AMethod;
-  FPath := APath;
-  FRouterProc := ARouterProc;
-  FRouterMethod := ARouterMethod;
-  FRouterProc2 := ARouterProc2;
-  FRouterMethod2 := ARouterMethod2;
-
-  FMethodRegEx := TRegEx.Create;
-  FMethodRegEx.Options := [roIgnoreCase];
-
-  FPathRegEx := TRegEx.Create;
-  FPathRegEx.Options := [roIgnoreCase];
-
-  FRegExLock := TLock.Create;
-
-  RemakePattern;
+  Result := (APattern.IndexOfAny(REGEX_CHARS) >= 0);
 end;
 
-function TCrossHttpRouter.MakeMethodPattern(const AMethod: string): string;
+function IsWildcard(const APattern: string): Boolean; inline;
+begin
+  Result := (APattern = WILDCARD_CHAR);
+end;
+
+function GetPatternType(const APattern: string): TRouteType; inline;
+begin
+  // 通配符
+  if IsWildcard(APattern) then
+    Result := rtWildcard
+  // 正则
+  else if IsRegEx(APattern) then
+    Result := rtRegex
+  // 静态
+  else
+    Result := rtStatic;
+end;
+
+function CreateRouterRegEx(const APattern: string): IRegEx;
 var
   LPattern: string;
 begin
-  LPattern := AMethod;
+  LPattern := APattern;
+  if (LPattern = '*') then
+    LPattern := '.*';
 
-  // 通配符*转正则表达式
-  LPattern := TRegEx.Replace(LPattern, '(?<!\.)\*', '.*');
-
-  if not LPattern.StartsWith('^', True) then
+  // 添加正则表达式的开始和结束锚点
+  if not LPattern.StartsWith('^') then
     LPattern := '^' + LPattern;
   if not LPattern.EndsWith('$') then
     LPattern := LPattern + '$';
 
-  Result := LPattern;
+  Result := TRegEx.Create(LPattern);
+  Result.Options := [roIgnoreCase];
 end;
 
-function TCrossHttpRouter.MakePathPattern(const APath: string;
-  var AKeys: TArray<string>): string;
-var
-  LPattern: string;
-  LKeys: TArray<string>;
+{ TRouter }
+
+procedure TRouter.AddRouterProc(const ARouterProc: TCrossHttpRouterProc);
 begin
-  LKeys := [];
-  LPattern := APath;
-
-  LPattern := '(?:' + LPattern + ')';
-
-  // 将 /( 替换成 /(?:
-  LPattern := TRegEx.Replace(LPattern, '\/\(', '/(?:');
-
-  // 将 /. 替换成 \/\.
-  LPattern := TRegEx.Replace(LPattern, '([\/\.])', '\\$1');
-
-  // 提取形如 :keyname 的参数名称
-  // 可以在参数后面增加正则限定参数 :number(\d+), :word(\w+)
-  LPattern := TRegEx.Replace(LPattern, ':(\w+)(\(.*?\))?',
-    function(const AMatch: TMatch): string
-    var
-      LKey, LCapture: string;
-    begin
-      if not AMatch.Success then Exit('');
-
-      if (AMatch.Groups.Count > 1) then
-        LKey := AMatch.Groups[1].Value
-      else
-        LKey := '';
-      if (AMatch.Groups.Count > 2) then
-        LCapture := AMatch.Groups[2].Value
-      else
-        LCapture := '';
-
-      if (LCapture = '') then
-        LCapture := '[^\/\?]+';
-      Result := '(?P<' + LKey + '>' + LCapture + ')';
-
-      LKeys := LKeys + [LKey];
-    end);
-
-  // 通配符*转正则表达式
-  LPattern := TRegEx.Replace(LPattern, '(?<!\.)\*', '.*');
-
-  if not LPattern.StartsWith('^', True) then
-    LPattern := '^' + LPattern;
-
-  // /test/?aa=11&bb=22
-  // /test?aa=11&bb=22
-  if not LPattern.EndsWith('$') then
-    LPattern := LPattern + '(?:(\/?\?[^\/\?]*$)|$)';
-
-  AKeys := LKeys;
-  Result := LPattern;
-end;
-
-procedure TCrossHttpRouter.RemakePattern;
-begin
-  if (FPath.Chars[0] <> '/') then
-    FPath := '/' + FPath;
-
-  FMethodPattern := MakeMethodPattern(FMethod);
-  FPathPattern := MakePathPattern(FPath, FPathParamKeys);
-
-  FRegExLock.Enter;
+  FLock.Enter;
   try
-    FMethodRegEx.Pattern := FMethodPattern;
-    FPathRegEx.Pattern := FPathPattern;
+    FRouterProcList.Add(ARouterProc);
   finally
-    FRegExLock.Leave;
+    FLock.Leave;
   end;
 end;
 
-function TCrossHttpRouter.IsMatch(const ARequest: ICrossHttpRequest): Boolean;
-  function _IsMatchMethod: Boolean;
-  begin
-    // Method中不包括参数, 使用TStrUtils.SameText辅助加速
-    if (FMethod = '*') or TStrUtils.SameText(ARequest.Method, FMethod) then Exit(True);
-
-    FMethodRegEx.Subject := ARequest.Method;
-    Result := FMethodRegEx.Match;
+procedure TRouter.AddRouterProc(const ARouterProc: TCrossHttpRouterProc2);
+begin
+  FLock.Enter;
+  try
+    FRouterProc2List.Add(ARouterProc);
+  finally
+    FLock.Leave;
   end;
+end;
 
-  function _GetPurePathLen(const APath: string): Integer;
-  begin
-    Result := Length(APath);
-    if APath.EndsWith('/?', True) then
-      Dec(Result, 2)
-    else if APath.EndsWith('/*', True) then
-      Dec(Result, 2)
-    else if APath.EndsWith('?', True) then
-      Dec(Result)
-    else if APath.EndsWith('/', True) then
-      Dec(Result);
+procedure TRouter.AddRouterProc(const ARouterProc: TCrossHttpRouterMethod);
+begin
+  FLock.Enter;
+  try
+    FRouterMethodList.Add(ARouterProc);
+  finally
+    FLock.Leave;
   end;
+end;
 
-  function _SamePath(const APath1, APath2: string): Boolean;
-  var
-    LPureLen1, LPureLen2: Integer;
-  begin
-    if (APath1 = '') or (APath2 = '') then Exit(False);
-
-    LPureLen1 := _GetPurePathLen(APath1);
-    LPureLen2 := _GetPurePathLen(APath2);
-
-    if (LPureLen1 <> LPureLen2) then Exit(False);
-
-    Result := (string.Compare(APath1, 0, APath2, 0, LPureLen1, True) = 0);
+procedure TRouter.AddRouterProc(const ARouterProc: TCrossHttpRouterMethod2);
+begin
+  FLock.Enter;
+  try
+    FRouterMethod2List.Add(ARouterProc);
+  finally
+    FLock.Leave;
   end;
+end;
 
-  function _IsMatchPath: Boolean;
-  var
-    LParamName: string;
-    LParamIndex: Integer;
-  begin
-    // Path中不包括参数时, 使用_SamePath辅助加速
-    if (FPath = '*') or (FPath = '/*') or
-      ((Length(FPathParamKeys) = 0) and _SamePath(ARequest.Path, FPath)) then Exit(True);
+constructor TRouter.Create(const AMethodPattern: string);
+begin
+  FMethodPattern := AMethodPattern;
+  FRouteType := GetPatternType(AMethodPattern);
 
-    FPathRegEx.Subject := ARequest.PathAndParams;
-    Result := FPathRegEx.Match;
-    if not Result or (FPathRegEx.GroupCount <= 0) then Exit;
+  FRouterProcList := TList<TCrossHttpRouterProc>.Create;
+  FRouterMethodList := TList<TCrossHttpRouterMethod>.Create;
+  FRouterProc2List := TList<TCrossHttpRouterProc2>.Create;
+  FRouterMethod2List := TList<TCrossHttpRouterMethod2>.Create;
+  FLock := TLock.Create;
 
-    // 将Path中的参数解析出来保存到Request.Params中
-    for LParamName in FPathParamKeys do
+  if (FRouteType = rtRegex) then
+    FRegEx := CreateRouterRegEx(AMethodPattern);
+end;
+
+destructor TRouter.Destroy;
+begin
+  FreeAndNil(FRouterProcList);
+  FreeAndNil(FRouterMethodList);
+  FreeAndNil(FRouterProc2List);
+  FreeAndNil(FRouterMethod2List);
+
+  inherited;
+end;
+
+procedure TRouter.Execute(const ARequest: ICrossHttpRequest;
+  const AResponse: ICrossHttpResponse; var AHandled: Boolean);
+var
+  LRouterProc: TCrossHttpRouterProc;
+  LRouterMethod: TCrossHttpRouterMethod;
+  LRouterProc2: TCrossHttpRouterProc2;
+  LRouterMethod2: TCrossHttpRouterMethod2;
+begin
+  FLock.Enter;
+  try
+    for LRouterProc2 in FRouterProc2List do
     begin
-      LParamIndex := FPathRegEx.GetGroupIndex(LParamName);
-      if (LParamIndex >= 0) then
-        ARequest.Params[LParamName] := FPathRegEx.Groups[LParamIndex];
+      if Assigned(LRouterProc2) then
+      begin
+        LRouterProc2(ARequest, AResponse, AHandled);
+        if AHandled then Break;
+      end;
+    end;
+
+    for LRouterMethod2 in FRouterMethod2List do
+    begin
+      if Assigned(LRouterMethod2) then
+      begin
+        LRouterMethod2(ARequest, AResponse, AHandled);
+        if AHandled then Break;
+      end;
+    end;
+
+    for LRouterProc in FRouterProcList do
+    begin
+      if Assigned(LRouterProc) then
+        LRouterProc(ARequest, AResponse);
+    end;
+
+    for LRouterMethod in FRouterMethodList do
+    begin
+      if Assigned(LRouterMethod) then
+        LRouterMethod(ARequest, AResponse);
+    end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+{ TRouteSegment }
+
+constructor TRouteSegment.Create(const AOriginal, APattern: string;
+  const AParams: TArray<TRouteParam>; ARouteType: TRouteType);
+begin
+  inherited Create;
+  FOriginal := AOriginal;
+  FPattern := APattern;
+  FParams := AParams;
+  FRouteType := ARouteType;
+
+  if (FRouteType = rtRegex) then
+    FRegEx := CreateRouterRegEx(APattern);
+end;
+
+function TRouteSegment.RegexMatch(const ASegment: string; const ARequest: ICrossHttpRequest): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+
+  case FRouteType of
+    rtRegex:
+      begin
+        if FRegEx <> nil then
+        begin
+          FRegEx.Subject := ASegment;
+          Result := FRegEx.Match;
+          if Result and Assigned(ARequest) then
+          begin
+            // 提取所有参数值
+            for I := 0 to High(FParams) do
+              ARequest.Params[FParams[I].Name] := FRegEx.Groups[I + 1];
+          end;
+        end;
+      end;
+  end;
+end;
+
+{ TRouteNode }
+
+constructor TRouteNode.Create(ARouteType: TRouteType; const ASegment: TRouteSegment);
+begin
+  inherited Create;
+
+  FRouteType := ARouteType;
+  FSegment := ASegment;
+  FStaticChildren := TObjectDictionary<string, TRouteNode>.Create([doOwnsValues]);
+  FRegexChildren := TObjectList<TRouteNode>.Create(True);
+
+  FStaticRouteMethodItems := TObjectDictionary<string, TRouter>.Create([doOwnsValues]);
+  FRegexRouteMethodItems := TObjectList<TRouter>.Create(True);
+end;
+
+destructor TRouteNode.Destroy;
+begin
+  FreeAndNil(FSegment);
+  FreeAndNil(FStaticChildren);
+  FreeAndNil(FRegexChildren);
+  FreeAndNil(FWildcardChild);
+
+  FreeAndNil(FStaticRouteMethodItems);
+  FreeAndNil(FRegexRouteMethodItems);
+  FreeAndNil(FWildcardRouteMethodItem);
+
+  inherited;
+end;
+
+function TRouteNode.CreateChildNode(const ASegment: TRouteSegment): TRouteNode;
+begin
+  case ASegment.RouteType of
+    rtStatic:
+      begin
+        Result := TRouteNode.Create(rtStatic, ASegment);
+        FStaticChildren.Add(ASegment.Original.ToLower, Result);
+      end;
+
+    rtRegex:
+      begin
+        Result := TRouteNode.Create(rtRegex, ASegment);
+        FRegexChildren.Add(Result);
+      end;
+
+    rtWildcard:
+      begin
+        if FWildcardChild = nil then
+          FWildcardChild := TRouteNode.Create(rtWildcard, ASegment);
+        Result := FWildcardChild;
+      end;
+  else
+    Result := nil;
+  end;
+end;
+
+procedure TRouteNode.AddRouter(const AMethodPattern: string; const ARouter: TRouter);
+begin
+  case ARouter.FRouteType of
+    rtStatic:
+      FStaticRouteMethodItems.AddOrSetValue(AMethodPattern.ToLower, ARouter);
+
+    rtRegex:
+      FRegexRouteMethodItems.Add(ARouter);
+
+    rtWildcard:
+      FWildcardRouteMethodItem := ARouter;
+  end;
+end;
+
+function TRouteNode.GetChildNode(const ASegment: string;
+  const ARouteType: TRouteType; out ARouteNode: TRouteNode): Boolean;
+var
+  LChild: TRouteNode;
+begin
+  case ARouteType of
+    rtStatic:
+      begin
+        Result := FStaticChildren.TryGetValue(ASegment.ToLower, ARouteNode)
+      end;
+
+    rtRegex:
+      begin
+        for LChild in FRegexChildren do
+        begin
+          if (LChild.Segment.Original = ASegment) then
+          begin
+            ARouteNode := LChild;
+            Exit(True);
+          end;
+        end;
+
+        Result := False;
+      end;
+
+    rtWildcard:
+      begin
+        ARouteNode := FWildcardChild;
+        Result := (ARouteNode <> nil);
+      end;
+  else
+    ARouteNode := nil;
+    Result := False;
+  end;
+end;
+
+function TRouteNode.GetRouter(const AMethodPattern: string;
+  out ARouter: TRouter): Boolean;
+var
+  I: Integer;
+  LRouter: TRouter;
+begin
+  Result := False;
+
+  // 先尝试从静态方法路由中查找
+  if FStaticRouteMethodItems.TryGetValue(AMethodPattern.ToLower, ARouter) then
+    Exit(True);
+
+  // 从正则方法路由中查找
+  for I := 0 to FRegexRouteMethodItems.Count - 1 do
+  begin
+    LRouter := FRegexRouteMethodItems[I];
+    if SameText(LRouter.FMethodPattern, AMethodPattern) then
+    begin
+      ARouter := LRouter;
+      Exit(True);
     end;
   end;
-begin
-  ARequest.Params.Clear;
 
-  FRegExLock.Enter;
+  // 从通配符方法路由中查找
+  if (FWildcardRouteMethodItem <> nil) and IsWildcard(AMethodPattern) then
+  begin
+    ARouter := FWildcardRouteMethodItem;
+    Exit(True);
+  end;
+end;
+
+function TRouteNode.MatchRouter(const AMethod: string;
+  out ARouter: TRouter): Boolean;
+var
+  LRouter: TRouter;
+begin
+  Result := False;
+
+  // 优先从静态方法路由中查找
+  if FStaticRouteMethodItems.TryGetValue(AMethod.ToLower, LRouter) then
+  begin
+    ARouter := LRouter;
+    Exit(True);
+  end;
+
+  // 遍历所有正则方法路由项, 找到第一个匹配的
+  for LRouter in FRegexRouteMethodItems do
+  begin
+    // 正则表达式方法, 使用预编译的正则表达式
+    if (LRouter.FRegEx <> nil) then
+    begin
+      LRouter.FRegEx.Subject := AMethod;
+      if LRouter.FRegEx.Match then
+      begin
+        ARouter := LRouter;
+        Exit(True);
+      end;
+    end;
+  end;
+
+  // 通配符
+  if (FWildcardRouteMethodItem <> nil) then
+  begin
+    ARouter := FWildcardRouteMethodItem;
+    Exit(True);
+  end;
+end;
+
+function TRouteNode.RemoveRouter(const AMethodPattern: string): Boolean;
+var
+  LLowerMethod: string;
+  I: Integer;
+  LRouter: TRouter;
+begin
+  Result := False;
+
+  // 先尝试从静态方法路由中删除
+  LLowerMethod := AMethodPattern.ToLower;
+  if FStaticRouteMethodItems.ContainsKey(LLowerMethod) then
+  begin
+    FStaticRouteMethodItems.Remove(LLowerMethod);
+    Exit(True);
+  end;
+
+  // 从通配符方法路由删除
+  if (FWildcardRouteMethodItem <> nil) and IsWildcard(AMethodPattern) then
+  begin
+    FreeAndNil(FWildcardRouteMethodItem);
+    Exit(True);
+  end;
+
+  // 遍历正则方法路由项, 删除匹配的路由
+  for I := FRegexRouteMethodItems.Count - 1 downto 0 do
+  begin
+    LRouter := FRegexRouteMethodItems[I];
+    if SameText(LRouter.FMethodPattern, AMethodPattern) then
+    begin
+      FRegexRouteMethodItems.Delete(I);
+      Exit(True);
+    end;
+  end;
+end;
+
+function TRouteNode.IsEmpty: Boolean;
+begin
+  // 节点为空的条件: 没有子节点且没有路由处理函数
+  Result := (FStaticChildren.Count = 0) and
+            (FRegexChildren.Count = 0) and
+            (FWildcardChild = nil) and
+            (FStaticRouteMethodItems.Count = 0) and
+            (FRegexRouteMethodItems.Count = 0) and
+            (FWildcardRouteMethodItem = nil);
+end;
+
+{ TCrossHttpRouterTree }
+
+constructor TCrossHttpRouterTree.Create;
+begin
+  inherited Create;
+
+  FRoot := TRouteNode.Create(rtStatic, TRouteSegment.Create('', '', [], rtStatic));
+  FLock := TReadWriteLockV2.Create;
+end;
+
+destructor TCrossHttpRouterTree.Destroy;
+begin
+  FreeAndNil(FRoot);
+
+  inherited;
+end;
+
+function TCrossHttpRouterTree.CreateSegment(const ASegment: string;
+  const ARouteType: TRouteType): TRouteSegment;
+var
+  LPattern: string;
+  LParams: TArray<TRouteParam>;
+begin
+  LPattern := ASegment;
+  LParams := [];
+
+  // 正则段需要处理参数
+  if (ARouteType = rtRegex) then
+  begin
+    LPattern := ASegment;
+    LParams := [];
+    // 使用正则表达式匹配所有参数模式
+    // 匹配 :param 和 :param(pattern) 格式
+    // 可以在参数后面增加正则限定参数 :number(\d+), :word(\w+)
+    LPattern := TRegEx.Replace(LPattern, ':(\w+)(?:\((.*?)\))?',
+      function(const AMatch: TMatch): string
+      var
+        LParamName, LParamPattern: string;
+        LParam: TRouteParam;
+      begin
+        if not AMatch.Success then Exit('');
+
+        if (AMatch.Groups.Count > 1) then
+          LParamName := AMatch.Groups[1].Value
+        else
+          LParamName := '';
+        if (AMatch.Groups.Count > 2) then
+          LParamPattern := AMatch.Groups[2].Value
+        else
+          LParamPattern := '';
+
+        if (LParamPattern = '') or (LParamPattern = '*') then
+          LParamPattern := '.*';
+
+        Result := '(' + LParamPattern + ')';
+
+        LParam.Name := LParamName;
+        LParam.Pattern := LParamPattern;
+        LParams := LParams + [LParam];
+      end);
+  end;
+
+  Result := TRouteSegment.Create(ASegment, LPattern, LParams, ARouteType);
+end;
+
+function TCrossHttpRouterTree.ParsePath(const APath: string): TArray<string>;
+begin
+  if (APath = '/') or (APath = '/?') or (APath = '') then
+  begin
+    Result := [''];
+    Exit;
+  end;
+
+  // 把请求路径按/拆分成多段
+  Result := APath.Split(['/'], TStringSplitOptions.ExcludeEmpty);
+  if (Result = nil) then
+    Result := [''];
+end;
+
+procedure TCrossHttpRouterTree.AddRouter(const AMethodPattern, APathPattern: string;
+  const ARouter: TRouter);
+var
+  LPathSegments: TArray<string>;
+begin
+  FLock.BeginWrite;
   try
-    Result := _IsMatchMethod and _IsMatchPath;
+    LPathSegments := ParsePath(APathPattern);
+    AddRouterToNode(FRoot, LPathSegments, 0, AMethodPattern, ARouter);
   finally
-    FRegExLock.Leave;
+    FLock.EndWrite;
   end;
 end;
 
-procedure TCrossHttpRouter.Execute(const ARequest: ICrossHttpRequest;
-  const AResponse: ICrossHttpResponse; var AHandled: Boolean);
+procedure TCrossHttpRouterTree.AddRouter(const AMethodPattern, APathPattern: string;
+  const ARouterProc: TCrossHttpRouterProc);
+var
+  LRouter: TRouter;
 begin
-  if Assigned(FRouterProc) then
+  LRouter := GetRouter(AMethodPattern, APathPattern);
+  LRouter.AddRouterProc(ARouterProc);
+end;
+
+procedure TCrossHttpRouterTree.AddRouter(const AMethodPattern,
+  APathPattern: string; const ARouterProc2: TCrossHttpRouterProc2);
+var
+  LRouter: TRouter;
+begin
+  LRouter := GetRouter(AMethodPattern, APathPattern);
+  LRouter.AddRouterProc(ARouterProc2);
+end;
+
+procedure TCrossHttpRouterTree.AddRouter(const AMethodPattern,
+  APathPattern: string; const ARouterMethod: TCrossHttpRouterMethod);
+var
+  LRouter: TRouter;
+begin
+  LRouter := GetRouter(AMethodPattern, APathPattern);
+  LRouter.AddRouterProc(ARouterMethod);
+end;
+
+procedure TCrossHttpRouterTree.AddRouter(const AMethodPattern,
+  APathPattern: string; const ARouterMethod2: TCrossHttpRouterMethod2);
+var
+  LRouter: TRouter;
+begin
+  LRouter := GetRouter(AMethodPattern, APathPattern);
+  LRouter.AddRouterProc(ARouterMethod2);
+end;
+
+procedure TCrossHttpRouterTree.AddRouterToNode(ANode: TRouteNode;
+  const APathPatternSegments: TArray<string>; AIndex: Integer; const AMethodPattern: string;
+  const ARouter: TRouter);
+var
+  LSegmentPattern: string;
+  LRouteType: TRouteType;
+  LRouteSegment: TRouteSegment;
+  LChild: TRouteNode;
+begin
+  if (AIndex > High(APathPatternSegments)) then
   begin
-    FRouterProc(ARequest, AResponse);
-  end else
-  if Assigned(FRouterMethod) then
+    // 到达路径末尾, 添加路由
+    ANode.AddRouter(AMethodPattern, ARouter);
+    Exit;
+  end;
+
+  LSegmentPattern := APathPatternSegments[AIndex];
+  LRouteType := GetPatternType(LSegmentPattern);
+
+  if not ANode.GetChildNode(LSegmentPattern, LRouteType, LChild) then
   begin
-    FRouterMethod(ARequest, AResponse);
-  end else
-  if Assigned(FRouterProc2) then
-  begin
-    FRouterProc2(ARequest, AResponse, AHandled);
-  end else
-  if Assigned(FRouterMethod2) then
-  begin
-    FRouterMethod2(ARequest, AResponse, AHandled);
+    LRouteSegment := CreateSegment(LSegmentPattern, LRouteType);
+    LChild := ANode.CreateChildNode(LRouteSegment);
+  end;
+
+  AddRouterToNode(LChild, APathPatternSegments, AIndex + 1, AMethodPattern, ARouter);
+end;
+
+function TCrossHttpRouterTree.GetRouter(const AMethodPattern,
+  APathPattern: string; out ARouter: TRouter): Boolean;
+var
+  LPathSegments: TArray<string>;
+begin
+  FLock.BeginRead;
+  try
+    LPathSegments := ParsePath(APathPattern);
+    Result := GetRouterFromNode(FRoot, LPathSegments, 0, AMethodPattern, ARouter);
+  finally
+    FLock.EndRead;
   end;
 end;
 
-function TCrossHttpRouter.GetMethod: string;
+function TCrossHttpRouterTree.GetRouter(const AMethodPattern,
+  APathPattern: string): TRouter;
 begin
-  Result := FMethod;
+  if not GetRouter(AMethodPattern, APathPattern, Result) then
+  begin
+    Result := TRouter.Create(AMethodPattern);
+    AddRouter(AMethodPattern, APathPattern, Result);
+  end;
 end;
 
-function TCrossHttpRouter.GetPath: string;
+function TCrossHttpRouterTree.GetRouterFromNode(ANode: TRouteNode;
+  const APathPatternSegments: TArray<string>; AIndex: Integer;
+  const AMethodPattern: string; out ARouter: TRouter): Boolean;
+var
+  LSegmentPattern: string;
+  LRouteType: TRouteType;
+  LChild: TRouteNode;
+  LFound: Boolean;
 begin
-  Result := FPath;
+  Result := False;
+
+  if (AIndex > High(APathPatternSegments)) then
+  begin
+    // 到达路径末尾, 查找该节点的路由
+    Result := ANode.GetRouter(AMethodPattern, ARouter);
+    Exit;
+  end;
+
+  LSegmentPattern := APathPatternSegments[AIndex];
+  LRouteType := GetPatternType(LSegmentPattern);
+
+  case LRouteType of
+    rtStatic:
+      // 从静态子节点中查找路由
+      if ANode.StaticChildren.TryGetValue(LSegmentPattern.ToLower, LChild) then
+      begin
+        LFound := GetRouterFromNode(LChild, APathPatternSegments, AIndex + 1, AMethodPattern, ARouter);
+        Result := Result or LFound;
+      end;
+
+    rtRegex:
+      // 从正则子节点中查找路由
+      for LChild in ANode.RegexChildren do
+      begin
+        if SameText(LChild.Segment.Original, LSegmentPattern) then
+        begin
+          LFound := GetRouterFromNode(LChild, APathPatternSegments, AIndex + 1, AMethodPattern, ARouter);
+          Result := Result or LFound;
+          if Result then Break;          
+        end;
+      end;
+
+    rtWildcard:
+      // 从通配符子节点查找路由
+      if (ANode.WildcardChild <> nil) then
+      begin
+        LFound := ANode.WildcardChild.GetRouter(AMethodPattern, ARouter);
+        Result := Result or LFound;
+      end;
+  end;
+end;
+
+function TCrossHttpRouterTree.MatchRouterInNode(ANode: TRouteNode;
+  const APathSegments: TArray<string>; AIndex: Integer; const AMethod: string;
+  const ARequest: ICrossHttpRequest; out ARouter: TRouter): Boolean;
+var
+  LSegment, LWildcardValue: string;
+  LChild: TRouteNode;
+begin
+  Result := False;
+
+  if (AIndex > High(APathSegments)) then
+  begin
+    // 到达路径末尾, 查找匹配方法的路由
+    Result := ANode.MatchRouter(AMethod, ARouter);
+
+    // 尝试从通配符子节点查找路由
+    if not Result and (ANode.WildcardChild <> nil) then
+    begin
+      LWildcardValue := string.Join('/', APathSegments, AIndex, Length(APathSegments) - AIndex);
+      if Assigned(ARequest) then
+        ARequest.Params[WILDCARD_CHAR] := LWildcardValue;
+
+      Result := ANode.WildcardChild.MatchRouter(AMethod, ARouter);
+    end;
+
+    Exit;
+  end;
+
+  LSegment := APathSegments[AIndex];
+
+  // 1. 首先尝试精确匹配静态节点
+  if ANode.StaticChildren.TryGetValue(LSegment.ToLower, LChild) then
+  begin
+    Result := MatchRouterInNode(LChild, APathSegments, AIndex + 1, AMethod,
+      ARequest, ARouter);
+    if Result then Exit;
+  end;
+
+  // 2. 尝试正则节点(支持多参数)
+  for LChild in ANode.RegexChildren do
+  begin
+    if LChild.Segment.RegexMatch(LSegment, ARequest) then
+    begin
+      // 普通正则节点, 继续递归匹配
+      Result := MatchRouterInNode(LChild, APathSegments, AIndex + 1, AMethod,
+        ARequest, ARouter);
+      if Result then Exit;
+    end;
+  end;
+
+  // 3. 最后尝试通配符子节点(优先级最低)
+  if (ANode.WildcardChild <> nil) then
+  begin
+    LWildcardValue := string.Join('/', APathSegments, AIndex, Length(APathSegments) - AIndex);
+    if Assigned(ARequest) then
+      ARequest.Params[WILDCARD_CHAR] := LWildcardValue;
+
+    Result := ANode.WildcardChild.MatchRouter(AMethod, ARouter);
+    if Result then Exit;
+  end;
+end;
+
+function TCrossHttpRouterTree.MatchRouter(const ARequest: ICrossHttpRequest;
+  out ARouter: TRouter): Boolean;
+var
+  LPathSegments: TArray<string>;
+begin
+  FLock.BeginRead;
+  try
+    LPathSegments := ParsePath(ARequest.Path);
+    Result := MatchRouterInNode(FRoot, LPathSegments, 0, ARequest.Method, ARequest, ARouter);
+  finally
+    FLock.EndRead;
+  end;
+end;
+
+function TCrossHttpRouterTree.RemoveRouterFromNode(ANode: TRouteNode;
+  const APathPatternSegments: TArray<string>; AIndex: Integer; const AMethodPattern: string): Boolean;
+var
+  LSegmentPattern, LLowerSegment: string;
+  LRouteType: TRouteType;
+  LChild: TRouteNode;
+  LRemoved: Boolean;
+begin
+  Result := False;
+
+  if (AIndex > High(APathPatternSegments)) then
+  begin
+    // 到达路径末尾, 删除该节点的路由
+    Result := ANode.RemoveRouter(AMethodPattern);
+    Exit;
+  end;
+
+  LSegmentPattern := APathPatternSegments[AIndex];
+  LRouteType := GetPatternType(LSegmentPattern);
+  LLowerSegment := LSegmentPattern.ToLower;
+
+  case LRouteType of
+    rtStatic:
+      // 从静态子节点中删除路由
+      if ANode.StaticChildren.TryGetValue(LLowerSegment, LChild) then
+      begin
+        LRemoved := RemoveRouterFromNode(LChild, APathPatternSegments, AIndex + 1, AMethodPattern);
+
+        // 如果子节点变空, 删除它
+        if LRemoved and LChild.IsEmpty then
+          ANode.StaticChildren.Remove(LLowerSegment);
+
+        Result := Result or LRemoved;
+      end;
+
+    rtRegex:
+      // 从正则子节点中删除路由
+      for LChild in ANode.RegexChildren do
+      begin
+        if SameText(LChild.Segment.Original, LSegmentPattern) then
+        begin
+          LRemoved := RemoveRouterFromNode(LChild, APathPatternSegments, AIndex + 1, AMethodPattern);
+
+          // 如果子节点变空, 删除它
+          if LRemoved and LChild.IsEmpty then
+            ANode.RegexChildren.Remove(LChild);
+
+          Result := Result or LRemoved;
+          if Result then Break;          
+        end;
+      end;
+
+    rtWildcard:
+      // 从通配符子节点删除路由
+      if (ANode.WildcardChild <> nil) then
+      begin
+        LRemoved := ANode.WildcardChild.RemoveRouter(AMethodPattern);
+
+        // 如果子节点变空, 删除它
+        if LRemoved and ANode.WildcardChild.IsEmpty then
+          FreeAndNil(ANode.FWildcardChild);
+
+        Result := Result or LRemoved;
+      end;
+  end;
+end;
+
+procedure TCrossHttpRouterTree.RemoveRouter(const AMethodPattern, APathPattern: string);
+var
+  LPathSegments: TArray<string>;
+begin
+  FLock.BeginWrite;
+  try
+    LPathSegments := ParsePath(APathPattern);
+    RemoveRouterFromNode(FRoot, LPathSegments, 0, AMethodPattern);
+  finally
+    FLock.EndWrite;
+  end;
+end;
+
+procedure TCrossHttpRouterTree.Clear;
+begin
+  FLock.BeginWrite;
+  try
+    FreeAndNil(FRoot);
+    FRoot := TRouteNode.Create(rtStatic, TRouteSegment.Create('', '', [], rtStatic));
+  finally
+    FLock.EndWrite;
+  end;
 end;
 
 { TCrossHttpServer }
@@ -2731,11 +3396,14 @@ constructor TCrossHttpServer.Create(const AIoThreads: Integer; const ASsl: Boole
 begin
   inherited Create(AIoThreads, ASsl);
 
-  FRouters := TCrossHttpRouters.Create;
-  FRoutersLock := TReadWriteLock.Create;
+//  FRouters := TCrossHttpRouters.Create;
+//  FRoutersLock := TReadWriteLock.Create;
+//
+//  FMiddlewares := TCrossHttpRouters.Create;
+//  FMiddlewaresLock := TReadWriteLock.Create;
 
-  FMiddlewares := TCrossHttpRouters.Create;
-  FMiddlewaresLock := TReadWriteLock.Create;
+  FRouters := TCrossHttpRouterTree.Create;
+  FMiddlewares := TCrossHttpRouterTree.Create;
 
   Port := 80;
   Addr := '';
@@ -2758,34 +3426,12 @@ begin
     AConnectCb);
 end;
 
-function TCrossHttpServer.CreateRouter(const AMethod, APath: string;
-  const ARouterProc: TCrossHttpRouterProc;
-  const ARouterMethod: TCrossHttpRouterMethod;
-  const ARouterProc2: TCrossHttpRouterProc2;
-  const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpRouter;
-begin
-  Result := TCrossHttpRouter.Create(AMethod, APath,
-    ARouterProc, ARouterMethod,
-    ARouterProc2, ARouterMethod2);
-end;
-
 destructor TCrossHttpServer.Destroy;
 begin
   Stop;
 
-  if (FRouters <> nil) then
-  begin
-    FRoutersLock.BeginWrite;
-    FreeAndNil(FRouters);
-    FRoutersLock.EndWrite;
-  end;
-
-  if (FMiddlewares <> nil) then
-  begin
-    FMiddlewaresLock.BeginWrite;
-    FreeAndNil(FMiddlewares);
-    FMiddlewaresLock.EndWrite;
-  end;
+  FreeAndNil(FRouters);
+  FreeAndNil(FMiddlewares);
 
   inherited Destroy;
 end;
@@ -2797,8 +3443,8 @@ begin
   LReqPath := APath;
   if not LReqPath.EndsWith('/') then
     LReqPath := LReqPath + '/';
-  LReqPath := LReqPath + '?:dir(*)';
-  Result := Get(LReqPath, TNetCrossRouter.Dir(APath, ALocalDir, 'dir'));
+  LReqPath := LReqPath + '*';
+  Result := Get(LReqPath, TNetCrossRouter.Dir(APath, ALocalDir, '*'));
 end;
 
 function TCrossHttpServer.Delete(const APath: string;
@@ -2846,8 +3492,7 @@ var
   LResponse: ICrossHttpResponse;
   LSessionID: string;
   LHandled: Boolean;
-  LRouter, LMiddleware: ICrossHttpRouter;
-  LMiddlewares, LRouters: TArray<ICrossHttpRouter>;
+  LRouter: TRouter;
 begin
   LHttpConnectionObj := AConnection as TCrossHttpConnection;
   LRequest := LHttpConnectionObj.FRequest;
@@ -2869,57 +3514,33 @@ begin
     {$endregion}
 
     {$region '中间件'}
-    FMiddlewaresLock.BeginRead;
-    try
-      // 先将中间件保存到临时数组中
-      // 然后再执行中间件
-      // 这样做是为了减少加锁的时间
-      LMiddlewares := FMiddlewares.ToArray;
-    finally
-      FMiddlewaresLock.EndRead;
-    end;
-    for LMiddleware in LMiddlewares do
+    // 执行匹配的中间件
+    if FMiddlewares.MatchRouter(LRequest, LRouter) then
     begin
-      // 执行匹配的中间件
-      if LMiddleware.IsMatch(LRequest) then
-      begin
-        // 中间件通常用于请求的预处理
-        // 所以默认将 LHandled 置为 False, 以保证后续路由能被执行
-        // 除非用户在中间件中明确指定了 LHandled := True, 表明该请求无需后续路由响应了
-        LHandled := False;
-        LMiddleware.Execute(LRequest, LResponse, LHandled);
+      // 中间件通常用于请求的预处理
+      // 所以默认将 LHandled 置为 False, 以保证后续路由能被执行
+      // 除非用户在中间件中明确指定了 LHandled := True, 表明该请求无需后续路由响应了
+      LHandled := False;
+      LRouter.Execute(LRequest, LResponse, LHandled);
 
-        // 如果已经发送了数据, 则后续的事件和路由响应都不需要执行了
-        if LHandled or LResponse.Sent then Exit;
-      end;
+      // 如果已经发送了数据, 则后续的事件和路由响应都不需要执行了
+      if LHandled or LResponse.Sent then Exit;
     end;
     {$endregion}
 
     {$region '路由'}
-    FRoutersLock.BeginRead;
-    try
-      // 先将路由保存到临时数组中
-      // 然后再执行路由
-      // 这样做是为了减少加锁时间
-      LRouters := FRouters.ToArray;
-    finally
-      FRoutersLock.EndRead;
-    end;
-    for LRouter in LRouters do
+    // 执行匹配的路由
+    if FRouters.MatchRouter(LRequest, LRouter) then
     begin
-      // 执行匹配的路由
-      if LRouter.IsMatch(LRequest) then
-      begin
-        // 路由用于响应请求
-        // 所以默认将 LHandled 置为 True, 以保证不会有多个匹配的路由被执行
-        // 除非用户在路由中明确指定了 LHandled := False, 表明该路由并没有
-        // 完成请求响应, 还需要后续路由继续进行响应
-        LHandled := True;
-        LRouter.Execute(LRequest, LResponse, LHandled);
+      // 路由用于响应请求
+      // 所以默认将 LHandled 置为 True, 以保证不会有多个匹配的路由被执行
+      // 除非用户在路由中明确指定了 LHandled := False, 表明该路由并没有
+      // 完成请求响应, 还需要后续路由继续进行响应
+      LHandled := True;
+      LRouter.Execute(LRequest, LResponse, LHandled);
 
-        // 如果已经发送了数据, 则后续的事件和路由响应都不需要执行了
-        if LHandled or LResponse.Sent then Exit;
-      end;
+      // 如果已经发送了数据, 则后续的事件和路由响应都不需要执行了
+      if LHandled or LResponse.Sent then Exit;
     end;
     {$endregion}
 
@@ -3103,8 +3724,8 @@ begin
   LReqPath := APath;
   if not LReqPath.EndsWith('/') then
     LReqPath := LReqPath + '/';
-  LReqPath := LReqPath + ':file(*)';
-  Result := Get(LReqPath, TNetCrossRouter.Static(ALocalStaticDir, 'file'));
+  LReqPath := LReqPath + '*';
+  Result := Get(LReqPath, TNetCrossRouter.Static(ALocalStaticDir, '*'));
 end;
 
 function TCrossHttpServer.Index(const APath, ALocalDir: string;
@@ -3115,8 +3736,8 @@ begin
   LReqPath := APath;
   if not LReqPath.EndsWith('/') then
     LReqPath := LReqPath + '/';
-  LReqPath := LReqPath + ':file(*)';
-  Result := Get(LReqPath, TNetCrossRouter.Index(ALocalDir, 'file', ADefIndexFiles));
+  LReqPath := LReqPath + '*';
+  Result := Get(LReqPath, TNetCrossRouter.Index(ALocalDir, '*', ADefIndexFiles));
 end;
 
 function TCrossHttpServer.Post(const APath: string;
@@ -3167,106 +3788,57 @@ begin
   Result := Route('PUT', APath, ARouterProc2);
 end;
 
-function TCrossHttpServer.RegisterMiddleware(const AMethod, APath: string;
-  const AMiddlewareProc: TCrossHttpRouterProc;
-  const AMiddlewareMethod: TCrossHttpRouterMethod;
-  const AMiddlewareProc2: TCrossHttpRouterProc2;
-  const AMiddlewareMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
-var
-  LMiddleware: ICrossHttpRouter;
-begin
-  LMiddleware := CreateRouter(AMethod, APath,
-    AMiddlewareProc, AMiddlewareMethod,
-    AMiddlewareProc2, AMiddlewareMethod2);
-  FMiddlewaresLock.BeginWrite;
-  try
-    FMiddlewares.Add(LMiddleware);
-  finally
-    FMiddlewaresLock.EndWrite;
-  end;
-  Result := Self;
-end;
-
-function TCrossHttpServer.RegisterRouter(const AMethod, APath: string;
-  const ARouterProc: TCrossHttpRouterProc;
-  const ARouterMethod: TCrossHttpRouterMethod;
-  const ARouterProc2: TCrossHttpRouterProc2;
-  const ARouterMethod2: TCrossHttpRouterMethod2): TCrossHttpServer;
-var
-  LRouter: ICrossHttpRouter;
-begin
-  LRouter := CreateRouter(AMethod, APath,
-    ARouterProc, ARouterMethod,
-    ARouterProc2, ARouterMethod2);
-  FRoutersLock.BeginWrite;
-  try
-    FRouters.Add(LRouter);
-  finally
-    FRoutersLock.EndWrite;
-  end;
-  Result := Self;
-end;
-
 function TCrossHttpServer.Route(const AMethod, APath: string;
   const ARouterProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
-  Result := RegisterRouter(AMethod, APath, ARouterProc, nil, nil, nil);
+  FRouters.AddRouter(AMethod, APath, ARouterProc);
+  Result := Self;
 end;
 
 function TCrossHttpServer.Route(const AMethod, APath: string;
   const ARouterProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
-  Result := RegisterRouter(AMethod, APath, nil, nil, ARouterProc2, nil);
+  FRouters.AddRouter(AMethod, APath, ARouterProc2);
+  Result := Self;
 end;
 
 function TCrossHttpServer.Route(const AMethod, APath: string;
   const ARouterMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
-  Result := RegisterRouter(AMethod, APath, nil, ARouterMethod, nil, nil);
+  FRouters.AddRouter(AMethod, APath, ARouterMethod);
+  Result := Self;
 end;
 
 function TCrossHttpServer.Route(const AMethod, APath: string;
   const ARouterMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
-  Result := RegisterRouter(AMethod, APath, nil, nil, nil, ARouterMethod2);
+  FRouters.AddRouter(AMethod, APath, ARouterMethod2);
+  Result := Self;
+end;
+
+function TCrossHttpServer.RemoveMiddleware(const AMethod,
+  APath: string): ICrossHttpServer;
+begin
+  FMiddlewares.RemoveRouter(AMethod, APath);
+  Result := Self;
 end;
 
 function TCrossHttpServer.RemoveRouter(const AMethod, APath: string): ICrossHttpServer;
-var
-  I: Integer;
 begin
-  FRoutersLock.BeginWrite;
-  try
-    for I := FRouters.Count - 1 downto 0 do
-      if TStrUtils.SameText(FRouters[I].Method, AMethod) and TStrUtils.SameText(FRouters[I].Path, APath) then
-        FRouters.Delete(I);
-  finally
-    FRoutersLock.EndWrite;
-  end;
+  FRouters.RemoveRouter(AMethod, APath);
   Result := Self;
 end;
 
-function TCrossHttpServer.ClearRouter: ICrossHttpServer;
+function TCrossHttpServer.ClearMiddlewares: ICrossHttpServer;
 begin
-  FRoutersLock.BeginWrite;
-  try
-    FRouters.Clear;
-  finally
-    FRoutersLock.EndWrite;
-  end;
+  FMiddlewares.Clear;
   Result := Self;
 end;
 
-function TCrossHttpServer.LockMiddlewares: TCrossHttpRouters;
+function TCrossHttpServer.ClearRouters: ICrossHttpServer;
 begin
-  Result := FMiddlewares;
-  FMiddlewaresLock.BeginWrite;
-end;
-
-function TCrossHttpServer.LockRouters: TCrossHttpRouters;
-begin
-  Result := FRouters;
-  FRoutersLock.BeginWrite;
+  FRouters.Clear;
+  Result := Self;
 end;
 
 procedure TCrossHttpServer.LogicReceived(const AConnection: ICrossConnection;
@@ -3289,13 +3861,15 @@ end;
 function TCrossHttpServer.Use(const AMethod, APath: string;
   const AMiddlewareMethod: TCrossHttpRouterMethod): ICrossHttpServer;
 begin
-  Result := RegisterMiddleware(AMethod, APath, nil, AMiddlewareMethod, nil, nil);
+  FMiddlewares.AddRouter(AMethod, APath, AMiddlewareMethod);
+  Result := Self;
 end;
 
 function TCrossHttpServer.Use(const AMethod, APath: string;
   const AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer;
 begin
-  Result := RegisterMiddleware(AMethod, APath, AMiddlewareProc, nil, nil, nil);
+  FMiddlewares.AddRouter(AMethod, APath, AMiddlewareProc);
+  Result := Self;
 end;
 
 function TCrossHttpServer.Use(const APath: string;
@@ -3316,16 +3890,6 @@ begin
   Result := Use('*', '*', AMiddlewareMethod);
 end;
 
-procedure TCrossHttpServer.UnlockMiddlewares;
-begin
-  FMiddlewaresLock.EndWrite;
-end;
-
-procedure TCrossHttpServer.UnlockRouters;
-begin
-  FRoutersLock.EndWrite;
-end;
-
 function TCrossHttpServer.Use(
   const AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
@@ -3341,13 +3905,15 @@ end;
 function TCrossHttpServer.Use(const AMethod, APath: string;
   const AMiddlewareMethod2: TCrossHttpRouterMethod2): ICrossHttpServer;
 begin
-  Result := RegisterMiddleware(AMethod, APath, nil, nil, nil, AMiddlewareMethod2);
+  FMiddlewares.AddRouter(AMethod, APath, AMiddlewareMethod2);
+  Result := Self;
 end;
 
 function TCrossHttpServer.Use(const AMethod, APath: string;
   const AMiddlewareProc2: TCrossHttpRouterProc2): ICrossHttpServer;
 begin
-  Result := RegisterMiddleware(AMethod, APath, nil, nil, AMiddlewareProc2, nil);
+  FMiddlewares.AddRouter(AMethod, APath, AMiddlewareProc2);
+  Result := Self;
 end;
 
 function TCrossHttpServer.Use(const APath: string;
