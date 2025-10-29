@@ -84,6 +84,9 @@
 
 ## 部分测试截图
 
+- **HTTP Benchmark**
+![image](https://github.com/user-attachments/assets/f0ca795c-cb73-4bfc-9fc1-3429db32eed9)
+
 - **HTTPS Benchmark**
 ![image](https://github.com/winddriver/Delphi-Cross-Socket/assets/3221597/482c19c1-8808-4c93-91da-f8ed2389c2a7)
 
