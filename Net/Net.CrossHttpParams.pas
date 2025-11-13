@@ -1325,15 +1325,19 @@ begin
 end;
 
 procedure TBaseParams.Sort(const AComparison: TNameValueComparison);
+var
+  LComparer: INameValueComparer;
 begin
   if Assigned(AComparison) then
-    FParams.Sort(TNameValueComparer.Create(AComparison))
+    LComparer := TNameValueComparer.Create(AComparison)
   else
-    FParams.Sort(TNameValueComparer.Create(
+    LComparer := TNameValueComparer.Create(
       function(const Left, Right: TNameValue): Integer
       begin
         Result := CompareStr(Left.Name, Right.Name, TLocaleOptions.loInvariantLocale);
-      end));
+      end);
+
+  FParams.Sort(LComparer);
 end;
 
 { THttpUrlParams }
@@ -1396,20 +1400,26 @@ end;
 function THttpUrlParams.Encode: string;
 var
   I: Integer;
+  LName, LValue: string;
 begin
   Result := '';
   for I := 0 to FParams.Count - 1 do
   begin
     if (I > 0) then
       Result := Result + '&';
+
     if FEncodeName then
-      Result := Result + TCrossHttpUtils.UrlEncode(FParams[I].Name)
+      LName := TCrossHttpUtils.UrlEncode(FParams[I].Name)
     else
-      Result := Result + FParams[I].Name;
+      LName := FParams[I].Name;
+    Result := Result + LName;
+
     if FEncodeValue then
-      Result := Result + '=' + TCrossHttpUtils.UrlEncode(FParams[I].Value)
+      LValue := TCrossHttpUtils.UrlEncode(FParams[I].Value)
     else
-      Result := Result + '=' + FParams[I].Value;
+      LValue := FParams[I].Value;
+    if (LValue <> '') then
+      Result := Result + '=' + LValue;
   end;
 end;
 
@@ -1997,7 +2007,8 @@ var
 begin
   for LField in FPartFields do
   begin
-    if FAutoDeleteFiles and FileExists(LField.FilePath) then
+    if FAutoDeleteFiles and (LField.FilePath <> '')
+      and FileExists(LField.FilePath) then
     begin
       LField.FreeValue;
 

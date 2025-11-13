@@ -185,6 +185,7 @@ type
     function GetConnection: ICrossHttpClientConnection;
     function GetHeader: THttpHeader;
     function GetCookies: TRequestCookies;
+    function GetQuery: THttpUrlParams;
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -206,6 +207,13 @@ type
     /// </summary>
     {$ENDREGION}
     property Cookies: TRequestCookies read GetCookies;
+
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   请求路径后形如?key1=value1&amp;key2=value2的参数
+    /// </summary>
+    {$ENDREGION}
+    property Query: THttpUrlParams read GetQuery;
   end;
 
   {$REGION 'Documentation'}
@@ -750,6 +758,8 @@ type
 
     FUrl, FProtocol, FHost: string;
     FPort: Word;
+    FUrlReady: Boolean;
+    FQuery: THttpUrlParams;
     FRequestBodyFunc: TCrossHttpChunkDataFunc;
     FRequestBody: Pointer;
     FRequestBodySize: NativeInt;
@@ -768,6 +778,7 @@ type
     function GetConnection: ICrossHttpClientConnection;
     function GetHeader: THttpHeader;
     function GetCookies: TRequestCookies;
+    function GetQuery: THttpUrlParams;
   public
     constructor Create(
       const AMethod, AUrl: string;
@@ -791,6 +802,7 @@ type
     property Connection: ICrossHttpClientConnection read GetConnection;
     property Header: THttpHeader read GetHeader;
     property Cookies: TRequestCookies read GetCookies;
+    property Query: THttpUrlParams read GetQuery;
   end;
 
   TCrossHttpClientResponse = class(TInterfacedObject, ICrossHttpClientResponse)
@@ -1953,6 +1965,7 @@ destructor TCrossHttpClientRequest.Destroy;
 begin
   FreeAndNil(FHeader);
   FreeAndNil(FCookies);
+  FreeAndNil(FQuery);
 
   inherited;
 end;
@@ -1972,14 +1985,31 @@ begin
   Result := FHeader;
 end;
 
-procedure TCrossHttpClientRequest._ParseUrl;
+function TCrossHttpClientRequest.GetQuery: THttpUrlParams;
 begin
-  if not TCrossHttpUtils.ExtractUrl(FUrl, FProtocol, FHost, FPort, FPath) then
+  Result := FQuery;
+end;
+
+procedure TCrossHttpClientRequest._ParseUrl;
+var
+  I: Integer;
+  LParamsText: string;
+begin
+  FQuery := THttpUrlParams.Create;
+  FUrlReady := TCrossHttpUtils.ExtractUrl(FUrl, FProtocol, FHost, FPort, FPath);
+  if not FUrlReady then
   begin
     if Assigned(FCallback) then
       FCallback(TCrossHttpClientResponse.Create(400, 'Invalid URL:' + FUrl));
+    Exit;
+  end;
 
-    Abort;
+  // 解析?key1=value1&key2=value2参数
+  I := FPath.IndexOf('?');
+  if (I >= 0) then
+  begin
+    LParamsText := FPath.Substring(I + 1);
+    FQuery.Decode(LParamsText);
   end;
 end;
 
@@ -2210,6 +2240,8 @@ var
   LServerDock: TServerDock;
 begin
   LRequestObj := ARequest as TCrossHttpClientRequest;
+  if not LRequestObj.FUrlReady then Exit;
+
   _LockServerDock;
   try
     LServerDock := _GetServerDock(
@@ -2440,6 +2472,7 @@ begin
     AInitProc,
     ACallback);
   LRequest := LRequestObj;
+  if not LRequestObj.FUrlReady then Exit;
 
   // 根据协议获取HttpCli对象
   _Lock;
@@ -2472,6 +2505,7 @@ begin
     AInitProc,
     ACallback);
   LRequest := LRequestObj;
+  if not LRequestObj.FUrlReady then Exit;
 
   // 根据协议获取HttpCli对象
   _Lock;
