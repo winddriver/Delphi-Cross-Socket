@@ -186,6 +186,9 @@ type
     function GetHeader: THttpHeader;
     function GetCookies: TRequestCookies;
     function GetQuery: THttpUrlParams;
+    function GetMethod: string;
+    function GetPath: string;
+    function GetPathAndParams: string;
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -214,6 +217,87 @@ type
     /// </summary>
     {$ENDREGION}
     property Query: THttpUrlParams read GetQuery;
+
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   请求方法
+    ///   <list type="bullet">
+    ///     <item>
+    ///       GET
+    ///     </item>
+    ///     <item>
+    ///       POST
+    ///     </item>
+    ///     <item>
+    ///       PUT
+    ///     </item>
+    ///     <item>
+    ///       DELETE
+    ///     </item>
+    ///     <item>
+    ///       HEAD
+    ///     </item>
+    ///     <item>
+    ///       OPTIONS
+    ///     </item>
+    ///     <item>
+    ///       TRACE
+    ///     </item>
+    ///     <item>
+    ///       CONNECT
+    ///     </item>
+    ///     <item>
+    ///       PATCH
+    ///     </item>
+    ///     <item>
+    ///       COPY
+    ///     </item>
+    ///     <item>
+    ///       LINK
+    ///     </item>
+    ///     <item>
+    ///       UNLINK
+    ///     </item>
+    ///     <item>
+    ///       PURGE
+    ///     </item>
+    ///     <item>
+    ///       LOCK
+    ///     </item>
+    ///     <item>
+    ///       UNLOCK
+    ///     </item>
+    ///     <item>
+    ///       PROPFIND
+    ///     </item>
+    ///   </list>
+    /// </summary>
+    {$ENDREGION}
+    property Method: string read GetMethod;
+
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   <para>
+    ///     请求路径, 不包含参数部分
+    ///   </para>
+    ///   <para>
+    ///     比如: /api/callapi1
+    ///   </para>
+    /// </summary>
+    {$ENDREGION}
+    property Path: string read GetPath;
+
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   <para>
+    ///     请求路径及参数
+    ///   </para>
+    ///   <para>
+    ///     比如: /api/callapi1?aaa=111&bbb=222
+    ///   </para>
+    /// </summary>
+    {$ENDREGION}
+    property PathAndParams: string read GetPathAndParams;
   end;
 
   {$REGION 'Documentation'}
@@ -769,15 +853,27 @@ type
 
     FHttpVersion: THttpVersion;
     FMethod: string;
-    FPath: string;
+    FPathAndParams, FPath: string;
     FHeader: THttpHeader;
     FCookies: TRequestCookies;
 
     procedure _ParseUrl;
+    procedure _Init(
+      const AMethod, AUrl: string;
+      const AHttpHeaders: THttpHeader;
+      const ARequestBodyFunc: TCrossHttpChunkDataFunc;
+      const ARequestBody: Pointer;
+      const ABodySize: NativeInt;
+      const AResponseStream: TStream;
+      const AInitProc: TCrossHttpRequestInitProc;
+      const ACallback: TCrossHttpResponseProc);
   protected
     function GetConnection: ICrossHttpClientConnection;
     function GetHeader: THttpHeader;
     function GetCookies: TRequestCookies;
+    function GetMethod: string;
+    function GetPath: string;
+    function GetPathAndParams: string;
     function GetQuery: THttpUrlParams;
   public
     constructor Create(
@@ -802,6 +898,9 @@ type
     property Connection: ICrossHttpClientConnection read GetConnection;
     property Header: THttpHeader read GetHeader;
     property Cookies: TRequestCookies read GetCookies;
+    property Method: string read GetMethod;
+    property Path: string read GetPath;
+    property PathAndParams: string read GetPathAndParams;
     property Query: THttpUrlParams read GetQuery;
   end;
 
@@ -1690,7 +1789,7 @@ begin
     if (FRequestObj.FHeader[HEADER_CROSS_HTTP_CLIENT] = '') then
       FRequestObj.FHeader[HEADER_CROSS_HTTP_CLIENT] := CROSS_HTTP_CLIENT_NAME;
 
-    LPathStr := FRequestObj.FPath;
+    LPathStr := FRequestObj.FPathAndParams;
     if FAutoUrlEncode then
       LPathStr := TCrossHttpUtils.UrlEncode(LPathStr, ['/', '?', '=', '&']);
 
@@ -1919,22 +2018,9 @@ constructor TCrossHttpClientRequest.Create(const AMethod, AUrl: string;
   const AResponseStream: TStream; const AInitProc: TCrossHttpRequestInitProc;
   const ACallback: TCrossHttpResponseProc);
 begin
-  FHeader := THttpHeader.Create;
-  FCookies := TRequestCookies.Create;
-  FHttpVersion := hvHttp11;
-
-  FMethod := AMethod;
-  FUrl := AUrl;
-  if (AHttpHeaders <> nil) then
-    FHeader.Assign(AHttpHeaders);
-  FRequestBodyFunc := ARequestBodyFunc;
-  FRequestBody := nil;
-  FRequestBodySize := 0;
-  FResponseStream := AResponseStream;
-  FInitProc := AInitProc;
-  FCallback := ACallback;
-
-  _ParseUrl;
+  _Init(AMethod, AUrl, AHttpHeaders,
+    ARequestBodyFunc, nil, 0,
+    AResponseStream, AInitProc, ACallback);
 end;
 
 constructor TCrossHttpClientRequest.Create(const AMethod, AUrl: string;
@@ -1943,22 +2029,9 @@ constructor TCrossHttpClientRequest.Create(const AMethod, AUrl: string;
   const AInitProc: TCrossHttpRequestInitProc;
   const ACallback: TCrossHttpResponseProc);
 begin
-  FHeader := THttpHeader.Create;
-  FCookies := TRequestCookies.Create;
-  FHttpVersion := hvHttp11;
-
-  FMethod := AMethod;
-  FUrl := AUrl;
-  if (AHttpHeaders <> nil) then
-    FHeader.Assign(AHttpHeaders);
-  FRequestBodyFunc := nil;
-  FRequestBody := ARequestBody;
-  FRequestBodySize := ABodySize;
-  FResponseStream := AResponseStream;
-  FInitProc := AInitProc;
-  FCallback := ACallback;
-
-  _ParseUrl;
+  _Init(AMethod, AUrl, AHttpHeaders,
+    nil, ARequestBody, ABodySize,
+    AResponseStream, AInitProc, ACallback);
 end;
 
 destructor TCrossHttpClientRequest.Destroy;
@@ -1985,9 +2058,49 @@ begin
   Result := FHeader;
 end;
 
+function TCrossHttpClientRequest.GetMethod: string;
+begin
+  Result := FMethod;
+end;
+
+function TCrossHttpClientRequest.GetPath: string;
+begin
+  Result := FPath;
+end;
+
+function TCrossHttpClientRequest.GetPathAndParams: string;
+begin
+  Result := FPathAndParams;
+end;
+
 function TCrossHttpClientRequest.GetQuery: THttpUrlParams;
 begin
   Result := FQuery;
+end;
+
+procedure TCrossHttpClientRequest._Init(const AMethod, AUrl: string;
+  const AHttpHeaders: THttpHeader;
+  const ARequestBodyFunc: TCrossHttpChunkDataFunc; const ARequestBody: Pointer;
+  const ABodySize: NativeInt; const AResponseStream: TStream;
+  const AInitProc: TCrossHttpRequestInitProc;
+  const ACallback: TCrossHttpResponseProc);
+begin
+  FHeader := THttpHeader.Create;
+  FCookies := TRequestCookies.Create;
+  FHttpVersion := hvHttp11;
+
+  FMethod := AMethod;
+  FUrl := AUrl;
+  if (AHttpHeaders <> nil) then
+    FHeader.Assign(AHttpHeaders);
+  FRequestBodyFunc := ARequestBodyFunc;
+  FRequestBody := ARequestBody;
+  FRequestBodySize := ABodySize;
+  FResponseStream := AResponseStream;
+  FInitProc := AInitProc;
+  FCallback := ACallback;
+
+  _ParseUrl;
 end;
 
 procedure TCrossHttpClientRequest._ParseUrl;
@@ -1996,7 +2109,7 @@ var
   LParamsText: string;
 begin
   FQuery := THttpUrlParams.Create;
-  FUrlReady := TCrossHttpUtils.ExtractUrl(FUrl, FProtocol, FHost, FPort, FPath);
+  FUrlReady := TCrossHttpUtils.ExtractUrl(FUrl, FProtocol, FHost, FPort, FPathAndParams);
   if not FUrlReady then
   begin
     if Assigned(FCallback) then
@@ -2005,12 +2118,14 @@ begin
   end;
 
   // 解析?key1=value1&key2=value2参数
-  I := FPath.IndexOf('?');
+  I := FPathAndParams.IndexOf('?');
   if (I >= 0) then
   begin
-    LParamsText := FPath.Substring(I + 1);
+    FPath := FPathAndParams.Substring(0, I);
+    LParamsText := FPathAndParams.Substring(I + 1);
     FQuery.Decode(LParamsText);
-  end;
+  end else
+    FPath := FPathAndParams;
 end;
 
 { TCrossHttpClientResponse }
