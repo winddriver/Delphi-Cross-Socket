@@ -7,14 +7,11 @@ interface
 uses
   {$IFDEF MSWINDOWS}
   Windows,
-  {$ELSE POSIX}
-    {$IFDEF DELPHI}
-    Posix.Pthread,
-    Posix.Semaphore,
-    {$ENDIF}
   {$ENDIF}
 
   SysUtils,
+  Classes,
+  Generics.Collections,
   SyncObjs;
 
 type
@@ -173,16 +170,14 @@ type
     property CurrentCount: Integer read GetCurrentCount;
   end;
 
+  // 标准锁对象(使用临界区实现, 不占用系统句柄)
   TLock = class(TInterfacedObject, ILock)
   private
-    /// 重新实现的临界区
-    /// 因为 Delphi 自带的临界区在非 Windows 环境会依赖 System.TMonitor,
-    /// 而 System.TMonitor 的实现太过臃肿, 不够优雅, 所以自己重新实现了一个
     {$IFDEF DELPHI}
       {$IFDEF MSWINDOWS}
       FCriticalSection: TRTLCriticalSection;
       {$ELSE}
-      FSemaphore: sem_t;
+      FCriticalSection: TCriticalSection;
       {$ENDIF}
     {$ELSE}
     FCriticalSection: TRTLCriticalSection;
@@ -196,6 +191,20 @@ type
     procedure Leave;
   end;
 
+  // 自旋锁对象(不占用系统句柄)
+  // 比 TLock 性能低, 不要用于需要高吞吐量的场景
+  TSpinLock = class(TInterfacedObject, ILock)
+  private
+    FLock: Integer;
+  public
+    constructor Create;
+
+    procedure Enter;
+    function TryEnter: Boolean;
+    procedure Leave;
+  end;
+
+  // 读写锁(需要占用一个系统句柄)
   TReadWriteLock = class(TInterfacedObject, IReadWriteLock)
   private
     FReadCount: Integer;
@@ -213,11 +222,42 @@ type
     procedure EndWrite;
   end;
 
-  TEvent = class(TInterfacedObject, IEvent)
+  // 可重入的读写锁(需要占用两个系统句柄)
+  TReenterableRWLock = class(TInterfacedObject, IReadWriteLock)
   private
-    FEvent: SyncObjs.TSimpleEvent;
+    FLock: ILock;
+    FReadEvent, FWriteEvent: IEvent;
+    FReaders, FWriterCount: Integer;
+    FWriterThreadID: TThreadID;
+    FReaderThreads: TDictionary<TThreadID, Integer>;
+
+    class function GetCurrentThreadID: TThreadID; static; inline;
+    function IsThreadWriter(const AThreadID: TThreadID): Boolean; inline;
+    function IncrementThreadReadCount(const AThreadID: TThreadID): Integer;
+    function DecrementThreadReadCount(const AThreadID: TThreadID): Integer;
+    function CanReadAccess(const AThreadID: TThreadID): Boolean; inline;
+    function CanWriteAccess(const AThreadID: TThreadID): Boolean; inline;
+    function GetThreadReadCount(const AThreadID: TThreadID): Integer; inline;
   public
     constructor Create;
+    destructor Destroy; override;
+
+    procedure BeginRead;
+    function TryBeginRead: Boolean;
+    procedure EndRead;
+
+    procedure BeginWrite;
+    function TryBeginWrite: Boolean;
+    procedure EndWrite;
+  end;
+
+  // 标准事件对象(需要占用一个系统句柄)
+  TEvent = class(TInterfacedObject, IEvent)
+  private
+    FEvent: SyncObjs.TEvent;
+  public
+    constructor Create(const AManualReset, AInitialState: Boolean); overload;
+    constructor Create; overload;
     destructor Destroy; override;
 
     procedure ResetEvent;
@@ -225,14 +265,30 @@ type
     function WaitFor(const ATimeout: Cardinal = INFINITE): TWaitResult;
   end;
 
-  TCountdownEvent = class(TInterfacedObject, ICountdownEvent)
+  // 自旋事件对象(不占用系统句柄)
+  // 比 TEvent 性能低, 不要用于需要高吞吐量的场景
+  TSpinEvent = class(TInterfacedObject, IEvent)
+  private
+    FState: Integer;
+    FManualReset: Boolean;
+  public
+    constructor Create(const AManualReset, AInitialState: Boolean); overload;
+    constructor Create; overload;
+
+    procedure ResetEvent;
+    procedure SetEvent;
+    function WaitFor(const ATimeout: Cardinal = INFINITE): TWaitResult;
+  end;
+
+  // 自定义带计数的事件对象
+  TCustomCountdownEvent = class(TInterfacedObject, ICountdownEvent)
   private
     FEvent: IEvent;
     FInitCount, FCurCount: Integer;
 
     function GetCurrentCount: Integer;
   public
-    constructor Create(const ACount: Integer = 1);
+    constructor Create(const ASpin: Boolean; const ACount: Integer = 1);
 
     procedure ResetEvent; overload;
     procedure ResetEvent(const ACount: Integer); overload;
@@ -240,6 +296,19 @@ type
     function WaitFor(const ATimeout: Cardinal = INFINITE): TWaitResult;
 
     procedure AddCount(const ACount: Integer = 1);
+  end;
+
+  // 标准带计数的事件对象(需要占用一个系统句柄)
+  TCountdownEvent = class(TCustomCountdownEvent)
+  public
+    constructor Create(const ACount: Integer = 1); reintroduce;
+  end;
+
+  // 自旋带计数的事件对象(不占用系统句柄)
+  // 比 TCountdownEvent 性能低, 不要用于需要高吞吐量的场景
+  TSpinCountdownEvent = class(TCustomCountdownEvent)
+  public
+    constructor Create(const ACount: Integer = 1); reintroduce;
   end;
 
 implementation
@@ -258,7 +327,7 @@ begin
   InitializeCriticalSectionAndSpinCount(FCriticalSection, 4000);
   {$ELSE}
     {$IFDEF DELPHI}
-    sem_init(FSemaphore, 0, 1);
+    FCriticalSection := TCriticalSection.Create;
     {$ELSE}
     InitCriticalSection(FCriticalSection);
     {$ENDIF}
@@ -271,7 +340,7 @@ begin
   DeleteCriticalSection(FCriticalSection);
   {$ELSE}
     {$IFDEF DELPHI}
-    sem_destroy(FSemaphore);
+    FreeAndNil(FCriticalSection);
     {$ELSE}
     DoneCriticalSection(FCriticalSection);
     {$ENDIF}
@@ -286,7 +355,7 @@ begin
   EnterCriticalSection(FCriticalSection);
   {$ELSE}
     {$IFDEF DELPHI}
-    sem_wait(FSemaphore);
+    FCriticalSection.Enter;
     {$ELSE}
     EnterCriticalSection(FCriticalSection);
     {$ENDIF}
@@ -299,7 +368,7 @@ begin
   Result := TryEnterCriticalSection(FCriticalSection);
   {$ELSE}
     {$IFDEF DELPHI}
-    Result := (sem_trywait(FSemaphore) = 0);
+    Result := FCriticalSection.TryEnter;
     {$ELSE}
     Result := (TryEnterCriticalSection(FCriticalSection) <> 0);
     {$ENDIF}
@@ -312,11 +381,49 @@ begin
   LeaveCriticalSection(FCriticalSection);
   {$ELSE}
     {$IFDEF DELPHI}
-    sem_post(FSemaphore);
+    FCriticalSection.Leave;
     {$ELSE}
     LeaveCriticalSection(FCriticalSection);
     {$ENDIF}
   {$ENDIF}
+end;
+
+{ TSpinLock }
+
+constructor TSpinLock.Create;
+begin
+  FLock := 0;
+end;
+
+procedure TSpinLock.Enter;
+var
+  LSpinCount: Integer;
+begin
+  LSpinCount := 0;
+
+  while not TryEnter do
+  begin
+    if (LSpinCount < 1000) then
+      Inc(LSpinCount);
+
+    // 自旋退避, 避免 CPU 占满
+    if (LSpinCount < 100) then
+      Sleep(0)
+    else if (LSpinCount < 1000) then
+      Sleep(1)
+    else
+      Sleep(5);
+  end;
+end;
+
+procedure TSpinLock.Leave;
+begin
+  AtomicExchange(FLock, 0);
+end;
+
+function TSpinLock.TryEnter: Boolean;
+begin
+  Result := (AtomicCmpExchange(FLock, 1, 0) = 0);
 end;
 
 { TReadWriteLock }
@@ -389,11 +496,270 @@ begin
     FLock.Enter;
 end;
 
+{ TReenterableRWLock }
+
+constructor TReenterableRWLock.Create;
+begin
+  inherited Create;
+
+  FLock := TLock.Create;
+  FReadEvent := TEvent.Create(True, True);
+  FWriteEvent := TEvent.Create(True, True);
+  FReaderThreads := TDictionary<TThreadID, Integer>.Create;
+  FReaders := 0;
+  FWriterThreadID := TThreadID(0);
+  FWriterCount := 0;
+end;
+
+destructor TReenterableRWLock.Destroy;
+begin
+  FreeAndNil(FReaderThreads);
+
+  inherited Destroy;
+end;
+
+function TReenterableRWLock.IsThreadWriter(const AThreadID: TThreadID): Boolean;
+begin
+  Result := (FWriterThreadID = AThreadID) and (FWriterCount > 0);
+end;
+
+class function TReenterableRWLock.GetCurrentThreadID: TThreadID;
+begin
+  Result := TThread.CurrentThread.ThreadID;
+end;
+
+function TReenterableRWLock.GetThreadReadCount(const AThreadID: TThreadID): Integer;
+begin
+  if not FReaderThreads.TryGetValue(AThreadID, Result) then
+    Result := 0;
+end;
+
+function TReenterableRWLock.IncrementThreadReadCount(const AThreadID: TThreadID): Integer;
+begin
+  if not FReaderThreads.TryGetValue(AThreadID, Result) then
+    Result := 0;
+  Inc(Result);
+  FReaderThreads.AddOrSetValue(AThreadID, Result);
+end;
+
+function TReenterableRWLock.DecrementThreadReadCount(const AThreadID: TThreadID): Integer;
+begin
+  if FReaderThreads.TryGetValue(AThreadID, Result) then
+  begin
+    Dec(Result);
+    if (Result > 0) then
+      FReaderThreads.AddOrSetValue(AThreadID, Result)
+    else
+      FReaderThreads.Remove(AThreadID);
+  end else
+    Result := 0;
+end;
+
+function TReenterableRWLock.CanReadAccess(const AThreadID: TThreadID): Boolean;
+begin
+  // 只要没有其它线程在写, 就可以读
+  Result := (FWriterThreadID = 0) or (FWriterThreadID = AThreadID);
+end;
+
+function TReenterableRWLock.CanWriteAccess(const AThreadID: TThreadID): Boolean;
+begin
+  // 只要没有其它线程在写或读, 就可以写
+  //   (GetThreadReadCount(AThreadID) > 0) 表示这个线程有读操作
+  //   (FReaders = 1) 表示当前有1个线程在读
+  //   这两个条件同时满足说明当前正在读的线程就是AThreadID
+  Result := ((FWriterThreadID = 0) or (FWriterThreadID = AThreadID)) and
+    ((FReaders = 0) or ((GetThreadReadCount(AThreadID) > 0) and (FReaders = 1)));
+end;
+
+procedure TReenterableRWLock.BeginRead;
+var
+  LCurThreadID: TThreadID;
+begin
+  LCurThreadID := GetCurrentThreadID;
+
+  FLock.Enter;
+  try
+    // 如果当前线程就是写者, 重入
+    if IsThreadWriter(LCurThreadID) then
+    begin
+      if (IncrementThreadReadCount(LCurThreadID) = 1) then
+        Inc(FReaders);
+      Exit;
+    end;
+
+    // 等待其它线程写结束才允许继续读
+    while not CanReadAccess(LCurThreadID) do
+    begin
+      FLock.Leave;
+      FReadEvent.WaitFor(INFINITE);
+      FLock.Enter;
+    end;
+
+    if (IncrementThreadReadCount(LCurThreadID) = 1) then
+    begin
+      Inc(FReaders);
+
+      // 第一个读开始之后, 其它线程就不可以写了
+      // 所以要将写事件置为无信号状态
+      if (FReaders = 1) then
+        FWriteEvent.ResetEvent;
+    end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TReenterableRWLock.TryBeginRead: Boolean;
+var
+  LCurThreadID: TThreadID;
+begin
+  LCurThreadID := GetCurrentThreadID;
+
+  FLock.Enter;
+  try
+    // 如果当前线程就是写者, 重入
+    if IsThreadWriter(LCurThreadID) then
+    begin
+      if (IncrementThreadReadCount(LCurThreadID) = 1) then
+        Inc(FReaders);
+      Exit(True);
+    end;
+
+    // 等待其它线程写结束才允许继续读
+    if not CanReadAccess(LCurThreadID) then Exit(False);
+
+    if (IncrementThreadReadCount(LCurThreadID) = 1) then
+    begin
+      Inc(FReaders);
+
+      // 第一个读开始之后, 其它线程就不可以写了
+      // 所以要将写事件置为无信号状态
+      if (FReaders = 1) then
+        FWriteEvent.ResetEvent;
+    end;
+    Result := True;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TReenterableRWLock.EndRead;
+var
+  LCurThreadID: TThreadID;
+begin
+  LCurThreadID := GetCurrentThreadID;
+
+  FLock.Enter;
+  try
+    if (DecrementThreadReadCount(LCurThreadID) = 0) then
+    begin
+      Dec(FReaders);
+
+      // 所有读结束之后, 其它线程就可以写了
+      // 所以要将写事件置为有信号状态
+      if (FReaders = 0) then
+        FWriteEvent.SetEvent;
+    end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TReenterableRWLock.BeginWrite;
+var
+  LCurThreadID: TThreadID;
+begin
+  LCurThreadID := GetCurrentThreadID;
+
+  FLock.Enter;
+  try
+    // 如果当前线程就是写者, 重入
+    if IsThreadWriter(LCurThreadID) then
+    begin
+      Inc(FWriterCount);
+      Exit;
+    end;
+
+    // 等待其它所有写或读线程结束才允许继续写
+    while not CanWriteAccess(LCurThreadID) do
+    begin
+      FLock.Leave;
+      FWriteEvent.WaitFor(INFINITE);
+      FLock.Enter;
+    end;
+
+    FWriterThreadID := LCurThreadID;
+    FWriterCount := 1;
+
+    // 开始写之后, 其它所有线程都不能读或写了
+    // 所以要把读和写的事件都置为无信号状态
+    FReadEvent.ResetEvent;
+    FWriteEvent.ResetEvent;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TReenterableRWLock.TryBeginWrite: Boolean;
+var
+  LCurThreadID: TThreadID;
+begin
+  LCurThreadID := GetCurrentThreadID;
+
+  FLock.Enter;
+  try
+    // 如果当前线程就是写者, 重入
+    if IsThreadWriter(LCurThreadID) then
+    begin
+      Inc(FWriterCount);
+      Exit(True);
+    end;
+
+    // 等待其它所有写或读线程结束才允许继续写
+    if not CanWriteAccess(LCurThreadID) then Exit(False);
+
+    FWriterThreadID := LCurThreadID;
+    FWriterCount := 1;
+
+    FReadEvent.ResetEvent;
+    FWriteEvent.ResetEvent;
+
+    Result := True;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TReenterableRWLock.EndWrite;
+begin
+  FLock.Enter;
+  try
+    if IsThreadWriter(GetCurrentThreadID) then
+    begin
+      Dec(FWriterCount);
+      if (FWriterCount = 0) then
+      begin
+        FWriterThreadID := TThreadID(0);
+
+        FReadEvent.SetEvent;
+        FWriteEvent.SetEvent;
+      end;
+    end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
 { TEvent }
+
+constructor TEvent.Create(const AManualReset, AInitialState: Boolean);
+begin
+  FEvent := SyncObjs.TEvent.Create(nil, AManualReset, AInitialState, '', False);
+end;
 
 constructor TEvent.Create;
 begin
-  FEvent := SyncObjs.TSimpleEvent.Create();
+  Create(True, False);
 end;
 
 destructor TEvent.Destroy;
@@ -417,32 +783,100 @@ begin
   Result := FEvent.WaitFor(ATimeout);
 end;
 
-{ TCountdownEvent }
+{ TSpinEvent }
 
-constructor TCountdownEvent.Create(const ACount: Integer);
+constructor TSpinEvent.Create(const AManualReset, AInitialState: Boolean);
 begin
+  FManualReset := AManualReset;
+  if AInitialState then
+    FState := 1
+  else
+    FState := 0;
+end;
+
+constructor TSpinEvent.Create;
+begin
+  Create(True, False);
+end;
+
+procedure TSpinEvent.ResetEvent;
+begin
+  AtomicExchange(FState, 0);
+end;
+
+procedure TSpinEvent.SetEvent;
+begin
+  AtomicExchange(FState, 1);
+end;
+
+function TSpinEvent.WaitFor(const ATimeout: Cardinal): TWaitResult;
+var
+  LStartTick: UInt64;
+  LSpinCount: Integer;
+begin
+  LStartTick := TThread.GetTickCount64;
+  LSpinCount := 0;
+
+  while True do
+  begin
+    // 判断是否收到信号
+    if (AtomicCmpExchange(FState, 0, 0) = 1) then
+    begin
+      if not FManualReset then
+        ResetEvent;
+
+      Exit(TWaitResult.wrSignaled);
+    end;
+
+    if (LSpinCount < 1000) then
+      Inc(LSpinCount);
+
+    // 自旋退避, 避免 CPU 占满
+    if (LSpinCount < 100) then
+      Sleep(0)
+    else if (LSpinCount < 1000) then
+      Sleep(1)
+    else
+      Sleep(5);
+
+    if (ATimeout <> INFINITE) then
+    begin
+      if (TThread.GetTickCount64 - LStartTick >= ATimeout) then
+        Exit(TWaitResult.wrTimeout);
+    end;
+  end;
+end;
+
+{ TCustomCountdownEvent }
+
+constructor TCustomCountdownEvent.Create(const ASpin: Boolean; const ACount: Integer);
+begin
+  if ASpin then
+    FEvent := TSpinEvent.Create
+  else
+    FEvent := TEvent.Create;
+
   FInitCount := ACount;
   FCurCount := ACount;
-  FEvent := TEvent.Create;
 
   if (ACount = 0) then
     FEvent.SetEvent;
 end;
 
-function TCountdownEvent.GetCurrentCount: Integer;
+function TCustomCountdownEvent.GetCurrentCount: Integer;
 begin
   Result := FCurCount;
 end;
 
-procedure TCountdownEvent.AddCount(const ACount: Integer);
+procedure TCustomCountdownEvent.AddCount(const ACount: Integer);
 begin
-  if (TInterlocked.Add(FCurCount, ACount) > 0) then
+  if (AtomicIncrement(FCurCount, ACount) > 0) then
     FEvent.ResetEvent
   else
     FEvent.SetEvent;
 end;
 
-procedure TCountdownEvent.ResetEvent(const ACount: Integer);
+procedure TCustomCountdownEvent.ResetEvent(const ACount: Integer);
 begin
   AtomicExchange(FCurCount, ACount);
   AtomicExchange(FInitCount, ACount);
@@ -453,20 +887,34 @@ begin
     FEvent.SetEvent;
 end;
 
-procedure TCountdownEvent.ResetEvent;
+procedure TCustomCountdownEvent.ResetEvent;
 begin
   ResetEvent(FInitCount);
 end;
 
-procedure TCountdownEvent.SetEvent;
+procedure TCustomCountdownEvent.SetEvent;
 begin
   if (AtomicDecrement(FCurCount) <= 0) then
     FEvent.SetEvent;
 end;
 
-function TCountdownEvent.WaitFor(const ATimeout: Cardinal): TWaitResult;
+function TCustomCountdownEvent.WaitFor(const ATimeout: Cardinal): TWaitResult;
 begin
   Result := FEvent.WaitFor(ATimeout);
+end;
+
+{ TCountdownEvent }
+
+constructor TCountdownEvent.Create(const ACount: Integer);
+begin
+  inherited Create(False, ACount);
+end;
+
+{ TSpinCountdownEvent }
+
+constructor TSpinCountdownEvent.Create(const ACount: Integer);
+begin
+  inherited Create(True, ACount);
 end;
 
 end.

@@ -4323,7 +4323,7 @@ begin
       Exit;
     end;
 
-    LStream := TFileUtils.OpenRead(AFileName);
+    LStream := TFileUtils.OpenRead(AFileName, fmShareDenyNone);
   except
     on e: Exception do
     begin
