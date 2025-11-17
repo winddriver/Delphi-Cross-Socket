@@ -83,7 +83,8 @@ type
     {$ENDIF}
   public
     class function OpenCreate(const AFileName: string): TFileStream; static;
-    class function OpenRead(const AFileName: string): TFileStream; static;
+    class function OpenRead(const AFileName: string;
+      const AShareMode: Word = fmShareDenyWrite): TFileStream; static;
     class function OpenWrite(const AFileName: string): TFileStream; static;
     class function CreateTempFile(const ATempPath: string = ''): TFileStream; static;
 
@@ -438,7 +439,7 @@ var
 begin
   if not Exists(ASrcFileName) then Exit(False);
 
-  LSrcStream := OpenRead(ASrcFileName);
+  LSrcStream := OpenRead(ASrcFileName, fmShareDenyNone);
   try
     LDstStream := OpenCreate(ADstFileName);
     try
@@ -544,9 +545,10 @@ begin
   Result := TFastFileStream.Create(AFileName, fmCreate or fmShareDenyWrite);
 end;
 
-class function TFileUtils.OpenRead(const AFileName: string): TFileStream;
+class function TFileUtils.OpenRead(const AFileName: string;
+  const AShareMode: Word): TFileStream;
 begin
-  Result := TFastFileStream.Create(AFileName, fmOpenRead or fmShareDenyWrite);
+  Result := TFastFileStream.Create(AFileName, fmOpenRead or AShareMode);
 end;
 
 class function TFileUtils.OpenWrite(const AFileName: string): TFileStream;
@@ -811,7 +813,7 @@ end;
 
 class function TFileStreamHelper.OpenRead(const AFileName: string): TFileStream;
 begin
-  Result := TFileUtils.OpenRead(AFileName);
+  Result := TFileUtils.OpenRead(AFileName, fmShareDenyNone);
 end;
 
 class function TFileStreamHelper.OpenWrite(
