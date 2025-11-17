@@ -3008,6 +3008,7 @@ function TCrossHttpRouterTree.MatchRouterInNode(ANode: TRouteNode;
   const ARequest: ICrossHttpRequest; out ARouter: TRouter): Boolean;
 var
   LSegment, LWildcardValue: string;
+  I: Integer;
   LChild: TRouteNode;
 begin
   Result := False;
@@ -3031,6 +3032,12 @@ begin
   end;
 
   LSegment := APathSegments[AIndex];
+  if (AIndex >= High(APathSegments))  then
+  begin
+    I := LSegment.IndexOf('?');
+    if (I >= 0) then
+      LSegment := LSegment.Substring(0, I);
+  end;
 
   // 1. 首先尝试精确匹配静态节点
   if ANode.StaticChildren.TryGetValue(LSegment.ToLower, LChild) then
