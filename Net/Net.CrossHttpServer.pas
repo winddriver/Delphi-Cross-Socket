@@ -3071,7 +3071,7 @@ var
 begin
   FLock.BeginRead;
   try
-    LPathSegments := ParsePath(ARequest.Path);
+    LPathSegments := ParsePath(ARequest.PathAndParams);
     Result := MatchRouterInNode(FRoot, LPathSegments, 0, ARequest.Method, ARequest, ARouter);
   finally
     FLock.EndRead;
