@@ -2017,7 +2017,6 @@ type
     FRoot: TRouteNode;
     FLock: IReadWriteLock;
 
-    function ParsePath(const APath: string): TArray<string>;
     function CreateSegment(const ASegment: string; const ARouteType: TRouteType): TRouteSegment;
 
     // 注意: 添加和删除是使用的模式字符串(比如 GET POST GET|POST, /user/:id)
@@ -2036,6 +2035,9 @@ type
     constructor Create;
     destructor Destroy; override;
 
+    // 将请求路径分段
+    class function ParsePath(const APath: string): TArray<string>; static;
+
     // 注意: 添加和删除是使用的模式字符串(比如 GET POST GET|POST, /user/:id)
     procedure AddRouter(const AMethodPattern, APathPattern: string; const ARouter: TRouter); overload;
     function GetRouter(const AMethodPattern, APathPattern: string; out ARouter: TRouter): Boolean; overload;
@@ -2047,7 +2049,8 @@ type
     procedure RemoveRouter(const AMethodPattern, APathPattern: string);
 
     // 注意: 查找与请求匹配的路由
-    function MatchRouter(const ARequest: ICrossHttpRequest; out ARouter: TRouter): Boolean;
+    function MatchRouter(const APathSegments: TArray<string>; const ARequest: ICrossHttpRequest; out ARouter: TRouter): Boolean; overload;
+    function MatchRouter(const ARequest: ICrossHttpRequest; out ARouter: TRouter): Boolean; overload;
     procedure Clear;
   end;
 
@@ -2853,16 +2856,22 @@ begin
   Result := TRouteSegment.Create(ASegment, LPattern, LParams, ARouteType);
 end;
 
-function TCrossHttpRouterTree.ParsePath(const APath: string): TArray<string>;
+class function TCrossHttpRouterTree.ParsePath(const APath: string): TArray<string>;
+var
+  LPath: string;
 begin
-  if (APath = '/') or (APath = '/?') or (APath = '') then
+  // 将 /api/test?p1=123 与 /api/test/?p1=123 同等处理
+  LPath := APath.Replace('/?', '?');
+
+  // 请求的是根路径, 无需拆分
+  if (LPath = '/') or (LPath = '') then
   begin
     Result := [''];
     Exit;
   end;
 
   // 把请求路径按/拆分成多段
-  Result := APath.Split(['/'], TStringSplitOptions.ExcludeEmpty);
+  Result := LPath.Split(['/'], TStringSplitOptions.ExcludeEmpty);
   if (Result = nil) then
     Result := [''];
 end;
@@ -3032,6 +3041,7 @@ begin
   end;
 
   LSegment := APathSegments[AIndex];
+  // 最后一段请求路径, 只提取?之前的部分进行匹配
   if (AIndex >= High(APathSegments))  then
   begin
     I := LSegment.IndexOf('?');
@@ -3071,18 +3081,30 @@ begin
   end;
 end;
 
+function TCrossHttpRouterTree.MatchRouter(const APathSegments: TArray<string>;
+  const ARequest: ICrossHttpRequest; out ARouter: TRouter): Boolean;
+begin
+  FLock.BeginRead;
+  try
+    if FRoot.IsEmpty then
+    begin
+      ARouter := nil;
+      Exit(False);
+    end;
+
+    Result := MatchRouterInNode(FRoot, APathSegments, 0, ARequest.Method, ARequest, ARouter);
+  finally
+    FLock.EndRead;
+  end;
+end;
+
 function TCrossHttpRouterTree.MatchRouter(const ARequest: ICrossHttpRequest;
   out ARouter: TRouter): Boolean;
 var
   LPathSegments: TArray<string>;
 begin
-  FLock.BeginRead;
-  try
-    LPathSegments := ParsePath(ARequest.PathAndParams);
-    Result := MatchRouterInNode(FRoot, LPathSegments, 0, ARequest.Method, ARequest, ARouter);
-  finally
-    FLock.EndRead;
-  end;
+  LPathSegments := ParsePath(ARequest.PathAndParams);
+  Result := MatchRouter(LPathSegments, ARequest, ARouter);
 end;
 
 function TCrossHttpRouterTree.RemoveRouterFromNode(ANode: TRouteNode;
@@ -3271,6 +3293,7 @@ var
   LRequest: ICrossHttpRequest;
   LResponse: ICrossHttpResponse;
   LSessionID: string;
+  LPathSegments: TArray<string>;
   LHandled: Boolean;
   LRouter: TRouter;
 begin
@@ -3293,9 +3316,12 @@ begin
     end;
     {$endregion}
 
+    // 提前拆分请求路径, 可以减少一次 ParsePath 调用
+    LPathSegments := TCrossHttpRouterTree.ParsePath(LRequest.PathAndParams);
+
     {$region '中间件'}
     // 执行匹配的中间件
-    if FMiddlewares.MatchRouter(LRequest, LRouter) then
+    if FMiddlewares.MatchRouter(LPathSegments, LRequest, LRouter) then
     begin
       // 中间件通常用于请求的预处理
       // 所以默认将 LHandled 置为 False, 以保证后续路由能被执行
@@ -3310,7 +3336,7 @@ begin
 
     {$region '路由'}
     // 执行匹配的路由
-    if FRouters.MatchRouter(LRequest, LRouter) then
+    if FRouters.MatchRouter(LPathSegments, LRequest, LRouter) then
     begin
       // 路由用于响应请求
       // 所以默认将 LHandled 置为 True, 以保证不会有多个匹配的路由被执行
@@ -4480,9 +4506,14 @@ begin
   end;
 
   if AChunked then
-    FHeader[HEADER_TRANSFER_ENCODING] := 'chunked'
-  else
+  begin
+    FHeader[HEADER_TRANSFER_ENCODING] := 'chunked';
+    FHeader.Remove(HEADER_CONTENT_LENGTH);
+  end else
+  begin
     FHeader[HEADER_CONTENT_LENGTH] := ABodySize.ToString;
+    FHeader.Remove(HEADER_TRANSFER_ENCODING);
+  end;
 
   if (FHeader[HEADER_CROSS_HTTP_SERVER] = '') then
     FHeader[HEADER_CROSS_HTTP_SERVER] := CROSS_HTTP_SERVER_NAME;
