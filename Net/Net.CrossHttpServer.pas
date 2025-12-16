@@ -2027,6 +2027,8 @@ type
     function RemoveRouterFromNode(ANode: TRouteNode; const APathPatternSegments: TArray<string>;
       AIndex: Integer; const AMethodPattern: string): Boolean;
 
+    function GetWildcardValue(const APathSegments: TArray<string>;
+      AIndex: Integer; ARequest: ICrossHttpRequest): string;
     // 注意: 查找使用的是确定的请求方法和路径(比如 GET POST, /user/123)
     function MatchRouterInNode(ANode: TRouteNode; const APathSegments: TArray<string>;
       AIndex: Integer; const AMethod: string; const ARequest: ICrossHttpRequest;
@@ -2857,21 +2859,16 @@ begin
 end;
 
 class function TCrossHttpRouterTree.ParsePath(const APath: string): TArray<string>;
-var
-  LPath: string;
 begin
-  // 将 /api/test?p1=123 与 /api/test/?p1=123 同等处理
-  LPath := APath.Replace('/?', '?');
-
   // 请求的是根路径, 无需拆分
-  if (LPath = '/') or (LPath = '') then
+  if (APath = '/') or (APath = '') then
   begin
     Result := [''];
     Exit;
   end;
 
   // 把请求路径按/拆分成多段
-  Result := LPath.Split(['/'], TStringSplitOptions.ExcludeEmpty);
+  Result := APath.Split(['/'], TStringSplitOptions.ExcludeEmpty);
   if (Result = nil) then
     Result := [''];
 end;
@@ -3012,12 +3009,23 @@ begin
   end;
 end;
 
+function TCrossHttpRouterTree.GetWildcardValue(
+  const APathSegments: TArray<string>; AIndex: Integer;
+  ARequest: ICrossHttpRequest): string;
+var
+  LQueryStr: string;
+begin
+  Result := string.Join('/', APathSegments, AIndex, Length(APathSegments) - AIndex);
+  LQueryStr := ARequest.Query.Encode;
+  if (LQueryStr <> '') then
+    Result := Result + '?' + LQueryStr;
+end;
+
 function TCrossHttpRouterTree.MatchRouterInNode(ANode: TRouteNode;
   const APathSegments: TArray<string>; AIndex: Integer; const AMethod: string;
   const ARequest: ICrossHttpRequest; out ARouter: TRouter): Boolean;
 var
   LSegment, LWildcardValue: string;
-  I: Integer;
   LChild: TRouteNode;
 begin
   Result := False;
@@ -3030,24 +3038,19 @@ begin
     // 尝试从通配符子节点查找路由
     if not Result and (ANode.WildcardChild <> nil) then
     begin
-      LWildcardValue := string.Join('/', APathSegments, AIndex, Length(APathSegments) - AIndex);
-      if Assigned(ARequest) then
-        ARequest.Params[WILDCARD_CHAR] := LWildcardValue;
-
       Result := ANode.WildcardChild.MatchRouter(AMethod, ARouter);
+      if Result then
+      begin
+        LWildcardValue := GetWildcardValue(APathSegments, AIndex, ARequest);
+        if Assigned(ARequest) then
+          ARequest.Params[WILDCARD_CHAR] := LWildcardValue;
+      end;
     end;
 
     Exit;
   end;
 
   LSegment := APathSegments[AIndex];
-  // 最后一段请求路径, 只提取?之前的部分进行匹配
-  if (AIndex >= High(APathSegments))  then
-  begin
-    I := LSegment.IndexOf('?');
-    if (I >= 0) then
-      LSegment := LSegment.Substring(0, I);
-  end;
 
   // 1. 首先尝试精确匹配静态节点
   if ANode.StaticChildren.TryGetValue(LSegment.ToLower, LChild) then
@@ -3072,12 +3075,15 @@ begin
   // 3. 最后尝试通配符子节点(优先级最低)
   if (ANode.WildcardChild <> nil) then
   begin
-    LWildcardValue := string.Join('/', APathSegments, AIndex, Length(APathSegments) - AIndex);
-    if Assigned(ARequest) then
-      ARequest.Params[WILDCARD_CHAR] := LWildcardValue;
-
     Result := ANode.WildcardChild.MatchRouter(AMethod, ARouter);
-    if Result then Exit;
+    if Result then
+    begin
+      LWildcardValue := GetWildcardValue(APathSegments, AIndex, ARequest);
+      if Assigned(ARequest) then
+        ARequest.Params[WILDCARD_CHAR] := LWildcardValue;
+
+      Exit;
+    end;
   end;
 end;
 
@@ -3103,7 +3109,7 @@ function TCrossHttpRouterTree.MatchRouter(const ARequest: ICrossHttpRequest;
 var
   LPathSegments: TArray<string>;
 begin
-  LPathSegments := ParsePath(ARequest.PathAndParams);
+  LPathSegments := ParsePath(ARequest.Path);
   Result := MatchRouter(LPathSegments, ARequest, ARouter);
 end;
 
@@ -3317,7 +3323,7 @@ begin
     {$endregion}
 
     // 提前拆分请求路径, 可以减少一次 ParsePath 调用
-    LPathSegments := TCrossHttpRouterTree.ParsePath(LRequest.PathAndParams);
+    LPathSegments := TCrossHttpRouterTree.ParsePath(LRequest.Path);
 
     {$region '中间件'}
     // 执行匹配的中间件
