@@ -43,6 +43,7 @@ type
     function GetFilters: TLogTypeSets;
     procedure SetFilters(const Value: TLogTypeSets);
 
+    function GetLogDir: string;
     function GetLogFileName(ALogType: TLogType; ADate: TDateTime): string;
 
     procedure AppendLog(const ALog: string; const ATimeFormat: string; ALogType: TLogType = ltNormal; const CRLF: string = ''); overload;

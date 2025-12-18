@@ -967,6 +967,7 @@ var
   BIO_s_mem: function: PBIO_METHOD; cdecl;
   BIO_read: function(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
   BIO_write: function(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
+  BIO_test_flags: function(b: PBIO; flags: Integer): Integer; cdecl;
 
   EC_KEY_new_by_curve_name: function(nid: Integer): PEC_KEY; cdecl;
   EC_KEY_free: procedure(key: PEC_KEY); cdecl;
@@ -1072,7 +1073,7 @@ var
 
   SSL_CTX_new: function(meth: PSSL_METHOD): PSSL_CTX; cdecl;
   SSL_CTX_free: procedure(ctx: PSSL_CTX); cdecl;
-  SSL_CTX_ctrl: function(ctx: PSSL_CTX; Cmd: Integer; LArg: Integer; PArg: MarshaledAString): Integer; cdecl;
+  SSL_CTX_ctrl: function(ctx: PSSL_CTX; Cmd: Integer; LArg: NativeInt; PArg: Pointer): NativeInt; cdecl;
   SSL_CTX_set_verify: procedure(ctx: PSSL_CTX; mode: Integer; callback: TSetVerifyCb); cdecl;
   SSL_CTX_set_cipher_list: function(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
   SSL_CTX_set_ciphersuites: function(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
@@ -1082,8 +1083,8 @@ var
   SSL_CTX_get_cert_store: function(const ctx: PSSL_CTX): PX509_STORE; cdecl;
   SSL_CTX_add_client_CA: function(const ctx: PSSL_CTX; CaCert: PX509): Integer; cdecl;
   SSL_CTX_set_default_verify_paths: function(const ctx: PSSL_CTX): Integer; cdecl;
-  SSL_CTX_set_options: function(ctx: PSSL_CTX; Op: Integer): Integer; cdecl;
-  SSL_CTX_get_options: function(ctx: PSSL_CTX): Integer; cdecl;
+  SSL_CTX_set_options: function(ctx: PSSL_CTX; Op: UInt64): UInt64; cdecl;
+  SSL_CTX_get_options: function(ctx: PSSL_CTX): UInt64; cdecl;
 
   SSL_CTX_set_security_level: procedure(ctx: PSSL_CTX; level: Integer); cdecl;
   SSL_set_security_level: procedure(s: PSSL; level: Integer); cdecl;
@@ -1102,7 +1103,7 @@ var
   SSL_get_servername: function(ssl: PSSL; t: Integer): PAnsiChar; cdecl;
   SSL_get0_peer_certificate: function(ssl: PSSL): PX509; cdecl;
 
-  SSL_ctrl: function(ssl: PSSL; Cmd: Integer; LArg: Integer; PArg: Pointer): Integer; cdecl;
+  SSL_ctrl: function(ssl: PSSL; Cmd: Integer; LArg: NativeInt; PArg: Pointer): NativeInt; cdecl;
 
   SSL_shutdown: function(ssl: PSSL): Integer; cdecl;
   SSL_free: procedure(s: PSSL); cdecl;
@@ -1173,7 +1174,7 @@ function EVP_sha256(): PEVP_MD; cdecl;
 function EVP_Digest(data: Pointer; count: size_t; md: Pointer; size: PCardinal; t: PEVP_MD; impl: PENGINE): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EVP_Digest';
 function EVP_MD_CTX_new(): PEVP_MD_CTX; cdecl;
-  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EVP_Digest';
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EVP_MD_CTX_new';
 procedure EVP_MD_CTX_free(ctx: PEVP_MD_CTX); cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EVP_MD_CTX_free';
 function EVP_DigestInit_ex(ctx: PEVP_MD_CTX; t: PEVP_MD; impl: PENGINE): Integer; cdecl;
@@ -1197,6 +1198,8 @@ function BIO_read(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'BIO_read';
 function BIO_write(b: PBIO; Buf: Pointer; Len: Integer): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'BIO_write';
+function BIO_test_flags(b: PBIO; flags: Integer): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'BIO_test_flags';
 
 function EC_KEY_new_by_curve_name(nid: Integer): PEC_KEY; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EC_KEY_new_by_curve_name';
@@ -1340,7 +1343,7 @@ function BN_bn2hex(bn: PBIGNUM): PAnsiChar; cdecl;
 function i2d_PublicKey(a: PEVP_PKEY; pp: PPointer): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'i2d_PublicKey';
 function i2d_PUBKEY(a: PEVP_PKEY; pp: PPointer): Integer; cdecl;
-  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'i2d_PublicKey';
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'i2d_PUBKEY';
 function i2d_X509(x: PX509; d: PPointer): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'i2d_X509';
 procedure RSA_get0_key(r: PRSA; n, e, d: PPBIGNUM); cdecl;
@@ -1386,7 +1389,7 @@ function SSL_CTX_new(meth: PSSL_METHOD): PSSL_CTX; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_new';
 procedure SSL_CTX_free(ctx: PSSL_CTX); cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_free';
-function SSL_CTX_ctrl(ctx: PSSL_CTX; Cmd: Integer; LArg: Integer; PArg: MarshaledAString): Integer; cdecl;
+function SSL_CTX_ctrl(ctx: PSSL_CTX; Cmd: Integer; LArg: NativeInt; PArg: Pointer): NativeInt; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_ctrl';
 procedure SSL_CTX_set_verify(ctx: PSSL_CTX; mode: Integer; callback: TSetVerifyCb); cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_set_verify';
@@ -1406,9 +1409,9 @@ function SSL_CTX_add_client_CA(const ctx: PSSL_CTX; CaCert: PX509): Integer; cde
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_add_client_CA';
 function SSL_CTX_set_default_verify_paths(const ctx: PSSL_CTX): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_set_default_verify_paths';
-function SSL_CTX_set_options(ctx: PSSL_CTX; Op: Integer): Integer; cdecl;
+function SSL_CTX_set_options(ctx: PSSL_CTX; Op: UInt64): UInt64; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_set_options';
-function SSL_CTX_get_options(ctx: PSSL_CTX): Integer; cdecl;
+function SSL_CTX_get_options(ctx: PSSL_CTX): UInt64; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_get_options';
 
 procedure SSL_CTX_set_security_level(ctx: PSSL_CTX; level: Integer); cdecl;
@@ -1448,7 +1451,7 @@ function SSL_get_peer_certificate(s: PSSL): PX509; cdecl;
 function SSL_get0_peer_certificate(s: PSSL): PX509; inline;
 {$ENDIF}
 
-function SSL_ctrl(S: PSSL; Cmd: Integer; LArg: Integer; PArg: Pointer): Integer; cdecl;
+function SSL_ctrl(S: PSSL; Cmd: Integer; LArg: NativeInt; PArg: Pointer): NativeInt; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_ctrl';
 
 function SSL_shutdown(s: PSSL): Integer; cdecl;
@@ -1499,9 +1502,9 @@ function SSL_need_tmp_rsa(ssl: PSSL): Integer; inline;
 function SSL_set_tmp_rsa(ssl: PSSL; rsa: MarshaledAString): Integer; inline;
 function SSL_set_tmp_dh(ssl: PSSL; dh: MarshaledAString): Integer; inline;
 function SSL_set_tmp_ecdh(ssl: PSSL; ecdh: MarshaledAString): Integer; inline;
-function SSL_set_options(ssl: PSSL; Op: Integer): Integer; inline;
-function SSL_get_options(ssl: PSSL): Integer; inline;
-function SSL_clear_options(ssl: PSSL; Op: Integer): Integer; inline;
+function SSL_set_options(ssl: PSSL; Op: UInt64): UInt64; inline;
+function SSL_get_options(ssl: PSSL): UInt64; inline;
+function SSL_clear_options(ssl: PSSL; Op: UInt64): UInt64; inline;
 function SSL_set_tlsext_host_name(ssl: PSSL; name: MarshaledAString): Integer; inline;
 function SSL_get_cipher_name(ssl: PSSL): PAnsiChar; inline;
 function SSL_get_cipher_bits(ssl: PSSL): Integer; inline;
@@ -1857,17 +1860,17 @@ begin
   Result := SSL_CTX_ctrl(ctx, SSL_CTRL_SET_SESS_CACHE_MODE, m, nil);
 end;
 
-function SSL_set_options(ssl: PSSL; Op: Integer): Integer;
+function SSL_set_options(ssl: PSSL; Op: UInt64): UInt64;
 begin
   Result := SSL_ctrl(ssl, SSL_CTRL_OPTIONS, Op, nil);
 end;
 
-function SSL_get_options(ssl: PSSL): Integer;
+function SSL_get_options(ssl: PSSL): UInt64;
 begin
   Result := SSL_ctrl(ssl, SSL_CTRL_OPTIONS, 0, nil);
 end;
 
-function SSL_clear_options(ssl: PSSL; Op: Integer): Integer;
+function SSL_clear_options(ssl: PSSL; Op: UInt64): UInt64;
 begin
   Result := SSL_ctrl(ssl, SSL_CTRL_CLEAR_OPTIONS, Op, nil);
 end;
@@ -1914,15 +1917,14 @@ end;
 
 function BIO_get_flags(b: PBIO): Integer;
 begin
-  // This is a hack : BIO structure has not been defined. But I know
-  // flags member is the 6th field in the structure (index is 5)
-  // This could change when OpenSSL is updated. Check "struct bio_st".
-  Result := PInteger(MarshaledAString(b) + 3 * SizeOf(Pointer) + 2 * SizeOf(Integer))^;
+  // 使用 BIO_test_flags 获取所有标志位
+  // 传入 -1 (所有位为1) 来获取所有已设置的标志
+  Result := BIO_test_flags(b, -1);
 end;
 
 function BIO_should_retry(b: PBIO): Boolean;
 begin
-  Result := ((BIO_get_flags(b) and BIO_FLAGS_SHOULD_RETRY) <> 0);
+  Result := (BIO_test_flags(b, BIO_FLAGS_SHOULD_RETRY) <> 0);
 end;
 
 function SSL_is_fatal_error(ssl_ret: Integer): Boolean;
@@ -3207,6 +3209,7 @@ begin
     @BIO_s_mem := GetSslLibProc(FCryptoLibHandle, 'BIO_s_mem');
     @BIO_read := GetSslLibProc(FCryptoLibHandle, 'BIO_read');
     @BIO_write := GetSslLibProc(FCryptoLibHandle, 'BIO_write');
+    @BIO_test_flags := GetSslLibProc(FCryptoLibHandle, 'BIO_test_flags');
 
     @EC_KEY_new_by_curve_name := GetSslLibProc(FCryptoLibHandle, 'EC_KEY_new_by_curve_name');
     @EC_KEY_free := GetSslLibProc(FCryptoLibHandle, 'EC_KEY_free');

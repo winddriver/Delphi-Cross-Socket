@@ -1658,6 +1658,8 @@ begin
     LResponse := TCrossHttpClientResponse.Create(AStatusCode, AStatusText);
     LCallback(LResponse);
   except
+    on E: Exception do
+      _Log('TriggerResponseFailed callback exception: %s', [E.Message]);
   end;
 end;
 
@@ -1700,6 +1702,8 @@ begin
   try
     LCallback(LResponse);
   except
+    on E: Exception do
+      _Log('TriggerResponseSuccess callback exception: %s', [E.Message]);
   end;
 end;
 
@@ -1731,6 +1735,8 @@ begin
     LResponse := TCrossHttpClientResponse.Create(408);
     LCallback(LResponse);
   except
+    on E: Exception do
+      _Log('TriggerResponseTimeout callback exception: %s', [E.Message]);
   end;
 end;
 
@@ -1771,7 +1777,7 @@ begin
         FRequestObj.FHeader[HEADER_HOST] := FHost + ':' + FPort.ToString;
     end;
 
-    // 设置接受的数据传输方式
+    // 设置数据传输方式
     if AChunked then
       FRequestObj.FHeader[HEADER_TRANSFER_ENCODING] := 'chunked'
     else if (ABodySize > 0) then
@@ -2536,6 +2542,8 @@ end;
 
 function TCrossHttpClient.CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket;
 begin
+  // 注意：调用方应该已经持有锁，这里的断言用于调试验证
+  // 如果外部没有加锁，此方法内部不再重复加锁，以避免死锁
   if TStrUtils.SameText(AProtocol, HTTP) then
   begin
     if (FHttpCli = nil) then

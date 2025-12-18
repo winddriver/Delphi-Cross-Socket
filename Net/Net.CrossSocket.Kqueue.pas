@@ -301,17 +301,21 @@ procedure TKqueueConnection._ClearSendQueue;
 var
   LConnection: ICrossConnection;
   LSendItem: PSendItem;
+  LCallbacks: TArray<TCrossConnectionCallback>;
+  LCallback: TCrossConnectionCallback;
 begin
   LConnection := Self;
+  LCallbacks := [];
 
   _KqLock;
   try
-    // 连接释放时, 调用所有发送队列的回调, 告知发送失败
-    if (FSendQueue.Count > 0) then
+    // 连接释放时, 先收集所有回调, 然后在锁外执行
+    // 避免回调中再次发送数据导致死锁
+    if (FSendQueue <> nil) and (FSendQueue.Count > 0) then
     begin
       for LSendItem in FSendQueue do
         if Assigned(LSendItem.Callback) then
-          LSendItem.Callback(LConnection, False);
+          TArrayUtils<TCrossConnectionCallback>.Append(LCallbacks, LSendItem.Callback);
 
       FSendQueue.Clear;
     end;
@@ -320,6 +324,10 @@ begin
   finally
     _KqUnlock;
   end;
+
+  // 在锁外执行回调, 告知发送失败
+  for LCallback in LCallbacks do
+    LCallback(LConnection, False);
 end;
 
 procedure TKqueueConnection._KqLock;
@@ -490,8 +498,6 @@ procedure TKqueueCrossSocket._HandleConnect(const AConnection: ICrossConnection)
 var
   LConnection: ICrossConnection;
   LKqConnection: TKqueueConnection;
-  LConnectCallback: TCrossConnectionCallback;
-  LSuccess: Boolean;
 begin
   LConnection := AConnection;
 
@@ -511,13 +517,10 @@ begin
 
   LKqConnection._KqLock;
   try
-    LSuccess := LKqConnection._UpdateIoEvent([ieRead]);
+    LKqConnection._UpdateIoEvent([ieRead]);
   finally
     LKqConnection._KqUnlock;
   end;
-
-  if Assigned(LConnectCallback) then
-    LConnectCallback(LConnection, LSuccess);
 end;
 
 procedure TKqueueCrossSocket._HandleRead(const AConnection: ICrossConnection);
@@ -564,6 +567,9 @@ begin
       end;
 
       TriggerReceived(LConnection, @FRecvBuf[0], LRcvd);
+
+      // 回调中可能关闭了连接, 需要检查状态
+      if LConnection.IsClosed then Exit;
 
       if (LRcvd < RCV_BUF_SIZE) then Break;
     end;

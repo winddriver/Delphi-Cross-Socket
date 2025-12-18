@@ -1288,11 +1288,12 @@ begin
   try
     AConnection.UpdateAddr;
     AConnection.ConnectStatus := csConnected;
-
-    LogicConnected(AConnection);
   finally
     LConnObj._Unlock;
   end;
+
+  // 用户回调放在锁外执行，避免死锁
+  LogicConnected(AConnection);
 end;
 
 procedure TCrossSocketBase.TriggerDisconnected(const AConnection: ICrossConnection);
@@ -1301,21 +1302,24 @@ var
 begin
   LConnObj := AConnection as TCrossConnectionBase;
 
+  // 先设置状态并从连接列表中移除
   LConnObj._Lock;
   try
     AConnection.ConnectStatus := csClosed;
-    LogicDisconnected(AConnection);
   finally
     LConnObj._Unlock;
-
-    _LockConnections;
-    try
-      FConnections.Remove(AConnection.UID);
-      FConnectionsCount := FConnections.Count;
-    finally
-      _UnlockConnections;
-    end;
   end;
+
+  _LockConnections;
+  try
+    FConnections.Remove(AConnection.UID);
+    FConnectionsCount := FConnections.Count;
+  finally
+    _UnlockConnections;
+  end;
+
+  // 用户回调放在锁外执行，避免死锁
+  LogicDisconnected(AConnection);
 end;
 
 procedure TCrossSocketBase.TriggerIoThreadBegin(const AIoThread: TIoEventThread);

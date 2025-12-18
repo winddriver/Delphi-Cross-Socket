@@ -234,12 +234,10 @@ begin
     // 从 BIO 读取数据(最多读取 LBlockSize)
     LRetCode := _BIO_read(P, LBlockSize);
 
-    // 错误处理
+    // BIO_read 返回 <= 0 表示没有更多数据可读
+    // 对于内存 BIO，这是正常情况，不需要错误处理
     if (LRetCode <= 0) then
-    begin
-      _SSL_handle_error(LRetCode, 'BIO_read');
       Break;
-    end;
 
     // 更新已读取计数
     Inc(LReadedCount, LRetCode);

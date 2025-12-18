@@ -223,13 +223,16 @@ type
   end;
 
   // 可重入的读写锁(需要占用两个系统句柄)
+  // 支持写者优先，防止写者饥饿
   TReenterableRWLock = class(TInterfacedObject, IReadWriteLock)
   private
     FLock: ILock;
     FReadEvent, FWriteEvent: IEvent;
-    FReaders, FWriterCount: Integer;
-    FWriterThreadID: TThreadID;
-    FReaderThreads: TDictionary<TThreadID, Integer>;
+    FReaders: Integer;           // 当前活跃的读者线程数
+    FWriterCount: Integer;       // 写者重入计数
+    FWaitingWriters: Integer;    // 等待中的写者数量(用于写者优先)
+    FWriterThreadID: TThreadID;  // 当前写者线程ID
+    FReaderThreads: TDictionary<TThreadID, Integer>;  // 每个读者线程的重入计数
 
     class function GetCurrentThreadID: TThreadID; static; inline;
     function IsThreadWriter(const AThreadID: TThreadID): Boolean; inline;
@@ -283,6 +286,7 @@ type
   // 自定义带计数的事件对象
   TCustomCountdownEvent = class(TInterfacedObject, ICountdownEvent)
   private
+    FLock: ILock;  // 保护计数和事件状态的一致性
     FEvent: IEvent;
     FInitCount, FCurCount: Integer;
 
@@ -462,14 +466,28 @@ end;
 
 procedure TReadWriteLock.BeginWrite;
 begin
-  FWriteEvent.WaitFor(INFINITE);
   FLock.Enter;
+  try
+    // 等待所有读者结束
+    while (FReadCount > 0) do
+    begin
+      FLock.Leave;
+      FWriteEvent.WaitFor(INFINITE);
+      FLock.Enter;
+    end;
+    // 阻止新的读者进入
+    FWriteEvent.ResetEvent;
+  except
+    FLock.Leave;
+    raise;
+  end;
+  // 注意：成功获取写锁后不释放 FLock，由 EndWrite 释放
 end;
 
 procedure TReadWriteLock.EndWrite;
 begin
-  FLock.Leave;
   FWriteEvent.SetEvent;
+  FLock.Leave;
 end;
 
 function TReadWriteLock.TryBeginRead: Boolean;
@@ -490,10 +508,22 @@ end;
 
 function TReadWriteLock.TryBeginWrite: Boolean;
 begin
-  Result := (FWriteEvent.WaitFor(0) = wrSignaled);
+  // 先尝试获取锁（非阻塞）
+  if not FLock.TryEnter then
+    Exit(False);
 
-  if Result then
-    FLock.Enter;
+  // 检查是否有读者
+  if (FReadCount > 0) then
+  begin
+    FLock.Leave;
+    Exit(False);
+  end;
+
+  // 阻止新的读者进入
+  FWriteEvent.ResetEvent;
+
+  // 成功获取写锁，不释放 FLock，由 EndWrite 释放
+  Result := True;
 end;
 
 { TReenterableRWLock }
@@ -503,12 +533,13 @@ begin
   inherited Create;
 
   FLock := TLock.Create;
-  FReadEvent := TEvent.Create(True, True);
-  FWriteEvent := TEvent.Create(True, True);
+  FReadEvent := TEvent.Create(True, True);   // 手动重置，初始有信号
+  FWriteEvent := TEvent.Create(True, True);  // 手动重置，初始有信号
   FReaderThreads := TDictionary<TThreadID, Integer>.Create;
   FReaders := 0;
   FWriterThreadID := TThreadID(0);
   FWriterCount := 0;
+  FWaitingWriters := 0;
 end;
 
 destructor TReenterableRWLock.Destroy;
@@ -557,6 +588,11 @@ end;
 
 function TReenterableRWLock.CanReadAccess(const AThreadID: TThreadID): Boolean;
 begin
+  // 写者优先：如果有等待中的写者，新的读者不能进入
+  // 但已经在读的线程可以重入
+  if (FWaitingWriters > 0) and (GetThreadReadCount(AThreadID) = 0) then
+    Exit(False);
+
   // 只要没有其它线程在写, 就可以读
   Result := (FWriterThreadID = 0) or (FWriterThreadID = AThreadID);
 end;
@@ -680,12 +716,19 @@ begin
       Exit;
     end;
 
-    // 等待其它所有写或读线程结束才允许继续写
-    while not CanWriteAccess(LCurThreadID) do
-    begin
-      FLock.Leave;
-      FWriteEvent.WaitFor(INFINITE);
-      FLock.Enter;
+    // 增加等待写者计数，阻止新的读者进入
+    Inc(FWaitingWriters);
+    try
+      // 等待其它所有写或读线程结束才允许继续写
+      while not CanWriteAccess(LCurThreadID) do
+      begin
+        FLock.Leave;
+        FWriteEvent.WaitFor(INFINITE);
+        FLock.Enter;
+      end;
+    finally
+      // 获取到写锁后，减少等待写者计数
+      Dec(FWaitingWriters);
     end;
 
     FWriterThreadID := LCurThreadID;
@@ -721,6 +764,7 @@ begin
     FWriterThreadID := LCurThreadID;
     FWriterCount := 1;
 
+    // 开始写之后, 其它所有线程都不能读或写了
     FReadEvent.ResetEvent;
     FWriteEvent.ResetEvent;
 
@@ -741,8 +785,15 @@ begin
       begin
         FWriterThreadID := TThreadID(0);
 
-        FReadEvent.SetEvent;
-        FWriteEvent.SetEvent;
+        // 写者优先：如果有等待中的写者，只唤醒写者
+        // 否则同时唤醒读者和写者
+        if (FWaitingWriters > 0) then
+          FWriteEvent.SetEvent
+        else
+        begin
+          FReadEvent.SetEvent;
+          FWriteEvent.SetEvent;
+        end;
       end;
     end;
   finally
@@ -813,6 +864,7 @@ function TSpinEvent.WaitFor(const ATimeout: Cardinal): TWaitResult;
 var
   LStartTick: UInt64;
   LSpinCount: Integer;
+  LState: Integer;
 begin
   LStartTick := TThread.GetTickCount64;
   LSpinCount := 0;
@@ -820,12 +872,26 @@ begin
   while True do
   begin
     // 判断是否收到信号
-    if (AtomicCmpExchange(FState, 0, 0) = 1) then
+    if FManualReset then
     begin
-      if not FManualReset then
-        ResetEvent;
+      // 手动重置事件：只检查状态，不修改
+      // 使用原子读取代替不必要的CAS
+      LState := AtomicCmpExchange(FState, 0, 0);  // 原子读取
+      if (LState = 1) then
+        Exit(TWaitResult.wrSignaled);
+    end else
+    begin
+      // 自动重置事件：原子性地检测并重置，避免竞态条件
+      // 如果FState=1，则将其设为0并返回1（表示成功获取信号）
+      if (AtomicCmpExchange(FState, 0, 1) = 1) then
+        Exit(TWaitResult.wrSignaled);
+    end;
 
-      Exit(TWaitResult.wrSignaled);
+    // 超时检查移到前面，避免不必要的Sleep
+    if (ATimeout <> INFINITE) then
+    begin
+      if (TThread.GetTickCount64 - LStartTick >= ATimeout) then
+        Exit(TWaitResult.wrTimeout);
     end;
 
     if (LSpinCount < 1000) then
@@ -838,12 +904,6 @@ begin
       Sleep(1)
     else
       Sleep(5);
-
-    if (ATimeout <> INFINITE) then
-    begin
-      if (TThread.GetTickCount64 - LStartTick >= ATimeout) then
-        Exit(TWaitResult.wrTimeout);
-    end;
   end;
 end;
 
@@ -851,6 +911,8 @@ end;
 
 constructor TCustomCountdownEvent.Create(const ASpin: Boolean; const ACount: Integer);
 begin
+  FLock := TLock.Create;
+
   if ASpin then
     FEvent := TSpinEvent.Create
   else
@@ -865,37 +927,69 @@ end;
 
 function TCustomCountdownEvent.GetCurrentCount: Integer;
 begin
-  Result := FCurCount;
+  FLock.Enter;
+  try
+    Result := FCurCount;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 procedure TCustomCountdownEvent.AddCount(const ACount: Integer);
 begin
-  if (AtomicIncrement(FCurCount, ACount) > 0) then
-    FEvent.ResetEvent
-  else
-    FEvent.SetEvent;
+  FLock.Enter;
+  try
+    Inc(FCurCount, ACount);
+    if (FCurCount > 0) then
+      FEvent.ResetEvent
+    else
+      FEvent.SetEvent;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 procedure TCustomCountdownEvent.ResetEvent(const ACount: Integer);
 begin
-  AtomicExchange(FCurCount, ACount);
-  AtomicExchange(FInitCount, ACount);
+  FLock.Enter;
+  try
+    FCurCount := ACount;
+    FInitCount := ACount;
 
-  if (ACount > 0) then
-    FEvent.ResetEvent
-  else
-    FEvent.SetEvent;
+    if (ACount > 0) then
+      FEvent.ResetEvent
+    else
+      FEvent.SetEvent;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 procedure TCustomCountdownEvent.ResetEvent;
 begin
-  ResetEvent(FInitCount);
+  FLock.Enter;
+  try
+    FCurCount := FInitCount;
+
+    if (FCurCount > 0) then
+      FEvent.ResetEvent
+    else
+      FEvent.SetEvent;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 procedure TCustomCountdownEvent.SetEvent;
 begin
-  if (AtomicDecrement(FCurCount) <= 0) then
-    FEvent.SetEvent;
+  FLock.Enter;
+  try
+    Dec(FCurCount);
+    if (FCurCount <= 0) then
+      FEvent.SetEvent;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 function TCustomCountdownEvent.WaitFor(const ATimeout: Cardinal): TWaitResult;

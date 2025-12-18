@@ -272,23 +272,31 @@ procedure TEpollConnection._ClearSendQueue;
 var
   LConnection: ICrossConnection;
   LSendItem: PSendItem;
+  LCallbacks: TArray<TCrossConnectionCallback>;
+  LCallback: TCrossConnectionCallback;
 begin
   LConnection := Self;
+  LCallbacks := [];
 
   _EpLock;
   try
-    // 连接释放时, 调用所有发送队列的回调, 告知发送失败
+    // 连接释放时, 先收集所有回调, 然后在锁外执行
+    // 避免回调中再次发送数据导致死锁
     if (FSendQueue.Count > 0) then
     begin
       for LSendItem in FSendQueue do
         if Assigned(LSendItem.Callback) then
-          LSendItem.Callback(LConnection, False);
+          TArrayUtils<TCrossConnectionCallback>.Append(LCallbacks, LSendItem.Callback);
 
       FSendQueue.Clear;
     end;
   finally
     _EpUnlock;
   end;
+
+  // 在锁外执行回调, 告知发送失败
+  for LCallback in LCallbacks do
+    LCallback(LConnection, False);
 end;
 
 procedure TEpollConnection._EpLock;
@@ -489,6 +497,9 @@ begin
       end;
 
       TriggerReceived(LConnection, @FRecvBuf[0], LRcvd);
+
+      // 回调中可能关闭了连接, 需要检查状态
+      if LConnection.IsClosed then Break;
 
       if (LRcvd < RCV_BUF_SIZE) then Break;
     end;

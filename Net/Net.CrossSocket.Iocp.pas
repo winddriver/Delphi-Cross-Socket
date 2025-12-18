@@ -331,6 +331,9 @@ begin
 
     TriggerReceived(LConnection, @FRecvBuf[0], LRcvd);
 
+    // 回调中可能关闭了连接, 需要检查状态
+    if LConnection.IsClosed then Exit;
+
     if (LRcvd < RCV_BUF_SIZE) then Break;
   end;
 
