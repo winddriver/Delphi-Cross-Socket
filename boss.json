@@ -1,6 +1,6 @@
 {
   "name": "delphi-cross-socket",
-  "description": "Delphi cross-platform async socket library...",
+  "description": "Delphi cross-platform async socket library (IOCP/epoll/kqueue) with HTTP server and OpenSSL 3.x support. Fork of winddriver/Delphi-Cross-Socket — adds Boss package manifest only. Zero source changes.",
   "version": "1.0.0",
   "homepage": "https://github.com/freitasjca/Delphi-Cross-Socket",
   "license": "MIT",
