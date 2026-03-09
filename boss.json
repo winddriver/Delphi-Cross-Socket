@@ -1,0 +1,11 @@
+{
+  "name": "delphi-cross-socket",
+  "description": "Delphi cross-platform async socket library...",
+  "version": "1.0.0",
+  "homepage": "https://github.com/freitasjca/Delphi-Cross-Socket",
+  "license": "MIT",
+  "mainsrc": "Net/",
+  "browsingpath": "Net/;Utils/",
+  "projects": [],
+  "dependencies": {}
+}
