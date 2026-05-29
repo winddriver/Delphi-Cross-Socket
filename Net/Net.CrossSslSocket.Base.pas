@@ -186,6 +186,30 @@ type
     procedure SetPrivateKey(const APKeyStr: string); overload; virtual;
     procedure SetPrivateKeyFile(const APKeyFile: string); virtual;
 
+    { ── MTLS-1: CA certificate loading for client-certificate verification ──
+      Loads a CA certificate that the server will use to verify presented
+      client certificates during the TLS handshake (mutual TLS).  Mirrors
+      the SetCertificate overload family above so consumers have the same
+      file/string/bytes/buffer surface they're already used to.
+
+      Concrete implementation in TCrossOpenSslSocket calls
+      SSL_CTX_add_client_CA + X509_STORE_add_cert to register the cert in
+      both the CertificateRequest CA list (sent to clients during the
+      handshake) and the trust store used to verify the presented chain. }
+    procedure SetCACertificate(const ACACertBuf: Pointer; const ACACertBufSize: Integer); overload; virtual; abstract;
+    procedure SetCACertificate(const ACACertBytes: TBytes); overload; virtual;
+    procedure SetCACertificate(const ACACertStr: string); overload; virtual;
+    procedure SetCACertificateFile(const ACACertFile: string); virtual;
+
+    { ── MTLS-2: enable / disable peer (client) certificate verification ──
+      When AVerify=True the server sets SSL_VERIFY_PEER |
+      SSL_VERIFY_FAIL_IF_NO_PEER_CERT — the handshake fails if the client
+      does not present a certificate signed by one of the CAs registered
+      above.  When False, reverts to SSL_VERIFY_NONE (the default).
+      Must be called AFTER SetCACertificate so the trust store is
+      populated before verify mode is enabled. }
+    procedure SetVerifyPeer(const AVerify: Boolean); virtual; abstract;
+
     property Ssl: Boolean read GetSsl;
     property SslMaxPendingWriteBytes: Int64 read GetSslMaxPendingWriteBytes write SetSslMaxPendingWriteBytes;
 
@@ -260,6 +284,23 @@ end;
 procedure TCrossSslSocketBase.SetPrivateKeyFile(const APKeyFile: string);
 begin
   SetPrivateKey(TFileUtils.ReadAllBytes(APKeyFile));
+end;
+
+{ ── MTLS-1: SetCACertificate overload chain (file → string → bytes → buffer) ── }
+
+procedure TCrossSslSocketBase.SetCACertificate(const ACACertBytes: TBytes);
+begin
+  SetCACertificate(Pointer(ACACertBytes), Length(ACACertBytes));
+end;
+
+procedure TCrossSslSocketBase.SetCACertificate(const ACACertStr: string);
+begin
+  SetCACertificate(TEncoding.ANSI.GetBytes(ACACertStr));
+end;
+
+procedure TCrossSslSocketBase.SetCACertificateFile(const ACACertFile: string);
+begin
+  SetCACertificate(TFileUtils.ReadAllBytes(ACACertFile));
 end;
 
 { TCrossSslConnectionBase }
