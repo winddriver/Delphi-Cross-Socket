@@ -798,7 +798,7 @@ procedure TKqueueCrossSocket.Connect(const AHost: string;
       Exit(False);
     end;
 
-    if (TSocketAPI.Connect(ASocket, @LSockAddr.Addr, LSockAddr.AddrLen) = 0)
+    if (TSocketAPI.Connect(ASocket, AAddr.ai_addr, AAddr.ai_addrlen) = 0)
       or (GetLastError = EINPROGRESS) then
     begin
       LConnection := CreateConnection(Self, ASocket, ctConnect, AHost, ACallback);
