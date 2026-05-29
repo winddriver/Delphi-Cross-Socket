@@ -752,7 +752,8 @@ begin
     if Assigned(ACallback) then
       ACallback(AConnection, False);
 
-    AConnection.Close;
+    if Assigned(AConnection) then
+      AConnection.Close;
   end;
 end;
 
