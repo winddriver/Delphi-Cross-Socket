@@ -153,7 +153,7 @@ begin
 
       // 如果是监听的随机端口
       // 则在监听成功之后将实际的端口取出来
-      if (FPort = 0) then
+      if ASuccess and (FPort = 0) then
         FPort := AListen.LocalPort;
 
       if Assigned(ACallback) then
