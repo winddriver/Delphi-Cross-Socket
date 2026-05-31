@@ -595,7 +595,13 @@ begin
     if (LEncryptedData <> nil) then
     begin
       // 锁外发起异步发送, callback 内 CPS 继续推进 (新栈帧, 不在原栈上)
-      _Send(@LEncryptedData[0], Length(LEncryptedData),
+      // Use the TBytes overload so the buffer stays alive until the deferred
+      // send fires. The pointer overload does not copy and the callback closure
+      // does not capture LEncryptedData -- a use-after-free that's deterministic
+      // on macOS/Kqueue (allocator reuses the freed slot before transmit) and
+      // latent on Linux/Epoll and Windows/IOCP. Matches the canonical safe
+      // pattern documented in TCrossConnectionBase.SendBytes.
+      _Send(LEncryptedData,
         procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
         begin
           if not ASuccess then
