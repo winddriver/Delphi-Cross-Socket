@@ -1,0 +1,41 @@
+# Conservative policy for an upstream-synced fork: do NOT globally normalise
+# (that would drift the fork from winddriver on every sync). Only force endings
+# where a wrong one breaks the file, and keep vendored/byte-exact files intact.
+
+# Scripts & CI — a wrong ending breaks these
+*.sh     text eol=lf
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+*.ps1    text eol=crlf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+
+# Vendored CnPack (GBK-encoded) + patches — never normalise; stay identical to source
+CnPack/** -text
+*.patch  -text
+*.diff   -text
+
+# Certs / keys — exact bytes
+*.crt binary
+*.cer binary
+*.der binary
+*.pem binary
+*.key binary
+*.pfx binary
+*.p12 binary
+
+# Binaries / build artifacts
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.res binary
+*.dcr binary
+*.dcu binary
+*.dcp binary
+*.exe binary
+*.dll binary
+*.so  binary
+*.dylib binary
+# NOTE: *.pas/.dpr/.inc/.dproj are intentionally NOT listed — left to core.autocrlf
+#       so the fork stays byte-close to upstream after each sync.
