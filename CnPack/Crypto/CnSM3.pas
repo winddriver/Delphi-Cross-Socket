@@ -1,7 +1,7 @@
 {******************************************************************************}
 {                       CnPack For Delphi/C++Builder                           }
 {                     中国人自己的开放源码第三方开发包                         }
-{                   (C)Copyright 2001-2025 CnPack 开发组                       }
+{                   (C)Copyright 2001-2026 CnPack 开发组                       }
 {                   ------------------------------------                       }
 {                                                                              }
 {            本开发包是开源的自由软件，您可以遵照 CnPack 的发布协议来修        }
@@ -24,11 +24,11 @@ unit CnSM3;
 * 软件名称：开发包基础库
 * 单元名称：国家商用密码 SM3 杂凑算法实现单元
 * 单元作者：CnPack 开发组（master@cnpack.org)
-*           参考并部分移植了 goldboar 的 C 代码
-* 备    注：本单元实现了国家商用密码 SM3 杂凑算法及对应的 HMAC 算法。
 *           参考国密算法公开文档《SM3 Cryptographic Hash Algorith》
 *           http://www.oscca.gov.cn/UpFile/20101222141857786.pdf
-*
+*           并参考了部分 goldboar 的 C 代码
+* 备    注：本单元实现了国家商用密码 SM3 杂凑算法及对应的 HMAC 算法。
+*           实现过程参考国密算法公开文档《SM3 Cryptographic Hash Algorith》。
 * 开发平台：Windows 7 + Delphi 5.0
 * 兼容测试：PWin9X/2000/XP/7 + Delphi 5/6
 * 本 地 化：该单元中的字符串均符合本地化处理方式
@@ -50,6 +50,7 @@ uses
 
 type
   PCnSM3Digest = ^TCnSM3Digest;
+  {* SM3 杂凑结果指针}
   TCnSM3Digest = array[0..31] of Byte;
   {* SM3 杂凑结果，32 字节}
 
@@ -75,24 +76,23 @@ function SM3(Input: PAnsiChar; ByteLength: Cardinal): TCnSM3Digest;
      ByteLength: Cardinal                 - 待计算的数据块字节长度
 
    返回值：TCnSM3Digest                   - 返回的 SM3 杂凑值
-
- }
+}
 
 function SM3Buffer(const Buffer; Count: Cardinal): TCnSM3Digest;
 {* 对数据块进行 SM3 计算。
 
    参数：
-     const Buffer                         - 待计算的数据块地址
+     const Buffer                         - 待计算的数据块
      Count: Cardinal                      - 待计算的数据块字节长度
 
    返回值：TCnSM3Digest                   - 返回的 SM3 杂凑值
 }
 
-function SM3Bytes(Data: TBytes): TCnSM3Digest;
+function SM3Bytes(const Data: TBytes): TCnSM3Digest;
 {* 对字节数组进行 SM3 计算。
 
    参数：
-     Data: TBytes                         - 待计算的字节数组
+     const Data: TBytes                   - 待计算的字节数组
 
    返回值：TCnSM3Digest                   - 返回的 SM3 杂凑值
 }
@@ -245,6 +245,16 @@ procedure SM3Hmac(Key: PAnsiChar; KeyByteLength: Integer; Input: PAnsiChar;
      var Output: TCnSM3Digest             - 返回的 SM3 杂凑值
 
    返回值：（无）
+}
+
+function SM3HmacBytes(const Key: TBytes; const Data: TBytes): TCnSM3Digest;
+{* 对字节数组进行基于 MD5 的 HMAC 计算。
+
+   参数：
+     const Key: TBytes                    - 待参与 SM3 计算的密钥字节数组
+     const Data: TBytes                   - 待计算的字节数组
+
+   返回值：TCnMD5Digest                   - 返回的 SM3 杂凑值
 }
 
 implementation
@@ -540,64 +550,73 @@ end;
 
 function SM3(Input: PAnsiChar; ByteLength: Cardinal): TCnSM3Digest;
 var
-  Ctx: TCnSM3Context;
+  Context: TCnSM3Context;
 begin
-  SM3Init(Ctx);
-  SM3Update(Ctx, Input, ByteLength);
-  SM3Final(Ctx, Result);
+  SM3Init(Context);
+  SM3Update(Context, Input, ByteLength);
+  SM3Final(Context, Result);
 end;
 
-procedure SM3HmacStarts(var Ctx: TCnSM3Context; Key: PAnsiChar; KeyLength: Integer);
+procedure SM3HmacInit(var Context: TCnSM3Context; Key: PAnsiChar; KeyLength: Integer);
 var
   I: Integer;
   Sum: TCnSM3Digest;
 begin
   if KeyLength > HMAC_SM3_BLOCK_SIZE_BYTE then
   begin
-    Sum := SM3(Key, KeyLength);
+    Sum := SM3Buffer(Key^, KeyLength);
     KeyLength := HMAC_SM3_OUTPUT_LENGTH_BYTE;
     Key := @(Sum[0]);
   end;
 
-  FillChar(Ctx.Ipad, HMAC_SM3_BLOCK_SIZE_BYTE, $36);
-  FillChar(Ctx.Opad, HMAC_SM3_BLOCK_SIZE_BYTE, $5C);
+  FillChar(Context.Ipad, HMAC_SM3_BLOCK_SIZE_BYTE, $36);
+  FillChar(Context.Opad, HMAC_SM3_BLOCK_SIZE_BYTE, $5C);
 
   for I := 0 to KeyLength - 1 do
   begin
-    Ctx.Ipad[I] := Byte(Ctx.Ipad[I] xor Byte(Key[I]));
-    Ctx.Opad[I] := Byte(Ctx.Opad[I] xor Byte(Key[I]));
+    Context.Ipad[I] := Byte(Context.Ipad[I] xor Byte(Key[I]));
+    Context.Opad[I] := Byte(Context.Opad[I] xor Byte(Key[I]));
   end;
 
-  SM3Init(Ctx);
-  SM3Update(Ctx, @(Ctx.Ipad[0]), HMAC_SM3_BLOCK_SIZE_BYTE);
+  SM3Init(Context);
+  SM3Update(Context, @(Context.Ipad[0]), HMAC_SM3_BLOCK_SIZE_BYTE);
 end;
 
-procedure SM3HmacUpdate(var Ctx: TCnSM3Context; Input: PAnsiChar; Length: Cardinal);
+procedure SM3HmacUpdate(var Context: TCnSM3Context; Input: PAnsiChar; Length: Cardinal);
 begin
-  SM3Update(Ctx, Input, Length);
+  SM3Update(Context, Input, Length);
 end;
 
-procedure SM3HmacFinish(var Ctx: TCnSM3Context; var Output: TCnSM3Digest);
+procedure SM3HmacFinal(var Context: TCnSM3Context; var Output: TCnSM3Digest);
 var
   Len: Integer;
   TmpBuf: TCnSM3Digest;
 begin
   Len := HMAC_SM3_OUTPUT_LENGTH_BYTE;
-  SM3Final(Ctx, TmpBuf);
-  SM3Init(Ctx);
-  SM3Update(Ctx, @(Ctx.Opad[0]), HMAC_SM3_BLOCK_SIZE_BYTE);
-  SM3Update(Ctx, @(TmpBuf[0]), Len);
-  SM3Final(Ctx, Output);
+  SM3Final(Context, TmpBuf);
+  SM3Init(Context);
+  SM3Update(Context, @(Context.Opad[0]), HMAC_SM3_BLOCK_SIZE_BYTE);
+  SM3Update(Context, @(TmpBuf[0]), Len);
+  SM3Final(Context, Output);
 end;
 
 procedure SM3Hmac(Key: PAnsiChar; KeyByteLength: Integer; Input: PAnsiChar;
   ByteLength: Cardinal; var Output: TCnSM3Digest);
 var
-  Ctx: TCnSM3Context;
+  Context: TCnSM3Context;
 begin
-  SM3HmacStarts(Ctx, Key, KeyByteLength);
-  SM3HmacUpdate(Ctx, Input, ByteLength);
-  SM3HmacFinish(Ctx, Output);
+  SM3HmacInit(Context, Key, KeyByteLength);
+  SM3HmacUpdate(Context, Input, ByteLength);
+  SM3HmacFinal(Context, Output);
+end;
+
+function SM3HmacBytes(const Key: TBytes; const Data: TBytes): TCnSM3Digest;
+var
+  Context: TCnSM3Context;
+begin
+  SM3HmacInit(Context, PAnsiChar(@Key[0]), Length(Key));
+  SM3HmacUpdate(Context, PAnsiChar(@Data[0]), Length(Data));
+  SM3HmacFinal(Context, Result);
 end;
 
 function SM3Buffer(const Buffer; Count: Cardinal): TCnSM3Digest;
@@ -605,11 +624,11 @@ var
   Context: TCnSM3Context;
 begin
   SM3Init(Context);
-  SM3Update(Context, PAnsiChar(Buffer), Count);
+  SM3Update(Context, PAnsiChar(@Buffer), Count);
   SM3Final(Context, Result);
 end;
 
-function SM3Bytes(Data: TBytes): TCnSM3Digest;
+function SM3Bytes(const Data: TBytes): TCnSM3Digest;
 var
   Context: TCnSM3Context;
 begin
@@ -618,7 +637,6 @@ begin
   SM3Final(Context, Result);
 end;
 
-// 对 String 类型数据进行 SM3 转换
 function SM3String(const Str: string): TCnSM3Digest;
 var
   AStr: AnsiString;
@@ -627,7 +645,6 @@ begin
   Result := SM3StringA(AStr);
 end;
 
-// 对 AnsiString 类型数据进行 SM3 转换
 function SM3StringA(const Str: AnsiString): TCnSM3Digest;
 var
   Context: TCnSM3Context;
@@ -637,7 +654,6 @@ begin
   SM3Final(Context, Result);
 end;
 
-// 对 WideString 类型数据进行 SM3 转换
 function SM3StringW(const Str: WideString): TCnSM3Digest;
 var
   Context: TCnSM3Context;
@@ -647,7 +663,6 @@ begin
   SM3Final(Context, Result);
 end;
 
-// 对 UnicodeString 类型数据进行直接的 SM3 计算，不进行转换
 {$IFDEF UNICODE}
 function SM3UnicodeString(const Str: string): TCnSM3Digest;
 {$ELSE}
@@ -662,7 +677,7 @@ begin
 end;
 
 function InternalSM3Stream(Stream: TStream; const BufSize: Cardinal; var D:
-  TCnSM3Digest; CallBack: TCnSM3CalcProgressFunc = nil): Boolean;
+  TCnSM3Digest; CallBack: TCnSM3CalcProgressFunc): Boolean;
 var
   Context: TCnSM3Context;
   Buf: PAnsiChar;
@@ -707,7 +722,6 @@ begin
   end;
 end;
 
-// 对指定文件数据进行SM3转换
 function SM3File(const FileName: string;
   CallBack: TCnSM3CalcProgressFunc): TCnSM3Digest;
 var
@@ -784,7 +798,7 @@ begin
             end
             else
             begin
-              raise Exception.Create(SCnErrorMapViewOfFile + IntToStr(GetLastError));
+              raise ECnNativeException.Create(SCnErrorMapViewOfFile + IntToStr(GetLastError));
             end;
           finally
             CloseHandle(MapHandle);
@@ -793,7 +807,7 @@ begin
         else
         begin
           if not FileIsZeroSize then
-            raise Exception.Create(SCnErrorCreateFileMapping + IntToStr(GetLastError));
+            raise ECnNativeException.Create(SCnErrorCreateFileMapping + IntToStr(GetLastError));
         end;
       finally
         CloseHandle(FileHandle);
@@ -804,9 +818,8 @@ begin
   end;
 end;
 
-// 对指定流进行 SM3 计算
 function SM3Stream(Stream: TStream;
-  CallBack: TCnSM3CalcProgressFunc = nil): TCnSM3Digest;
+  CallBack: TCnSM3CalcProgressFunc): TCnSM3Digest;
 begin
   InternalSM3Stream(Stream, 4096 * 1024, Result, CallBack);
 end;
@@ -818,7 +831,7 @@ end;
 
 function SM3Match(const D1, D2: TCnSM3Digest): Boolean;
 begin
-  Result := CompareMem(@D1[0], @D2[0], SizeOf(TCnSM3Digest));
+  Result := ConstTimeCompareMem(@D1[0], @D2[0], SizeOf(TCnSM3Digest));
 end;
 
 function SM3DigestToStr(const Digest: TCnSM3Digest): string;

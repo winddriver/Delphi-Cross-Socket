@@ -1,7 +1,7 @@
 {******************************************************************************}
 {                       CnPack For Delphi/C++Builder                           }
 {                     中国人自己的开放源码第三方开发包                         }
-{                   (C)Copyright 2001-2025 CnPack 开发组                       }
+{                   (C)Copyright 2001-2026 CnPack 开发组                       }
 {                   ------------------------------------                       }
 {                                                                              }
 {            本开发包是开源的自由软件，您可以遵照 CnPack 的发布协议来修        }
@@ -81,17 +81,32 @@ interface
 
 uses
   Classes, SysUtils, SysConst, Math {$IFDEF COMPILER5}, Windows {$ENDIF};
-                                    // D5 下需要引用 Windows 中的 PByte
+                                    // D5 下需要引用 Windows 中的 PByte 等
 type
   ECnNativeException = class(Exception);
   {* Native 相关异常}
 
 {$IFDEF COMPILER5}
-  PCardinal = ^Cardinal;
-  {* D5 下 System 单元中未定义，定义上}
   PByte = Windows.PByte;
   {* D5 下 PByte 定义在 Windows 中，其他版本定义在 System 中，
-    这里统一一下供外界使用 PByte 时无需 uses Windows，以有利于跨平台}
+    这里统一一下供外界使用 PByte 时无需 uses Windows，以有利于跨平台，以下同}
+  PWord     = Windows.PWord;
+  {* D5 下 PWord 定义在 Windows 中}
+  PShortInt = Windows.PShortInt;
+  {* D5 下 PShortInt 定义在 Windows 中}
+  PSmallInt = Windows.PSmallInt;
+  {* D5 下 PSmallInt 定义在 Windows 中}
+  PInteger  = Windows.PInteger;
+  {* D5 下 PInteger 定义在 Windows 中}
+  PSingle   = Windows.PSingle;
+  {* D5 下 PSingle 定义在 Windows 中}
+  PDouble   = Windows.PDouble;
+  {* D5 下 PDouble 定义在 Windows 中}
+
+  PCardinal = ^Cardinal;
+  {* D5 下 System 单元中未定义 Cardinal 指针类型，定义上}
+  PBoolean = ^Boolean;
+  {* D5 下 System 单元中未定义 Boolean 指针类型，定义上}
 {$ENDIF}
 
 {$IFDEF BCB5OR6}
@@ -101,69 +116,123 @@ type
 
 {$IFDEF SUPPORT_32_AND_64}
   TCnNativeInt     = NativeInt;
+  {* 统一定义 32 位和 64 位下通用的有符号整数类型}
   TCnNativeUInt    = NativeUInt;
+  {* 统一定义 32 位和 64 位下通用的无符号整数类型}
   TCnNativePointer = NativeInt;
+  {* 统一定义 32 位和 64 位下通用的指针类型}
   TCnNativeIntPtr  = PNativeInt;
+  {* 统一定义 32 位和 64 位下通用的指向有符号整数的指针类型}
   TCnNativeUIntPtr = PNativeUInt;
+  {* 统一定义 32 位和 64 位下通用的指向无符号整数的指针类型}
 {$ELSE}
   TCnNativeInt     = Integer;
+  {* 统一定义 32 位和 64 位下通用的有符号整数类型}
   TCnNativeUInt    = Cardinal;
+  {* 统一定义 32 位和 64 位下通用的无符号整数类型}
   TCnNativePointer = Integer;
+  {* 统一定义 32 位和 64 位下通用的指针类型}
   TCnNativeIntPtr  = PInteger;
+  {* 统一定义 32 位和 64 位下通用的指向有符号整数的指针类型}
   TCnNativeUIntPtr = PCardinal;
+  {* 统一定义 32 位和 64 位下通用的指向无符号整数的指针类型}
+{$ENDIF}
+  PCnNativeInt = ^TCnNativeInt;
+  {* 指向统一定义 32 位和 64 位下通用的有符号整数类型的指针}
+  PCnNativeUInt = ^TCnNativeUInt;
+  {* 指向统一定义 32 位和 64 位下通用的无符号整数类型的指针}
+{$IFDEF FPC}
+  TCnHashCode      = PtrInt;
+  {* 统一定义 Delphi 和 FPC 下的 HashCode 类型}
+{$ELSE}
+  TCnHashCode      = Integer;
+  {* 统一定义 Delphi 和 FPC 下的 HashCode 类型}
+{$ENDIF}
+
+  // 供进行地址加减运算的类型，考虑了 FPC 和 Delphi 下对符号的要求
+{$IFDEF FPC}
+  TCnIntAddress    = NativeUInt;
+  {* 统一定义 Delphi 和 FPC 下的供进行地址加减运算的类型}
+{$ELSE}
+  {$IFDEF SUPPORT_32_AND_64}
+  TCnIntAddress    = NativeInt;
+  {* 统一定义 Delphi 和 FPC 下的供进行地址加减运算的类型}
+  {$ELSE}
+  TCnIntAddress    = Integer;
+  {* 统一定义 Delphi 和 FPC 下的供进行地址加减运算的类型}
+  {$ENDIF}
 {$ENDIF}
 
 {$IFDEF CPU64BITS}
   TCnUInt64        = NativeUInt;
+  {* 统一定义 64 位无符号整数类型}
   TCnInt64         = NativeInt;
+  {* 统一定义 64 位有符号整数类型}
 {$ELSE}
   {$IFDEF SUPPORT_UINT64}
   TCnUInt64        = UInt64;
+  {* 统一定义 64 位无符号整数类型}
   {$ELSE}
-  TCnUInt64 = packed record  // 只能用这样的结构代替
+  TCnUInt64 = packed record
+  {* 在不支持 UInt64 的 32 位环境下，定义 64 位无符号整数结构}
     case Boolean of
       True:  (Value: Int64);
       False: (Lo32, Hi32: Cardinal);
   end;
   {$ENDIF}
   TCnInt64         = Int64;
+  {* 统一定义 64 位有无符号整数类型}
 {$ENDIF}
 
 // TUInt64 用于 cnvcl 库中不支持 UInt64 的运算如 div mod 等
 {$IFDEF SUPPORT_UINT64}
   TUInt64          = UInt64;
+  {* 统一定义 64 位无符号整数类型}
   {$IFNDEF SUPPORT_PUINT64}
   PUInt64          = ^UInt64;
+  {* 统一定义指向 64 位无符号整数的指针类型}
   {$ENDIF}
 {$ELSE}
   TUInt64          = Int64;
+  {* 统一定义 64 位无符号整数类型，用于 cnvcl 库中不支持 UInt64 的运算}
   PUInt64          = ^TUInt64;
+  {* 统一定义指向 64 位无符号整数的指针类型，用于 cnvcl 库中不支持 UInt64 的运算}
 {$ENDIF}
 
 {$IFNDEF SUPPORT_INT64ARRAY}
-  // 如果系统没有定义 Int64Array
   Int64Array  = array[0..$0FFFFFFE] of Int64;
+  {* 如果系统没有定义 Int64Array 则定义上 64 位有符号数组}
   PInt64Array = ^Int64Array;
+  {* 如果系统没有定义 PInt64Array 则定义上 64 位有符号数组指针}
 {$ENDIF}
 
-  TUInt64Array = array of TUInt64; // 这个动态数组声明似乎容易和静态数组声明有冲突
-
+  TUInt64Array = array of TUInt64;
+  {* 统一定义 64 位无符号整数动态数组，注意这个动态数组声明似乎容易和静态数组声明有冲突}
   ExtendedArray = array[0..65537] of Extended;
+  {* 扩展精度浮点数数组}
   PExtendedArray = ^ExtendedArray;
+  {* 扩展精度浮点数数组指针}
 
   PCnWord16Array = ^TCnWord16Array;
+  {* 16 位无符号整数数组指针}
   TCnWord16Array = array [0..0] of Word;
+  {* 16 位无符号整数数组}
 
 {$IFDEF POSIX64}
-  TCnLongWord32 = Cardinal; // Linux64/MacOS64 (or POSIX64?) LongWord is 64 Bits
+  TCnLongWord32 = Cardinal;
+  {* 统一定义 32 位无符号 LongWord，因为 Linux64/MacOS64 或 POSIX64 下面 LongWord 竟然是 64 位无符号数}
 {$ELSE}
   TCnLongWord32 = LongWord;
+  {* 统一定义 32 位无符号 LongWord}
 {$ENDIF}
   PCnLongWord32 = ^TCnLongWord32;
+  {* 统一定义指向 32 位无符号 LongWord 的指针}
 
   TCnLongWord32Array = array [0..MaxInt div SizeOf(Integer) - 1] of TCnLongWord32;
+  {* 统一定义 32 位无符号 LongWord 数组}
 
   PCnLongWord32Array = ^TCnLongWord32Array;
+  {* 统一定义 32 位无符号 LongWord 数组指针}
 
 {$IFNDEF TBYTES_DEFINED}
   TBytes = array of Byte;
@@ -185,11 +254,57 @@ type
   TCardinals = array of Cardinal;
   {* 无符号四字节动态数组}
 
+  TBooleans = array of Boolean;
+  {* 布尔动态数组}
+
   PCnByte = ^Byte;
+  {* 指向 8 位无符号数的指针类型}
   PCnWord = ^Word;
+  {* 指向 16 位无符号数的指针类型}
 
   TCnBitOperation = (boAnd, boOr, boXor, boNot);
   {* 位操作类型}
+
+  // 供我们使用的静态有符号无符号数组类型
+  PCnInt8Array = ^TCnInt8Array;
+  {* 静态 8 位有符号整数数组指针}
+  TCnInt8Array = array[0..(MaxInt div SizeOf(ShortInt) - 1)] of ShortInt;
+  {* 静态 8 位有符号整数数组}
+
+  PCnUInt8Array = ^TCnUInt8Array;
+  {* 静态 8 位无符号整数数组指针}
+  TCnUInt8Array = array[0..(MaxInt div SizeOf(Byte) - 1)] of Byte;
+  {* 静态 8 位无符号整数数组}
+
+  PCnInt16Array = ^TCnInt16Array;
+  {* 静态 16 位有符号整数数组指针}
+  TCnInt16Array = array[0..(MaxInt div SizeOf(SmallInt) - 1)] of SmallInt;
+  {* 静态 16 位有符号整数数组}
+
+  PCnUInt16Array = ^TCnUInt16Array;
+  {* 静态 16 位无符号整数数组指针}
+  TCnUInt16Array = array[0..(MaxInt div SizeOf(Word) - 1)] of Word;
+  {* 静态 16 位无符号整数数组}
+
+  PCnInt32Array = ^TCnInt32Array;
+  {* 静态 32 位有符号整数数组指针}
+  TCnInt32Array = array[0..(MaxInt div SizeOf(Integer) - 1)] of Integer;
+  {* 静态 32 位有符号整数数组}
+
+  PCnUInt32Array = ^TCnUInt32Array;
+  {* 静态 32 位无符号整数数组指针}
+  TCnUInt32Array = array[0..(MaxInt div SizeOf(Cardinal) - 1)] of Cardinal;
+  {* 静态 32 位无符号整数数组}
+
+  PCnInt64Array = ^TCnInt64Array;
+  {* 静态 64 位有符号整数数组指针}
+  TCnInt64Array = array[0..(MaxInt div SizeOf(Int64) - 1)] of Int64;
+  {* 静态 64 位有符号整数数组}
+
+  PCnUInt64Array = ^TCnUInt64Array;
+  {* 静态 64 位无符号整数数组指针}
+  TCnUInt64Array = array[0..(MaxInt div SizeOf(TUInt64) - 1)] of TUInt64;
+  {* 静态 64 位无符号整数数组}
 
 type
   TCnMemSortCompareProc = function (P1, P2: Pointer; ElementByteSize: Integer): Integer;
@@ -197,20 +312,38 @@ type
 
 const
   CN_MAX_SQRT_INT64: Cardinal               = 3037000499;
+  {* 64 位有符号数范围内最大的平方根}
   CN_MAX_INT8: ShortInt                     = $7F;
+  {* 最大的 8 位有符号数}
   CN_MIN_INT8: ShortInt                     = -128;
+  {* 最小的 8 位有符号数}
   CN_MAX_INT16: SmallInt                    = $7FFF;
+  {* 最大的 16 位有符号数}
   CN_MIN_INT16: SmallInt                    = -32768;
+  {* 最小的 16 位有符号数}
   CN_MAX_INT32: Integer                     = $7FFFFFFF;
-  CN_MIN_INT32: Integer                     = $80000000;  // 会出编译警告，但 -2147483648 会出错
+  {* 最大的 32 位有符号数}
+{$WARNINGS OFF}
+  CN_MIN_INT32: Integer                     = $80000000;
+  {* 最小的 32 位有符号数 -2147483648}
+  // 会出编译警告，但写 -2147483648 会出错
+{$WARNINGS ON}
   CN_MIN_INT32_IN_INT64: Int64              = $0000000080000000;
+  {* 64 位有符号数范围内最小的 32 位有符号数 -2147483648}
   CN_MAX_INT64: Int64                       = $7FFFFFFFFFFFFFFF;
+  {* 最大的 64 位有符号数}
   CN_MIN_INT64: Int64                       = $8000000000000000;
+  {* 最小的 64 位有符号数}
   CN_MAX_UINT8: Byte                        = $FF;
+  {* 最大的 8 位无符号数}
   CN_MAX_UINT16: Word                       = $FFFF;
+  {* 最大的 16 位无符号数}
   CN_MAX_UINT32: Cardinal                   = $FFFFFFFF;
+  {* 最大的 32 位无符号数}
   CN_MAX_TUINT64: TUInt64                   = $FFFFFFFFFFFFFFFF;
+  {* 最大的 64 位无符号数}
   CN_MAX_SIGNED_INT64_IN_TUINT64: TUInt64   = $7FFFFFFFFFFFFFFF;
+  {* 64 位无符号数范围内最大的 64 位有符号数}
 
 {*
   对于 D567 等不支持 UInt64 的编译器，虽然可以用 Int64 代替 UInt64 进行加减、存储
@@ -273,11 +406,12 @@ procedure UInt64MulUInt64(A: TUInt64; B: TUInt64; var ResLo: TUInt64; var ResHi:
    返回值：（无）
 }
 
-function UInt64ToHex(N: TUInt64): string;
+function UInt64ToHex(N: TUInt64; RemoveZeroPrefix: Boolean = False): string;
 {* 将 64 位无符号整数转换为十六进制字符串。
 
    参数：
      N: TUInt64                           - 待转换的值
+     RemoveZeroPrefix: Boolean            - 是否去除转换结果高位的 0，默认不去除
 
    返回值：string                         - 返回十六进制字符串
 }
@@ -403,6 +537,42 @@ function GetUInt8HighBits(B: Byte): Integer;
    返回值：Integer                        - 返回 1 的最高位序号
 }
 
+function GetUInt64BitLength(B: TUInt64): Integer;
+{* 返回 64 位整数去掉高位 0 后剩下的位长度，如果没有 1，返回 0。
+
+   参数：
+     B: TUInt64                           - 待判断的值
+
+   返回值：Integer                        - 返回有效位长度
+}
+
+function GetUInt32BitLength(B: Cardinal): Integer;
+{* 返回 32 位整数去掉高位 0 后剩下的位长度，如果没有 1，返回 0。
+
+   参数：
+     B: Cardinal                          - 待判断的值
+
+   返回值：Integer                        - 返回有效位长度
+}
+
+function GetUInt16BitLength(B: Word): Integer;
+{* 返回 16 位整数去掉高位 0 后剩下的位长度，如果没有 1，返回 0。
+
+   参数：
+     B: Word                              - 待判断的值
+
+   返回值：Integer                        - 返回有效位长度
+}
+
+function GetUInt8BitLength(B: Byte): Integer;
+{* 返回 8 位整数去掉高位 0 后剩下的位长度，如果没有 1，返回 0。
+
+   参数：
+     B: Byte                              - 待判断的值
+
+   返回值：Integer                        - 返回有效位长度
+}
+
 function GetUInt64LowBits(B: TUInt64): Integer;
 {* 返回 64 位整数的是 1 的最低二进制位是第几位，最低位是 0，基本等同于末尾几个 0。如果没有 1，返回 -1。
 
@@ -447,6 +617,23 @@ function Int64Mod(M: Int64; N: Int64): Int64;
      N: Int64                             - 除数
 
    返回值：Int64                          - 余数
+}
+
+function Int64CenterMod(A: Int64; N: Int64): Int64;
+{* 将 A 先 mod N 后，中心化到开闭区间 (-(N - 1)/2 的下界（更负）, (N - 1)/ 2 的下界（正数更靠近 0）]，
+   要求 N 是正数。注意，中心化并不是将 A mod N 的正值整体左移，而是超出一半的直接减 N。
+   这个一半的精确定义是，比 N/2 的整数部分大的，直接减 N，无论 N 是奇数还是偶数。
+   关于边界：一句话概括是奇数对称偶往上靠。
+   比如 N 是 7 则 [-3, 3]，比 3 大的都减 7，注意 3 不减。
+   N 是 6 则 [-2, 3]，比 3 大的都减 6，注意 3 也不减。
+   N 为奇数时，(N - 1)是偶数，除以二是整数。数量加上 0 一共 N 个，0 到 N - 1，映射到 [-(N - 1)/2, (N - 1)/2]
+   N 为偶数时，N/2 是偶数，左边界 -N/2 + 1，右边界 N/2，0 到 N - 1，映射到 [-N/2 + 1, N/2]
+
+   参数：
+     A: Int64                             - 待中心化的值
+     N: Int64                             - 模数
+
+   返回值：Int64                          - 返回中心化结果
 }
 
 function IsUInt32PowerOf2(N: Cardinal): Boolean;
@@ -1128,6 +1315,28 @@ procedure MemoryClearBit(Mem: Pointer; N: Integer);
    返回值：（无）
 }
 
+function MemoryGetHighBits(Mem: Pointer; MemByteLen: Integer): Integer;
+{* 返回内存块中是 1 的最高二进制位是第几位，“高”指低地址方向。如果没有 1，返回 -1。
+   内存块从地址低到高编为 8 * MemByteLen - 1 到 0 这么多位，末字节的最低位是 0 位。
+
+   参数：
+     Mem: Pointer                         - 待处理的数据块地址
+     MemByteLen: Integer                  - 待处理的数据块字节长度
+
+   返回值：Integer                        - 返回 1 的最高位序号
+}
+
+function MemoryGetLowBits(Mem: Pointer; MemByteLen: Integer): Integer;
+{* 返回内存块中是 1 的最低二进制位是第几位，“低”指高地址方向。如果没有 1，返回 -1。
+   内存块从地址低到高编为 8 * MemByteLen - 1 到 0 这么多位，末字节的最低位是 0 位。
+
+   参数：
+     Mem: Pointer                         - 待处理的数据块地址
+     MemByteLen: Integer                  - 待处理的数据块字节长度
+
+   返回值：Integer                        - 返回 1 的最低位序号
+}
+
 function MemoryToBinStr(Mem: Pointer; MemByteLen: Integer; Sep: Boolean = False): string;
 {* 将一块内存内容从低到高字节顺序输出为二进制字符串，Sep 表示字节之间是否空格分隔。
 
@@ -1217,6 +1426,15 @@ function UInt64ToBinStr(V: TUInt64): string;
      V: TUInt64                           - 待转换的 64 位无符号整数
 
    返回值：string                         - 返回二进制字符串
+}
+
+function StrToUInt(const S: string): Cardinal;
+{* 将字符串转换为 32 位无符号整数。
+
+   参数：
+     const S: string                      - 待转换的字符串
+
+   返回值：Cardinal                       - 返回转换结果
 }
 
 function HexToInt(const Hex: string): Integer; overload;
@@ -1310,12 +1528,12 @@ function AnsiStrToHex(const Data: AnsiString; UseUpperCase: Boolean = True): Ans
    返回值：AnsiString                     - 返回十六进制字符串
 }
 
-function BytesToHex(Data: TBytes; UseUpperCase: Boolean = True): string;
+function BytesToHex(const Data: TBytes; UseUpperCase: Boolean = True): string;
 {* 字节数组转换为十六进制字符串，下标低位的内容出现在字符串左方，相当于网络字节顺序，
    UseUpperCase 控制输出内容的大小写。
 
    参数：
-     Data: TBytes                         - 待转换的字节数组
+     const Data: TBytes                   - 待转换的字节数组
      UseUpperCase: Boolean                - 十六进制字符串内部是否大写
 
    返回值：string                         - 返回十六进制字符串
@@ -1351,8 +1569,18 @@ function HexToStream(const Hex: string; Stream: TStream): Integer;
    返回值：Integer                        - 返回写入的字节数
 }
 
+function WriteBytesToStream(const Data: TBytes; Stream: TStream): Integer;
+{* 将字节数组写入流中，返回写入的字节数。
+
+   参数：
+     const Data: TBytes                   - 待写入的字节数组
+     Stream: TStream                      - 写入的流
+
+   返回值：Integer                        - 返回写入的字节数
+}
+
 procedure ReverseBytes(Data: TBytes);
-{* 按字节顺序倒置一字节数组。
+{* 按字节顺序倒置一字节数组的内容。
 
    参数：
      Data: TBytes                         - 待倒置的字节数组
@@ -1360,11 +1588,11 @@ procedure ReverseBytes(Data: TBytes);
    返回值：（无）
 }
 
-function CloneBytes(Data: TBytes): TBytes;
+function CloneBytes(const Data: TBytes): TBytes;
 {* 复制一个新的字节数组
 
    参数：
-     Data: TBytes                         - 待复制的字节数组
+     const Data: TBytes                   - 待复制的字节数组
 
    返回值：TBytes                         - 返回新建的字节数组
 }
@@ -1378,11 +1606,11 @@ function StreamToBytes(Stream: TStream): TBytes;
    返回值：TBytes                         - 返回新建的字节数组
 }
 
-function BytesToStream(Data: TBytes; OutStream: TStream): Integer;
+function BytesToStream(const Data: TBytes; OutStream: TStream): Integer;
 {* 将字节数组整个写入流，原始流内容清除。返回写入字节数。
 
    参数：
-     Data: TBytes                         - 待写入的字节数组
+     const Data: TBytes                   - 待写入的字节数组
      OutStream: TStream                   - 写入的流
 
    返回值：Integer                        - 返回写入字节数
@@ -1397,20 +1625,20 @@ function AnsiToBytes(const Str: AnsiString): TBytes;
    返回值：TBytes                         - 返回转换的字节数组
 }
 
-function BytesToAnsi(Data: TBytes): AnsiString;
+function BytesToAnsi(const Data: TBytes): AnsiString;
 {* 将字节数组的内容直接转换为 AnsiString，不处理编码。
 
    参数：
-     Data: TBytes                         - 待转换的字节数组
+     const Data: TBytes                   - 待转换的字节数组
 
    返回值：AnsiString                     - 返回转换的字符串
 }
 
-function BytesToString(Data: TBytes): string;
+function BytesToString(const Data: TBytes): string;
 {* 将字节数组的内容转换为 string，内部逐个 Byte 赋值为 Char，不处理编码。
 
    参数：
-     Data: TBytes                         - 待转换的字节数组
+     const Data: TBytes                   - 待转换的字节数组
 
    返回值：string                         - 返回转换的字符串
 }
@@ -1434,12 +1662,55 @@ function BitsToString(Bits: TBits): string;
    返回值：string                         - 返回转换的字符串
 }
 
-function ConcatBytes(A: TBytes; B: TBytes): TBytes;
+function ConcatBytes(const A: TBytes; const B: TBytes): TBytes; overload;
 {* 将 A B 两个字节数组顺序拼好返回一个新字节数组，A B 自身保持不变。
 
    参数：
-     A: TBytes                            - 待拼接的字节数组一
-     B: TBytes                            - 待拼接的字节数组二
+     const A: TBytes                      - 待拼接的字节数组一
+     const B: TBytes                      - 待拼接的字节数组二
+
+   返回值：TBytes                         - 返回拼接的新字节数组
+}
+
+function ConcatBytes(const A: TBytes; const B: TBytes; const C: TBytes): TBytes; overload;
+{* 将 A B C 三个字节数组顺序拼好返回一个新字节数组，A B C 自身保持不变。
+
+   参数：
+     const A: TBytes                      - 待拼接的字节数组一
+     const B: TBytes                      - 待拼接的字节数组二
+     const C: TBytes                      - 待拼接的字节数组三
+
+   返回值：TBytes                         - 返回拼接的新字节数组
+}
+
+function ConcatBytes(const A: TBytes; const B: TBytes; const C: TBytes; const D: TBytes): TBytes; overload;
+{* 将 A B C D 四个字节数组顺序拼好返回一个新字节数组，A B C D 自身保持不变。
+
+   参数：
+     const A: TBytes                      - 待拼接的字节数组一
+     const B: TBytes                      - 待拼接的字节数组二
+     const C: TBytes                      - 待拼接的字节数组三
+     const D: TBytes                      - 待拼接的字节数组四
+
+   返回值：TBytes                         - 返回拼接的新字节数组
+}
+
+function NewZeroBytes(ByteLen: Integer): TBytes;
+{* 返回 ByteLen 字节长度的新字节数组。
+
+   参数：
+     ByteLen: Integer                     - 字节数组所需的字节长度
+
+   返回值：TBytes                         - 返回全零的新字节数组
+}
+
+function ConcatBytesMemory(const A: TBytes; Data: Pointer; DataByteLen: Integer): TBytes;
+{* 将一个字节数组与一片内存区域拼好返回一个新数组，原有字节数组与内存区域均不变。
+
+   参数：
+     const A: TBytes                      - 待拼接的字节数组
+     Data: Pointer                        - 待拼接的数据块地址
+     DataByteLen: Integer                 - 待拼接的数据块字节长度
 
    返回值：TBytes                         - 返回拼接的新字节数组
 }
@@ -1454,23 +1725,46 @@ function NewBytesFromMemory(Data: Pointer; DataByteLen: Integer): TBytes;
    返回值：TBytes                         - 返回新建的字节数组
 }
 
-function CompareBytes(A: TBytes; B: TBytes): Boolean; overload;
+procedure PutBytesToMemory(const Data: TBytes; Mem: Pointer; MaxByteSize: Integer = 0);
+{* 将一字节数组的内容写入指定内存区域，允许设置写入的最大数量。
+
+   参数：
+     const Data: TBytes                   - 待处理的字节数组
+     Mem: Pointer                         - 待写入的数据块地址
+     MaxByteSize: Integer                 - 控制写入的最大字节数，0 表示不控制
+
+   返回值：（无）
+}
+
+function CompareBytes(const A: TBytes; const B: TBytes): Boolean; overload;
 {* 比较两个字节数组内容是否相同。
 
    参数：
-     A: TBytes                            - 待比较的字节数组一
-     B: TBytes                            - 待比较的字节数组二
+     const A: TBytes                      - 待比较的字节数组一
+     const B: TBytes                      - 待比较的字节数组二
 
    返回值：Boolean                        - 返回比较结果是否相同
 }
 
-function CompareBytes(A: TBytes; B: TBytes; MaxLength: Integer): Boolean; overload;
+function CompareBytes(const A: TBytes; const B: TBytes; MaxLength: Integer): Boolean; overload;
 {* 比较两个字节数组的最多前 MaxLength 个字节的内容是否相同。
 
    参数：
-     A: TBytes                            - 待比较的字节数组一
-     B: TBytes                            - 待比较的字节数组二
+     const A: TBytes                      - 待比较的字节数组一
+     const B: TBytes                      - 待比较的字节数组二
      MaxLength: Integer                   - 比较的字节数上限
+
+   返回值：Boolean                        - 返回比较结果是否相同
+}
+
+function CompareBytesWithDiffIndex(const A, B: TBytes; out DiffIndex: Integer): Boolean;
+{* 比较两个字节数组的内容是否相同。
+   长度相等且内容不同时，DiffIndex 返回第一个不相等的字节索引，其他情况返回 -1。
+
+   参数：
+     const A: TBytes                      - 待比较的字节数组一
+     const B: TBytes                      - 待比较的字节数组二
+     out DiffIndex: Integer               - 返回第一个不相等的字节索引
 
    返回值：Boolean                        - 返回比较结果是否相同
 }
@@ -1490,44 +1784,44 @@ function MoveMost(const Source; var Dest; ByteLen: Integer; MostLen: Integer): I
 
 // =============================== 算术右移 ===================================
 
-function SarInt8(var V: Byte; ShiftCount: Integer): Byte;
-{* 将一 8 位整数进行算术右移，也就是保留符号位的右移。
+function SarInt8(V: ShortInt; ShiftCount: Integer): ShortInt;
+{* 将一 8 位有符号整数进行算术右移，也就是用符号位填充空位的右移。
 
    参数：
-     var V: Byte                          - 待算术右移的 8 位整数
+     V: ShortInt                          - 待算术右移的 8 位有符号整数
      ShiftCount: Integer                  - 算术右移的位数
 
-   返回值：Byte                           - 返回移位后的值
+   返回值：ShortInt                       - 返回移位后的值
 }
 
-function SarInt16(var V: Word; ShiftCount: Integer): Word;
-{* 将一 16 位整数进行算术右移，也就是保留符号位的右移。
+function SarInt16(V: SmallInt; ShiftCount: Integer): SmallInt;
+{* 将一 16 位有符号整数进行算术右移，也就是用符号位填充空位的右移。
 
    参数：
-     var V: Word                          - 待算术右移的 16 位整数
+     V: SmallInt                          - 待算术右移的 16 位有符号整数
      ShiftCount: Integer                  - 算术右移的位数
 
-   返回值：Word                           - 返回移位后的值
+   返回值：SmallInt                       - 返回移位后的值
 }
 
-function SarInt32(var V: Cardinal; ShiftCount: Integer): Cardinal;
-{* 将一 32 位整数进行算术右移，也就是保留符号位的右移。
+function SarInt32(V: Integer; ShiftCount: Integer): Integer;
+{* 将一 32 位有符号整数进行算术右移，也就是用符号位填充空位的右移。
 
    参数：
-     var V: Cardinal                      - 待算术右移的 32 位整数
+     V: Integer                           - 待算术右移的 32 位有符号整数
      ShiftCount: Integer                  - 算术右移的位数
 
-   返回值：Cardinal                       - 返回移位后的值
+   返回值：Integer                        - 返回移位后的值
 }
 
-function SarInt64(var V: TUInt64; ShiftCount: Integer): TUInt64;
-{* 将一 64 位整数进行算术右移，也就是保留符号位的右移。
+function SarInt64(V: Int64; ShiftCount: Integer): Int64;
+{* 将一 64 位有符号整数进行算术右移，也就是用符号位填充空位的右移。
 
    参数：
-     var V: TUInt64                       - 待算术右移的 64 位整数
+     V: Int64                             - 待算术右移的 64 位有符号整数
      ShiftCount: Integer                  - 算术右移的位数
 
-   返回值：TUInt64                        - 返回移位后的值
+   返回值：Int64                          - 返回移位后的值
 }
 
 // ================ 以下是执行时间固定的无 if 判断的部分逻辑函数 ===============
@@ -1616,14 +1910,25 @@ function ConstTimeEqual64(A: TUInt64; B: TUInt64): Boolean;
    返回值：Boolean                        - 返回是否相等
 }
 
-function ConstTimeBytesEqual(A: TBytes; B: TBytes): Boolean;
-{* 针对俩相同长度的字节数组的执行时间固定的比较，内容相同时返回 True。
+function ConstTimeCompareMem(P1, P2: Pointer; ByteLength: Integer): Boolean;
+{* 针对俩相同长度的内存块的执行时间固定的比较，内容相同时返回 True。
 
    参数：
-     A: TBytes                            - 待比较的字节数组一
-     B: TBytes                            - 待比较的字节数组二
+     P1: Pointer                          - 待比较的第一个内存块地址
+     P2: Pointer                          - 待比较的第二个内存块地址
+     ByteLength: Integer                  - 待比较的字节长度
 
    返回值：Boolean                        - 返回是否相等
+}
+
+function ConstTimeCompareBytes(const A, B: TBytes): Boolean;
+{* 执行长度相同时两个字节数组的恒定时间的比较，如长度不同直接返回 False，长度与内容均相同则返回 True。
+
+   参数：
+     const A: TBytes                      - 待比较的字节数组一
+     const B: TBytes                      - 待比较的字节数组二
+
+   返回值：Boolean                        - 是否相同
 }
 
 function ConstTimeExpandBoolean8(V: Boolean): Byte;
@@ -1903,11 +2208,8 @@ function BoolToStr(Value: Boolean; UseBoolStrs: Boolean = False): string;
 
 implementation
 
-uses
-  CnFloat;
-
 resourcestring
-  SCnErrorNotAHexPChar = 'Error: NOT a Hex PChar: %c';
+  SCnErrorNotAHexPChar = 'Error: NOT a Hex Char: #%d';
   SCnErrorLengthNotHex = 'Error Length %d: NOT a Hex String';
   SCnErrorLengthNotHexAnsi = 'Error Length %d: NOT a Hex AnsiString';
 
@@ -2270,9 +2572,9 @@ begin
         R^[0] := not A^[0];
     end;
 
-    A := PCnLongWord32Array(TCnNativeInt(A) + SizeOf(Cardinal));
-    B := PCnLongWord32Array(TCnNativeInt(B) + SizeOf(Cardinal));
-    R := PCnLongWord32Array(TCnNativeInt(R) + SizeOf(Cardinal));
+    A := PCnLongWord32Array(TCnIntAddress(A) + SizeOf(Cardinal));
+    B := PCnLongWord32Array(TCnIntAddress(B) + SizeOf(Cardinal));
+    R := PCnLongWord32Array(TCnIntAddress(R) + SizeOf(Cardinal));
 
     Dec(N, SizeOf(Cardinal));
   end;
@@ -2296,9 +2598,9 @@ begin
           BR^[0] := not BA^[0];
       end;
 
-      BA := PByteArray(TCnNativeInt(BA) + SizeOf(Byte));
-      BB := PByteArray(TCnNativeInt(BB) + SizeOf(Byte));
-      BR := PByteArray(TCnNativeInt(BR) + SizeOf(Byte));
+      BA := PByteArray(TCnIntAddress(BA) + SizeOf(Byte));
+      BB := PByteArray(TCnIntAddress(BB) + SizeOf(Byte));
+      BR := PByteArray(TCnIntAddress(BR) + SizeOf(Byte));
       Dec(N);
     end;
   end;
@@ -2363,7 +2665,7 @@ begin
   begin
     // 起点是 PF^[N] 和 PT^[0]，长度 MemLen - N 个字节，但相邻字节间有交叉
     L := MemByteLen - N;
-    PF := PByteArray(TCnNativeInt(PF) + N);
+    PF := PByteArray(TCnIntAddress(PF) + N);
 
     for I := 1 to L do // 从低位往低移动，先处理低的
     begin
@@ -2371,8 +2673,8 @@ begin
       if I < L then    // 最高一个字节 PF^[1] 会超界
         PT^[0] := (PF^[1] shr LB) or PT^[0];
 
-      PF := PByteArray(TCnNativeInt(PF) + 1);
-      PT := PByteArray(TCnNativeInt(PT) + 1);
+      PF := PByteArray(TCnIntAddress(PF) + 1);
+      PT := PByteArray(TCnIntAddress(PT) + 1);
     end;
 
     // 剩下的要填 0
@@ -2421,21 +2723,21 @@ begin
     // 起点是 PF^[0] 和 PT^[N]，长度 MemLen - N 个字节，但得从高处开始，且相邻字节间有交叉
     L := MemByteLen - N;
 
-    PF := PByteArray(TCnNativeInt(AMem) + L - 1);
-    PT := PByteArray(TCnNativeInt(BMem) + MemByteLen - 1);
+    PF := PByteArray(TCnIntAddress(AMem) + L - 1);
+    PT := PByteArray(TCnIntAddress(BMem) + MemByteLen - 1);
 
     for I := L downto 1 do // 从高位往高位移动，先处理后面的
     begin
       PT^[0] := Byte(PF^[0] shr RB);
       if I > 1 then        // 最低一个字节 PF^[-1] 会超界
       begin
-        PF := PByteArray(TCnNativeInt(PF) - 1);
-        PT^[0] := (PF^[0] shl LB) or PT^[0];
+        PF := PByteArray(TCnIntAddress(PF) - 1);
+        PT^[0] := Byte((PF^[0] shl LB) or PT^[0]);
       end
       else
-        PF := PByteArray(TCnNativeInt(PF) - 1);
+        PF := PByteArray(TCnIntAddress(PF) - 1);
 
-      PT := PByteArray(TCnNativeInt(PT) - 1);
+      PT := PByteArray(TCnIntAddress(PT) - 1);
     end;
 
     // 剩下的最前面的要填 0
@@ -2455,7 +2757,7 @@ begin
 
   A := N div 8;
   B := N mod 8;
-  P := PByte(TCnNativeInt(Mem) + A);
+  P := PByte(TCnIntAddress(Mem) + A);
 
   V := Byte(1 shl B);
   Result := (P^ and V) <> 0;
@@ -2472,7 +2774,7 @@ begin
 
   A := N div 8;
   B := N mod 8;
-  P := PByte(TCnNativeInt(Mem) + A);
+  P := PByte(TCnIntAddress(Mem) + A);
 
   V := Byte(1 shl B);
   P^ := P^ or V;
@@ -2489,10 +2791,72 @@ begin
 
   A := N div 8;
   B := N mod 8;
-  P := PByte(TCnNativeInt(Mem) + A);
+  P := PByte(TCnIntAddress(Mem) + A);
 
   V := not Byte(1 shl B);
   P^ := P^ and V;
+end;
+
+function MemoryGetHighBits(Mem: Pointer; MemByteLen: Integer): Integer;
+var
+  I, R, ZO: Integer;
+  P: PByteArray;
+begin
+  Result := -1;
+  if (Mem = nil) or (MemByteLen <= 0) then
+    Exit;
+
+  P := PByteArray(Mem);
+  ZO := 0;
+  for I := 0 to MemByteLen - 1 do // 从低地址往高地址找
+  begin
+    R := GetUInt8HighBits(P^[I]);
+    if R = -1 then // 该字节全 0
+    begin
+      ZO := ZO + 8;
+    end
+    else // 该字节有 1，中止
+    begin
+      ZO := ZO + 8 - R + 1;
+      Break;
+    end;
+  end;
+
+  if ZO = MemByteLen * 8 then // 全零，没 1
+    Result := -1
+  else
+    Result := MemByteLen * 8 - ZO; // 有 1，总位数减去 0 的个数
+end;
+
+function MemoryGetLowBits(Mem: Pointer; MemByteLen: Integer): Integer;
+var
+  I, R, ZC: Integer;
+  P: PByteArray;
+begin
+  Result := -1;
+  if (Mem = nil) or (MemByteLen <= 0) then
+    Exit;
+
+  P := PByteArray(Mem);
+  ZC := 0;
+  for I := MemByteLen - 1 downto 0 do // 从高地址往低地址找
+  begin
+    R := GetUInt8LowBits(P^[I]);
+    if R = -1 then // 该字节全 0
+    begin
+      ZC := ZC + 8;
+    end
+    else // 该字节有 1，中止
+    begin
+      ZC := ZC + R;
+      Break;
+    end;
+  end;
+
+  if ZC = MemByteLen * 8 then // 全零，没 1
+    Result := -1
+  else
+    Result := MemByteLen * 8 - ZC; // 有 1，总位数减去 0 的个数
 end;
 
 function MemoryToBinStr(Mem: Pointer; MemByteLen: Integer; Sep: Boolean): string;
@@ -2565,8 +2929,8 @@ begin
     A^[0] := B^[0];
     B^[0] := TC;
 
-    A := PCnLongWord32Array(TCnNativeInt(A) + SizeOf(Cardinal));
-    B := PCnLongWord32Array(TCnNativeInt(B) + SizeOf(Cardinal));
+    A := PCnLongWord32Array(TCnIntAddress(A) + SizeOf(Cardinal));
+    B := PCnLongWord32Array(TCnIntAddress(B) + SizeOf(Cardinal));
 
     Dec(MemByteLen, SizeOf(Cardinal));
   end;
@@ -2582,8 +2946,8 @@ begin
       BA^[0] := BB^[0];
       BB^[0] :=TB;
 
-      BA := PByteArray(TCnNativeInt(BA) + SizeOf(Byte));
-      BB := PByteArray(TCnNativeInt(BB) + SizeOf(Byte));
+      BA := PByteArray(TCnIntAddress(BA) + SizeOf(Byte));
+      BB := PByteArray(TCnIntAddress(BB) + SizeOf(Byte));
 
       Dec(MemByteLen);
     end;
@@ -2629,8 +2993,8 @@ begin
       Exit;
     end;
 
-    A := PCnLongWord32Array(TCnNativeInt(A) + SizeOf(Cardinal));
-    B := PCnLongWord32Array(TCnNativeInt(B) + SizeOf(Cardinal));
+    A := PCnLongWord32Array(TCnIntAddress(A) + SizeOf(Cardinal));
+    B := PCnLongWord32Array(TCnIntAddress(B) + SizeOf(Cardinal));
 
     Dec(MemByteLen, SizeOf(Cardinal));
   end;
@@ -2653,8 +3017,8 @@ begin
         Exit;
       end;
 
-      BA := PByteArray(TCnNativeInt(BA) + SizeOf(Byte));
-      BB := PByteArray(TCnNativeInt(BB) + SizeOf(Byte));
+      BA := PByteArray(TCnIntAddress(BA) + SizeOf(Byte));
+      BB := PByteArray(TCnIntAddress(BB) + SizeOf(Byte));
 
       Dec(MemByteLen);
     end;
@@ -2765,7 +3129,7 @@ begin
     else if (C >= 'a') and (C <= 'f') then
       Res := Res * 16 + Ord(C) - Ord('a') + 10
     else
-      raise ECnNativeException.CreateFmt(SCnErrorNotAHexPChar, [C]);
+      raise ECnNativeException.CreateFmt(SCnErrorNotAHexPChar, [Ord(C)]);
   end;
   Result := Res;
 end;
@@ -2813,7 +3177,7 @@ begin
   begin
     for I := 0 to ByteLength - 1 do
     begin
-      B := PByte(TCnNativeInt(InData) + I * SizeOf(Byte))^;
+      B := PByte(TCnIntAddress(InData) + I * SizeOf(Byte))^;
       Result[I * 2 + 1] := HiDigits[(B shr 4) and $0F];
       Result[I * 2 + 2] := HiDigits[B and $0F];
     end;
@@ -2822,7 +3186,7 @@ begin
   begin
     for I := 0 to ByteLength - 1 do
     begin
-      B := PByte(TCnNativeInt(InData) + I * SizeOf(Byte))^;
+      B := PByte(TCnIntAddress(InData) + I * SizeOf(Byte))^;
       Result[I * 2 + 1] := LoDigits[(B shr 4) and $0F];
       Result[I * 2 + 2] := LoDigits[B and $0F];
     end;
@@ -2848,7 +3212,7 @@ begin
   H := PChar(Hex);
   for I := 1 to L div 2 do
   begin
-    PByte(TCnNativeInt(OutData) + I - 1)^ := Byte(HexToInt(@H[(I - 1) * 2], 2));
+    PByte(TCnIntAddress(OutData) + I - 1)^ := Byte(HexToInt(@H[(I - 1) * 2], 2));
     Inc(Result);
   end;
 end;
@@ -2871,7 +3235,7 @@ begin
   begin
     for I := 0 to L - 1 do
     begin
-      B := PByte(TCnNativeInt(Buffer) + I * SizeOf(Char))^;
+      B := PByte(TCnIntAddress(Buffer) + I * SizeOf(Char))^;
       Result[I * 2 + 1] := HiDigits[(B shr 4) and $0F];
       Result[I * 2 + 2] := HiDigits[B and $0F];
     end;
@@ -2880,7 +3244,7 @@ begin
   begin
     for I := 0 to L - 1 do
     begin
-      B := PByte(TCnNativeInt(Buffer) + I * SizeOf(Char))^;
+      B := PByte(TCnIntAddress(Buffer) + I * SizeOf(Char))^;
       Result[I * 2 + 1] := LoDigits[(B shr 4) and $0F];
       Result[I * 2 + 2] := LoDigits[B and $0F];
     end;
@@ -2937,7 +3301,7 @@ begin
   begin
     for I := 0 to L - 1 do
     begin
-      B := PByte(TCnNativeInt(Buffer) + I)^;
+      B := PByte(TCnIntAddress(Buffer) + I)^;
       Result[I * 2 + 1] := AnsiHiDigits[(B shr 4) and $0F];
       Result[I * 2 + 2] := AnsiHiDigits[B and $0F];
     end;
@@ -2946,14 +3310,14 @@ begin
   begin
     for I := 0 to L - 1 do
     begin
-      B := PByte(TCnNativeInt(Buffer) + I)^;
+      B := PByte(TCnIntAddress(Buffer) + I)^;
       Result[I * 2 + 1] := AnsiLoDigits[(B shr 4) and $0F];
       Result[I * 2 + 2] := AnsiLoDigits[B and $0F];
     end;
   end;
 end;
 
-function BytesToHex(Data: TBytes; UseUpperCase: Boolean): string;
+function BytesToHex(const Data: TBytes; UseUpperCase: Boolean): string;
 var
   I, L: Integer;
   B: Byte;
@@ -2971,7 +3335,7 @@ begin
   begin
     for I := 0 to L - 1 do
     begin
-      B := PByte(TCnNativeInt(Buffer) + I)^;
+      B := PByte(TCnIntAddress(Buffer) + I)^;
       Result[I * 2 + 1] := HiDigits[(B shr 4) and $0F];
       Result[I * 2 + 2] := HiDigits[B and $0F];
     end;
@@ -2980,7 +3344,7 @@ begin
   begin
     for I := 0 to L - 1 do
     begin
-      B := PByte(TCnNativeInt(Buffer) + I)^;
+      B := PByte(TCnIntAddress(Buffer) + I)^;
       Result[I * 2 + 1] := LoDigits[(B shr 4) and $0F];
       Result[I * 2 + 2] := LoDigits[B and $0F];
     end;
@@ -3056,6 +3420,14 @@ begin
   end;
 end;
 
+function WriteBytesToStream(const Data: TBytes; Stream: TStream): Integer;
+begin
+  if Length(Data) > 0 then
+    Result := Stream.Write(Data[0], Length(Data))
+  else
+    Result := 0;
+end;
+
 procedure ReverseBytes(Data: TBytes);
 var
   I, L, M: Integer;
@@ -3074,7 +3446,7 @@ begin
   end;
 end;
 
-function CloneBytes(Data: TBytes): TBytes;
+function CloneBytes(const Data: TBytes): TBytes;
 begin
   if Length(Data) = 0 then
     Result := nil
@@ -3096,7 +3468,7 @@ begin
   end;
 end;
 
-function BytesToStream(Data: TBytes; OutStream: TStream): Integer;
+function BytesToStream(const Data: TBytes; OutStream: TStream): Integer;
 begin
   Result := 0;
   if (Data <> nil) and (Length(Data) > 0) and (OutStream <> nil) then
@@ -3113,14 +3485,14 @@ begin
     Move(Str[1], Result[0], Length(Str));
 end;
 
-function BytesToAnsi(Data: TBytes): AnsiString;
+function BytesToAnsi(const Data: TBytes): AnsiString;
 begin
   SetLength(Result, Length(Data));
   if Length(Data) > 0 then
     Move(Data[0], Result[1], Length(Data));
 end;
 
-function BytesToString(Data: TBytes): string;
+function BytesToString(const Data: TBytes): string;
 var
   I: Integer;
 begin
@@ -3165,7 +3537,7 @@ begin
   end;
 end;
 
-function ConcatBytes(A, B: TBytes): TBytes;
+function ConcatBytes(const A, B: TBytes): TBytes;
 begin
   // 哪怕是 XE7 后也不能直接相加，因为 A 或 B 为空时会返回另一字节数组而不是新数组
   if (A = nil) or (Length(A) = 0) then
@@ -3188,6 +3560,79 @@ begin
   end;
 end;
 
+function ConcatBytes(const A: TBytes; const B: TBytes; const C: TBytes): TBytes;
+var
+  L1, L2, L3: Integer;
+begin
+  Result := nil;
+  L1 := Length(A);
+  L2 := Length(B);
+  L3 := Length(C);
+
+  if (L1 = 0) and (L2 = 0) and (L3 = 0) then
+    Exit;
+
+  SetLength(Result, L1 + L2 + L3);
+  if L1 > 0 then
+    Move(A[0], Result[0], L1);
+  if L2 > 0 then
+    Move(B[0], Result[L1], L2);
+  if L3 > 0 then
+    Move(C[0], Result[L1 + L2], L3);
+end;
+
+function ConcatBytes(const A: TBytes; const B: TBytes; const C: TBytes; const D: TBytes): TBytes;
+var
+  L1, L2, L3, L4: Integer;
+begin
+  Result := nil;
+  L1 := Length(A);
+  L2 := Length(B);
+  L3 := Length(C);
+  L4 := Length(D);
+
+  if (L1 = 0) and (L2 = 0) and (L3 = 0) and (L4 = 0) then
+    Exit;
+
+  SetLength(Result, L1 + L2 + L3 + L4);
+  if L1 > 0 then
+    Move(A[0], Result[0], L1);
+  if L2 > 0 then
+    Move(B[0], Result[L1], L2);
+  if L3 > 0 then
+    Move(C[0], Result[L1 + L2], L3);
+  if L4 > 0 then
+    Move(D[0], Result[L1 + L2 + L3], L4);
+end;
+
+function NewZeroBytes(ByteLen: Integer): TBytes;
+begin
+  if ByteLen > 0 then
+  begin
+    SetLength(Result, ByteLen);
+    FillChar(Result[0], ByteLen, 0);
+  end
+  else
+    Result := nil;
+end;
+
+function ConcatBytesMemory(const A: TBytes; Data: Pointer; DataByteLen: Integer): TBytes;
+var
+  L: Integer;
+begin
+  L := Length(A) + DataByteLen;
+  if L > 0 then
+  begin
+    SetLength(Result, L);
+    if Length(A) > 0 then
+      Move(A[0], Result[0], Length(A));
+    if (Data <> nil) and (DataByteLen > 0) then
+      Move(Data^, Result[Length(A)], DataByteLen);
+  end
+  else
+    Result := nil;
+end;
+
 function NewBytesFromMemory(Data: Pointer; DataByteLen: Integer): TBytes;
 begin
   if (Data = nil) or (DataByteLen <= 0) then
@@ -3199,7 +3644,21 @@ begin
   end;
 end;
 
-function CompareBytes(A, B: TBytes): Boolean;
+procedure PutBytesToMemory(const Data: TBytes; Mem: Pointer; MaxByteSize: Integer);
+var
+  L: Integer;
+begin
+  L := Length(Data);
+  if (L > 0) and (Mem <> nil) then
+  begin
+    if (MaxByteSize > 0) and (L > MaxByteSize) then
+      L := MaxByteSize;
+
+    Move(Data[0], Mem^, L);
+  end;
+end;
+
+function CompareBytes(const A, B: TBytes): Boolean;
 var
   L: Integer;
 begin
@@ -3215,7 +3674,7 @@ begin
     Result := CompareMem(@A[0], @B[0], L);
 end;
 
-function CompareBytes(A, B: TBytes; MaxLength: Integer): Boolean;
+function CompareBytes(const A, B: TBytes; MaxLength: Integer): Boolean;
 var
   LA, LB: Integer;
 begin
@@ -3236,6 +3695,36 @@ begin
     Result := True
   else
     Result := CompareMem(@A[0], @B[0], LA);
+end;
+
+function CompareBytesWithDiffIndex(const A, B: TBytes; out DiffIndex: Integer): Boolean;
+var
+  I: Integer;
+  L1, L2: Integer;
+begin
+  L1 := Length(A);
+  L2 := Length(B);
+  DiffIndex := -1;
+  Result := True;
+
+  if L1 <> L2 then
+  begin
+    Result := False;
+    Exit;
+  end;
+
+  if (L1 = 0) and (L2 = 0) then
+    Exit;
+
+  for I := 0 to L1 - 1 do
+  begin
+    if A[I] <> B[I] then
+    begin
+      Result := False;
+      DiffIndex := I;
+      Exit;
+    end;
+  end;
 end;
 
 function MoveMost(const Source; var Dest; ByteLen, MostLen: Integer): Integer;
@@ -3261,32 +3750,32 @@ end;
 
 // =============================== 算术右移 ===================================
 
-function SarInt8(var V: Byte; ShiftCount: Integer): Byte;
+function SarInt8(V: ShortInt; ShiftCount: Integer): ShortInt;
 begin
   Result := V shr ShiftCount;
   if (V and $80) <> 0 then
-    Result := Result or $80;
+    Result := Result or ($FF shl (8 - ShiftCount));
 end;
 
-function SarInt16(var V: Word; ShiftCount: Integer): Word;
+function SarInt16(V: SmallInt; ShiftCount: Integer): SmallInt;
 begin
   Result := V shr ShiftCount;
   if (V and $8000) <> 0 then
-    Result := Result or $8000;
+    Result := Result or ($FFFF shl (16 - ShiftCount));
 end;
 
-function SarInt32(var V: Cardinal; ShiftCount: Integer): Cardinal;
+function SarInt32(V: Integer; ShiftCount: Integer): Integer;
 begin
   Result := V shr ShiftCount;
   if (V and $80000000) <> 0 then
-    Result := Result or $80000000;
+    Result := Result or Integer($FFFFFFFF shl (32 - ShiftCount));
 end;
 
-function SarInt64(var V: TUInt64; ShiftCount: Integer): TUInt64;
+function SarInt64(V: Int64; ShiftCount: Integer): Int64;
 begin
   Result := V shr ShiftCount;
   if (V and $8000000000000000) <> 0 then
-    Result := Result or $8000000000000000;
+    Result := Result or ($FFFFFFFFFFFFFFFF shl (64 - ShiftCount));
 end;
 
 procedure ConstTimeConditionalSwap8(CanSwap: Boolean; var A, B: Byte);
@@ -3358,17 +3847,32 @@ begin
     and ConstTimeEqual32(Cardinal(A and $FFFFFFFF), Cardinal(B and $FFFFFFFF));
 end;
 
-function ConstTimeBytesEqual(A, B: TBytes): Boolean;
+function ConstTimeCompareMem(P1, P2: Pointer; ByteLength: Integer): Boolean;
 var
+  B1, B2: PByte;
   I: Integer;
+  Diff: Byte;
 begin
-  Result := False;
-  if Length(A) <> Length(B) then
-    Exit;
+  Diff := 0;
+  B1 := PByte(P1);
+  B2 := PByte(P2);
 
-  Result := True;
-  for I := 0 to Length(A) - 1 do // 每个字节都比较，而不是碰到不同就退出
-    Result := Result and (ConstTimeEqual8(A[I], B[I]));
+  for I := 0 to ByteLength - 1 do
+  begin
+    Diff := Diff or (B1^ xor B2^);
+    Inc(B1);
+    Inc(B2);
+  end;
+
+  Result := Diff = 0;
+end;
+
+function ConstTimeCompareBytes(const A, B: TBytes): Boolean;
+begin
+  if Length(A) <> Length(B) then
+    Result := False
+  else
+    Result := ConstTimeCompareMem(@A[0], @B[0], Length(A));
 end;
 
 function ConstTimeExpandBoolean8(V: Boolean): Byte;
@@ -3811,6 +4315,7 @@ begin
   if S[I] =  Char('-') then
   begin
     Sign := True;
+    Code := 1; // 不支持负数
     Inc(I);
   end
   else if S[I] =  Char('+') then
@@ -3818,15 +4323,17 @@ begin
   Empty := True;
 
   if (S[I] =  Char('$')) or (UpCase(S[I]) =  Char('X'))
-    or ((S[I] =  Char('0')) and (I < Length(S)) and (UpCase(S[I+1]) =  Char('X'))) then
+    or ((S[I] =  Char('0')) and (I < Length(S)) and (UpCase(S[I + 1]) =  Char('X'))) then
   begin
     if S[I] =  Char('0') then
       Inc(I);
     Inc(I);
     while True do
     begin
+      if I > Length(S) then
+        Break;
       case Char(S[I]) of
-        Char('0').. Char('9'): Dig := Ord(S[I]) -  Ord('0');
+        Char('0').. Char('9'): Dig := Ord(S[I]) - Ord('0');
         Char('A').. Char('F'): Dig := Ord(S[I]) - (Ord('A') - 10);
         Char('a').. Char('f'): Dig := Ord(S[I]) - (Ord('a') - 10);
       else
@@ -3847,6 +4354,8 @@ begin
   begin
     while True do
     begin
+      if I > Length(S) then
+        Break;
       case Char(S[I]) of
         Char('0').. Char('9'): Dig := Ord(S[I]) - Ord('0');
       else
@@ -3864,7 +4373,97 @@ begin
     end;
   end;
 
-  if (S[I] <> Char(#0)) or Empty then
+  if ((I <= Length(S)) and (S[I] <> Char(#0))) or Empty then
+    Code := I + 1 - FirstIndex
+  else
+    Code := 0;
+end;
+
+function _ValUInt32(const S: string; var Code: Integer): Cardinal;
+const
+  FirstIndex = 1;
+var
+  I: Integer;
+  Dig: Integer;
+  Sign: Boolean;
+  Empty: Boolean;
+begin
+  I := FirstIndex;
+  Dig := 0; 
+  Result := 0;
+
+  if S = '' then
+  begin
+    Code := 1;
+    Exit;
+  end;
+
+  while S[I] = Char(' ') do
+    Inc(I);
+  Sign := False;
+
+  if S[I] =  Char('-') then
+  begin
+    Sign := True;
+    Code := 1; // 不支持负数
+    Inc(I);
+  end
+  else if S[I] =  Char('+') then
+    Inc(I);
+  Empty := True;
+
+  if (S[I] =  Char('$')) or (UpCase(S[I]) =  Char('X'))
+    or ((S[I] =  Char('0')) and (I < Length(S)) and (UpCase(S[I + 1]) =  Char('X'))) then
+  begin
+    if S[I] =  Char('0') then
+      Inc(I);
+    Inc(I);
+    while True do
+    begin
+      if I > Length(S) then
+        Break;
+      case Char(S[I]) of
+        Char('0').. Char('9'): Dig := Ord(S[I]) - Ord('0');
+        Char('A').. Char('F'): Dig := Ord(S[I]) - (Ord('A') - 10);
+        Char('a').. Char('f'): Dig := Ord(S[I]) - (Ord('a') - 10);
+      else
+        Break;
+      end;
+
+      if Result > (CN_MAX_UINT32 shr 4) then
+        Break;
+      if Sign and (Dig <> 0) then
+        Break;
+
+      Result := Result shl 4 + Cardinal(Dig);
+      Inc(I);
+      Empty := False;
+    end;
+  end
+  else
+  begin
+    while True do
+    begin
+      if I > Length(S) then
+        Break;
+      case Char(S[I]) of
+        Char('0').. Char('9'): Dig := Ord(S[I]) - Ord('0');
+      else
+        Break;
+      end;
+
+      if Result > (CN_MAX_UINT32 div 10) then
+        Break;
+      if Sign and (Dig <> 0) then
+        Break;
+
+      Result := Result * 10 + Cardinal(Dig);
+      Inc(I);
+      Empty := False;
+    end;
+  end;
+
+  if ((I <= Length(S)) and (S[I] <> Char(#0))) or Empty then
     Code := I + 1 - FirstIndex
   else
     Code := 0;
@@ -3872,7 +4471,7 @@ end;
 
 {$HINTS ON}
 
-function UInt64ToHex(N: TUInt64): string;
+function UInt64ToHex(N: TUInt64; RemoveZeroPrefix: Boolean): string;
 const
   Digits: array[0..15] of Char = ('0', '1', '2', '3', '4', '5', '6', '7',
                                   '8', '9', 'A', 'B', 'C', 'D', 'E', 'F');
@@ -3892,6 +4491,12 @@ begin
     + HC(Byte((N and $0000000000FF0000) shr 16))
     + HC(Byte((N and $000000000000FF00) shr 8))
     + HC(Byte((N and $00000000000000FF)));
+
+  if RemoveZeroPrefix then
+  begin
+    while (Length(Result) > 1) and (Result[1] = '0') do
+      Delete(Result, 1, 1);
+  end;
 end;
 
 function UInt64ToStr(N: TUInt64): string;
@@ -3908,7 +4513,21 @@ begin
 {$IFDEF DELPHIXE6_UP}
   Result := SysUtils.StrToUInt64(S);  // StrToUInt64 only exists under XE6 or above
 {$ELSE}
-  Result := _ValUInt64(S,  E);
+  Result := _ValUInt64(S, E);
+  if E <> 0 then raise EConvertError.CreateResFmt(@SInvalidInteger, [S]);
+{$ENDIF}
+end;
+
+function StrToUInt(const S: string): Cardinal;
+{$IFNDEF DELPHI102_TOKYO_UP}
+var
+  E: Integer;
+{$ENDIF}
+begin
+{$IFDEF DELPHI102_TOKYO_UP}
+  Result := SysUtils.StrToUInt(S);  // StrToUInt only exists under D102T or above
+{$ELSE}
+  Result := _ValUInt32(S, E);
   if E <> 0 then raise EConvertError.CreateResFmt(@SInvalidInteger, [S]);
 {$ENDIF}
 end;
@@ -4020,265 +4639,178 @@ end;
 
 // 返回 UInt64 的是 1 的最高二进制位是第几位，最低位是 0，如果没有 1，返回 -1
 function GetUInt64HighBits(B: TUInt64): Integer;
-begin
-  if B = 0 then
-  begin
-    Result := -1;
-    Exit;
-  end;
-
-  Result := 1;
-  if B shr 32 = 0 then
-  begin
-   Inc(Result, 32);
-   B := B shl 32;
-  end;
-  if B shr 48 = 0 then
-  begin
-   Inc(Result, 16);
-   B := B shl 16;
-  end;
-  if B shr 56 = 0 then
-  begin
-    Inc(Result, 8);
-    B := B shl 8;
-  end;
-  if B shr 60 = 0 then
-  begin
-    Inc(Result, 4);
-    B := B shl 4;
-  end;
-  if B shr 62 = 0 then
-  begin
-    Inc(Result, 2);
-    B := B shl 2;
-  end;
-  Result := Result - Integer(B shr 63); // 得到前导 0 的数量
-  Result := 63 - Result;
-end;
-
-// 返回 Cardinal 的是 1 的最高二进制位是第几位，最低位是 0，如果没有 1，返回 -1
-function GetUInt32HighBits(B: Cardinal): Integer;
-begin
-  if B = 0 then
-  begin
-    Result := -1;
-    Exit;
-  end;
-
-  Result := 1;
-  if B shr 16 = 0 then
-  begin
-   Inc(Result, 16);
-   B := B shl 16;
-  end;
-  if B shr 24 = 0 then
-  begin
-    Inc(Result, 8);
-    B := B shl 8;
-  end;
-  if B shr 28 = 0 then
-  begin
-    Inc(Result, 4);
-    B := B shl 4;
-  end;
-  if B shr 30 = 0 then
-  begin
-    Inc(Result, 2);
-    B := B shl 2;
-  end;
-  Result := Result - Integer(B shr 31); // 得到前导 0 的数量
-  Result := 31 - Result;
-end;
-
-function GetUInt16HighBits(B: Word): Integer;
-begin
-  if B = 0 then
-  begin
-    Result := -1;
-    Exit;
-  end;
-
-  Result := 1;
-  if B shr 8 = 0 then
-  begin
-    Inc(Result, 8);
-    B := B shl 8;
-  end;
-  if B shr 12 = 0 then
-  begin
-    Inc(Result, 4);
-    B := B shl 4;
-  end;
-  if B shr 14 = 0 then
-  begin
-    Inc(Result, 2);
-    B := B shl 2;
-  end;
-  Result := Result - Integer(B shr 15); // 得到前导 0 的数量
-  Result := 15 - Result;
-end;
-
-function GetUInt8HighBits(B: Byte): Integer;
-begin
-  if B = 0 then
-  begin
-    Result := -1;
-    Exit;
-  end;
-
-  Result := 1;
-  if B shr 4 = 0 then
-  begin
-    Inc(Result, 4);
-    B := B shl 4;
-  end;
-  if B shr 6 = 0 then
-  begin
-    Inc(Result, 2);
-    B := B shl 2;
-  end;
-  Result := Result - Integer(B shr 7); // 得到前导 0 的数量
-  Result := 7 - Result;
-end;
-
-// 返回 Int64 的是 1 的最低二进制位是第几位，最低位是 0，如果没有 1，返回 -1
-function GetUInt64LowBits(B: TUInt64): Integer;
 var
-  Y: TUInt64;
-  N: Integer;
+  I: Integer;
 begin
   Result := -1;
   if B = 0 then
     Exit;
 
-  N := 63;
-  Y := B shl 32;
-  if Y <> 0 then
+  for I := 63 downto 0 do
   begin
-    Dec(N, 32);
-    B := Y;
+    if (B and (TUInt64(1) shl I)) <> 0 then // 这里必须加 TUInt64 强制转换，否则会得出 8 的最高二进制位为 35 的错误结果
+    begin
+      Result := I;
+      Break;
+    end;
   end;
-  Y := B shl 16;
-  if Y <> 0 then
+end;
+
+// 返回 Cardinal 的是 1 的最高二进制位是第几位，最低位是 0，如果没有 1，返回 -1
+function GetUInt32HighBits(B: Cardinal): Integer;
+var
+  I: Integer;
+begin
+  Result := -1;
+  if B = 0 then
+    Exit;
+
+  for I := 31 downto 0 do
   begin
-    Dec(N, 16);
-    B := Y;
+    if (B and (1 shl I)) <> 0 then
+    begin
+      Result := I;
+      Break;
+    end;
   end;
-  Y := B shl 8;
-  if Y <> 0 then
+end;
+
+// 返回 Word 的是 1 的最高二进制位是第几位，最低位是 0，如果没有 1，返回 -1
+function GetUInt16HighBits(B: Word): Integer;
+var
+  I: Integer;
+begin
+  Result := -1;
+  if B = 0 then
+    Exit;
+
+  for I := 15 downto 0 do
   begin
-    Dec(N, 8);
-    B := Y;
+    if (B and (1 shl I)) <> 0 then
+    begin
+      Result := I;
+      Break;
+    end;
   end;
-  Y := B shl 4;
-  if Y <> 0 then
+end;
+
+// 返回 Byte 的是 1 的最高二进制位是第几位，最低位是 0，如果没有 1，返回 -1
+function GetUInt8HighBits(B: Byte): Integer;
+var
+  I: Integer;
+begin
+  Result := -1;
+  if B = 0 then
+    Exit;
+
+  for I := 7 downto 0 do
   begin
-    Dec(N, 4);
-    B := Y;
+    if (B and (1 shl I)) <> 0 then
+    begin
+      Result := I;
+      Break;
+    end;
   end;
-  Y := B shl 2;
-  if Y <> 0 then
+end;
+
+// 返回 64 位整数去掉高位 0 后剩下的位长度，如果没有 1，返回 0
+function GetUInt64BitLength(B: TUInt64): Integer;
+begin
+  Result := 1 + GetUInt64HighBits(B);
+end;
+
+// 返回 32 位整数去掉高位 0 后剩下的位长度，如果没有 1，返回 0
+function GetUInt32BitLength(B: Cardinal): Integer;
+begin
+  Result := 1 + GetUInt32HighBits(B);
+end;
+
+// 返回 16 位整数去掉高位 0 后剩下的位长度，如果没有 1，返回 0
+function GetUInt16BitLength(B: Word): Integer;
+begin
+  Result := 1 + GetUInt16HighBits(B);
+end;
+
+// 返回 8 位整数去掉高位 0 后剩下的位长度，如果没有 1，返回 0
+function GetUInt8BitLength(B: Byte): Integer;
+begin
+  Result := 1 + GetUInt8HighBits(B);
+end;
+
+// 返回 UInt64 的是 1 的最低二进制位是第几位，最低位是 0，如果没有 1，返回 -1
+function GetUInt64LowBits(B: TUInt64): Integer;
+var
+  I: Integer;
+begin
+  Result := -1;
+  if B = 0 then
+    Exit;
+
+  for I := 0 to 63 do
   begin
-    Dec(N, 2);
-    B := Y;
+    if (B and (1 shl I)) <> 0 then
+    begin
+      Result := I;
+      Break;
+    end;
   end;
-  B := B shl 1;
-  Result := N - Integer(B shr 63);
 end;
 
 // 返回 Cardinal 的是 1 的最低二进制位是第几位，最低位是 0，如果没有 1，返回 -1
 function GetUInt32LowBits(B: Cardinal): Integer;
 var
-  Y, N: Integer;
+  I: Integer;
 begin
   Result := -1;
   if B = 0 then
     Exit;
 
-  N := 31;
-  Y := B shl 16;
-  if Y <> 0 then
+  for I := 0 to 31 do
   begin
-    Dec(N, 16);
-    B := Y;
+    if (B and (1 shl I)) <> 0 then
+    begin
+      Result := I;
+      Break;
+    end;
   end;
-  Y := B shl 8;
-  if Y <> 0 then
-  begin
-    Dec(N, 8);
-    B := Y;
-  end;
-  Y := B shl 4;
-  if Y <> 0 then
-  begin
-    Dec(N, 4);
-    B := Y;
-  end;
-  Y := B shl 2;
-  if Y <> 0 then
-  begin
-    Dec(N, 2);
-    B := Y;
-  end;
-  B := B shl 1;
-  Result := N - Integer(B shr 31);
 end;
 
 // 返回 Word 的是 1 的最低二进制位是第几位，最低位是 0，基本等同于末尾几个 0。如果没有 1，返回 -1
 function GetUInt16LowBits(B: Word): Integer;
 var
-  Y, N: Integer;
+  I: Integer;
 begin
   Result := -1;
   if B = 0 then
     Exit;
 
-  N := 15;
-  Y := B shl 8;
-  if Y <> 0 then
+  for I := 0 to 15 do
   begin
-    Dec(N, 8);
-    B := Y;
+    if (B and (1 shl I)) <> 0 then
+    begin
+      Result := I;
+      Break;
+    end;
   end;
-  Y := B shl 4;
-  if Y <> 0 then
-  begin
-    Dec(N, 4);
-    B := Y;
-  end;
-  Y := B shl 2;
-  if Y <> 0 then
-  begin
-    Dec(N, 2);
-    B := Y;
-  end;
-  B := B shl 1;
-  Result := N - Integer(B shr 15);
 end;
 
 // 返回 Byte 的是 1 的最低二进制位是第几位，最低位是 0，基本等同于末尾几个 0。如果没有 1，返回 -1
 function GetUInt8LowBits(B: Byte): Integer;
 var
-  N: Integer;
+  I: Integer;
 begin
   Result := -1;
   if B = 0 then
     Exit;
 
-  N := 7;
-  if B shr 4 = 0 then
+  for I := 0 to 7 do
   begin
-    Dec(N, 4);
-    B := B shl 4;
+    if (B and (1 shl I)) <> 0 then
+    begin
+      Result := I;
+      Break;
+    end;
   end;
-  if B shr 6 = 0 then
-  begin
-    Dec(N, 2);
-    B := B shl 2;
-  end;
-  B := B shl 1;
-  Result := N - Integer(B shr 7);
 end;
 
 // 封装的 Int64 Mod，碰到负值时取反求模再模减
@@ -4288,6 +4820,13 @@ begin
     Result := M mod N
   else
     Result := N - ((-M) mod N);
+end;
+
+function Int64CenterMod(A: Int64; N: Int64): Int64;
+begin
+  Result := Int64NonNegativeMod(A, N);
+  if Result > N div 2 then // 高半部分直接减 N
+    Result := Result - N;
 end;
 
 // 判断一 32 位无符号整数是否 2 的整数次幂
@@ -4705,9 +5244,11 @@ end;
 
 function UInt64NonNegativeRoot(N: TUInt64; Exp: Integer): TUInt64;
 var
-  I: Integer;
-  X: TUInt64;
-  XN, X0, X1: Extended;
+  Bits: Integer;
+  L, H, M, B, P: TUInt64;
+  Cmp: Integer;
+  Overflow: Boolean;
+  E: Integer;
 begin
   if Exp < 0 then
     raise ERangeError.Create(SRangeError)
@@ -4715,30 +5256,83 @@ begin
     raise EDivByZero.Create(SDivByZero)
   else if (N = 0) or (N = 1) then
     Result := N
+  else if Exp = 1 then
+    Result := N
   else if Exp = 2 then
     Result := UInt64Sqrt(N)
   else
   begin
-    // 牛顿迭代法求根
-    I := GetUInt64HighBits(N) + 1; // 得到大约 Log2 N 的值
-    I := (I div Exp) + 1;
-    X := 1 shl I;                  // 得到一个较大的 X0 值作为起始值
+    // 整数二分查找 根值区间；
+    // 用 整数快速幂 + 溢出前判断 比较 M^Exp 与 N ；
+    // 最终返回 floor(N^(1/Exp))
 
-    X0 := UInt64ToExtended(X);
-    XN := UInt64ToExtended(N);
-    X1 := X0 - (Power(X0, Exp) - XN) / (Exp * Power(X0, Exp - 1));
+    Bits := GetUInt64HighBits(N) + 1; // 得到大约 Log2 N 的值
+    H := TUInt64(1) shl ((Bits + Exp - 1) div Exp);
+    if H = 0 then
+      H := N
+    else if H > N then
+      H := N;
+    L := 1;
+    Cmp := -1;
 
-    while True do
+    while L <= H do
     begin
-      if (ExtendedToUInt64(X0) = ExtendedToUInt64(X1)) and (Abs(X0 - X1) < 0.001) then
+      M := L + ((H - L) shr 1);
+      B := M;
+      P := 1;
+      E := Exp;
+      Overflow := False;
+      while E > 0 do
       begin
-        Result := ExtendedToUInt64(X1);
-        Exit;
+        if (E and 1) <> 0 then
+        begin
+          if (B <> 0) and (P > N div B) then
+          begin
+            Overflow := True;
+            Break;
+          end;
+          P := P * B;
+        end;
+        E := E shr 1;
+        if E > 0 then
+        begin
+          if (B <> 0) and (B > N div B) then
+          begin
+            Overflow := True;
+            Break;
+          end;
+          B := B * B;
+        end;
       end;
 
-      X0 := X1;
-      X1 := X0 - (Power(X0, Exp) - XN) / (Exp * Power(X0, Exp - 1));
+      if Overflow then
+        Cmp := 1
+      else if P > N then
+        Cmp := 1
+      else if P < N then
+        Cmp := -1
+      else
+        Cmp := 0;
+
+      if Cmp = 0 then
+      begin
+        Result := M;
+        Exit;
+      end
+      else if Cmp < 0 then
+        L := M + 1
+      else
+      begin
+        if M = 0 then
+          Break;
+        H := M - 1;
+      end;
     end;
+
+    if Cmp > 0 then
+      Result := H
+    else
+      Result := L - 1;
   end;
 end;
 
@@ -4801,17 +5395,17 @@ begin
     J := R;
     P := (L + R) shr 1;
     repeat
-      while CompareProc(Pointer(TCnNativeInt(Mem) + I * ElementByteSize),
-        Pointer(TCnNativeInt(Mem) + P * ElementByteSize), ElementByteSize) < 0 do
+      while CompareProc(Pointer(TCnIntAddress(Mem) + I * ElementByteSize),
+        Pointer(TCnIntAddress(Mem) + P * ElementByteSize), ElementByteSize) < 0 do
         Inc(I);
-      while CompareProc(Pointer(TCnNativeInt(Mem) + J * ElementByteSize),
-        Pointer(TCnNativeInt(Mem) + P * ElementByteSize), ElementByteSize) > 0 do
+      while CompareProc(Pointer(TCnIntAddress(Mem) + J * ElementByteSize),
+        Pointer(TCnIntAddress(Mem) + P * ElementByteSize), ElementByteSize) > 0 do
         Dec(J);
 
       if I <= J then
       begin
-        MemorySwap(Pointer(TCnNativeInt(Mem) + I * ElementByteSize),
-          Pointer(TCnNativeInt(Mem) + J * ElementByteSize), ElementByteSize);
+        MemorySwap(Pointer(TCnIntAddress(Mem) + I * ElementByteSize),
+          Pointer(TCnIntAddress(Mem) + J * ElementByteSize), ElementByteSize);
 
         if P = I then
           P := J

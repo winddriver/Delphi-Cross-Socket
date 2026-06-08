@@ -1,7 +1,7 @@
 {******************************************************************************}
 {                       CnPack For Delphi/C++Builder                           }
 {                     中国人自己的开放源码第三方开发包                         }
-{                   (C)Copyright 2001-2025 CnPack 开发组                       }
+{                   (C)Copyright 2001-2026 CnPack 开发组                       }
 {                   ------------------------------------                       }
 {                                                                              }
 {            本开发包是开源的自由软件，您可以遵照 CnPack 的发布协议来修        }
@@ -30,7 +30,11 @@ unit CnPemUtils;
 * 开发平台：WinXP + Delphi 5.0
 * 兼容测试：暂未进行
 * 本 地 化：该单元无需本地化处理
-* 修改记录：2024.05.27 V1.6
+* 修改记录：2026.04.05 V1.8
+*               增强部分安全性
+*           2026.03.24 V1.7
+*               特定版本的编译器 TStringList 写 Stream 会带 BOM 且无法控制，换实现
+*           2024.05.27 V1.6
 *               增加六个 ISO10126 对齐的处理函数
 *           2023.12.14 V1.5
 *               增加 SaveMemoryToPemStream 函数但未完整测试
@@ -54,23 +58,33 @@ interface
 {$I CnPack.inc}
 
 uses
-  SysUtils, Classes, CnNative, CnRandom, CnKDF, CnBase64, CnAES, CnDES;
+  SysUtils, Classes, CnNative, CnRandom, CnKDF, CnBase64, CnAES, CnDES, CnSM4;
 
 const
   CN_PKCS1_BLOCK_TYPE_PRIVATE_00       = 00;
-  {* PKCS1 对齐时的块类型字段值一，默认应用于 RSA 的私钥加密场合}
+  {* PKCS1 对齐时的块类型字段值一，默认应用于 RSA 的私钥加密或签名场合，但 RFC2313 不推荐使用}
 
   CN_PKCS1_BLOCK_TYPE_PRIVATE_FF       = 01;
-  {* PKCS1 对齐时的块类型字段值二，默认应用于 RSA 的私钥签名场合}
+  {* PKCS1 对齐时的块类型字段值二，默认应用于 RSA 的私钥加密或签名场合，RFC2313 推荐使用}
 
   CN_PKCS1_BLOCK_TYPE_PUBLIC_RANDOM    = 02;
   {* PKCS1 对齐时的块类型字段值三，默认应用于 RSA 的公钥加密场合}
+
+  CN_PKCS1_PADDING_SIZE                = 11;
+  {* PKCS1 的大小差值：一个前导 00、一个类型字节、至少 8 字节内容填充，一个填充后的 00 结尾}
+
+  CN_PKCS5_BLOCK_SIZE                  = 8;
+  {* PKCS5 的默认块大小}
+
+  CN_PKCS7_BLOCK_SIZE                  = 16;
+  {* PKCS7 的最大块大小（AES）}
 
 type
   TCnKeyHashMethod = (ckhMd5, ckhSha256);
   {* PEM 格式支持的杂凑类型}
 
-  TCnKeyEncryptMethod = (ckeNone, ckeDES, cke3DES, ckeAES128, ckeAES192, ckeAES256);
+  TCnKeyEncryptMethod = (ckeNone, ckeDES, cke3DES, ckeAES128, ckeAES192, ckeAES256,
+    ckeSM4);
   {* PEM 格式支持的加密类型}
 
 // ======================= PEM 文件读写函数，支持加解密 ========================
@@ -94,7 +108,7 @@ function LoadPemFileToMemory(const FileName: string; const ExpectHead: string;
 function LoadPemStreamToMemory(Stream: TStream; const ExpectHead: string;
   const ExpectTail: string; MemoryStream: TMemoryStream; const Password: string = '';
   KeyHashMethod: TCnKeyHashMethod = ckhMd5): Boolean;
-{* 从 PEM 格式编码的文件中验证指定头尾后读入实际内容并解密进行 Base64 解码。
+{* 从 PEM 格式编码的流中验证指定头尾后读入实际内容并解密进行 Base64 解码。
 
    参数：
      Stream: TStream                      - 待读入的流
@@ -110,13 +124,13 @@ function LoadPemStreamToMemory(Stream: TStream; const ExpectHead: string;
 function SaveMemoryToPemFile(const FileName: string; const Head: string; const Tail: string;
   MemoryStream: TMemoryStream; KeyEncryptMethod: TCnKeyEncryptMethod = ckeNone;
   KeyHashMethod: TCnKeyHashMethod = ckhMd5; const Password: string = ''; Append: Boolean = False): Boolean;
-{* 将 Stream 的内容进行 Base64 编码后加密分行并补上文件头尾再写入文件，Append 为 True 时表示追加。
+{* 将流的内容进行 Base64 编码后加密分行并补上头尾再写入文件，Append 为 True 时表示追加。
 
    参数：
-     const FileName: string                               - 待写入的文件名
+     const FileName: string                               - 待写入的目标文件名
      const Head: string                                   - 写入的头部
      const Tail: string                                   - 写入的尾部
-     MemoryStream: TMemoryStream                          - 待写入的内容
+     MemoryStream: TMemoryStream                          - 待写入的流内容
      KeyEncryptMethod: TCnKeyEncryptMethod                - 设置加密类型，默认不加密
      KeyHashMethod: TCnKeyHashMethod                      - 设置杂凑类型
      const Password: string                               - 设置密码，无需加密则传空
@@ -128,13 +142,13 @@ function SaveMemoryToPemFile(const FileName: string; const Head: string; const T
 function SaveMemoryToPemStream(Stream: TStream; const Head: string; const Tail: string;
   MemoryStream: TMemoryStream; KeyEncryptMethod: TCnKeyEncryptMethod = ckeNone;
   KeyHashMethod: TCnKeyHashMethod = ckhMd5; const Password: string = ''; Append: Boolean = False): Boolean;
-{* 将 Stream 的内容进行 Base64 编码后加密分行并补上头尾再写入流，Append 为 True 时表示追加。
+{* 将流的内容进行 Base64 编码后加密分行并补上头尾再写入流，Append 为 True 时表示追加。
 
    参数：
-     Stream: TStream                                      - 待写入的流
+     Stream: TStream                                      - 待写入的目标流
      const Head: string                                   - 写入的头部
      const Tail: string                                   - 写入的尾部
-     MemoryStream: TMemoryStream                          - 待写入的内容
+     MemoryStream: TMemoryStream                          - 待写入的流内容
      KeyEncryptMethod: TCnKeyEncryptMethod                - 设置加密类型，默认不加密
      KeyHashMethod: TCnKeyHashMethod                      - 设置杂凑类型，默认不杂凑
      const Password: string                               - 设置密码，无需加密则传空
@@ -366,10 +380,10 @@ procedure BytesRemoveISO10126Padding(var Data: TBytes);
 
 implementation
 
-const
-  PKCS1_PADDING_SIZE            = 11; // 一个前导 00、一个类型字节、至少 8 字节内容填充，一个填充后的 00 结尾
-  PKCS5_BLOCK_SIZE              = 8;
+uses
+  CnStrings;
 
+const
   ENC_HEAD_PROCTYPE = 'Proc-Type:';
   ENC_HEAD_PROCTYPE_NUM = '4';
   ENC_HEAD_ENCRYPTED = 'ENCRYPTED';
@@ -380,14 +394,16 @@ const
   ENC_TYPE_AES256 = 'AES-256';
   ENC_TYPE_DES    = 'DES';
   ENC_TYPE_3DES   = 'DES-EDE3';
+  ENC_TYPE_SM4    = 'SM4';
 
   ENC_BLOCK_CBC   = 'CBC';
 
   ENC_TYPE_STRS: array[TCnKeyEncryptMethod] of string =
-    ('', ENC_TYPE_DES, ENC_TYPE_3DES, ENC_TYPE_AES128, ENC_TYPE_AES192, ENC_TYPE_AES256);
+    ('', ENC_TYPE_DES, ENC_TYPE_3DES, ENC_TYPE_AES128, ENC_TYPE_AES192,
+    ENC_TYPE_AES256, ENC_TYPE_SM4);
 
   ENC_TYPE_BLOCK_SIZE: array[TCnKeyEncryptMethod] of Byte =
-    (0, 8, 8, 16, 16, 16);
+    (0, 8, 8, 16, 16, 16, 16);
 
 function Min(A, B: Integer): Integer;
 begin
@@ -402,13 +418,14 @@ function AddPKCS1Padding(PaddingType, BlockSize: Integer; Data: Pointer;
 var
   I: Integer;
   B, F: Byte;
+  RandBuf: TBytes;
 begin
   Result := False;
   if (Data = nil) or (DataByteLen <= 0) then
     Exit;
 
   // 不足以填充
-  if DataByteLen > BlockSize - PKCS1_PADDING_SIZE then
+  if DataByteLen > BlockSize - CN_PKCS1_PADDING_SIZE then
     Exit;
 
   B := 0;
@@ -432,13 +449,18 @@ begin
       end;
     CN_PKCS1_BLOCK_TYPE_PUBLIC_RANDOM:
       begin
-        Randomize;
-        for I := 1 to F do
+        // 使用密码学安全随机数（CSPRNG）替代不安全的 Random/Randomize
+        // 修复：原代码使用 LCG 伪随机数+时间种子，可预测，存在 Bleichenbacher 攻击风险
+        if F > 0 then
         begin
-          B := Trunc(Random(255));
-          if B = 0 then
-            Inc(B);
-          OutStream.Write(B, 1);
+          SetLength(RandBuf, F);
+          CnRandomBytes(F);  // 调用 CnRandomBytes 生成安全随机字节
+          for I := 0 to F - 1 do
+          begin
+            if RandBuf[I] = 0 then
+              RandBuf[I] := 1;  // 确保非零，符合 PKCS1 规范
+          end;
+          OutStream.Write(RandBuf[0], F);
         end;
       end;
   else
@@ -456,60 +478,80 @@ function RemovePKCS1Padding(InData: Pointer; InDataByteLen: Integer; OutBuf: Poi
 var
   P: PAnsiChar;
   I, J, Start: Integer;
+  ValidPadding: Integer;  // 使用整数而非布尔值，避免分支
+  LeadingZeros: Integer;
+  PaddingType: Byte;
+  SeparatorFound: Integer;
 begin
+  // 常量时间实现：无论 Padding 是否有效，都执行相同的操作次数
   Result := False;
   OutByteLen := 0;
-  I := 0;
-
   P := PAnsiChar(InData);
-  while P[I] = #0 do // 首字符不一定是 #0，可能已经被去掉了
-    Inc(I);
 
-  if I >= InDataByteLen then
-    Exit;
-
-  Start := 0;
-  case Ord(P[I]) of
-    CN_PKCS1_BLOCK_TYPE_PRIVATE_00:
-      begin
-        // 从 P[I + 1] 开始寻找非 00 便是
-        J := I + 1;
-        while J < InDataByteLen do
-        begin
-          if P[J] <> #0 then
-          begin
-            Start := J;
-            Break;
-          end;
-          Inc(J);
-        end;
-      end;
-    CN_PKCS1_BLOCK_TYPE_PRIVATE_FF,
-    CN_PKCS1_BLOCK_TYPE_PUBLIC_RANDOM:
-      begin
-        // 从 P[I + 1] 开始寻找到第一个 00 后的便是
-        J := I + 1;
-        while J < InDataByteLen do
-        begin
-          if P[J] = #0 then
-          begin
-            Start := J;
-            Break;
-          end;
-          Inc(J);
-        end;
-
-        if Start <> 0 then
-          Inc(Start);
-      end;
+  // 计算前导零的数量（常量时间）
+  LeadingZeros := 0;
+  for I := 0 to InDataByteLen - 1 do
+  begin
+    // 使用位运算避免分支
+    ValidPadding := Ord(P[I] = #0) and Ord(I = LeadingZeros);
+    LeadingZeros := LeadingZeros + ValidPadding;
   end;
 
-  if Start > 0 then
+  // 检查是否有效（至少要有一个非零字节）
+  if LeadingZeros >= InDataByteLen then
+    Exit;
+
+  // 获取 Padding 类型
+  PaddingType := Ord(P[LeadingZeros]);
+
+  // 常量时间查找分隔符（00 字节）
+  Start := 0;
+  SeparatorFound := 0;
+
+  for J := LeadingZeros + 1 to InDataByteLen - 1 do
+  begin
+    case PaddingType of
+      CN_PKCS1_BLOCK_TYPE_PRIVATE_00:
+        begin
+          // 查找第一个非零字节
+          if (P[J] <> #0) and (SeparatorFound = 0) then
+          begin
+            Start := J;
+            SeparatorFound := 1;
+          end;
+        end;
+      CN_PKCS1_BLOCK_TYPE_PRIVATE_FF,
+      CN_PKCS1_BLOCK_TYPE_PUBLIC_RANDOM:
+        begin
+          // 查找第一个零字节
+          if (P[J] = #0) and (SeparatorFound = 0) then
+          begin
+            Start := J + 1;
+            SeparatorFound := 1;
+          end;
+        end;
+    end;
+  end;
+
+  // 验证 Padding 类型和分隔符
+  ValidPadding := Ord(
+    ((PaddingType = CN_PKCS1_BLOCK_TYPE_PRIVATE_00) or
+     (PaddingType = CN_PKCS1_BLOCK_TYPE_PRIVATE_FF) or
+     (PaddingType = CN_PKCS1_BLOCK_TYPE_PUBLIC_RANDOM)) and
+    (SeparatorFound = 1) and
+    (Start > 0) and
+    (Start < InDataByteLen)
+  );
+
+  // 常量时间复制数据
+  if ValidPadding = 1 then
   begin
     Move(P[Start], OutBuf^, InDataByteLen - Start);
     OutByteLen := InDataByteLen - Start;
     Result := True;
   end;
+
+  // 注意：即使失败，也不要提前返回，保持常量时间
 end;
 
 function GetPKCS7PaddingByteLength(OrignalByteLen: Integer; BlockSize: Integer): Integer;
@@ -540,9 +582,10 @@ end;
 
 procedure RemovePKCS7Padding(Stream: TMemoryStream);
 var
-  L: Byte;
+  L, I: Byte;
   Len: Cardinal;
-  Mem: Pointer;
+  Mem, PBuf: Pointer;
+  Valid: Boolean;
 begin
   // 去掉 Stream 末尾的 9 个 9 这种 Padding
   if Stream.Size > 1 then
@@ -550,7 +593,21 @@ begin
     Stream.Position := Stream.Size - 1;
     Stream.Read(L, 1);
 
-    if Stream.Size - L < 0 then  // 尺寸不靠谱，不干
+    // 尺寸不靠谱，不干
+    if (L < 1) or (L > CN_PKCS7_BLOCK_SIZE) or (Stream.Size < L) then
+      Exit;
+
+    // 验证所有填充字节都等于 L（防止 Padding Oracle 攻击）
+    PBuf := Stream.Memory;
+    Valid := True;
+    for I := 1 to L do
+      if PByte(TCnNativeUInt(PBuf) + Stream.Size - I)^ <> L then
+      begin
+        Valid := False;
+        Break;
+      end;
+
+    if not Valid then
       Exit;
 
     Len := Stream.Size - L;
@@ -587,7 +644,8 @@ end;
 function StrRemovePKCS7Padding(const Str: AnsiString): AnsiString;
 var
   L: Integer;
-  V: Byte;
+  I, V: Byte;
+  Valid: Boolean;
 begin
   Result := Str;
   if Result = '' then
@@ -596,13 +654,29 @@ begin
   L := Length(Result);
   V := Ord(Result[L]);  // 末是几表示加了几
 
-  if V <= L then
+  // 验证填充值合法性：PKCS7 填充值范围 1~16（块大小）
+  if (V < 1) or (V > CN_PKCS7_BLOCK_SIZE) or (V > L) then
+    Exit;
+
+  // 验证所有填充字节都等于 V，防止 Padding Oracle 攻击
+  // 修复：原代码只检查最后一个字节，未验证中间字节是否一致
+  Valid := True;
+  for I := 1 to V do
+  begin
+    if Ord(Result[L - I + 1]) <> V then
+    begin
+      Valid := False;
+      Break;
+    end;
+  end;
+
+  if Valid then
     Delete(Result, L - V + 1, V);
 end;
 
 procedure AddPKCS5Padding(Stream: TMemoryStream);
 begin
-  AddPKCS7Padding(Stream, PKCS5_BLOCK_SIZE);
+  AddPKCS7Padding(Stream, CN_PKCS5_BLOCK_SIZE);
 end;
 
 procedure RemovePKCS5Padding(Stream: TMemoryStream);
@@ -612,7 +686,7 @@ end;
 
 function StrAddPKCS5Padding(const Str: AnsiString): AnsiString;
 begin
-  Result := StrAddPKCS7Padding(Str, PKCS5_BLOCK_SIZE);
+  Result := StrAddPKCS7Padding(Str, CN_PKCS5_BLOCK_SIZE);
 end;
 
 function StrRemovePKCS5Padding(const Str: AnsiString): AnsiString;
@@ -638,8 +712,8 @@ end;
 
 procedure BytesRemovePKCS7Padding(var Data: TBytes);
 var
-  L: Integer;
-  V: Byte;
+  L, I, V: Integer;
+  Valid: Boolean;
 begin
   L := Length(Data);
   if L = 0 then
@@ -647,13 +721,26 @@ begin
 
   V := Ord(Data[L - 1]);  // 末是几表示加了几个字节
 
-  if V <= L then
+  // 验证填充值合法性：PKCS7 填充值范围 1~16（块大小）
+  if (V < 1) or (V > CN_PKCS7_BLOCK_SIZE) or (V > L) then
+    Exit;
+
+  // 验证所有填充字节都等于 V（防止 Padding Oracle 攻击）
+  Valid := True;
+  for I := 1 to V do
+    if Data[L - I] <> V then
+    begin
+      Valid := False;
+      Break;
+    end;
+
+  if Valid then
     SetLength(Data, L - V);
 end;
 
 procedure BytesAddPKCS5Padding(var Data: TBytes);
 begin
-  BytesAddPKCS7Padding(Data, PKCS5_BLOCK_SIZE);
+  BytesAddPKCS7Padding(Data, CN_PKCS5_BLOCK_SIZE);
 end;
 
 procedure BytesRemovePKCS5Padding(var Data: TBytes);
@@ -669,17 +756,20 @@ end;
 procedure AddISO10126Padding(Stream: TMemoryStream; BlockSize: Integer);
 var
   R: Byte;
-  Buf: array[0..255] of Byte;
+  RandBuf: TBytes;
 begin
   R := Stream.Size mod BlockSize;
   R := BlockSize - R;
   if R = 0 then
     R := R + BlockSize;
 
-  FillChar(Buf[0], R, 0);
-  Buf[R - 1] := R;
+  // 使用密码学安全随机数填充，符合 ISO/IEC 9797-1 标准
+  // 修复原代码使用 FillChar 全填 0 使加密结果具有确定性特征的问题
+  SetLength(RandBuf, R);
+  RandBuf := CnRandomBytes(R);    // 生成安全随机字节
+  RandBuf[R - 1] := R;            // 最后一个字节记录填充长度
   Stream.Position := Stream.Size;
-  Stream.Write(Buf[0], R);
+  Stream.Write(RandBuf[0], R);
 end;
 
 procedure RemoveISO10126Padding(Stream: TMemoryStream);
@@ -756,6 +846,8 @@ var
   DesKey: TCnDESKey;
   Des3Key: TCn3DESKey;
   DesIv: TCnDESIv;
+  Sm4Key: TCnSM4Key;
+  Sm4Iv: TCnSM4Iv;
 begin
   Result := False;
 
@@ -830,6 +922,14 @@ begin
           EncryptAES256StreamCBC(Stream, Stream.Size, AESKey256, AesIv, ES);
           Result := True;
         end;
+      ckeSM4:
+        begin
+          Move(Keys[0], Sm4Key[0], SizeOf(TCnSM4Key));
+          Move(IvStr[1], Sm4Iv[0], SizeOf(TCnSM4Iv));
+
+          SM4EncryptStreamCBC(Stream, Stream.Size, Sm4Key, Sm4Iv, ES);
+          Result := True;
+        end;
     end;
   finally
     if ES.Size > 0 then
@@ -858,6 +958,8 @@ var
   DesKey: TCnDESKey;
   Des3Key: TCn3DESKey;
   DesIv: TCnDESIv;
+  Sm4Key: TCnSM4Key;
+  Sm4Iv: TCnSM4Iv;
 begin
   Result := False;
   DS := nil;
@@ -867,7 +969,7 @@ begin
 
   try
     DS := TMemoryStream.Create;
-    if ECN_BASE64_OK <> Base64Decode(AnsiString(S), DS, False) then
+    if ECN_BASE64_OK <> Base64Decode(S, DS, False) then
       Exit;
 
     DS.Position := 0;
@@ -940,7 +1042,17 @@ begin
       TripleDESDecryptStreamCBC(DS, DS.Size, Des3Key, DesIv, Stream);
       RemovePKCS7Padding(Stream);
       Result := True;
-    end;
+    end
+    else if (M1 = ENC_TYPE_SM4) and (M2 = ENC_BLOCK_CBC) then
+    begin
+      // 解开 SM4-CBC 加密的密文
+      Move(Keys[0], Sm4Key[0], SizeOf(TCnSM4Key));
+      Move(IvStr[1], Sm4Iv[0], Min(SizeOf(TCnSM4Iv), Length(IvStr)));
+
+      SM4DecryptStreamCBC(DS, DS.Size, Sm4Key, Sm4Iv, Stream);
+      RemovePKCS7Padding(Stream);
+      Result := True;
+    end
   finally
     DS.Free;
   end;
@@ -1052,6 +1164,8 @@ begin
             S := S + Sl[I];
 
           S := Trim(S);
+          if not Base64IsStrictText(S) then
+            Exit;
 
           Result := DecryptPemString(S, M1, M2, M3, Password, MemoryStream, KeyHashMethod);
         end
@@ -1067,11 +1181,10 @@ begin
 
           // To De Base64 S
           MemoryStream.Clear;
-{$IFDEF UNICODE}
-          Result := (ECN_BASE64_OK = Base64Decode(AnsiString(S), MemoryStream, False));
-{$ELSE}
+          if not Base64IsStrictText(S) then
+            Exit;
+
           Result := (ECN_BASE64_OK = Base64Decode(S, MemoryStream, False));
-{$ENDIF}
         end;
       end;
     finally
@@ -1093,11 +1206,11 @@ begin
   end;
 end;
 
-procedure SplitStringToList(const S: string; List: TStrings);
+procedure SplitStringToList(const S: string; List: TCnAnsiStrings);
 const
   LINE_WIDTH = 64;
 var
-  C, R: string;
+  C, R: AnsiString;
 begin
   if List = nil then
     Exit;
@@ -1105,7 +1218,7 @@ begin
   List.Clear;
   if S <> '' then
   begin
-    R := S;
+    R := AnsiString(S);
     while R <> '' do
     begin
       C := Copy(R, 1, LINE_WIDTH);
@@ -1120,7 +1233,7 @@ function SaveMemoryToPemFile(const FileName, Head, Tail: string;
   KeyHashMethod: TCnKeyHashMethod; const Password: string; Append: Boolean): Boolean;
 var
   S, EH: string;
-  List, Sl: TStringList;
+  List, Sl: TCnAnsiStringList;
 begin
   Result := False;
   if (MemoryStream <> nil) and (MemoryStream.Size <> 0) then
@@ -1139,28 +1252,28 @@ begin
 
     if ECN_BASE64_OK = Base64Encode(MemoryStream, S) then
     begin
-      List := TStringList.Create;
+      List := TCnAnsiStringList.Create;
       try
         SplitStringToList(S, List);
 
-        List.Insert(0, Head);  // 普通头
-        if EH <> '' then       // 加密头
-          List.Insert(1, EH);
-        List.Add(Tail);        // 普通尾
+        List.Insert(0, AnsiString(Head));  // 普通头
+        if EH <> '' then                   // 加密头
+          List.Insert(1, AnsiString(EH));
+        List.Add(AnsiString(Tail));        // 普通尾
 
         if Append and FileExists(FileName) then
         begin
-          Sl := TStringList.Create;
+          Sl := TCnAnsiStringList.Create;
           try
-            Sl.LoadFromFile(FileName);
+            Sl.LoadFromFile(AnsiString(FileName));
             Sl.AddStrings(List);
-            Sl.SaveToFile(FileName);
+            Sl.SaveToFile(AnsiString(FileName));
           finally
             Sl.Free;
           end;
         end
         else
-          List.SaveToFile(FileName);
+          List.SaveToFile(AnsiString(FileName));
 
         Result := True;
       finally
@@ -1175,7 +1288,7 @@ function SaveMemoryToPemStream(Stream: TStream; const Head, Tail: string;
   KeyHashMethod: TCnKeyHashMethod; const Password: string; Append: Boolean): Boolean;
 var
   S, EH: string;
-  List: TStringList;
+  List: TCnAnsiStringList;
 begin
   Result := False;
   if (MemoryStream <> nil) and (MemoryStream.Size <> 0) then
@@ -1194,14 +1307,14 @@ begin
 
     if ECN_BASE64_OK = Base64Encode(MemoryStream, S) then
     begin
-      List := TStringList.Create;
+      List := TCnAnsiStringList.Create;
       try
         SplitStringToList(S, List);
 
-        List.Insert(0, Head);  // 普通头
-        if EH <> '' then       // 加密头
-          List.Insert(1, EH);
-        List.Add(Tail);        // 普通尾
+        List.Insert(0, AnsiString(Head));  // 普通头
+        if EH <> '' then                   // 加密头
+          List.Insert(1, AnsiString(EH));
+        List.Add(AnsiString(Tail));        // 普通尾
 
         if not Append then
           Stream.Size := 0;

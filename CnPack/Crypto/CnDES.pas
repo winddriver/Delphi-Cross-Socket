@@ -1,7 +1,7 @@
 {******************************************************************************}
 {                       CnPack For Delphi/C++Builder                           }
 {                     中国人自己的开放源码第三方开发包                         }
-{                   (C)Copyright 2001-2025 CnPack 开发组                       }
+{                   (C)Copyright 2001-2026 CnPack 开发组                       }
 {                   ------------------------------------                       }
 {                                                                              }
 {            本开发包是开源的自由软件，您可以遵照 CnPack 的发布协议来修        }
@@ -686,17 +686,17 @@ begin
       OutData[I shr 3] := OutData[I shr 3] or (1 shl (7 - (I and $07)));
 end;
 
-procedure CycleMove(var InData: array of Byte; bitMove: Byte);
+procedure CycleMove(var InData: array of Byte; BitMove: Byte);
 var
   I: Integer;
 begin
-  for I := 0 to bitMove - 1 do
+  for I := 0 to BitMove - 1 do
   begin
-    InData[0] := (InData[0] shl 1) or (InData[1] shr 7);
-    InData[1] := (InData[1] shl 1) or (InData[2] shr 7);
-    InData[2] := (InData[2] shl 1) or (InData[3] shr 7);
-    InData[3] := (InData[3] shl 1) or ((InData[0] and $10) shr 4);
-    InData[0] := (InData[0] and $0F);
+    InData[0] := Byte((InData[0] shl 1) or (InData[1] shr 7));
+    InData[1] := Byte((InData[1] shl 1) or (InData[2] shr 7));
+    InData[2] := Byte((InData[2] shl 1) or (InData[3] shr 7));
+    InData[3] := Byte((InData[3] shl 1) or ((InData[0] and $10) shr 4));
+    InData[0] := Byte((InData[0] and $0F));
   end;
 end;
 
@@ -712,25 +712,25 @@ var
   I: Integer;
 begin
   PermutationChoose1(InKey, OutData56);
-  Key28l[0] := OutData56[0] shr 4;
-  Key28l[1] := (OutData56[0] shl 4) or (OutData56[1] shr 4);
-  Key28l[2] := (OutData56[1] shl 4) or (OutData56[2] shr 4);
-  Key28l[3] := (OutData56[2] shl 4) or (OutData56[3] shr 4);
-  Key28r[0] := OutData56[3] and $0F;
-  Key28r[1] := OutData56[4];
-  Key28r[2] := OutData56[5];
-  Key28r[3] := OutData56[6];
+  Key28l[0] := Byte(OutData56[0] shr 4);
+  Key28l[1] := Byte((OutData56[0] shl 4) or (OutData56[1] shr 4));
+  Key28l[2] := Byte((OutData56[1] shl 4) or (OutData56[2] shr 4));
+  Key28l[3] := Byte((OutData56[2] shl 4) or (OutData56[3] shr 4));
+  Key28r[0] := Byte(OutData56[3] and $0F);
+  Key28r[1] := Byte(OutData56[4]);
+  Key28r[2] := Byte(OutData56[5]);
+  Key28r[3] := Byte(OutData56[6]);
   for I := 0 to 15 do
   begin
     CycleMove(Key28l, bitDisplace[I]);
     CycleMove(Key28r, bitDisplace[I]);
-    Key56o[0] := (Key28l[0] shl 4) or (Key28l[1] shr 4);
-    Key56o[1] := (Key28l[1] shl 4) or (Key28l[2] shr 4);
-    Key56o[2] := (Key28l[2] shl 4) or (Key28l[3] shr 4);
-    Key56o[3] := (Key28l[3] shl 4) or (Key28r[0]);
-    Key56o[4] := Key28r[1];
-    Key56o[5] := Key28r[2];
-    Key56o[6] := Key28r[3];
+    Key56o[0] := Byte((Key28l[0] shl 4) or (Key28l[1] shr 4));
+    Key56o[1] := Byte((Key28l[1] shl 4) or (Key28l[2] shr 4));
+    Key56o[2] := Byte((Key28l[2] shl 4) or (Key28l[3] shr 4));
+    Key56o[3] := Byte((Key28l[3] shl 4) or (Key28r[0]));
+    Key56o[4] := Byte(Key28r[1]);
+    Key56o[5] := Byte(Key28r[2]);
+    Key56o[6] := Byte(Key28r[3]);
     PermutationChoose2(Key56o, OutKey[I]);
   end;
 end;

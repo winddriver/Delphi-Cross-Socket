@@ -1,7 +1,7 @@
 {******************************************************************************}
 {                       CnPack For Delphi/C++Builder                           }
 {                     中国人自己的开放源码第三方开发包                         }
-{                   (C)Copyright 2001-2025 CnPack 开发组                       }
+{                   (C)Copyright 2001-2026 CnPack 开发组                       }
 {                   ------------------------------------                       }
 {                                                                              }
 {            本开发包是开源的自由软件，您可以遵照 CnPack 的发布协议来修        }
@@ -53,10 +53,11 @@ uses
 
 type
   PCnSHA1Digest = ^TCnSHA1Digest;
+  {* SHA1 杂凑结果指针}
   TCnSHA1Digest = array[0..19] of Byte;
   {* SHA1 杂凑结果，20 字节}
 
-  TCnSHA1Context = record
+  TCnSHA1Context = packed record
   {* SHA1 的上下文结构}
     Hash: array[0..4] of Cardinal;
     Hi, Lo: Cardinal;
@@ -84,17 +85,17 @@ function SHA1Buffer(const Buffer; Count: Cardinal): TCnSHA1Digest;
 {* 对数据块进行 SHA1 计算。
 
    参数：
-     const Buffer                         - 待计算的数据块地址
+     const Buffer                         - 待计算的数据块
      Count: Cardinal                      - 待计算的数据块字节长度
 
    返回值：TCnSHA1Digest                  - 返回的 SHA1 杂凑值
 }
 
-function SHA1Bytes(Data: TBytes): TCnSHA1Digest;
+function SHA1Bytes(const Data: TBytes): TCnSHA1Digest;
 {* 对字节数组进行 SHA1 计算。
 
    参数：
-     Data: TBytes                         - 待计算的字节数组
+     const Data: TBytes                   - 待计算的字节数组
 
    返回值：TCnSHA1Digest                  - 返回的 SHA1 杂凑值
 }
@@ -186,14 +187,14 @@ procedure SHA1Init(var Context: TCnSHA1Context);
    返回值：（无）
 }
 
-procedure SHA1Update(var Context: TCnSHA1Context; Input: PAnsiChar; ByteLength: Integer);
+procedure SHA1Update(var Context: TCnSHA1Context; Input: PAnsiChar; ByteLength: Cardinal);
 {* 以初始化后的上下文对一块数据进行 SHA1 计算。
    可多次调用以连续计算不同的数据块，无需将不同的数据块拼凑在连续的内存中。
 
    参数：
      var Context: TCnSHA1Context          - SHA1 上下文
      Input: PAnsiChar                     - 待计算的数据块地址
-     ByteLength: Integer                  - 待计算的数据块的字节长度
+     ByteLength: Cardinal                 - 待计算的数据块的字节长度
 
    返回值：（无）
 }
@@ -251,6 +252,16 @@ procedure SHA1Hmac(Key: PAnsiChar; KeyByteLength: Integer; Input: PAnsiChar;
    返回值：（无）
 }
 
+function SHA1HmacBytes(const Key: TBytes; const Data: TBytes): TCnSHA1Digest;
+{* 对字节数组进行基于 SHA1 的 HMAC 计算。
+
+   参数：
+     const Key: TBytes                    - 待参与 SHA1 计算的密钥字节数组
+     const Data: TBytes                   - 待计算的字节数组
+
+   返回值：TCnSHA1Digest                  - 返回的 SHA1 杂凑值
+}
+
 implementation
 
 const
@@ -265,19 +276,19 @@ begin
   Result := X shl (C and 31) + X shr (32 - C and 31);
 end;
 
-function F1(x, y, z: Cardinal): Cardinal; {$IFDEF SUPPORT_INLINE} inline; {$ENDIF}
+function F1(X, Y, Z: Cardinal): Cardinal; {$IFDEF SUPPORT_INLINE} inline; {$ENDIF}
 begin
-  Result := z xor (x and (y xor z));
+  Result := Z xor (X and (Y xor Z));
 end;
 
-function F2(x, y, z: Cardinal): Cardinal; {$IFDEF SUPPORT_INLINE} inline; {$ENDIF}
+function F2(X, Y, Z: Cardinal): Cardinal; {$IFDEF SUPPORT_INLINE} inline; {$ENDIF}
 begin
-  Result := x xor y xor z;
+  Result := X xor Y xor Z;
 end;
 
-function F3(x, y, z: Cardinal): Cardinal; {$IFDEF SUPPORT_INLINE} inline; {$ENDIF}
+function F3(X, Y, Z: Cardinal): Cardinal; {$IFDEF SUPPORT_INLINE} inline; {$ENDIF}
 begin
-  Result := (x and y) or (z and (x or y));
+  Result := (X and Y) or (Z and (X or Y));
 end;
 
 function RB(A: Cardinal): Cardinal; {$IFDEF SUPPORT_INLINE} inline; {$ENDIF}
@@ -373,15 +384,23 @@ begin
   end;
 end;
 
-procedure SHA1Update(var Context: TCnSHA1Context; Input: PAnsiChar; ByteLength: Integer);
+procedure SHA1Update(var Context: TCnSHA1Context; Input: PAnsiChar; ByteLength: Cardinal);
+var
+  B: Integer;
 begin
   SHA1UpdateLen(Context, ByteLength);
   while ByteLength > 0 do
   begin
-    Context.Buffer[Context.Index] := PByte(Input)^;
-    Inc(PByte(Input));
-    Inc(Context.Index);
-    Dec(ByteLength);
+    if Cardinal(64 - Context.Index) > ByteLength then
+      B := ByteLength
+    else
+      B := 64 - Context.Index;
+
+    Move(Input^, Context.Buffer[Context.Index], B);
+    Inc(PByte(Input), B);
+    Inc(Context.Index, B);
+    Dec(ByteLength, B);
+
     if Context.Index = 64 then
     begin
       Context.Index := 0;
@@ -450,11 +469,11 @@ var
   Context: TCnSHA1Context;
 begin
   SHA1Init(Context);
-  SHA1Update(Context, PAnsiChar(Buffer), Count);
+  SHA1Update(Context, PAnsiChar(@Buffer), Count);
   SHA1Final(Context, Result);
 end;
 
-function SHA1Bytes(Data: TBytes): TCnSHA1Digest;
+function SHA1Bytes(const Data: TBytes): TCnSHA1Digest;
 var
   Context: TCnSHA1Context;
 begin
@@ -506,7 +525,7 @@ begin
 end;
 
 function InternalSHA1Stream(Stream: TStream; const BufSize: Cardinal; var D:
-  TCnSHA1Digest; CallBack: TCnSHA1CalcProgressFunc = nil): Boolean;
+  TCnSHA1Digest; CallBack: TCnSHA1CalcProgressFunc): Boolean;
 var
   Context: TCnSHA1Context;
   Buf: PAnsiChar;
@@ -553,7 +572,7 @@ end;
 
 // 对指定流进行 SHA1 计算
 function SHA1Stream(Stream: TStream;
-  CallBack: TCnSHA1CalcProgressFunc = nil): TCnSHA1Digest;
+  CallBack: TCnSHA1CalcProgressFunc): TCnSHA1Digest;
 begin
   InternalSHA1Stream(Stream, 4096 * 1024, Result, CallBack);
 end;
@@ -635,7 +654,7 @@ begin
             end
             else
             begin
-              raise Exception.Create(SCnErrorMapViewOfFile + IntToStr(GetLastError));
+              raise ECnNativeException.Create(SCnErrorMapViewOfFile + IntToStr(GetLastError));
             end;
           finally
             CloseHandle(MapHandle);
@@ -644,7 +663,7 @@ begin
         else
         begin
           if not FileIsZeroSize then
-            raise Exception.Create(SCnErrorCreateFileMapping + IntToStr(GetLastError));
+            raise ECnNativeException.Create(SCnErrorCreateFileMapping + IntToStr(GetLastError));
         end;
       finally
         CloseHandle(FileHandle);
@@ -663,16 +682,8 @@ end;
 
 // 比较两个 SHA1 杂凑值是否相等
 function SHA1Match(const D1, D2: TCnSHA1Digest): Boolean;
-var
-  I: Integer;
 begin
-  I := 0;
-  Result := True;
-  while Result and (I < 20) do
-  begin
-    Result := D1[I] = D2[I];
-    Inc(I);
-  end;
+  Result := ConstTimeCompareMem(@D1[0], @D2[0], SizeOf(TCnSHA1Digest));
 end;
 
 // SHA1 杂凑值转 string
@@ -681,57 +692,66 @@ begin
   Result := MemoryToString(@Digest[0], SizeOf(TCnSHA1Digest));
 end;
 
-procedure SHA1HmacInit(var Ctx: TCnSHA1Context; Key: PAnsiChar; KeyLength: Integer);
+procedure SHA1HmacInit(var Context: TCnSHA1Context; Key: PAnsiChar; KeyLength: Integer);
 var
   I: Integer;
   Sum: TCnSHA1Digest;
 begin
   if KeyLength > HMAC_SHA1_BLOCK_SIZE_BYTE then
   begin
-    Sum := SHA1Buffer(Key, KeyLength);
+    Sum := SHA1Buffer(Key^, KeyLength);
     KeyLength := HMAC_SHA1_OUTPUT_LENGTH_BYTE;
     Key := @(Sum[0]);
   end;
 
-  FillChar(Ctx.Ipad, HMAC_SHA1_BLOCK_SIZE_BYTE, $36);
-  FillChar(Ctx.Opad, HMAC_SHA1_BLOCK_SIZE_BYTE, $5C);
+  FillChar(Context.Ipad, HMAC_SHA1_BLOCK_SIZE_BYTE, $36);
+  FillChar(Context.Opad, HMAC_SHA1_BLOCK_SIZE_BYTE, $5C);
 
   for I := 0 to KeyLength - 1 do
   begin
-    Ctx.Ipad[I] := Byte(Ctx.Ipad[I] xor Byte(Key[I]));
-    Ctx.Opad[I] := Byte(Ctx.Opad[I] xor Byte(Key[I]));
+    Context.Ipad[I] := Byte(Context.Ipad[I] xor Byte(Key[I]));
+    Context.Opad[I] := Byte(Context.Opad[I] xor Byte(Key[I]));
   end;
 
-  SHA1Init(Ctx);
-  SHA1Update(Ctx, @(Ctx.Ipad[0]), HMAC_SHA1_BLOCK_SIZE_BYTE);
+  SHA1Init(Context);
+  SHA1Update(Context, @(Context.Ipad[0]), HMAC_SHA1_BLOCK_SIZE_BYTE);
 end;
 
-procedure SHA1HmacUpdate(var Ctx: TCnSHA1Context; Input: PAnsiChar; Length: Cardinal);
+procedure SHA1HmacUpdate(var Context: TCnSHA1Context; Input: PAnsiChar; Length: Cardinal);
 begin
-  SHA1Update(Ctx, Input, Length);
+  SHA1Update(Context, Input, Length);
 end;
 
-procedure SHA1HmacFinal(var Ctx: TCnSHA1Context; var Output: TCnSHA1Digest);
+procedure SHA1HmacFinal(var Context: TCnSHA1Context; var Output: TCnSHA1Digest);
 var
   Len: Integer;
   TmpBuf: TCnSHA1Digest;
 begin
   Len := HMAC_SHA1_OUTPUT_LENGTH_BYTE;
-  SHA1Final(Ctx, TmpBuf);
-  SHA1Init(Ctx);
-  SHA1Update(Ctx, @(Ctx.Opad[0]), HMAC_SHA1_BLOCK_SIZE_BYTE);
-  SHA1Update(Ctx, @(TmpBuf[0]), Len);
-  SHA1Final(Ctx, Output);
+  SHA1Final(Context, TmpBuf);
+  SHA1Init(Context);
+  SHA1Update(Context, @(Context.Opad[0]), HMAC_SHA1_BLOCK_SIZE_BYTE);
+  SHA1Update(Context, @(TmpBuf[0]), Len);
+  SHA1Final(Context, Output);
 end;
 
 procedure SHA1Hmac(Key: PAnsiChar; KeyByteLength: Integer; Input: PAnsiChar;
   ByteLength: Cardinal; var Output: TCnSHA1Digest);
 var
-  Ctx: TCnSHA1Context;
+  Context: TCnSHA1Context;
 begin
-  SHA1HmacInit(Ctx, Key, KeyByteLength);
-  SHA1HmacUpdate(Ctx, Input, ByteLength);
-  SHA1HmacFinal(Ctx, Output);
+  SHA1HmacInit(Context, Key, KeyByteLength);
+  SHA1HmacUpdate(Context, Input, ByteLength);
+  SHA1HmacFinal(Context, Output);
+end;
+
+function SHA1HmacBytes(const Key: TBytes; const Data: TBytes): TCnSHA1Digest;
+var
+  Context: TCnSHA1Context;
+begin
+  SHA1HmacInit(Context, PAnsiChar(@Key[0]), Length(Key));
+  SHA1HmacUpdate(Context, PAnsiChar(@Data[0]), Length(Data));
+  SHA1HmacFinal(Context, Result);
 end;
 
 end.

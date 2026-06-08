@@ -1,7 +1,7 @@
 {******************************************************************************}
 {                       CnPack For Delphi/C++Builder                           }
 {                     中国人自己的开放源码第三方开发包                         }
-{                   (C)Copyright 2001-2025 CnPack 开发组                       }
+{                   (C)Copyright 2001-2026 CnPack 开发组                       }
 {                   ------------------------------------                       }
 {                                                                              }
 {            本开发包是开源的自由软件，您可以遵照 CnPack 的发布协议来修        }
@@ -25,11 +25,16 @@ unit CnRandom;
 * 单元名称：随机数填充单元
 * 单元作者：CnPack 开发组 (master@cnpack.org)
 * 备    注：本单元封装了 Windows 平台及 MacOS/Linux 平台下的安全随机数发生器
-*           对外提供安全随机数填充功能。
+*           并对外提供安全随机数填充功能。
 * 开发平台：Win7 + Delphi 5.0
 * 兼容测试：Win32/Win64/MacOS/Linux + Unicode/NonUnicode
 * 本 地 化：该单元无需本地化处理
-* 修改记录：2023.01.15 V1.3
+* 修改记录：2026.03.23 V1.5
+*               修正万一底层随机数发生器错误导致死循环的问题，
+*               Windows 改用现代更先进的随机数生成器，Linux与 Mac 也同样优化并均保持降级机制
+*           2026.01.29 V1.4
+*               修正可能的模偏差导致部分函数不够随机的问题
+*           2023.01.15 V1.3
 *               非 Windows 下全改用 urandom 以支持 Linux
 *           2023.01.08 V1.2
 *               修正 Win64 下 API 声明参数有误的问题
@@ -49,6 +54,7 @@ uses
 
 type
   ECnRandomAPIError = class(Exception);
+  {* 随机数相关异常}
 
 function RandomUInt64: TUInt64;
 {* 返回 UInt64 范围内的随机数，在不支持 UInt64 的平台上用 Int64 代替。
@@ -155,7 +161,29 @@ function CnRandomFillBytes2(Buf: PAnsiChar; BufByteLen: Integer): Boolean;
    返回值：Boolean                        - 返回随机填充是否成功
 }
 
+function CnRandomBytes(ByteLen: Integer): TBytes;
+{* 使用 Windows API 或 /dev/random 设备填充并返回指定长度的随机字节数组。
+
+   参数：
+     ByteLen: Integer                     - 待生成的随机字节数组的字节长度
+
+   返回值：TBytes                         - 返回随机字节数组
+}
+
+function CnRandomFloat: Extended;
+{* 使用密码学安全的随机数生成器返回 [0, 1) 范围内的浮点数，行为模拟 Delphi 的 Random 函数。
+   内部填充 4 字节无符号整数，除以 $100000000（2^32）得到结果，确保结果严格小于 1.0。
+
+   参数：
+     无
+
+   返回值：Extended                       - 满足 0 <= Result < 1 的随机浮点数
+}
+
 implementation
+
+resourcestring
+  SCnErrorNoSecureRandom = 'NO Secure Random Generator!';
 
 {$IFDEF MSWINDOWS}
 
@@ -169,6 +197,9 @@ const
   PROV_RSA_FULL = 1;
   NTE_BAD_KEYSET = $80090016;
 
+  BCRYPT_USE_SYSTEM_PREFERRED_RNG = $00000002;
+  bcryptdll = 'bcrypt.dll';
+
 function CryptAcquireContext(phProv: PHandle; pszContainer: PAnsiChar;
   pszProvider: PAnsiChar; dwProvType: LongWord; dwFlags: LongWord): BOOL;
   stdcall; external ADVAPI32 name 'CryptAcquireContextA';
@@ -181,11 +212,24 @@ function CryptGenRandom(hProv: THandle; dwLen: LongWord; pbBuffer: PAnsiChar): B
 
 var
   FHProv: THandle = 0;
+  FBCryptHandle: THandle = 0;
+  FBCryptGenRandom: function(hAlgorithm: THandle; pbBuffer: Pointer; cbBuffer: ULONG; dwFlags: ULONG): LongInt; stdcall = nil;
+  FBCryptInitAttempted: Boolean = False;
 
 {$ELSE}
 
 const
   DEV_FILE = '/dev/urandom';
+
+{$IFDEF LINUX}
+const
+  libc = 'libc.so.6';
+function getrandom(buf: Pointer; buflen: NativeUInt; flags: Cardinal): Integer; cdecl; external libc name 'getrandom';
+{$ENDIF}
+
+{$IFDEF MACOS}
+function CCRandomGenerateBytes(bytes: Pointer; count: NativeUInt): Integer; cdecl; external '/usr/lib/system/libcommonCrypto.dylib' name 'CCRandomGenerateBytes';
+{$ENDIF}
 
 {$ENDIF}
 
@@ -197,11 +241,30 @@ var
   B: Boolean;
 {$ELSE}
   F: TFileStream;
+{$IFDEF LINUX}
+  R: Integer;
+{$ENDIF}
 {$ENDIF}
 begin
   Result := False;
 {$IFDEF MSWINDOWS}
   // 使用 Windows API 实现区块随机填充
+  if not FBCryptInitAttempted then
+  begin
+    FBCryptHandle := LoadLibrary(bcryptdll);
+    if FBCryptHandle <> 0 then
+      @FBCryptGenRandom := GetProcAddress(FBCryptHandle, 'BCryptGenRandom');
+    FBCryptInitAttempted := True;
+  end;
+
+  if Assigned(FBCryptGenRandom) then
+  begin
+    Result := FBCryptGenRandom(0, Buf, BufByteLen, BCRYPT_USE_SYSTEM_PREFERRED_RNG) = 0;
+    if Result then
+      Exit;
+  end;
+
+  // 降级
   HProv := 0;
   B := CryptAcquireContext(@HProv, nil, nil, PROV_RSA_FULL, 0);
   if not B then
@@ -230,7 +293,23 @@ begin
     end;
   end;
 {$ELSE}
-  // MacOS/Linux 下的随机填充实现，采用读取 /dev/urandom 内容的方式，不阻塞
+{$IFDEF MACOS}
+  Result := CCRandomGenerateBytes(Buf, BufByteLen) = 0;
+  if Result then
+    Exit;
+{$ENDIF}
+{$IFDEF LINUX}
+  try
+    R := getrandom(Buf, BufByteLen, 0);
+    Result := (R = BufByteLen);
+    if Result then
+      Exit;
+  except
+    // ignore missing symbol or error
+  end;
+{$ENDIF}
+
+  // MacOS/Linux 下降级的随机填充实现，采用读取 /dev/urandom 内容的方式，不阻塞
   F := nil;
   try
     F := TFileStream.Create(DEV_FILE, fmOpenRead);
@@ -245,12 +324,46 @@ function CnRandomFillBytes2(Buf: PAnsiChar; BufByteLen: Integer): Boolean;
 {$IFNDEF MSWINDOWS}
 var
   F: TFileStream;
+{$IFDEF LINUX}
+  R: Integer;
+{$ENDIF}
 {$ENDIF}
 begin
 {$IFDEF MSWINDOWS}
+  if not FBCryptInitAttempted then
+  begin
+    FBCryptHandle := LoadLibrary(bcryptdll);
+    if FBCryptHandle <> 0 then
+      @FBCryptGenRandom := GetProcAddress(FBCryptHandle, 'BCryptGenRandom');
+    FBCryptInitAttempted := True;
+  end;
+
+  if Assigned(FBCryptGenRandom) then
+  begin
+    Result := FBCryptGenRandom(0, Buf, BufByteLen, BCRYPT_USE_SYSTEM_PREFERRED_RNG) = 0;
+    if Result then
+      Exit;
+  end;
+
   Result := CryptGenRandom(FHProv, BufByteLen, Buf);
 {$ELSE}
-  // MacOS/Linux 下的随机填充实现，采用读取 /dev/urandom 内容的方式，不阻塞
+{$IFDEF MACOS}
+  Result := CCRandomGenerateBytes(Buf, BufByteLen) = 0;
+  if Result then
+    Exit;
+{$ENDIF}
+{$IFDEF LINUX}
+  try
+    R := getrandom(Buf, BufByteLen, 0);
+    Result := (R = BufByteLen);
+    if Result then
+      Exit;
+  except
+    // ignore missing symbol or error
+  end;
+{$ENDIF}
+
+  // MacOS/Linux 下降级的随机填充实现，采用读取 /dev/urandom 内容的方式，不阻塞
   F := nil;
   try
     F := TFileStream.Create(DEV_FILE, fmOpenRead);
@@ -261,44 +374,72 @@ begin
 {$ENDIF}
 end;
 
+function CnRandomBytes(ByteLen: Integer): TBytes;
+begin
+  if ByteLen > 0 then
+  begin
+    SetLength(Result, ByteLen);
+    CnRandomFillBytes2(PAnsiChar(@Result[0]), ByteLen);
+  end;
+end;
+
+function CnRandomFloat: Extended;
+var
+  D: Cardinal;
+begin
+  if not CnRandomFillBytes2(PAnsiChar(@D), SizeOf(Cardinal)) then
+    raise ECnRandomAPIError.Create(SCnErrorNoSecureRandom);
+
+  // 除以 2^32（$100000000）而非 $FFFFFFFF，确保结果严格小于 1.0
+  // 当 D = $FFFFFFFF 时，Result = $FFFFFFFF / $100000000 ≈ 0.99999999976716...
+  Result := D;
+  Result := Result / $100000000;
+end;
+
 function RandomUInt64: TUInt64;
 var
   HL: array[0..1] of Cardinal;
 begin
-  // 优先用系统的随机数发生器
-  if not CnRandomFillBytes2(@HL[0], SizeOf(TUInt64)) then
-  begin
-    // 直接 Random * High(TUInt64) 可能会精度不够导致 Lo 全 FF，因此分开处理
-    Randomize;
-    HL[0] := Trunc(Random * High(Cardinal) - 1) + 1;
-    HL[1] := Trunc(Random * High(Cardinal) - 1) + 1;
-  end;
+  // 用系统的随机数发生器，不用不安全的
+  if not CnRandomFillBytes2(PAnsiChar(@HL[0]), SizeOf(TUInt64)) then
+    raise ECnRandomAPIError.Create(SCnErrorNoSecureRandom);
 
   Result := (TUInt64(HL[0]) shl 32) + HL[1];
 end;
 
 function RandomUInt64LessThan(HighValue: TUInt64): TUInt64;
+var
+  Threshold, R: TUInt64;
+  RetryCount: Integer;
 begin
-  Result := UInt64Mod(RandomUInt64, HighValue);
+  if HighValue = 0 then
+  begin
+    Result := 0;
+    Exit;
+  end;
+
+  // Discard numbers less than remainder of 2^64 / HighValue to avoid modulo bias
+  Threshold := (UInt64Mod(High(TUInt64), HighValue) + 1);
+  if Threshold = HighValue then
+    Threshold := 0;
+
+  RetryCount := 0;
+  repeat
+    R := RandomUInt64;
+    Inc(RetryCount);
+    if RetryCount > 100 then
+      raise ECnRandomAPIError.Create(SCnErrorNoSecureRandom); // 'RNG stuck in rejection loop. Hardware/OS RNG failure.'
+  until R >= Threshold;
+
+  Result := UInt64Mod(R, HighValue);
 end;
 
 function RandomInt64LessThan(HighValue: Int64): Int64;
-var
-  HL: array[0..1] of Cardinal;
 begin
-  // 优先用系统的随机数发生器
-  if not CnRandomFillBytes2(@HL[0], SizeOf(Int64)) then
-  begin
-    // 直接 Random * High(Int64) 可能会精度不够导致 Lo 全 FF，因此分开处理
-    Randomize;
-    HL[0] := Trunc(Random * High(Integer) - 1) + 1;   // Int64 最高位不能是 1，避免负数
-    HL[1] := Trunc(Random * High(Cardinal) - 1) + 1;
-  end
+  if HighValue <= 0 then
+    Result := 0
   else
-    HL[0] := HL[0] mod (Cardinal(High(Integer)) + 1);    // Int64 最高位不能是 1，避免负数
-
-  Result := (Int64(HL[0]) shl 32) + HL[1];
-  Result := Result mod HighValue; // 未处理 HighValue 小于等于 0 的情形
+    Result := Int64(RandomUInt64LessThan(TUInt64(HighValue)));
 end;
 
 function RandomInt64: Int64;
@@ -310,19 +451,38 @@ function RandomUInt32: Cardinal;
 var
   D: Cardinal;
 begin
-  // 优先用系统的随机数发生器
-  if not CnRandomFillBytes2(@D, SizeOf(Cardinal)) then
-  begin
-    Randomize;
-    D := Trunc(Random * High(Cardinal) - 1) + 1;
-  end;
+  // 用系统的随机数发生器，不用不安全的
+  if not CnRandomFillBytes2(PAnsiChar(@D), SizeOf(Cardinal)) then
+    raise ECnRandomAPIError.Create(SCnErrorNoSecureRandom);
 
   Result := D;
 end;
 
 function RandomUInt32LessThan(HighValue: Cardinal): Cardinal;
+var
+  Threshold, R: Cardinal;
+  RetryCount: Integer;
 begin
-  Result := RandomUInt32 mod HighValue;
+  if HighValue = 0 then
+  begin
+    Result := 0;
+    Exit;
+  end;
+
+  // Discard numbers less than remainder of 2^32 / HighValue to avoid modulo bias
+  Threshold := (High(Cardinal) mod HighValue + 1);
+  if Threshold = HighValue then
+    Threshold := 0;
+
+  RetryCount := 0;
+  repeat
+    R := RandomUInt32;
+    Inc(RetryCount);
+    if RetryCount > 100 then
+      raise ECnRandomAPIError.Create(SCnErrorNoSecureRandom);
+  until R >= Threshold;
+
+  Result := R mod HighValue;
 end;
 
 function RandomInt32: Integer;
@@ -331,19 +491,11 @@ begin
 end;
 
 function RandomInt32LessThan(HighValue: Integer): Integer;
-var
-  D: Cardinal;
 begin
-  // 优先用系统的随机数发生器
-  if not CnRandomFillBytes2(@D, SizeOf(Cardinal)) then
-  begin
-    Randomize;
-    D := Trunc(Random * High(Integer) - 1) + 1;
-  end
+  if HighValue <= 0 then
+    Result := 0
   else
-    D := D mod (Cardinal(High(Integer)) + 1);
-
-  Result := Integer(Int64(D) mod Int64(HighValue)); // 未处理 HighValue 小于等于 0 的情形
+    Result := Integer(RandomUInt32LessThan(Cardinal(HighValue)));
 end;
 
 function CnKnuthShuffle(ArrayBase: Pointer; ElementByteSize: Integer;
@@ -401,6 +553,13 @@ begin
   begin
     CryptReleaseContext(FHProv, 0);
     FHProv := 0;
+  end;
+
+  if FBCryptHandle <> 0 then
+  begin
+    FreeLibrary(FBCryptHandle);
+    FBCryptHandle := 0;
+    @FBCryptGenRandom := nil;
   end;
 end;
 

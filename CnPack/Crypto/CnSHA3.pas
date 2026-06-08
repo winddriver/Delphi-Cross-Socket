@@ -1,7 +1,7 @@
 {******************************************************************************}
 {                       CnPack For Delphi/C++Builder                           }
 {                     中国人自己的开放源码第三方开发包                         }
-{                   (C)Copyright 2001-2025 CnPack 开发组                       }
+{                   (C)Copyright 2001-2026 CnPack 开发组                       }
 {                   ------------------------------------                       }
 {                                                                              }
 {            本开发包是开源的自由软件，您可以遵照 CnPack 的发布协议来修        }
@@ -27,15 +27,18 @@ unit CnSHA3;
 *           从匿名/佚名 Keccak C 代码与 Pascal 代码混合移植而来并补充部分功能。
 * 备    注：本单元实现了 SHA3 系列杂凑算法及对应的 HMAC 算法，包括 SHA3-224/256/384/512
 *           及可变长度摘要的 SHAKE128/SHAKE256等。
+*
 *           SHA3 规范来自 NIST.FIPS.202
 *           SHA-3 Standard: Permutation-Based Hash and Extendable-Output Functions
-*           其中额外定义了 Bit 串到 Byte 串的转换
+*           其中额外定义了 Bit 串到 Byte 串的转换。
 *           简而言之就是 Bit 串长度能够整除 8 时每 8 个 Bit 按位倒置就是一个字节，字节间的顺序保持不变。
 *
 * 开发平台：PWinXP + Delphi 5.0
 * 兼容测试：PWinXP/7 + Delphi 5/6
 * 本 地 化：该单元中的字符串均符合本地化处理方式
-* 修改记录：2023.08.02 V1.4
+* 修改记录：2025.11.06 V1.5
+*               加入 SHAKE128/SHAKE256 的 Absorb/Squeeze 机制，允许连续输出摘要
+*           2023.08.02 V1.4
 *               加入 SHAKE128/SHAKE256 的可变长度摘要的计算
 *           2022.04.26 V1.3
 *               修改 LongWord 与 Integer 地址转换以支持 MacOS64
@@ -64,22 +67,27 @@ const
 
 type
   PCnSHA3GeneralDigest = ^TCnSHA3GeneralDigest;
+  {* SHA3 系列通用的杂凑结果指针}
   TCnSHA3GeneralDigest = array[0..63] of Byte;
   {* SHA3 系列通用的杂凑结果，以最大的 64 字节为准}
 
   PCnSHA3_224Digest = ^TCnSHA3_224Digest;
+  {* SHA3_224 杂凑结果指针}
   TCnSHA3_224Digest = array[0..27] of Byte;
   {* SHA3_224 杂凑结果，28 字节}
 
   PCnSHA3_256Digest = ^TCnSHA3_256Digest;
+  {* SHA3_256 杂凑结果指针}
   TCnSHA3_256Digest = array[0..31] of Byte;
   {* SHA3_256 杂凑结果，32 字节}
 
   PCnSHA3_384Digest = ^TCnSHA3_384Digest;
+  {* SHA3_384 杂凑结果指针}
   TCnSHA3_384Digest = array[0..47] of Byte;
   {* SHA3_384 杂凑结果，48 字节}
 
   PCnSHA3_512Digest = ^TCnSHA3_512Digest;
+  {* SHA3_512 杂凑结果指针}
   TCnSHA3_512Digest = array[0..63] of Byte;
   {* SHA3_512 杂凑结果，64 字节}
 
@@ -90,6 +98,8 @@ type
     DigestLen: Cardinal;
     Round: Cardinal;
     BlockLen: Cardinal;
+    Squeezed: Cardinal;
+    SqueezeCount: Cardinal;
     Block: array[0..255] of Byte;
     Ipad: array[0..143] of Byte;      {!< HMAC: inner padding        }
     Opad: array[0..143] of Byte;      {!< HMAC: outer padding        }
@@ -143,7 +153,7 @@ function SHA3_224Buffer(const Buffer; Count: Cardinal): TCnSHA3_224Digest;
 {* 对数据块进行 SHA3_224 计算。
 
    参数：
-     const Buffer                         - 待计算的数据块地址
+     const Buffer                         - 待计算的数据块
      Count: Cardinal                      - 待计算的数据块字节长度
 
    返回值：TCnSHA3_224Digest              - 返回的 SHA3_224 杂凑值
@@ -153,7 +163,7 @@ function SHA3_256Buffer(const Buffer; Count: Cardinal): TCnSHA3_256Digest;
 {* 对数据块进行 SHA3_256 计算。
 
    参数：
-     const Buffer                         - 待计算的数据块地址
+     const Buffer                         - 待计算的数据块
      Count: Cardinal                      - 待计算的数据块字节长度
 
    返回值：TCnSHA3_256Digest              - 返回的 SHA3_256 杂凑值
@@ -163,7 +173,7 @@ function SHA3_384Buffer(const Buffer; Count: Cardinal): TCnSHA3_384Digest;
 {* 对数据块进行 SHA3_384 计算。
 
    参数：
-     const Buffer                         - 待计算的数据块地址
+     const Buffer                         - 待计算的数据块
      Count: Cardinal                      - 待计算的数据块字节长度
 
    返回值：TCnSHA3_384Digest              - 返回的 SHA3_384 杂凑值
@@ -173,7 +183,7 @@ function SHA3_512Buffer(const Buffer; Count: Cardinal): TCnSHA3_512Digest;
 {* 对数据块进行 SHA3_512 计算。
 
    参数：
-     const Buffer                         - 待计算的数据块地址
+     const Buffer                         - 待计算的数据块
      Count: Cardinal                      - 待计算的数据块字节长度
 
    返回值：TCnSHA3_512Digest              - 返回的 SHA3_512 杂凑值
@@ -184,7 +194,7 @@ function SHAKE128Buffer(const Buffer; Count: Cardinal;
 {* 对数据块进行杂凑长度可变的 SHAKE128 计算，返回长度为 DigestByteLength 的字节数组作为杂凑结果。
 
    参数：
-     const Buffer                         - 待计算的数据块地址
+     const Buffer                         - 待计算的数据块
      Count: Cardinal                      - 待计算的数据块字节长度
      DigestByteLength: Cardinal           - 所需的杂凑结果字节长度
 
@@ -196,64 +206,64 @@ function SHAKE256Buffer(const Buffer; Count: Cardinal;
 {* 对数据块进行杂凑长度可变的 SHAKE128 计算，返回长度为 DigestByteLength 的字节数组作为杂凑结果。
 
    参数：
-     const Buffer                         - 待计算的数据块地址
+     const Buffer                         - 待计算的数据块
      Count: Cardinal                      - 待计算的数据块字节长度
      DigestByteLength: Cardinal           - 所需的杂凑结果字节长度
 
    返回值：TBytes                         - 返回 SHAKE256 杂凑值
 }
 
-function SHA3_224Bytes(Data: TBytes): TCnSHA3_224Digest;
+function SHA3_224Bytes(const Data: TBytes): TCnSHA3_224Digest;
 {* 对字节数组进行 SHA3_224 计算。
 
    参数：
-     Data: TBytes                         - 待计算的字节数组
+     const Data: TBytes                   - 待计算的字节数组
 
    返回值：TCnSHA3_224Digest              - 返回的 SHA3_224 杂凑值
 }
 
-function SHA3_256Bytes(Data: TBytes): TCnSHA3_256Digest;
+function SHA3_256Bytes(const Data: TBytes): TCnSHA3_256Digest;
 {* 对字节数组进行 SHA3_256 计算。
 
    参数：
-     Data: TBytes                         - 待计算的字节数组
+     const Data: TBytes                   - 待计算的字节数组
 
    返回值：TCnSHA3_256Digest              - 返回的 SHA3_256 杂凑值
 }
 
-function SHA3_384Bytes(Data: TBytes): TCnSHA3_384Digest;
+function SHA3_384Bytes(const Data: TBytes): TCnSHA3_384Digest;
 {* 对字节数组进行 SHA3_384 计算。
 
    参数：
-     Data: TBytes                         - 待计算的字节数组
+     const Data: TBytes                   - 待计算的字节数组
 
    返回值：TCnSHA3_384Digest              - 返回的 SHA3_384 杂凑值
 }
 
-function SHA3_512Bytes(Data: TBytes): TCnSHA3_512Digest;
+function SHA3_512Bytes(const Data: TBytes): TCnSHA3_512Digest;
 {* 对字节数组进行 SHA3_512 计算。
 
    参数：
-     Data: TBytes                         - 待计算的字节数组
+     const Data: TBytes                   - 待计算的字节数组
 
    返回值：TCnSHA3_512Digest              - 返回的 SHA3_512 杂凑值
 }
 
-function SHAKE128Bytes(Data: TBytes; DigestByteLength: Cardinal = CN_SHAKE128_DEF_DIGEST_BYTE_LENGTH): TBytes;
+function SHAKE128Bytes(const Data: TBytes; DigestByteLength: Cardinal = CN_SHAKE128_DEF_DIGEST_BYTE_LENGTH): TBytes;
 {* 对字节数组进行杂凑长度可变的 SHAKE128 计算，返回长度为 DigestByteLength 的字节数组作为杂凑结果。
 
    参数：
-     Data: TBytes                         - 待计算的字节数组
+     const Data: TBytes                   - 待计算的字节数组
      DigestByteLength: Cardinal           - 所需的杂凑结果字节长度
 
    返回值：TBytes                         - 返回 SHAKE128 杂凑值
 }
 
-function SHAKE256Bytes(Data: TBytes; DigestByteLength: Cardinal = CN_SHAKE256_DEF_DIGEST_BYTE_LENGTH): TBytes;
+function SHAKE256Bytes(const Data: TBytes; DigestByteLength: Cardinal = CN_SHAKE256_DEF_DIGEST_BYTE_LENGTH): TBytes;
 {* 对字节数组进行杂凑长度可变的 SHAKE256 计算，返回长度为 DigestByteLength 的字节数组作为杂凑结果。
 
    参数：
-     Data: TBytes                         - 待计算的字节数组
+     const Data: TBytes                   - 待计算的字节数组
      DigestByteLength: Cardinal           - 所需的杂凑结果字节长度
 
    返回值：TBytes                         - 返回 SHAKE256 杂凑值
@@ -853,7 +863,7 @@ procedure SHA3_512Final(var Context: TCnSHA3Context; var Digest: TCnSHA3_512Dige
    返回值：（无）
 }
 
-// 以下三个函数用于外部持续对数据进行零散的 SHAKE128 计算，SHAKE128Update 可多次被调用
+// 以下几个函数用于外部持续对数据进行零散的 SHAKE128 计算，SHAKE128Update 可多次被调用
 
 procedure SHAKE128Init(var Context: TCnSHA3Context; DigestByteLength: Cardinal = CN_SHAKE128_DEF_DIGEST_BYTE_LENGTH);
 {* 初始化一轮 SHAKE128 计算上下文，准备计算 SHAKE128 结果，
@@ -867,7 +877,19 @@ procedure SHAKE128Init(var Context: TCnSHA3Context; DigestByteLength: Cardinal =
 }
 
 procedure SHAKE128Update(var Context: TCnSHA3Context; Input: PAnsiChar; ByteLength: Cardinal);
-{* 以初始化后的上下文对一块数据进行 SHAKE128 计算。
+{* 以初始化后的上下文对一块数据进行 SHAKE128 计算，等同于 SHAKE128Absorb。
+   可多次调用以连续计算不同的数据块，无需将不同的数据块拼凑在连续的内存中。
+
+   参数：
+     var Context: TCnSHA3Context          - 通用 SHA3 上下文
+     Input: PAnsiChar                     - 待计算的数据块地址
+     ByteLength: Cardinal                 - 待计算的数据块字节长度
+
+   返回值：（无）
+}
+
+procedure SHAKE128Absorb(var Context: TCnSHA3Context; Input: PAnsiChar; ByteLength: Cardinal);
+{* 以初始化后的上下文对一块数据进行 SHAKE128 计算，等同于 SHAKE128Update。
    可多次调用以连续计算不同的数据块，无需将不同的数据块拼凑在连续的内存中。
 
    参数：
@@ -888,7 +910,18 @@ procedure SHAKE128Final(var Context: TCnSHA3Context; out Digest: TBytes);
    返回值：（无）
 }
 
-// 以下三个函数用于外部持续对数据进行零散的 SHAKE128 计算，SHAKE128Update 可多次被调用
+function SHAKE128Squeeze(var Context: TCnSHA3Context; DigestByteLength: Integer): TBytes;
+{* 不结束本轮计算，将 SHAKE128 结果返回 DigestByteLength 字节长的内容，
+   后续还可继续 Squeeze，但不能 Absorb 了。
+
+   参数：
+     var Context: TCnSHA3Context          - 通用 SHA3 上下文
+     DigestByteLength: Integer            - 需要返回的 SHAKE128 杂凑字节长度
+
+   返回值：TBytes                         - 返回的 SHAKE128 杂凑值
+}
+
+// 以下几个函数用于外部持续对数据进行零散的 SHAKE128 计算，SHAKE128Update 可多次被调用
 
 procedure SHAKE256Init(var Context: TCnSHA3Context; DigestByteLength: Cardinal = CN_SHAKE256_DEF_DIGEST_BYTE_LENGTH);
 {* 初始化一轮 SHAKE256 计算上下文，准备计算 SHAKE256 结果，
@@ -902,7 +935,19 @@ procedure SHAKE256Init(var Context: TCnSHA3Context; DigestByteLength: Cardinal =
 }
 
 procedure SHAKE256Update(var Context: TCnSHA3Context; Input: PAnsiChar; ByteLength: Cardinal);
-{* 以初始化后的上下文对一块数据进行 SHAKE256 计算。
+{* 以初始化后的上下文对一块数据进行 SHAKE256 计算，等同于 SHAKE256Absorb。
+   可多次调用以连续计算不同的数据块，无需将不同的数据块拼凑在连续的内存中。
+
+   参数：
+     var Context: TCnSHA3Context          - 通用 SHA3 上下文
+     Input: PAnsiChar                     - 待计算的数据块地址
+     ByteLength: Cardinal                 - 待计算的数据块字节长度
+
+   返回值：（无）
+}
+
+procedure SHAKE256Absorb(var Context: TCnSHA3Context; Input: PAnsiChar; ByteLength: Cardinal);
+{* 以初始化后的上下文对一块数据进行 SHAKE256 计算，等同于 SHAKE256Update。
    可多次调用以连续计算不同的数据块，无需将不同的数据块拼凑在连续的内存中。
 
    参数：
@@ -921,6 +966,17 @@ procedure SHAKE256Final(var Context: TCnSHA3Context; out Digest: TBytes);
      out Digest: TBytes                   - 返回的 SHAKE256 杂凑值
 
    返回值：（无）
+}
+
+function SHAKE256Squeeze(var Context: TCnSHA3Context; DigestByteLength: Integer): TBytes;
+{* 不结束本轮计算，将 SHAKE256 结果返回 DigestByteLength 字节长的内容，
+   后续还可继续 Squeeze，但不能 Absorb 了。
+
+   参数：
+     var Context: TCnSHA3Context          - 通用 SHA3 上下文
+     DigestByteLength: Integer            - 需要返回的 SHAKE256 杂凑字节长度
+
+   返回值：TBytes                         - 返回的 SHAKE256 杂凑值
 }
 
 function SHA3_224Print(const Digest: TCnSHA3_224Digest): string;
@@ -1153,6 +1209,46 @@ procedure SHA3_512Hmac(Key: PAnsiChar; KeyByteLength: Integer; Input: PAnsiChar;
    返回值：（无）
 }
 
+function SHA3_224HmacBytes(const Key: TBytes; const Data: TBytes): TCnSHA3_224Digest;
+{* 对字节数组进行基于 SHA3_224 的 HMAC 计算。
+
+   参数：
+     const Key: TBytes                         - 待参与 SHA3_224 计算的密钥字节数组
+     const Data: TBytes                        - 待计算的字节数组
+
+   返回值：TCnSHA3_224Digest                   - 返回的 SHA3_224 杂凑值
+}
+
+function SHA3_256HmacBytes(const Key: TBytes; const Data: TBytes): TCnSHA3_256Digest;
+{* 对字节数组进行基于 SHA3_256 的 HMAC 计算。
+
+   参数：
+     const Key: TBytes                    - 待参与 SHA3_256 计算的密钥字节数组
+     const Data: TBytes                   - 待计算的字节数组
+
+   返回值：TCnSHA3_256Digest              - 返回的 SHA3_256 杂凑值
+}
+
+function SHA3_384HmacBytes(const Key: TBytes; const Data: TBytes): TCnSHA3_384Digest;
+{* 对字节数组进行基于 SHA3_384 的 HMAC 计算。
+
+   参数：
+     const Key: TBytes                    - 待参与 SHA3_384 计算的密钥字节数组
+     const Data: TBytes                   - 待计算的字节数组
+
+   返回值：TCnSHA3_384Digest              - 返回的 SHA3_384 杂凑值
+}
+
+function SHA3_512HmacBytes(const Key: TBytes; const Data: TBytes): TCnSHA3_512Digest;
+{* 对字节数组进行基于 SHA3_512 的 HMAC 计算。
+
+   参数：
+     const Key: TBytes                    - 待参与 SHA3_512 计算的密钥字节数组
+     const Data: TBytes                   - 待计算的字节数组
+
+   返回值：TCnSHA3_512Digest              - 返回的 SHA3_512 杂凑值
+}
+
 implementation
 
 type
@@ -1282,6 +1378,8 @@ begin
   FillChar(Context.State, SizeOf(Context.State), 0);
   FillChar(Context.Block, SizeOf(Context.Block), 0);
   Context.Index := 0;
+  Context.Squeezed := 0;
+  Context.SqueezeCount := 0;
   Context.Round := SHA3_ROUNDS;
 
   case SHA3Type of
@@ -1416,6 +1514,61 @@ begin
   end;
 end;
 
+function SHAKE3Squeeze(var Context: TCnSHA3Context; DigestByteLength: Integer): TBytes;
+var
+  Idx, DL: Cardinal;
+  BlockLen: Cardinal;
+  BytesToCopy: Cardinal;
+begin
+  if DigestByteLength <= 0 then
+  begin
+    Result := nil;
+    Exit;
+  end;
+
+  BlockLen := Context.BlockLen;
+
+  // 如果是第一次进入，先完成 Absorb 阶段
+  if Context.Squeezed = 0 then
+  begin
+    Context.Block[Context.Index] := $1F;
+    Context.Block[Context.BlockLen - 1] := Context.Block[Context.BlockLen - 1] or $80;
+    SHA3_Transform(Context);
+    Context.Squeezed := 1;     // 标记已经完成吸收阶段
+    Context.SqueezeCount := 0; // 重置挤压计数
+  end;
+
+  // 初始化输出数组
+  SetLength(Result, DigestByteLength);
+  DL := DigestByteLength;
+  Idx := 0;
+
+  // 从当前状态提取数据
+  while DL > 0 do
+  begin
+    // 计算当前块中剩余可提取的字节数
+    BytesToCopy := BlockLen - Context.SqueezeCount;
+    if BytesToCopy > DL then
+      BytesToCopy := DL;
+
+    // 从状态中提取数据
+    Move(PByteArray(@Context.State[0])[Context.SqueezeCount], Result[Idx], BytesToCopy);
+
+    // 更新计数器和指针
+    Inc(Context.SqueezeCount, BytesToCopy);
+    Inc(Idx, BytesToCopy);
+    Dec(DL, BytesToCopy);
+
+    // 如果当前块已用完，需要变换状态获取下一个块
+    if (DL > 0) and (Context.SqueezeCount >= BlockLen) then
+    begin
+      FillChar(Context.Block[0], SizeOf(Context.Block), 0);
+      SHA3_Transform(Context);
+      Context.SqueezeCount := 0; // 重置为新的状态块的开始
+    end;
+  end;
+end;
+
 procedure SHA3_224Init(var Context: TCnSHA3Context);
 begin
   SHA3Init(Context, stSHA3_224);
@@ -1498,9 +1651,19 @@ begin
   SHA3Update(Context, Input, ByteLength);
 end;
 
+procedure SHAKE128Absorb(var Context: TCnSHA3Context; Input: PAnsiChar; ByteLength: Cardinal);
+begin
+  SHA3Update(Context, Input, ByteLength);
+end;
+
 procedure SHAKE128Final(var Context: TCnSHA3Context; out Digest: TBytes);
 begin
   SHA3Final(Context, Digest);
+end;
+
+function SHAKE128Squeeze(var Context: TCnSHA3Context; DigestByteLength: Integer): TBytes;
+begin
+  Result := SHAKE3Squeeze(Context, DigestByteLength);
 end;
 
 procedure SHAKE256Init(var Context: TCnSHA3Context; DigestByteLength: Cardinal);
@@ -1513,9 +1676,19 @@ begin
   SHA3Update(Context, Input, ByteLength);
 end;
 
+procedure SHAKE256Absorb(var Context: TCnSHA3Context; Input: PAnsiChar; ByteLength: Cardinal);
+begin
+  SHA3Update(Context, Input, ByteLength);
+end;
+
 procedure SHAKE256Final(var Context: TCnSHA3Context; out Digest: TBytes);
 begin
   SHA3Final(Context, Digest);
+end;
+
+function SHAKE256Squeeze(var Context: TCnSHA3Context; DigestByteLength: Integer): TBytes;
+begin
+  Result := SHAKE3Squeeze(Context, DigestByteLength);
 end;
 
 // 对数据块进行 SHA3_224位计算
@@ -1573,7 +1746,7 @@ var
   Res: TCnSHA3GeneralDigest;
 begin
   SHA3Init(Context, stSHA3_224);
-  SHA3Update(Context, PAnsiChar(Buffer), Count);
+  SHA3Update(Context, PAnsiChar(@Buffer), Count);
   SHA3Final(Context, Res);
   Move(Res[0], Result[0], SHA3_224_OUTPUT_LENGTH_BYTE);
 end;
@@ -1585,7 +1758,7 @@ var
   Res: TCnSHA3GeneralDigest;
 begin
   SHA3Init(Context, stSHA3_256);
-  SHA3Update(Context, PAnsiChar(Buffer), Count);
+  SHA3Update(Context, PAnsiChar(@Buffer), Count);
   SHA3Final(Context, Res);
   Move(Res[0], Result[0], SHA3_256_OUTPUT_LENGTH_BYTE);
 end;
@@ -1597,7 +1770,7 @@ var
   Res: TCnSHA3GeneralDigest;
 begin
   SHA3Init(Context, stSHA3_384);
-  SHA3Update(Context, PAnsiChar(Buffer), Count);
+  SHA3Update(Context, PAnsiChar(@Buffer), Count);
   SHA3Final(Context, Res);
   Move(Res[0], Result[0], SHA3_384_OUTPUT_LENGTH_BYTE);
 end;
@@ -1609,7 +1782,7 @@ var
   Res: TCnSHA3GeneralDigest;
 begin
   SHA3Init(Context, stSHA3_512);
-  SHA3Update(Context, PAnsiChar(Buffer), Count);
+  SHA3Update(Context, PAnsiChar(@Buffer), Count);
   SHA3Final(Context, Res);
   Move(Res[0], Result[0], SHA3_512_OUTPUT_LENGTH_BYTE);
 end;
@@ -1620,7 +1793,7 @@ var
   Context: TCnSHA3Context;
 begin
   SHAKE128Init(Context, DigestByteLength);
-  SHAKE128Update(Context, PAnsiChar(Buffer), Count);
+  SHAKE128Update(Context, PAnsiChar(@Buffer), Count);
   SHAKE128Final(Context, Result);
 end;
 
@@ -1630,12 +1803,12 @@ var
   Context: TCnSHA3Context;
 begin
   SHAKE256Init(Context, DigestByteLength);
-  SHAKE256Update(Context, PAnsiChar(Buffer), Count);
+  SHAKE256Update(Context, PAnsiChar(@Buffer), Count);
   SHAKE256Final(Context, Result);
 end;
 
 // 对字节数组进行 SHA3_224 计算
-function SHA3_224Bytes(Data: TBytes): TCnSHA3_224Digest;
+function SHA3_224Bytes(const Data: TBytes): TCnSHA3_224Digest;
 var
   Context: TCnSHA3Context;
   Res: TCnSHA3GeneralDigest;
@@ -1647,7 +1820,7 @@ begin
 end;
 
 // 对字节数组进行 SHA3_256 计算
-function SHA3_256Bytes(Data: TBytes): TCnSHA3_256Digest;
+function SHA3_256Bytes(const Data: TBytes): TCnSHA3_256Digest;
 var
   Context: TCnSHA3Context;
   Res: TCnSHA3GeneralDigest;
@@ -1659,7 +1832,7 @@ begin
 end;
 
 // 对字节数组进行 SHA3_384 计算
-function SHA3_384Bytes(Data: TBytes): TCnSHA3_384Digest;
+function SHA3_384Bytes(const Data: TBytes): TCnSHA3_384Digest;
 var
   Context: TCnSHA3Context;
   Res: TCnSHA3GeneralDigest;
@@ -1671,7 +1844,7 @@ begin
 end;
 
 // 对字节数组进行 SHA3_512 计算
-function SHA3_512Bytes(Data: TBytes): TCnSHA3_512Digest;
+function SHA3_512Bytes(const Data: TBytes): TCnSHA3_512Digest;
 var
   Context: TCnSHA3Context;
   Res: TCnSHA3GeneralDigest;
@@ -1683,7 +1856,7 @@ begin
 end;
 
 // 对字节数组进行 SHAKE128 计算
-function SHAKE128Bytes(Data: TBytes; DigestByteLength: Cardinal): TBytes;
+function SHAKE128Bytes(const Data: TBytes; DigestByteLength: Cardinal): TBytes;
 var
   Context: TCnSHA3Context;
 begin
@@ -1693,7 +1866,7 @@ begin
 end;
 
 // 对字节数组进行 SHAKE256 计算
-function SHAKE256Bytes(Data: TBytes; DigestByteLength: Cardinal): TBytes;
+function SHAKE256Bytes(const Data: TBytes; DigestByteLength: Cardinal): TBytes;
 var
   Context: TCnSHA3Context;
 begin
@@ -2152,7 +2325,7 @@ var
   Info: BY_HANDLE_FILE_INFORMATION;
   Rec: Int64Rec;
 {$ENDIF}
-  begin
+begin
 {$IFDEF MSWINDOWS}
   Result := False;
   IsEmpty := False;
@@ -2223,7 +2396,7 @@ begin
             end
             else
             begin
-              raise Exception.Create(SCnErrorMapViewOfFile + IntToStr(GetLastError));
+              raise ECnNativeException.Create(SCnErrorMapViewOfFile + IntToStr(GetLastError));
             end;
           finally
             CloseHandle(MapHandle);
@@ -2232,7 +2405,7 @@ begin
         else
         begin
           if not FileIsZeroSize then
-            raise Exception.Create(SCnErrorCreateFileMapping + IntToStr(GetLastError));
+            raise ECnNativeException.Create(SCnErrorCreateFileMapping + IntToStr(GetLastError));
         end;
       finally
         CloseHandle(FileHandle);
@@ -2291,7 +2464,7 @@ begin
             end
             else
             begin
-              raise Exception.Create(SCnErrorMapViewOfFile + IntToStr(GetLastError));
+              raise ECnNativeException.Create(SCnErrorMapViewOfFile + IntToStr(GetLastError));
             end;
           finally
             CloseHandle(MapHandle);
@@ -2300,7 +2473,7 @@ begin
         else
         begin
           if not FileIsZeroSize then
-            raise Exception.Create(SCnErrorCreateFileMapping + IntToStr(GetLastError));
+            raise ECnNativeException.Create(SCnErrorCreateFileMapping + IntToStr(GetLastError));
         end;
       finally
         CloseHandle(FileHandle);
@@ -2404,37 +2577,37 @@ end;
 // 比较两个 SHA3_224 杂凑值是否相等
 function SHA3_224Match(const D1, D2: TCnSHA3_224Digest): Boolean;
 begin
-  Result := CompareMem(@D1[0], @D2[0], SizeOf(TCnSHA3_224Digest));
+  Result := ConstTimeCompareMem(@D1[0], @D2[0], SizeOf(TCnSHA3_224Digest));
 end;
 
 // 比较两个 SHA3_256 杂凑值是否相等
 function SHA3_256Match(const D1, D2: TCnSHA3_256Digest): Boolean;
 begin
-  Result := CompareMem(@D1[0], @D2[0], SizeOf(TCnSHA3_256Digest));
+  Result := ConstTimeCompareMem(@D1[0], @D2[0], SizeOf(TCnSHA3_256Digest));
 end;
 
 // 比较两个 SHA3_384 杂凑值是否相等
 function SHA3_384Match(const D1, D2: TCnSHA3_384Digest): Boolean;
 begin
-  Result := CompareMem(@D1[0], @D2[0], SizeOf(TCnSHA3_384Digest));
+  Result := ConstTimeCompareMem(@D1[0], @D2[0], SizeOf(TCnSHA3_384Digest));
 end;
 
 // 比较两个 SHA3_512 杂凑值是否相等
 function SHA3_512Match(const D1, D2: TCnSHA3_512Digest): Boolean;
 begin
-  Result := CompareMem(@D1[0], @D2[0], SizeOf(TCnSHA3_512Digest));;
+  Result := ConstTimeCompareMem(@D1[0], @D2[0], SizeOf(TCnSHA3_512Digest));
 end;
 
 // 比较两个 SHAKE128 杂凑值是否相等
 function SHAKE128Match(const D1, D2: TBytes): Boolean;
 begin
-  Result := CompareBytes(D1, D2);
+  Result := ConstTimeCompareBytes(D1, D2);
 end;
 
 // 比较两个 SHAKE256 杂凑值是否相等
 function SHAKE256Match(const D1, D2: TBytes): Boolean;
 begin
-  Result := CompareBytes(D1, D2);
+  Result := ConstTimeCompareBytes(D1, D2);
 end;
 
 // SHA3_224 杂凑值转 string
@@ -2480,7 +2653,7 @@ var
 begin
   if KeyLength > HMAC_SHA3_224_BLOCK_SIZE_BYTE then
   begin
-    Sum := SHA3_224Buffer(Key, KeyLength);
+    Sum := SHA3_224Buffer(Key^, KeyLength);
     KeyLength := HMAC_SHA3_224_OUTPUT_LENGTH_BYTE;
     Key := @(Sum[0]);
   end;
@@ -2505,7 +2678,7 @@ var
 begin
   if KeyLength > HMAC_SHA3_256_BLOCK_SIZE_BYTE then
   begin
-    Sum := SHA3_256Buffer(Key, KeyLength);
+    Sum := SHA3_256Buffer(Key^, KeyLength);
     KeyLength := HMAC_SHA3_256_OUTPUT_LENGTH_BYTE;
     Key := @(Sum[0]);
   end;
@@ -2530,7 +2703,7 @@ var
 begin
   if KeyLength > HMAC_SHA3_384_BLOCK_SIZE_BYTE then
   begin
-    Sum := SHA3_384Buffer(Key, KeyLength);
+    Sum := SHA3_384Buffer(Key^, KeyLength);
     KeyLength := HMAC_SHA3_384_OUTPUT_LENGTH_BYTE;
     Key := @(Sum[0]);
   end;
@@ -2555,7 +2728,7 @@ var
 begin
   if KeyLength > HMAC_SHA3_512_BLOCK_SIZE_BYTE then
   begin
-    Sum := SHA3_512Buffer(Key, KeyLength);
+    Sum := SHA3_512Buffer(Key^, KeyLength);
     KeyLength := HMAC_SHA3_512_OUTPUT_LENGTH_BYTE;
     Key := @(Sum[0]);
   end;
@@ -2695,6 +2868,50 @@ begin
   SHA3_512HmacUpdate(Context, Input, ByteLength);
   SHA3_512HmacFinal(Context, Dig);
   Move(Dig[0], Output[0], Context.DigestLen);
+end;
+
+function SHA3_224HmacBytes(const Key: TBytes; const Data: TBytes): TCnSHA3_224Digest;
+var
+  Context: TCnSHA3Context;
+  Dig: TCnSHA3GeneralDigest;
+begin
+  SHA3_224HmacInit(Context, PAnsiChar(@Key[0]), Length(Key));
+  SHA3_224HmacUpdate(Context, PAnsiChar(@Data[0]), Length(Data));
+  SHA3_224HmacFinal(Context, Dig);
+  Move(Dig[0], Result[0], Context.DigestLen);
+end;
+
+function SHA3_256HmacBytes(const Key: TBytes; const Data: TBytes): TCnSHA3_256Digest;
+var
+  Context: TCnSHA3Context;
+  Dig: TCnSHA3GeneralDigest;
+begin
+  SHA3_256HmacInit(Context, PAnsiChar(@Key[0]), Length(Key));
+  SHA3_256HmacUpdate(Context, PAnsiChar(@Data[0]), Length(Data));
+  SHA3_256HmacFinal(Context, Dig);
+  Move(Dig[0], Result[0], Context.DigestLen);
+end;
+
+function SHA3_384HmacBytes(const Key: TBytes; const Data: TBytes): TCnSHA3_384Digest;
+var
+  Context: TCnSHA3Context;
+  Dig: TCnSHA3GeneralDigest;
+begin
+  SHA3_384HmacInit(Context, PAnsiChar(@Key[0]), Length(Key));
+  SHA3_384HmacUpdate(Context, PAnsiChar(@Data[0]), Length(Data));
+  SHA3_384HmacFinal(Context, Dig);
+  Move(Dig[0], Result[0], Context.DigestLen);
+end;
+
+function SHA3_512HmacBytes(const Key: TBytes; const Data: TBytes): TCnSHA3_512Digest;
+var
+  Context: TCnSHA3Context;
+  Dig: TCnSHA3GeneralDigest;
+begin
+  SHA3_512HmacInit(Context, PAnsiChar(@Key[0]), Length(Key));
+  SHA3_512HmacUpdate(Context, PAnsiChar(@Data[0]), Length(Data));
+  SHA3_512HmacFinal(Context, Dig);
+  Move(Dig[0], Result[0], Context.DigestLen);
 end;
 
 end.
