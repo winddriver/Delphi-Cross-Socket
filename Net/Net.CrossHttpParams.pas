@@ -545,21 +545,33 @@ type
     end;
   public type
     TDecodeState = (dsBoundary, dsDetect, dsPartHeader, dsPartData);
+
+    /// <summary>
+    ///   头部结束标记检测状态机, 严格匹配 #13#10#13#10 序列
+    /// </summary>
+    TLineEndState = (lesCR1, lesLF1, lesCR2, lesLF2);
+
+    /// <summary>
+    ///   dsDetect 状态: Boundary 标记之后判断是 Header 数据还是结束标记
+    /// </summary>
+    TPostBoundaryState = (pbsDetect, pbsHeader1, pbsEnd1, pbsEnd2, pbsEnd3);
   private const
-    DETECT_HEADER_BYTES: array [0..1] of Byte = (13, 10); // 回车换行
-    DETECT_END_BYTES: array [0..3] of Byte = (45, 45, 13, 10); // --回车换行
     MAX_PART_HEADER: Integer = 64 * 1024;
   private
     FBoundary, FStoragePath: string;
     FFirstBoundaryBytes, FBoundaryBytes, FLookbehind: TBytes;
-    FBoundaryIndex, FDetectHeaderIndex, FDetectEndIndex, FPartDataBegin: Integer;
+    FBoundaryIndex, FPartDataBegin: Integer;
+    FPostBoundaryState: TPostBoundaryState;
     FPrevBoundaryIndex: Integer;
     FDecodeState: TDecodeState;
-    CR, LF: Integer;
+    FLineEndState: TLineEndState;
     FPartFields: TObjectList<TFormField>;
-    FCurrentPartHeader: TMemoryStream;
+    FCurrentPartHeader: TBytes;
+    FCurrentPartHeaderLen: Integer;
     FCurrentPartField: TFormField;
     FAutoDeleteFiles: Boolean;
+    FMaxPartDataSize: Integer;
+    FCurrentPartDataSize: Int64;
 
     function GetItemIndex(const AName: string): Integer;
     function GetItem(AIndex: Integer): TFormField;
@@ -602,8 +614,28 @@ type
     /// <param name="ALen">
     ///   数据长度
     /// </param>
+    /// <remarks>
+    ///   已知限制: 仅支持 multipart/form-data; 不支持 RFC 2046 preamble/epilogue 文本;
+    ///   不支持 multipart/mixed 嵌套; Content-Transfer-Encoding 仅存储不解码.
+    /// </remarks>
     {$ENDREGION}
     function Decode(const ABuf: Pointer; ALen: Integer): TFormDataDecodeResult; overload;
+
+    {$REGION 'Documentation'}
+    /// <summary>
+    ///   从内存中解码并返回实际消费的字节数(必须先调用InitWithBoundary)
+    /// </summary>
+    /// <param name="ABuf">
+    ///   待解码数据
+    /// </param>
+    /// <param name="ALen">
+    ///   数据长度
+    /// </param>
+    /// <param name="AConsumed">
+    ///   出参: 实际消费的字节数. frComplete 时可能小于 ALen, 调用方需要用剩余字节继续后续解析.
+    /// </param>
+    {$ENDREGION}
+    function Decode(const ABuf: Pointer; ALen: Integer; out AConsumed: Integer): TFormDataDecodeResult; overload;
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -776,6 +808,13 @@ type
     /// </summary>
     {$ENDREGION}
     property AutoDeleteFiles: Boolean read FAutoDeleteFiles write FAutoDeleteFiles;
+
+    {$REGION 'Documentation'}
+    /// <summary>
+    /// 单个 Part Body 最大字节数, 0 表示不限制. 超过限制时 Decode 返回 frFailed.
+    /// </summary>
+    {$ENDREGION}
+    property MaxPartDataSize: Integer read FMaxPartDataSize write FMaxPartDataSize;
   end;
 
   {$REGION 'Documentation'}
@@ -1539,8 +1578,7 @@ begin
       Inc(LSize);
       Inc(p);
     end;
-    SetLength(LName, LSize);
-    Move(q^, Pointer(LName)^, LSize * SizeOf(Char));
+    SetString(LName, q, LSize);
     LName := TCrossHttpUtils.UrlDecode(LName);
     // 跳过多余的'='
     while (p < pEnd) and (p^ = '=') do
@@ -1553,8 +1591,7 @@ begin
       Inc(LSize);
       Inc(p);
     end;
-    SetLength(LValue, LSize);
-    Move(q^, Pointer(LValue)^, LSize * SizeOf(Char));
+    SetString(LValue, q, LSize);
     LValue := TCrossHttpUtils.UrlDecode(LValue);
     // 跳过多余的'&'
     while (p < pEnd) and (p^ = '&') do
@@ -1611,12 +1648,13 @@ begin
   PEnd := P + Length(AEncodedParams);
 
   // 单趟状态机解析 (RFC 7230 §3): 每行字符仅访问 1 次, 同时完成
-  //   1) CRLF 边界检测 + bare-CR / bare-LF 拒绝
+  //   1) CRLF 边界检测: bare-CR / bare-LF 立即拒绝 (Exit(False)),
+  //      防御 \r\r\n\n 等走私序列及上下游切分不一致
   //   2) ':' 定位 (切 name / value)
-  //   3) value 前后 OWS 跳过 + 尾随 OWS 自动 trim (LValueEnd 指向最后非 OWS 后的位置)
+  //   3) value 前后 OWS 跳过 + 尾随 OWS 自动 trim
   //   4) name 每字节 token 校验 + value 每字节 CTL 校验
-  //  非法行整行跳过, 与 THttpHeader.Encode 过滤策略对称, 作为深度防御
-  //  (覆盖 multipart part header / WebSocket 内部 header / 测试构造等其他调用点).
+  //  非法行整行跳过 (仅限 name/value 校验失败, 不含 bare-CR/LF),
+  //  与 THttpHeader.Encode 过滤策略对称, 作为深度防御.
   while (P < PEnd) do
   begin
     LLineStart := P;
@@ -1635,18 +1673,16 @@ begin
       begin
         if (P + 1 < PEnd) and ((P + 1)^ = LF) then
           Break; // 完整 CRLF: 退出内层, P 仍指向 CR
-        // bare-CR: 标记非法但继续推进 (保持行对齐到下一个 CRLF)
-        LLineValid := False;
-        Inc(P);
-        Continue;
+        // bare-CR: 立即拒绝, 防御 \r\r\n\n 等走私序列
+        if AClear then FParams.Clear;
+        Exit(False);
       end;
 
       if (LCh = LF) then
       begin
-        // bare-LF (前置 CR 情况已在上面 Break)
-        LLineValid := False;
-        Inc(P);
-        Continue;
+        // bare-LF: 立即拒绝
+        if AClear then FParams.Clear;
+        Exit(False);
       end;
 
       if LInName then
@@ -1770,8 +1806,7 @@ begin
       Inc(LSize);
       Inc(p);
     end;
-    SetLength(LName, LSize);
-    Move(q^, Pointer(LName)^, LSize * SizeOf(Char));
+    SetString(LName, q, LSize);
     // 跳过多余的'='
     while (p < pEnd) and (p^ = '=') do
       Inc(p);
@@ -1783,8 +1818,7 @@ begin
       Inc(LSize);
       Inc(p);
     end;
-    SetLength(LValue, LSize);
-    Move(q^, Pointer(LValue)^, LSize * SizeOf(Char));
+    SetString(LValue, q, LSize);
     if FUrlEncode then
       LValue := TCrossHttpUtils.UrlDecode(LValue);
     // 跳过多余的';'
@@ -1918,9 +1952,15 @@ end;
 constructor TResponseCookie.Create(const ACookieData, ADomain: string);
 
   procedure SetExpires(const AValue: string);
+  var
+    LMaxAge: Integer;
   begin
     if (Self.MaxAge = 0) then
-      Self.MaxAge := TCrossHttpUtils.RFC1123_StrToDate(AValue).SecondsDiffer(Now);
+    begin
+      LMaxAge := TCrossHttpUtils.RFC1123_StrToDate(AValue).SecondsDiffer(Now);
+      if (LMaxAge > 0) then
+        Self.MaxAge := LMaxAge;
+    end;
   end;
 
   procedure SetMaxAge(const AValue: string);
@@ -2012,7 +2052,7 @@ begin
   if not _IsHttpToken(Self.Name) then
     raise Exception.CreateFmt('Invalid cookie name: %s', [Self.Name]);
   if not _IsCookieOctets(Self.Value) then
-    raise Exception.CreateFmt('Invalid cookie value: %s', [Self.Name]);
+    raise Exception.CreateFmt('Invalid cookie value: %s', [Self.Value]);
   if not _IsCookieAvValue(Self.Path) then
     raise Exception.CreateFmt('Invalid cookie path: %s', [Self.Name]);
   if (Self.Path <> '') and (Self.Path[1] <> '/') then
@@ -2133,9 +2173,12 @@ end;
 constructor THttpMultiPartFormData.Create;
 begin
   FDecodeState := dsBoundary;
-  FCurrentPartHeader := TMemoryStream.Create;
+  SetLength(FCurrentPartHeader, MAX_PART_HEADER);
+  FCurrentPartHeaderLen := 0;
   FPartFields := TObjectList<TFormField>.Create(True);
   FAutoDeleteFiles := True;
+  FMaxPartDataSize := 0;
+  FCurrentPartDataSize := 0;
 end;
 
 function THttpMultiPartFormData.Decode(
@@ -2159,7 +2202,8 @@ end;
 destructor THttpMultiPartFormData.Destroy;
 begin
   Clear;
-  FreeAndNil(FCurrentPartHeader);
+  FCurrentPartHeader := nil;
+  FCurrentPartField := nil;
   FreeAndNil(FPartFields);
   inherited;
 end;
@@ -2372,6 +2416,8 @@ end;
 
 procedure THttpMultiPartFormData.InitWithBoundary(const ABoundary: string);
 begin
+  // Decode 返回 frFailed 后, 调用方应调用 InitWithBoundary 重用实例;
+  // Clear 会根据 AutoDeleteFiles 清理半解析的临时文件.
   Clear;
 
   SetBoundary(ABoundary);
@@ -2379,7 +2425,9 @@ begin
   FDecodeState := dsBoundary;
   FBoundaryIndex := 0;
   FPrevBoundaryIndex := 0;
-  FCurrentPartHeader.Clear;
+  FCurrentPartDataSize := 0;
+  FCurrentPartHeaderLen := 0;
+  FCurrentPartField := nil;
   SetLength(FLookbehind, Length(FBoundaryBytes) + 8);
 end;
 
@@ -2405,25 +2453,27 @@ begin
     FBoundary := FBoundary.Trim(['"']);
 
     // 第一块数据是紧跟着 HTTP HEADER 的, 前面没有多余的 #13#10
-    FFirstBoundaryBytes := TEncoding.ANSI.GetBytes('--' + FBoundary);
+    FFirstBoundaryBytes := TEncoding.ASCII.GetBytes('--' + FBoundary);
 
     // 第二块及以后的数据 Boundary 前面都会有 #13#10
     FBoundaryBytes := TArrayUtils<Byte>.Concat([13, 10], FFirstBoundaryBytes);
   end;
 end;
 
-function THttpMultiPartFormData.Decode(const ABuf: Pointer; ALen: Integer): TFormDataDecodeResult;
+function THttpMultiPartFormData.Decode(const ABuf: Pointer; ALen: Integer; out AConsumed: Integer): TFormDataDecodeResult;
   function __NewFileID: string;
   begin
     Result := TUtils.GetGUID.ToLower;
   end;
 
-  procedure __InitFormFieldByHeader(AFormField: TFormField; const AHeader: string);
+  function __InitFormFieldByHeader(AFormField: TFormField; const AHeader: string): Boolean;
   var
     LFieldHeader: THttpHeader;
     LContentDisposition: string;
     LMatch: TMatch;
   begin
+    Result := False;
+
     LFieldHeader := THttpHeader.Create;
     try
       LFieldHeader.Decode(AHeader);
@@ -2452,7 +2502,7 @@ function THttpMultiPartFormData.Decode(const ABuf: Pointer; ALen: Integer): TFor
         //   Content-Type: application/json
         if LMatch.Success then
         begin
-          AFormField.FFileName := LMatch.Groups[1].Value;
+          AFormField.FFileName := TPathUtils.GetFileName(LMatch.Groups[1].Value);
           AFormField.FFilePath := TPathUtils.Combine(FStoragePath,
             __NewFileID + TPathUtils.GetExtension(AFormField.FFileName));
         end else
@@ -2468,17 +2518,22 @@ function THttpMultiPartFormData.Decode(const ABuf: Pointer; ALen: Integer): TFor
         AFormField.FValue := TBytesStream.Create(nil);
 
       AFormField.FValueOwned := True;
+      // 注意: Content-Transfer-Encoding (base64/quoted-printable) 仅存储不解码,
+      // dsPartData 阶段总是按原始字节写入, 如需支持非二进制传输编码需在此增加解码层.
       AFormField.FContentTransferEncoding := LFieldHeader['Content-Transfer-Encoding'];
     finally
       FreeAndNil(LFieldHeader);
     end;
+
+    Result := True;
   end;
 var
   C: Byte;
-  I: Integer;
+  I, LSize: Integer;
   P: PByte;
   LPartHeader: string;
 begin
+  AConsumed := 0;
   if (FBoundaryBytes = nil) then Exit(frFailed);
 
   (*
@@ -2527,92 +2582,121 @@ begin
           if (FBoundaryIndex >= Length(FFirstBoundaryBytes)) then
           begin
             FDecodeState := dsDetect;
-            CR := 0;
-            LF := 0;
+            FLineEndState := lesCR1;
             FBoundaryIndex := 0;
-            FDetectHeaderIndex := 0;
-            FDetectEndIndex := 0;
+            FPostBoundaryState := pbsDetect;
           end;
         end;
 
       // 已通过Boundary检测, 继续检测以确定后面有数据还是已到结束
       dsDetect:
         begin
-          if (C = DETECT_HEADER_BYTES[FDetectHeaderIndex]) then
-            Inc(FDetectHeaderIndex)
-          else
-            FDetectHeaderIndex := 0;
-
-          if (C = DETECT_END_BYTES[FDetectEndIndex]) then
-            Inc(FDetectEndIndex)
-          else
-            FDetectEndIndex := 0;
-
-          // 非法数据
-          if (FDetectHeaderIndex = 0) and (FDetectEndIndex = 0) then Exit(frFailed);
-
-          // 检测到结束标志
-          // --Boundary--#13#10
-          if (FDetectEndIndex >= Length(DETECT_END_BYTES)) then
-          begin
-            FDecodeState := dsBoundary;
-            CR := 0;
-            LF := 0;
-            FBoundaryIndex := 0;
-            FDetectEndIndex := 0;
-
-            Exit(frComplete);
-          end else
-          // 后面还有数据
-          // --Boundary#13#10
-          if (FDetectHeaderIndex >= Length(DETECT_HEADER_BYTES)) then
-          begin
-            FCurrentPartHeader.Clear;
-            FDecodeState := dsPartHeader;
-            CR := 0;
-            LF := 0;
-            FBoundaryIndex := 0;
-            FDetectHeaderIndex := 0;
+          // 严格匹配 #13#10 (Header) 或 --#13#10 (End), 拒绝其他任何字节
+          case FPostBoundaryState of
+            pbsDetect:
+              if (C = 45) then          // '-'
+                FPostBoundaryState := pbsEnd1
+              else if (C = 13) then     // '\r'
+                FPostBoundaryState := pbsHeader1
+              else if (C = 32) or (C = 9) then  // RFC 2046 LWSP
+                { stay in pbsDetect }
+              else
+              begin
+                AConsumed := I + 1;
+                Exit(frFailed);
+              end;
+            pbsEnd1:
+              if (C = 45) then          // '-'
+                FPostBoundaryState := pbsEnd2
+              else
+              begin
+                AConsumed := I + 1;
+                Exit(frFailed);
+              end;
+            pbsEnd2:
+              if (C = 13) then          // '\r'
+                FPostBoundaryState := pbsEnd3
+              else
+              begin
+                AConsumed := I + 1;
+                Exit(frFailed);
+              end;
+            pbsEnd3:
+              if (C = 10) then          // '\n' → --Boundary--#13#10
+              begin
+                FDecodeState := dsBoundary;
+                FLineEndState := lesCR1;
+                FBoundaryIndex := 0;
+                FPostBoundaryState := pbsDetect;
+                AConsumed := I + 1;
+                Exit(frComplete);
+              end else
+              begin
+                AConsumed := I + 1;
+                Exit(frFailed);
+              end;
+            pbsHeader1:
+              if (C = 10) then          // '\n' → --Boundary#13#10
+              begin
+                FCurrentPartHeaderLen := 0;
+                FDecodeState := dsPartHeader;
+                FLineEndState := lesCR1;
+                FBoundaryIndex := 0;
+                FPostBoundaryState := pbsDetect;
+              end else
+              begin
+                AConsumed := I + 1;
+                Exit(frFailed);
+              end;
           end;
         end;
 
       dsPartHeader:
         begin
-          case C of
-            13: Inc(CR);
-            10: Inc(LF);
-          else
-            CR := 0;
-            LF := 0;
+          FCurrentPartHeader[FCurrentPartHeaderLen] := C;
+          Inc(FCurrentPartHeaderLen);
+
+          // 状态机严格匹配 #13#10#13#10 序列
+          case FLineEndState of
+            lesCR1: if (C = 13) then FLineEndState := lesLF1;
+            lesLF1:
+              if (C = 10) then FLineEndState := lesCR2
+              else if (C <> 13) then FLineEndState := lesCR1;
+            lesCR2:
+              if (C = 13) then FLineEndState := lesLF2
+              else FLineEndState := lesCR1;
+            lesLF2:
+              if (C = 10) then
+              begin
+                FLineEndState := lesCR1;
+                // 块头部结束 #13#10#13#10
+                // 块头部通常采用UTF8编码
+                LPartHeader := TUtils.GetString(@FCurrentPartHeader[0], FCurrentPartHeaderLen - 4{#13#10#13#10});
+                FCurrentPartHeaderLen := 0;
+                FCurrentPartField := TFormField.Create;
+                if not __InitFormFieldByHeader(FCurrentPartField, LPartHeader) then
+                begin
+                  FreeAndNil(FCurrentPartField);
+                  AConsumed := I + 1;
+                  Exit(frFailed);
+                end;
+                FPartFields.Add(FCurrentPartField);
+
+                FDecodeState := dsPartData;
+                FPartDataBegin := -1;
+                FBoundaryIndex := 0;
+                FPrevBoundaryIndex := 0;
+                FCurrentPartDataSize := 0;
+              end else
+              if (C = 13) then FLineEndState := lesLF1
+              else FLineEndState := lesCR1;
           end;
 
-          // 保存头部数据到缓存流中, 这里有隐患, 如果客户端构造恶意数据, 生成一个
-          // 无比巨大的头数据, 就会造成缓存流占用过多内存, 甚至有可能内存溢出
-          // 所以这里加入一个头部最大尺寸的限制(MAX_PART_HEADER)
-          // ***可以进一步优化***:
-          // 可以不使用临时缓存流, 而采用直接从ABuf中解析头数据, 不过当头数据被切
-          // 割到两个ABuf中时处理比较麻烦
-          FCurrentPartHeader.Write(C, 1);
           // 块头部过大, 视为非法数据
-          if (FCurrentPartHeader.Size > MAX_PART_HEADER) then Exit(frFailed);
-
-          // 块头部结束
-          // #13#10#13#10
-          if (CR = 2) and (LF = 2) then
+          if (FCurrentPartHeaderLen > MAX_PART_HEADER) then
           begin
-            // 块头部通常采用UTF8编码
-            LPartHeader := TUtils.GetString(FCurrentPartHeader.Memory, FCurrentPartHeader.Size - 4{#13#10#13#10});
-            FCurrentPartHeader.Clear;
-            FCurrentPartField := TFormField.Create;
-            __InitFormFieldByHeader(FCurrentPartField, LPartHeader);
-            FPartFields.Add(FCurrentPartField);
-
-            FDecodeState := dsPartData;
-            CR := 0;
-            LF := 0;
-            FPartDataBegin := -1;
-            FBoundaryIndex := 0;
-            FPrevBoundaryIndex := 0;
+            AConsumed := I + 1;
+            Exit(frFailed);
           end;
         end;
 
@@ -2639,6 +2723,13 @@ begin
             if (FPrevBoundaryIndex > 0) then
             begin
               FCurrentPartField.FValue.Write(FLookbehind[0], FPrevBoundaryIndex);
+              Inc(FCurrentPartDataSize, FPrevBoundaryIndex);
+              // 检查单 Part Body 大小是否超限 (与块结尾检查对称)
+              if (FMaxPartDataSize > 0) and (FCurrentPartDataSize > FMaxPartDataSize) then
+              begin
+                AConsumed := I + 1;
+                Exit(frFailed);
+              end;
               FPrevBoundaryIndex := 0;
               FPartDataBegin := I;
             end;
@@ -2648,6 +2739,7 @@ begin
               // 之前检测到有一部分数据跟Boundary有点像, 但是到这个字节可以确定之前
               // 这部分数据并不是Boundary, 需要把这部分数据写入Field中
               FCurrentPartField.FValue.Write(P[FPartDataBegin], I - FPartDataBegin);
+              Inc(FCurrentPartDataSize, I - FPartDataBegin);
               FPartDataBegin := I;
 
               FBoundaryIndex := 0;
@@ -2663,7 +2755,21 @@ begin
           begin
             // 将内存块数据存入Field中
             if (FPartDataBegin >= 0) then
-              FCurrentPartField.FValue.Write(P[FPartDataBegin], I - FPartDataBegin - FBoundaryIndex + 1);
+            begin
+              LSize := I - FPartDataBegin - FBoundaryIndex + 1;
+              if (LSize > 0) then
+              begin
+                FCurrentPartField.FValue.Write(P[FPartDataBegin], LSize);
+                Inc(FCurrentPartDataSize, LSize);
+              end;
+            end;
+
+            // 检查单 Part Body 大小是否超限 (必须在状态切换前检查)
+            if (FMaxPartDataSize > 0) and (FCurrentPartDataSize > FMaxPartDataSize) then
+            begin
+              AConsumed := I + 1;
+              Exit(frFailed);
+            end;
 
             // 已解析出一个完整的数据块
             if (FBoundaryIndex >= Length(FBoundaryBytes)) then
@@ -2672,6 +2778,7 @@ begin
               FDecodeState := dsDetect;
               FBoundaryIndex := 0;
               FPrevBoundaryIndex := 0;
+              FCurrentPartDataSize := 0;
             end else
             // 已解析到本内存块结尾, 但是发现了部分有点像Boundary的数据
             // 将其保存起来
@@ -2690,7 +2797,16 @@ begin
     Inc(I);
   end;
 
+  AConsumed := ALen;
   Result := frContinue;
+end;
+
+function THttpMultiPartFormData.Decode(const ABuf: Pointer; ALen: Integer): TFormDataDecodeResult;
+var
+  LDummy: Integer;
+begin
+  // 兼容旧调用方: 丢弃 consumed; 仅在调用方明确知道 multipart 数据帧严格对齐时使用.
+  Result := Decode(ABuf, ALen, LDummy);
 end;
 
 { THttpMultiPartFormStream.TFormFieldEx }
@@ -3175,9 +3291,12 @@ begin
 end;
 
 destructor TSessions.Destroy;
+var
+  LTimeout: TStopwatch;
 begin
   FShutdown := True;
-  while FExpiredProcRunning do Sleep(10);
+  LTimeout := TStopwatch.StartNew;
+  while FExpiredProcRunning and (LTimeout.ElapsedMilliseconds < 5000) do Sleep(10);
 
   BeginWrite;
   FSessions.Clear;
@@ -3372,4 +3491,3 @@ begin
 end;
 
 end.
-
