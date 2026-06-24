@@ -879,6 +879,10 @@ type
     procedure SendZCompress(const AChunkSource: TCrossHttpChunkDataFunc;
       const ACompressType: TCompressType;
       const ASendCb: TCrossConnectionCallback = nil); overload;
+    /// <remarks>
+    ///   ABody 指向的内存必须在请求完成回调(ACallback)执行完成前一直有效。
+    ///   调用方不应在 DoRequest 返回后立即释放 ABody 指向的数据。
+    /// </remarks>
     procedure SendZCompress(const ABody: Pointer;
       const ABodySize: NativeInt; const ACompressType: TCompressType;
       const ASendCb: TCrossConnectionCallback = nil); overload;
@@ -1060,6 +1064,12 @@ type
     // 在指定连接上执行请求(仅内部使用: 空闲连接复用路径 与 Connect 成功回调路径)
     procedure _DoRequestOn(const AHttpConn: ICrossHttpClientConnection;
       const ARequest: ICrossHttpClientRequest);
+
+    procedure _HandleConnectSuccess(const AConnection: ICrossConnection;
+      const ARequest: ICrossHttpClientRequest; const ALSelf: IServerDock;
+      const AProtocol, ARawHost, AHost: string; const APort: Word);
+    procedure _HandleConnectFailure(const AConnection: ICrossConnection;
+      const ARequestObj: TCrossHttpClientRequest; const ALSelf: IServerDock);
   public
     constructor Create(const AClientSocket: TCrossHttpClientSocket;
       const AProtocol, AHost: string; const APort, ALocalPort: Word);
@@ -1293,7 +1303,6 @@ begin
   // 避免被别的请求占用
   _BeginRequest;
 
-  LHttpClientSocket := AOwner as TCrossHttpClientSocket;
   FCompressType := LHttpClientSocket.FCompressType;
   FAutoUrlEncode := LHttpClientSocket.FAutoUrlEncode;
 end;
@@ -1751,7 +1760,6 @@ begin
     LRequestEnded := True;
 
     _SetRequestStatus(rsRespondFailed);
-    Close;
   finally
     FRequest := nil;
     FRequestObj := nil;
@@ -1762,6 +1770,8 @@ begin
     if LRequestEnded then
       _EndRequest;
   end;
+
+  Close;
 
   if Assigned(LCallback) then
   try
@@ -1778,10 +1788,12 @@ var
   LCallback: TCrossHttpResponseProc;
   LResponse: ICrossHttpClientResponse;
   LRequestEnded, LIsSwitching: Boolean;
+  LNeedClose: Boolean;
 begin
   LCallback := nil;
   LResponse := nil;
   LRequestEnded := False;
+  LNeedClose := False;
   _ReqLock;
   try
     // 只有在等待响应状态的情况才应该触发完成响应回调
@@ -1802,10 +1814,10 @@ begin
     if IsClosed
       or ((not LIsSwitching)
         and ((not (Owner as TCrossHttpClientSocket).FReUseConnection)
-          or SameText(FResponseObj.FHeader[HEADER_CONNECTION], 'close'))) then
+          or ((FResponseObj <> nil) and SameText(FResponseObj.FHeader[HEADER_CONNECTION], 'close')))) then
     begin
       _SetRequestStatus(rsClose);
-      Close;
+      LNeedClose := True;
     end else if LIsSwitching then
     begin
       _SetRequestStatus(rsUpgraded);
@@ -1824,7 +1836,7 @@ begin
     if LRequestEnded then
       _EndRequest;
   end;
-
+  if LNeedClose then Close;
   if Assigned(LCallback) then
   try
     LCallback(LResponse);
@@ -1852,7 +1864,6 @@ begin
     LRequestEnded := True;
 
     _SetRequestStatus(rsRespondTimeout);
-    Close;
   finally
     FRequest := nil;
     FRequestObj := nil;
@@ -1863,7 +1874,7 @@ begin
     if LRequestEnded then
       _EndRequest;
   end;
-
+  Close;
   if Assigned(LCallback) then
   try
     // 408 = Request Time-out
@@ -1896,6 +1907,7 @@ begin
 
     if (FRequestObj.FHeader[HEADER_CONNECTION] = '') then
     begin
+          // Owner 在 TCrossHttpClientSocket.CreateConnection 中固定为 TCrossHttpClientSocket
       if (Owner as TCrossHttpClientSocket).FReUseConnection then
         FRequestObj.FHeader[HEADER_CONNECTION] := 'keep-alive'
       else
@@ -2064,7 +2076,7 @@ begin
 
     FResponseObj._SetResponseStream(FRequestObj.FResponseStream);
   finally
-    _ReqUnLock;
+    _ReqUnlock;
   end;
 end;
 
@@ -2163,6 +2175,8 @@ begin
         begin
           LHttpConnection := nil;
           LSender := nil;
+          if Assigned(ASendCb) then
+            ASendCb(AConnection, False);
           TriggerResponseFailed(400, 'Send failed: ' + E.Message);
         end;
       end;
@@ -2177,6 +2191,13 @@ procedure TCrossHttpClientConnection._Send(const AHeaderSource,
 var
   LHeaderDone: Boolean;
 begin
+  // HEAD 请求不应包含请求体 (RFC 7231 §4.3.2)
+  if (FRequest.Method = 'HEAD') then
+  begin
+    _Send(AHeaderSource, ASendCb);
+    Exit;
+  end;
+
   LHeaderDone := False;
 
   _Send(
@@ -2427,6 +2448,7 @@ begin
   }
   SetString(FRawResponseHeader, MarshaledAString(ADataPtr), ADataSize);
   I := FRawResponseHeader.IndexOf(#13#10);
+  if (I < 0) then Exit(False);
   // 第一行是响应状态
   // HTTP/1.1 200 OK
   LResponseFirstLine := FRawResponseHeader.Substring(0, I);
@@ -3322,7 +3344,7 @@ begin
   // 调用方不再需要单独维护 FConnCount (与 RemoveConnection 对称)
   _Lock;
   try
-    AtomicIncrement(FConnCount);
+    Inc(FConnCount);
     FConnections.Add(AConnection);
   finally
     _Unlock;
@@ -3402,6 +3424,48 @@ begin
     end);
 end;
 
+
+procedure TServerDock._HandleConnectSuccess(
+  const AConnection: ICrossConnection;
+  const ARequest: ICrossHttpClientRequest; const ALSelf: IServerDock;
+  const AProtocol, ARawHost, AHost: string; const APort: Word);
+var
+  LNewHttpConn: ICrossHttpClientConnection;
+  LNewHttpConnObj: TCrossHttpClientConnection;
+begin
+  LNewHttpConn := AConnection as ICrossHttpClientConnection;
+  LNewHttpConnObj := LNewHttpConn as TCrossHttpClientConnection;
+  LNewHttpConnObj.FProtocol := AProtocol;
+  LNewHttpConnObj.FRawHost := ARawHost;
+  LNewHttpConnObj.FHost := AHost;
+  LNewHttpConnObj.FPort := APort;
+
+  ALSelf.AddConnection(LNewHttpConn);
+  _DoRequestOn(LNewHttpConn, ARequest);
+end;
+
+procedure TServerDock._HandleConnectFailure(
+  const AConnection: ICrossConnection;
+  const ARequestObj: TCrossHttpClientRequest; const ALSelf: IServerDock);
+var
+  LErrMsg: string;
+  LErrCode: Integer;
+begin
+  LErrMsg := 'Connect failed';
+  if (AConnection <> nil) then
+  begin
+    LErrCode := AConnection.LastNetError;
+    if (LErrCode <> 0) then
+      LErrMsg := TStrUtils.Format('Connect failed (code=%d)', [LErrCode]);
+  end;
+  try
+    ARequestObj._ExecCallback(TCrossHttpClientResponse.Create(400, LErrMsg));
+  except
+    on E: Exception do
+      _Log('Connect failed callback exception: %s', [E.Message]);
+  end;
+  ALSelf.ProcNext;
+end;
 function TServerDock._TryBeginConnect: Boolean;
 var
   LMaxConnsPerServer: Integer;
@@ -3412,7 +3476,7 @@ begin
     Result := (LMaxConnsPerServer <= 0)
       or (FConnCount + FConnectingCount < LMaxConnsPerServer);
     if Result then
-      AtomicIncrement(FConnectingCount);
+      Inc(FConnectingCount);
   finally
     _Unlock;
   end;
@@ -3422,7 +3486,7 @@ procedure TServerDock._EndConnect;
 begin
   _Lock;
   try
-    AtomicDecrement(FConnectingCount);
+    Dec(FConnectingCount);
   finally
     _Unlock;
   end;
@@ -3486,64 +3550,18 @@ begin
     try
       LClientSocket.Connect(LHost, LPort, LLocalPort,
         procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
-      var
-        LNewHttpConn: ICrossHttpClientConnection;
-        LNewHttpConnObj: TCrossHttpClientConnection;
-        LErrMsg: string;
-        LErrCode: Integer;
       begin
         try
           _EndConnect;
           try
-            // 连接成功
             if ASuccess then
-            begin
-              LNewHttpConn := AConnection as ICrossHttpClientConnection;
-              LNewHttpConnObj := LNewHttpConn as TCrossHttpClientConnection;
-              LNewHttpConnObj.FProtocol := LProtocol;
-              LNewHttpConnObj.FRawHost := LRawHost;
-              LNewHttpConnObj.FHost := LHost;
-              LNewHttpConnObj.FPort := LPort;
-
-              // 连接成功后由 AddConnection 增加已连接数(FConnCount)
-              // 发起连接到回调返回之间由 FConnectingCount 占位,
-              // 确保已连接数 + 正在连接数不超过 MaxConnsPerServer
-              LSelf.AddConnection(LNewHttpConn);
-
-              // 对象由 LSelf 接口引用保活, 可直接调用私有方法
-              _DoRequestOn(LNewHttpConn, LRequest);
-            end else
-            begin
-              // 连接失败: 直接回调失败响应
-              // 若底层有具体错误码则附加在响应文本中, 便于排查 (Bind/CreateIoCompletionPort 等
-              //   AConnection=nil 的失败场景, 错误码仍会通过 _LogLastOsError 进入业务日志)
-              LErrMsg := 'Connect failed';
-              if (AConnection <> nil) then
-              begin
-                LErrCode := AConnection.LastNetError;
-                if (LErrCode <> 0) then
-                  LErrMsg := TStrUtils.Format('Connect failed (code=%d)', [LErrCode]);
-              end;
-              try
-                LRequestObj._ExecCallback(TCrossHttpClientResponse.Create(400, LErrMsg));
-              except
-                on E: Exception do
-                  _Log('Connect failed callback exception: %s', [E.Message]);
-              end;
-
-              // 连接失败时同样需要推进请求队列, 否则 FRequestQueue 中堆积的请求将永远得不到处理
-              LSelf.ProcNext;
-            end;
+              _HandleConnectSuccess(AConnection, LRequest, LSelf, LProtocol, LRawHost, LHost, LPort)
+            else
+              _HandleConnectFailure(AConnection, LRequestObj, LSelf);
           except
-            // 异常兜底: AddConnection/_DoRequestOn 抛异常时
-            // 仍保证用户回调被触发一次且请求队列必定推进
             on E: Exception do
             begin
-              try
-                LRequestObj._ExecCallback(TCrossHttpClientResponse.Create(400, 'Internal: ' + E.Message));
-              except
-                // 用户回调内的异常不向外传播, 确保 ProcNext 能被执行
-              end;
+              try LRequestObj._ExecCallback(TCrossHttpClientResponse.Create(400, 'Internal: ' + E.Message)); except end;
               LSelf.ProcNext;
             end;
           end;
@@ -3651,10 +3669,10 @@ var
 begin
   _Lock;
   try
-    AtomicDecrement(FConnCount);
+    Dec(FConnCount);
     FConnections.Remove(AConnection);
 
-    // 连接被移除后, 只要队列里还有积压请求就推进 (P0-1 防御性加固).
+    // 连接被移除后, 只要队列里还有积压请求就推进 (防御性加固).
     // 原逻辑用 (GetRequestStatus = rsIdle) 判断, 但连接已在被移除, 此判断意义不明,
     // 且漏掉 rsClose / rsRespondFailed / rsRespondTimeout 等状态. 在异步 IO 路径下
     // (LogicDisconnected 跨线程触发) 可能造成排队请求得不到处理.
