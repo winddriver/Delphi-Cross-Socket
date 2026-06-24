@@ -113,6 +113,7 @@ function TIocpCrossSocket._NewIoData: PPerIoData;
 begin
   GetMem(Result, SizeOf(TPerIoData));
   FillChar(Result^, SizeOf(TPerIoData), 0);
+  System.Initialize(Result^);
 
   AtomicIncrement(FPerIoDataCount);
 end;
@@ -121,8 +122,7 @@ procedure TIocpCrossSocket._FreeIoData(const P: PPerIoData);
 begin
   if (P = nil) then Exit;
 
-  P.CrossData := nil;
-  P.Callback := nil;
+  System.Finalize(P^);
   FreeMem(P, SizeOf(TPerIoData));
 
   AtomicDecrement(FPerIoDataCount);
