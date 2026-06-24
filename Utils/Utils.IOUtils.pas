@@ -82,11 +82,11 @@ type
     class function ConvertDateTimeToFileTime(const ADateTime: TDateTime): time_t; static;
     {$ENDIF}
   public
-    class function OpenCreate(const AFileName: string): TFileStream; static;
+    class function OpenCreate(const AFileName: string): TStream; static;
     class function OpenRead(const AFileName: string;
-      const AShareMode: Word = fmShareDenyWrite): TFileStream; static;
-    class function OpenWrite(const AFileName: string): TFileStream; static;
-    class function CreateTempFile(const ATempPath: string = ''): TFileStream; static;
+      const AShareMode: Word = fmShareDenyWrite): TStream; static;
+    class function OpenWrite(const AFileName: string): TStream; static;
+    class function CreateTempFile(const ATempPath: string = ''): TStream; static;
 
     class function ReadAllBytes(const AFileName: string): TBytes; static;
     class function ReadAllText(const AFileName: string; const AEncoding: TEncoding = nil): string; static;
@@ -189,6 +189,7 @@ type
     EXTENDED_UNC_PREFIX: string = '\\?\UNC\';
     DIRECTORY_SEPARATOR_CHAR: Char = {$IFDEF MSWINDOWS}'\'{$ELSE}'/'{$ENDIF};
     EXTENSION_SEPARATOR_CHAR: Char = '.';
+    PATH_DELIMITERS = {$IFDEF MSWINDOWS}'/\:'{$ELSE}'/'{$ENDIF};
   public
     class function ChangeExtension(const APath, AExtension: string): string; static;
 
@@ -202,6 +203,7 @@ type
 
     class function GetExtension(const AFileName: string): string; static;
     class function GetFileName(const AFileName: string): string; static;
+    class function GetFilePath(const AFileName: string): string; static;
     class function GetFileNameWithoutExtension(const AFileName: string): string; static;
 
     class function GetFullPath(const APath: string): string; static;
@@ -214,6 +216,11 @@ type
     class function IsDriveRooted(const APath: string): Boolean; static;
     class function IsUNCRooted(const APath: string): Boolean; static;
     class function IsRelativePath(const APath: string): Boolean; static;
+
+    class function IsSamePath(const APath1, APath2: string): Boolean; static;
+    class function IsPathInBaseDir(const ABaseDir, APath: string): Boolean; static;
+    class function TryResolveLocalPath(const ABaseDir, APath: string;
+      out AResolvedPath: string): Boolean; static;
   end;
 
   TTempFileStream = class(TFastFileStream)
@@ -224,14 +231,12 @@ type
     destructor Destroy; override;
   end;
 
-  TFileStreamHelper = class helper for TFileStream
-  public
-    class function OpenCreate(const AFileName: string): TFileStream; static; inline;
-    class function OpenRead(const AFileName: string): TFileStream; static; inline;
-    class function OpenWrite(const AFileName: string): TFileStream; static; inline;
-  end;
-
 implementation
+
+{$IFDEF POSIX}
+const
+  FileAccessRights = S_IRUSR or S_IWUSR or S_IRGRP or S_IWGRP or S_IROTH or S_IWOTH;
+{$ENDIF}
 
 {$IF DEFINED(MSWINDOWS) AND DEFINED(FPC)}
 function GetLogicalDriveStrings(nBufferLength: DWORD; lpBuffer: LPWSTR): DWORD; stdcall;
@@ -247,7 +252,7 @@ begin
   Create(AFilename, AMode, 0, ABufferSize);
 {$ELSEIF Defined(POSIX)}
   Create(AFilename, AMode,
-    S_IRUSR or S_IWUSR or S_IRGRP or S_IWGRP or S_IROTH or S_IWOTH,
+    FileAccessRights,
     ABufferSize);
 {$ENDIF POSIX}
 end;
@@ -454,7 +459,7 @@ begin
   Result := True;
 end;
 
-class function TFileUtils.CreateTempFile(const ATempPath: string): TFileStream;
+class function TFileUtils.CreateTempFile(const ATempPath: string): TStream;
 begin
   Result := TTempFileStream.Create(ATempPath);
 end;
@@ -538,20 +543,20 @@ begin
   Result := RenameFile(ASrcFileName, ADstFileName);
 end;
 
-class function TFileUtils.OpenCreate(const AFileName: string): TFileStream;
+class function TFileUtils.OpenCreate(const AFileName: string): TStream;
 begin
   if not FileExists(AFileName) then
-    TDirectoryUtils.CreateDirectory(ExtractFilePath(AFileName));
+    TDirectoryUtils.CreateDirectory(TPathUtils.GetFilePath(AFileName));
   Result := TFastFileStream.Create(AFileName, fmCreate or fmShareDenyWrite);
 end;
 
 class function TFileUtils.OpenRead(const AFileName: string;
-  const AShareMode: Word): TFileStream;
+  const AShareMode: Word): TStream;
 begin
   Result := TFastFileStream.Create(AFileName, fmOpenRead or AShareMode);
 end;
 
-class function TFileUtils.OpenWrite(const AFileName: string): TFileStream;
+class function TFileUtils.OpenWrite(const AFileName: string): TStream;
 begin
   if FileExists(AFileName) then
     Result := TFastFileStream.Create(AFileName, fmOpenReadWrite or fmShareDenyWrite)
@@ -563,20 +568,28 @@ begin
 end;
 
 class function TFileUtils.ReadAllBytes(const AFileName: string): TBytes;
+const
+  CHUNK_SIZE = 8192;
 var
-  LFileStream: TFileStream;
-  LFileSize: Int64;
+  LHandle: THandle;
+  LBytesRead: Integer;
+  LTotal: Integer;
 begin
-  if not Exists(AFileName) then Exit(nil);
-
-  LFileStream := nil;
+  LHandle := FileOpen(AFileName, fmOpenRead or fmShareDenyNone);
+  if (LHandle = INVALID_HANDLE_VALUE) then Exit(nil);
   try
-    LFileStream := OpenRead(AFileName);
-    LFileSize := LFileStream.Size;
-    SetLength(Result, LFileSize);
-    LFileStream.ReadBuffer(Result, Length(Result));
+    LTotal := 0;
+    Result := nil;
+    repeat
+      if (LTotal + CHUNK_SIZE > Length(Result)) then
+        SetLength(Result, LTotal + CHUNK_SIZE);
+      LBytesRead := FileRead(LHandle, Result[LTotal], CHUNK_SIZE);
+      if (LBytesRead > 0) then
+        Inc(LTotal, LBytesRead);
+    until (LBytesRead <= 0);
+    SetLength(Result, LTotal);
   finally
-    FreeAndNil(LFileStream);
+    FileClose(LHandle);
   end;
 end;
 
@@ -732,7 +745,7 @@ end;
 class procedure TFileUtils.WriteAllBytes(const AFileName: string;
   const ABytes: TBytes);
 var
-  LFileStream: TFileStream;
+  LFileStream: TStream;
 begin
   LFileStream := OpenCreate(AFileName);
   try
@@ -745,7 +758,7 @@ end;
 class procedure TFileUtils.WriteAllText(const AFileName, AContents: string;
   const AEncoding: TEncoding; const AWriteBOM: Boolean);
 var
-  LFileStream: TFileStream;
+  LFileStream: TStream;
   LEncoding: TEncoding;
   LBytes: TBytes;
 begin
@@ -771,7 +784,7 @@ end;
 class procedure TFileUtils.WriteAllStream(const AFileName: string;
   const AStream: TStream);
 var
-  LFileStream: TFileStream;
+  LFileStream: TStream;
 begin
   LFileStream := OpenCreate(AFileName);
   try
@@ -784,7 +797,7 @@ end;
 class procedure TFileUtils.AppendAllText(const AFileName, AContents: string;
   const AEncoding: TEncoding);
 var
-  LFileStream: TFileStream;
+  LFileStream: TStream;
   LEncoding: TEncoding;
   LBytes: TBytes;
 begin
@@ -801,25 +814,6 @@ begin
   finally
     FreeAndNil(LFileStream);
   end;
-end;
-
-{ TFileStreamHelper }
-
-class function TFileStreamHelper.OpenCreate(
-  const AFileName: string): TFileStream;
-begin
-  Result := TFileUtils.OpenCreate(AFileName);
-end;
-
-class function TFileStreamHelper.OpenRead(const AFileName: string): TFileStream;
-begin
-  Result := TFileUtils.OpenRead(AFileName, fmShareDenyNone);
-end;
-
-class function TFileStreamHelper.OpenWrite(
-  const AFileName: string): TFileStream;
-begin
-  Result := TFileUtils.OpenWrite(AFileName);
 end;
 
 { TDirectoryUtils }
@@ -1384,7 +1378,7 @@ end;
 
 class function TPathUtils.GetDirectoryName(const AFileName: string): string;
 begin
-  Result := ExtractFileDir(AFileName);
+  Result := GetFilePath(AFileName);
 end;
 
 class function TPathUtils.GetExtension(const AFileName: string): string;
@@ -1407,8 +1401,25 @@ begin
 end;
 
 class function TPathUtils.GetFileName(const AFileName: string): string;
+var
+  I: Integer;
 begin
-  Result := ExtractFileName(AFileName);
+  I := LastDelimiter(PATH_DELIMITERS, AFileName);
+  if (I > 0) then
+    Result := Copy(AFileName, I + 1)
+  else
+    Result := AFileName;
+end;
+
+class function TPathUtils.GetFilePath(const AFileName: string): string;
+var
+  I: Integer;
+begin
+  I := LastDelimiter(PATH_DELIMITERS, AFileName);
+  if (I > 0) then
+    Result := Copy(AFileName, 1, I - 1)
+  else
+    Result := AFileName;
 end;
 
 class function TPathUtils.GetFileNameWithoutExtension(
@@ -1517,6 +1528,15 @@ begin
   {$ENDIF}
 end;
 
+class function TPathUtils.IsPathInBaseDir(const ABaseDir,
+  APath: string): Boolean;
+var
+  LBaseDir: string;
+begin
+  LBaseDir := IncludeTrailingPathDelimiter(ABaseDir);
+  Result := IsSamePath(Copy(APath, 1, Length(LBaseDir)), LBaseDir);
+end;
+
 class function TPathUtils.IsRelativePath(const APath: string): Boolean;
 begin
   // 空路径视为相对路径（当前目录）
@@ -1530,6 +1550,15 @@ begin
   Result := not IsDriveRooted(APath) and not IsUNCRooted(APath);
   {$ELSE}
   Result := not APath.StartsWith(PathDelim);
+  {$ENDIF}
+end;
+
+class function TPathUtils.IsSamePath(const APath1, APath2: string): Boolean;
+begin
+  {$IFDEF MSWINDOWS}
+  Result := SameText(APath1, APath2);
+  {$ELSE}
+  Result := (APath1 = APath2);
   {$ENDIF}
 end;
 
@@ -1549,6 +1578,32 @@ begin
     Result := True
   else
     Result := MatchesMask(AFileName, APattern);
+end;
+
+class function TPathUtils.TryResolveLocalPath(const ABaseDir, APath: string;
+  out AResolvedPath: string): Boolean;
+var
+  LBaseDir, LPath, LCombinedPath: string;
+begin
+  AResolvedPath := '';
+  LPath := APath;
+
+  if (Pos(#0, LPath) > 0) then Exit(False);
+
+  {$IFDEF MSWINDOWS}
+  LPath := LPath.Replace('/', '\');
+  if TPathUtils.IsDriveRooted(LPath)
+    or TPathUtils.IsUNCRooted(LPath)
+    or LPath.StartsWith('\') then Exit(False);
+  {$ELSE}
+  if LPath.StartsWith('/') then Exit(False);
+  {$ENDIF}
+
+  LBaseDir := TPathUtils.GetFullPath(ABaseDir);
+  LCombinedPath := TPathUtils.Combine(LBaseDir, LPath);
+  AResolvedPath := TPathUtils.GetFullPath(LCombinedPath);
+  Result := IsPathInBaseDir(LBaseDir, AResolvedPath)
+    or IsSamePath(LBaseDir, AResolvedPath);
 end;
 
 { TTempFileStream }
