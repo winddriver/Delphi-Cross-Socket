@@ -392,6 +392,10 @@ type
     function GetOnReceived: TCrossDataEvent;
     function GetOnSent: TCrossDataEvent;
 
+    function GetKeepAliveIdle: Integer;
+    function GetKeepAliveInterval: Integer;
+    function GetKeepAliveCount: Integer;
+
     procedure SetOnIoThreadBegin(const AValue: TCrossIoThreadEvent);
     procedure SetOnIoThreadEnd(const AValue: TCrossIoThreadEvent);
     procedure SetOnConnected(const AValue: TCrossConnectEvent);
@@ -400,6 +404,10 @@ type
     procedure SetOnListenEnd(const AValue: TCrossListenEvent);
     procedure SetOnReceived(const AValue: TCrossDataEvent);
     procedure SetOnSent(const AValue: TCrossDataEvent);
+
+    procedure SetKeepAliveIdle(const AValue: Integer);
+    procedure SetKeepAliveInterval(const AValue: Integer);
+    procedure SetKeepAliveCount(const AValue: Integer);
 
     /// <summary>
     ///   启动IO循环
@@ -562,6 +570,21 @@ type
     ///   监听数
     /// </summary>
     property ListensCount: Integer read GetListensCount;
+
+    /// <summary>
+    ///   TCP KeepAlive 空闲秒数, 默认 5
+    /// </summary>
+    property KeepAliveIdle: Integer read GetKeepAliveIdle write SetKeepAliveIdle;
+
+    /// <summary>
+    ///   TCP KeepAlive 探测间隔秒数, 默认 3
+    /// </summary>
+    property KeepAliveInterval: Integer read GetKeepAliveInterval write SetKeepAliveInterval;
+
+    /// <summary>
+    ///   TCP KeepAlive 探测次数, 默认 5
+    /// </summary>
+    property KeepAliveCount: Integer read GetKeepAliveCount write SetKeepAliveCount;
 
     /// <summary>
     ///   IO线程开始事件
@@ -766,8 +789,12 @@ type
     FIoThreads: Integer;
 
     // 设置套接字心跳参数, 用于处理异常断线(拔网线, 主机异常掉电等造成的网络异常)
-    function SetKeepAlive(const ASocket: TSocket): Integer;
+    function SetKeepAlive(const ASocket: TSocket): Integer; virtual;
   private
+    FKeepAliveIdle: Integer;
+    FKeepAliveInterval: Integer;
+    FKeepAliveCount: Integer;
+
     FConnections: TCrossConnections;
     FConnectionsLock: ILock;
 
@@ -809,6 +836,13 @@ type
     procedure SetOnListenEnd(const AValue: TCrossListenEvent);
     procedure SetOnReceived(const AValue: TCrossDataEvent);
     procedure SetOnSent(const AValue: TCrossDataEvent);
+
+    function GetKeepAliveIdle: Integer; virtual;
+    function GetKeepAliveInterval: Integer; virtual;
+    function GetKeepAliveCount: Integer; virtual;
+    procedure SetKeepAliveIdle(const AValue: Integer); virtual;
+    procedure SetKeepAliveInterval(const AValue: Integer); virtual;
+    procedure SetKeepAliveCount(const AValue: Integer); virtual;
   protected
     FConnectionsCount: Integer;
     FListensCount: Integer;
@@ -889,6 +923,10 @@ type
     property ConnectionsCount: Integer read GetConnectionsCount;
     property ListensCount: Integer read GetListensCount;
 
+    property KeepAliveIdle: Integer read GetKeepAliveIdle write SetKeepAliveIdle;
+    property KeepAliveInterval: Integer read GetKeepAliveInterval write SetKeepAliveInterval;
+    property KeepAliveCount: Integer read GetKeepAliveCount write SetKeepAliveCount;
+
     property OnIoThreadBegin: TCrossIoThreadEvent read GetOnIoThreadBegin write SetOnIoThreadBegin;
     property OnIoThreadEnd: TCrossIoThreadEvent read GetOnIoThreadEnd write SetOnIoThreadEnd;
     property OnListened: TCrossListenEvent read GetOnListened write SetOnListened;
@@ -934,7 +972,7 @@ end;
 procedure _Log(const S: string); overload;
 begin
   if not CrossSocketLogEnabled then Exit;
-  
+
   if Assigned(_CrossLogger) then
     _CrossLogger(S)
   else
@@ -1024,7 +1062,7 @@ var
   LLConnectionArr: TArray<ICrossConnection>;
   LConnection: ICrossConnection;
 begin
-  if (FConnections = nil) then Exit;  
+  if (FConnections = nil) then Exit;
 
   _LockConnections;
   try
@@ -1043,7 +1081,7 @@ var
   LListen: ICrossListen;
 begin
   if (FListens = nil) then Exit;
-  
+
   _LockListens;
   try
     LListenArr := FListens.Values.ToArray;
@@ -1064,6 +1102,10 @@ end;
 constructor TCrossSocketBase.Create(const AIoThreads: Integer);
 begin
   FIoThreads := AIoThreads;
+
+  FKeepAliveIdle := 5;
+  FKeepAliveInterval := 3;
+  FKeepAliveCount := 5;
 
   FListens := TCrossListens.Create;
   FListensLock := TLock.Create;
@@ -1225,7 +1267,37 @@ end;
 
 function TCrossSocketBase.SetKeepAlive(const ASocket: TSocket): Integer;
 begin
-  Result := TSocketAPI.SetKeepAlive(ASocket, 5, 3, 5);
+  Result := TSocketAPI.SetKeepAlive(ASocket, FKeepAliveIdle, FKeepAliveInterval, FKeepAliveCount);
+end;
+
+function TCrossSocketBase.GetKeepAliveIdle: Integer;
+begin
+  Result := FKeepAliveIdle;
+end;
+
+function TCrossSocketBase.GetKeepAliveInterval: Integer;
+begin
+  Result := FKeepAliveInterval;
+end;
+
+function TCrossSocketBase.GetKeepAliveCount: Integer;
+begin
+  Result := FKeepAliveCount;
+end;
+
+procedure TCrossSocketBase.SetKeepAliveIdle(const AValue: Integer);
+begin
+  FKeepAliveIdle := AValue;
+end;
+
+procedure TCrossSocketBase.SetKeepAliveInterval(const AValue: Integer);
+begin
+  FKeepAliveInterval := AValue;
+end;
+
+procedure TCrossSocketBase.SetKeepAliveCount(const AValue: Integer);
+begin
+  FKeepAliveCount := AValue;
 end;
 
 procedure TCrossSocketBase.SetOnConnected(const AValue: TCrossConnectEvent);
