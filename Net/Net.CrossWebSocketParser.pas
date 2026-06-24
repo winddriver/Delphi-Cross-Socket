@@ -56,7 +56,8 @@ uses
 
   Utils.Hash,
   Utils.Base64,
-  Utils.Utils;
+  Utils.Utils,
+  Utils.CryptRandom;
 
 const
   WS_OP_CONTINUATION = $00;
@@ -397,12 +398,15 @@ begin
 end;
 
 class function TCrossWebSocketParser.NewSecWebSocketKey: string;
+const
+  WS_KEY_SIZE = 16;  // RFC 6455 S4.1: 16 bytes -> 24-char base64
 var
-  LRand: Int64;
+  LKeyBytes: TBytes;
 begin
-  Randomize;
-  LRand := Trunc(High(Int64) * Random());
-  Result := TBase64Utils.Encode(TUtils.BinToHex(@LRand, SizeOf(Int64)));
+  SetLength(LKeyBytes, WS_KEY_SIZE);
+  if not TryFillCryptRandomBytes(LKeyBytes[0], WS_KEY_SIZE) then
+    raise ECrossSocket.Create('Failed to generate WebSocket key: CSPRNG unavailable');
+  Result := TBase64Utils.Encode(LKeyBytes);
 end;
 
 class function TCrossWebSocketParser.OpCodeToReqType(AOpCode: Byte): TWsMessageType;
