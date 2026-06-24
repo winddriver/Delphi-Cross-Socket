@@ -970,16 +970,16 @@ begin
   {$IFDEF DELPHI}
   LFlag := fcntl(ASocket, F_GETFL);
   if ANonBlock then
-    LFlag := LFlag and not O_SYNC or O_NONBLOCK
+    LFlag := LFlag or O_NONBLOCK
   else
-    LFlag := LFlag and not O_NONBLOCK or O_SYNC;
+    LFlag := LFlag and not O_NONBLOCK;
   Result := fcntl(ASocket, F_SETFL, LFlag);
   {$ELSE}
   LFlag := fpfcntl(ASocket, F_GETFL);
   if ANonBlock then
-    LFlag := LFlag and not O_SYNC or O_NONBLOCK
+    LFlag := LFlag or O_NONBLOCK
   else
-    LFlag := LFlag and not O_NONBLOCK or O_SYNC;
+    LFlag := LFlag and not O_NONBLOCK;
   Result := fpfcntl(ASocket, F_SETFL, LFlag);
   {$ENDIF DELPHI}
   {$ENDIF MSWINDOWS}
