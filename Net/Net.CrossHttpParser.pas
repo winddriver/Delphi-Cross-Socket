@@ -11,9 +11,6 @@ unit Net.CrossHttpParser;
 
 {$I zLib.inc}
 
-// 合并 header 缓存写入, 可以略微提升性能
-{$DEFINE __MERGE_HEADER_WRITE__}
-
 interface
 
 uses
@@ -151,6 +148,7 @@ type
     procedure _OnParseSuccess;
     procedure _OnParseFailed(const ACode: Integer; const AError: string);
 
+    procedure _OnHeaderComplete;
     procedure _Reset;
   protected
     function GetMaxHeaderSize: Integer;
@@ -327,11 +325,9 @@ end;
 
 procedure TCrossHttpParser.Decode(var ABuf: Pointer; var ALen: Integer);
 var
-  LPtr, LPtrEnd{$IFDEF __MERGE_HEADER_WRITE__}, LPtrHeader{$ENDIF}: PByte;
+  LPtr, LPtrEnd, LPtrHeader: PByte;
   LChunkSize: Integer;
-  LLineStr, LContentLength, LTransferEncoding: string;
-  LContentLengthValues, LTransferEncodingValues: TArray<string>;
-  LHasContentLength, LHasTransferEncoding: Boolean;
+  LLineStr: string;
 begin
   {
   HTTP/1.1 200 OK
@@ -362,13 +358,7 @@ begin
     // 在这里解析服务端发送过来的响应数据
     LPtr := ABuf;
     LPtrEnd := LPtr + ALen;
-
-    {$IFDEF __MERGE_HEADER_WRITE__}
-    if (FParseState = psHeader) then
-      LPtrHeader := LPtr
-    else
-      LPtrHeader := nil;
-    {$ENDIF}
+    LPtrHeader := LPtr;
 
     // 使用循环处理粘包, 比递归调用节省资源
     while (LPtr < LPtrEnd) and (FParseState <> psDone) do
@@ -377,8 +367,6 @@ begin
         psHeader:
           begin
             // 严格 CRLF 状态机 (RFC 7230 §3): 拒绝 bare-CR / bare-LF, 防御请求走私.
-            // 老实现以 (FCRCount=2)+(FLFCount=2) 计数法判断 header 结束, 接受 \r\r\n\n
-            // 等非标准序列, 给上下游切分不一致留下走私空间.
             case LPtr^ of
               13 {\r}:
                 begin
@@ -386,8 +374,7 @@ begin
                     hcsLineBody:   FHeaderCRLFState := hcsAfterCR;
                     hcsAfterCRLF:  FHeaderCRLFState := hcsAfterCRLFCR;
                   else
-                    // 状态 hcsAfterCR / hcsAfterCRLFCR: 上一字节已是 \r, 又来 \r
-                    _OnParseFailed(400, 'Bare CR in request header.');
+                    _OnParseFailed(400, 'CR not followed by LF in request header.');
                     Exit;
                   end;
                 end;
@@ -397,7 +384,6 @@ begin
                     hcsAfterCR:     FHeaderCRLFState := hcsAfterCRLF;
                     hcsAfterCRLFCR: FHeaderCRLFState := hcsHeaderDone;
                   else
-                    // 状态 hcsLineBody / hcsAfterCRLF: 没有前导 \r 就来 \n
                     _OnParseFailed(400, 'Bare LF in request header.');
                     Exit;
                   end;
@@ -405,202 +391,31 @@ begin
             else
               case FHeaderCRLFState of
                 hcsLineBody, hcsAfterCRLF:
-                  FHeaderCRLFState := hcsLineBody; // 普通字节, 回到行内
+                  FHeaderCRLFState := hcsLineBody;
                 hcsAfterCR, hcsAfterCRLFCR:
                   begin
-                    // \r 后接非 \n
-                    _OnParseFailed(400, 'Bare CR in request header.');
+                    _OnParseFailed(400, 'CR not followed by LF in request header.');
                     Exit;
                   end;
               end;
             end;
 
             // Header尺寸超标
-            if (FMaxHeaderSize > 0) and (FHeaderStream.Size
-              {$IFDEF __MERGE_HEADER_WRITE__} + (LPtr - LPtrHeader){$ENDIF} + 1 > FMaxHeaderSize) then
+            if (FMaxHeaderSize > 0) and (FHeaderStream.Size + (LPtr - LPtrHeader) + 1 > FMaxHeaderSize) then
             begin
               _OnParseFailed(400, 'Request header too large.');
               Exit;
             end;
 
-            // 写入请求数据
-            {$IFNDEF __MERGE_HEADER_WRITE__}
-            FHeaderStream.Write(LPtr^, 1);
-            {$ENDIF}
             Inc(LPtr);
 
             // HTTP头已接收完毕(标准 \r\n\r\n)
             if (FHeaderCRLFState = hcsHeaderDone) then
             begin
-              {$IFDEF __MERGE_HEADER_WRITE__}
-              // 写入请求数据
               FHeaderStream.Write(LPtrHeader^, LPtr - LPtrHeader);
-              LPtrHeader := nil;
-              {$ENDIF}
-
-              FCRCount := 0;
-              FLFCount := 0;
+              LPtrHeader := LPtr;
               FHeaderCRLFState := hcsLineBody;
-
-              // 调用解码Header的回调
-              _OnHeaderData(FHeaderStream.Memory, FHeaderStream.Size);
-
-              // 数据体长度
-              LHasContentLength := _OnGetHeaderValues(HEADER_CONTENT_LENGTH, LContentLengthValues)
-                and (Length(LContentLengthValues) > 0);
-              if LHasContentLength then
-              begin
-                if (Length(LContentLengthValues) > 1) then
-                begin
-                  _OnParseFailed(400, 'Duplicate Content-Length.');
-                  Exit;
-                end;
-                LContentLength := LContentLengthValues[0];
-              end else
-                LContentLength := '';
-
-              // 数据的编码方式
-              // 只有一种编码方式: chunked
-              // 如果 Transfer-Encoding 不存在于 Header 中, 则数据是连续的, 不采用分块编码
-              // 理论上 Transfer-Encoding 和 Content-Length 只应该存在其中一个
-              LHasTransferEncoding := _OnGetHeaderValues(HEADER_TRANSFER_ENCODING, LTransferEncodingValues)
-                and (Length(LTransferEncodingValues) > 0);
-              if LHasTransferEncoding then
-              begin
-                if (Length(LTransferEncodingValues) <> 1) then
-                begin
-                  _OnParseFailed(400, 'Duplicate Transfer-Encoding.');
-                  Exit;
-                end;
-                FTransferEncoding := LTransferEncodingValues[0];
-              end else
-                FTransferEncoding := '';
-
-              // 数据的压缩方式
-              // 可能的值为: gzip deflate br 其中之一
-              // br: Brotli压缩算法, Brotli通常比gzip和deflate更高效
-              _OnGetHeaderValue(HEADER_CONTENT_ENCODING, FContentEncoding);
-
-              // 读取响应头中连接保持方式
-              _OnGetHeaderValue(HEADER_CONNECTION, FConnectionStr);
-
-              if (FMode = pmServer) and LHasContentLength then
-              begin
-                // 使用专门的解析方法来处理 Content-Length，因为：
-                // 1. Content-Length 不允许出现重复 Header 行
-                //    例如: 两行 "Content-Length: 123" 是非法的
-                //    例如: "Content-Length: 123, 456" 是非法的(非单个十进制整数)
-                // 2. 需要严格校验数值的合法性(非负整数)
-                //    合法格式: "Content-Length: 0"
-                //    合法格式: "Content-Length: 1234"
-                //    非法格式: "Content-Length: -1" (负数)
-                //    非法格式: "Content-Length: abc" (非数字)
-                //    非法格式: "Content-Length: 12.34" (小数)
-                // 3. 需要处理空值或格式错误的情况
-                //    非法格式: "Content-Length: " (空值)
-                //    非法格式: "Content-Length: 123 456" (空格分隔)
-                if not _TryParseContentLengthValue(LContentLength, FContentLength) then
-                begin
-                  _OnParseFailed(400, 'Invalid Content-Length.');
-                  Exit;
-                end;
-              end else
-              if LHasContentLength then
-              begin
-                if not _TryParseContentLengthValue(LContentLength, FContentLength) then
-                  FContentLength := -1;
-              end else
-                FContentLength := -1;
-
-              if (FMode = pmServer) and LHasTransferEncoding then
-              begin
-                // 使用专门的解析方法来处理 Transfer-Encoding，因为：
-                // 1. Transfer-Encoding 可能包含多个编码方式(用逗号分隔)，需要验证格式
-                //    合法格式: "Transfer-Encoding: chunked"
-                //    非法格式: 重复的 "Transfer-Encoding: chunked" Header 行
-                //    非法格式: "Transfer-Encoding: gzip, chunked" (多种编码混合)
-                // 2. 根据 HTTP/1.1 规范，chunked 必须是最后一个编码方式
-                //    合法格式: "Transfer-Encoding: chunked"
-                //    非法格式: "Transfer-Encoding: chunked, gzip" (chunked 不在最后)
-                // 3. 需要严格校验编码名称的合法性(目前仅支持 chunked)
-                //    合法格式: "Transfer-Encoding: chunked"
-                //    非法格式: "Transfer-Encoding: compress" (不支持的编码)
-                //    非法格式: "Transfer-Encoding: " (空值)
-                // 4. 需要处理大小写不敏感的比较
-                //    合法格式: "Transfer-Encoding: CHUNKED"
-                if not _TryParseTransferEncodingValue(FTransferEncoding,
-                  LTransferEncoding, FIsChunked) then
-                begin
-                  _OnParseFailed(400, 'Invalid Transfer-Encoding.');
-                  Exit;
-                end;
-                FTransferEncoding := LTransferEncoding;
-              end else
-                FIsChunked := TStrUtils.SameText(FTransferEncoding, 'chunked');
-
-              if (FMode = pmServer) and LHasContentLength and LHasTransferEncoding then
-              begin
-                _OnParseFailed(400, 'Content-Length and Transfer-Encoding conflict.');
-                Exit;
-              end;
-              if FNoBody then
-              begin
-                FContentLength := 0;
-                FIsChunked := False;
-              end;
-
-              // 先通过响应头中的内容大小检查下是否超大了
-              if (FMaxBodyDataSize > 0) and (FContentLength > FMaxBodyDataSize) then
-              begin
-                _OnParseFailed(400, 'Post data too large.');
-                Exit;
-              end;
-
-              // 根据不同模式确认是否有body数据
-              if FNoBody then
-                FHasBody := False
-              else if (FMode = pmServer) then
-                // server 模式要求客户端必须要传 Content-Length 或 Transfer-Encoding
-                // 才表示有 body 数据
-                FHasBody := (FContentLength > 0) or FIsChunked
-              else
-              begin
-                // 响应头中没有 Content-Length,Transfer-Encoding
-                // 然后还是保持连接的, 这一定是非法数据
-                if (FContentLength < 0) and not FIsChunked
-                  and TStrUtils.SameText(FConnectionStr, 'keep-alive') then
-                begin
-                  _OnParseFailed(400, 'Invalid response data.');
-                  Exit;
-                end;
-
-                // 如果 ContentLength 大于 0, 或者是 Chunked 编码
-                //   还有种特殊情况就是 Content-Length 和 Transfer-Encoding 都没有
-                //   并且响应头中包含 Connection: close, 甚至根本就没有 Connection
-                //   这种需要在连接断开时处理body
-                FHasBody := (FContentLength > 0) or FIsChunked
-                  or (FConnectionStr = '')
-                  or TStrUtils.SameText(FConnectionStr, 'close');
-              end;
-
-              // 如果需要接收 body 数据
-              if FHasBody then
-              begin
-                FParsedBodySize := 0;
-
-                if FIsChunked then
-                begin
-                  FParseState := psChunkSize;
-                  FChunkSizeStream := TMemoryStream.Create;
-                end else
-                  FParseState := psBodyData;
-
-                _OnBodyBegin();
-              end else
-              begin
-                FParseState := psDone;
-                Break;
-              end;
+              _OnHeaderComplete;
             end;
           end;
 
@@ -722,16 +537,11 @@ begin
       end;
     end;
 
-    {$IFDEF __MERGE_HEADER_WRITE__}
+    // 循环中途退出 (psBodyData 在循环内 Break, psDone 自然结束),
+    // psHeader 仍有未提交数据则批量写入
     if (FParseState = psHeader) then
-    begin
-      if (LPtrHeader <> nil)  then
-      begin
-        FHeaderStream.Write(LPtrHeader^, LPtr - LPtrHeader);
-        LPtrHeader := nil;
-      end;
-    end else
-    {$ENDIF}
+      FHeaderStream.Write(LPtrHeader^, LPtr - LPtrHeader);
+
     // 响应数据接收完毕
     if (FParseState = psDone) then
     begin
@@ -939,6 +749,8 @@ end;
 procedure TCrossHttpParser._OnParseFailed(const ACode: Integer;
   const AError: string);
 begin
+  FParseState := psDone;
+
   if FZCompressed then
   begin
     inflateEnd(FZStream);
@@ -956,6 +768,131 @@ procedure TCrossHttpParser._OnParseSuccess;
 begin
   if Assigned(FOnParseSuccess) then
     FOnParseSuccess();
+end;
+
+procedure TCrossHttpParser._OnHeaderComplete;
+var
+  LContentLength, LTransferEncoding: string;
+  LContentLengthValues, LTransferEncodingValues: TArray<string>;
+  LHasContentLength, LHasTransferEncoding: Boolean;
+begin
+  // 调用解码Header的回调
+  _OnHeaderData(FHeaderStream.Memory, FHeaderStream.Size);
+
+  // 数据体长度
+  LHasContentLength := _OnGetHeaderValues(HEADER_CONTENT_LENGTH, LContentLengthValues)
+    and (Length(LContentLengthValues) > 0);
+  if LHasContentLength then
+  begin
+    if (Length(LContentLengthValues) > 1) then
+    begin
+      _OnParseFailed(400, 'Duplicate Content-Length.');
+      Exit;
+    end;
+    LContentLength := LContentLengthValues[0];
+  end else
+    LContentLength := '';
+
+  // 数据的编码方式
+  LHasTransferEncoding := _OnGetHeaderValues(HEADER_TRANSFER_ENCODING, LTransferEncodingValues)
+    and (Length(LTransferEncodingValues) > 0);
+  if LHasTransferEncoding then
+  begin
+    if (Length(LTransferEncodingValues) <> 1) then
+    begin
+      _OnParseFailed(400, 'Duplicate Transfer-Encoding.');
+      Exit;
+    end;
+    FTransferEncoding := LTransferEncodingValues[0];
+  end else
+    FTransferEncoding := '';
+
+  // 数据的压缩方式
+  _OnGetHeaderValue(HEADER_CONTENT_ENCODING, FContentEncoding);
+
+  // 读取响应头中连接保持方式
+  _OnGetHeaderValue(HEADER_CONNECTION, FConnectionStr);
+
+  if (FMode = pmServer) and LHasContentLength then
+  begin
+    if not _TryParseContentLengthValue(LContentLength, FContentLength) then
+    begin
+      _OnParseFailed(400, 'Invalid Content-Length.');
+      Exit;
+    end;
+  end else
+  if LHasContentLength then
+  begin
+    if not _TryParseContentLengthValue(LContentLength, FContentLength) then
+      FContentLength := -1;
+  end else
+    FContentLength := -1;
+
+  if (FMode = pmServer) and LHasTransferEncoding then
+  begin
+    if not _TryParseTransferEncodingValue(FTransferEncoding,
+      LTransferEncoding, FIsChunked) then
+    begin
+      _OnParseFailed(400, 'Invalid Transfer-Encoding.');
+      Exit;
+    end;
+    FTransferEncoding := LTransferEncoding;
+  end else
+    FIsChunked := TStrUtils.SameText(FTransferEncoding, 'chunked');
+
+  if (FMode = pmServer) and LHasContentLength and LHasTransferEncoding then
+  begin
+    _OnParseFailed(400, 'Content-Length and Transfer-Encoding conflict.');
+    Exit;
+  end;
+  if FNoBody then
+  begin
+    FContentLength := 0;
+    FIsChunked := False;
+  end;
+
+  // 检查 body 大小是否超限
+  if (FMaxBodyDataSize > 0) and (FContentLength > FMaxBodyDataSize) then
+  begin
+    _OnParseFailed(400, 'Post data too large.');
+    Exit;
+  end;
+
+  // 根据不同模式确认是否有body数据
+  if FNoBody then
+    FHasBody := False
+  else if (FMode = pmServer) then
+    FHasBody := (FContentLength > 0) or FIsChunked
+  else
+  begin
+    if (FContentLength < 0) and not FIsChunked
+      and TStrUtils.SameText(FConnectionStr, 'keep-alive') then
+    begin
+      _OnParseFailed(400, 'Invalid response data.');
+      Exit;
+    end;
+
+    FHasBody := (FContentLength > 0) or FIsChunked
+      or (FConnectionStr = '')
+      or TStrUtils.SameText(FConnectionStr, 'close');
+  end;
+
+  if FHasBody then
+  begin
+    FParsedBodySize := 0;
+
+    if FIsChunked then
+    begin
+      FParseState := psChunkSize;
+      FChunkSizeStream := TMemoryStream.Create;
+    end else
+      FParseState := psBodyData;
+
+    _OnBodyBegin();
+  end else
+  begin
+    FParseState := psDone;
+  end;
 end;
 
 procedure TCrossHttpParser._Reset;
