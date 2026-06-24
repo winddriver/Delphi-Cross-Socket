@@ -292,8 +292,16 @@ begin
 end;
 
 procedure TKqueueConnection.InternalClose;
+var
+  LEvent: TKEvent;
 begin
   _ClearSendQueue;
+
+  // 从 kqueue 中删除该 socket 的所有事件，防止 fd 重用后触发错误回调
+  EV_SET(@LEvent, Socket, EVFILT_READ, EV_DELETE, 0, 0, nil);
+  kevent(FKqueueHandle, @LEvent, 1, nil, 0, nil);
+  EV_SET(@LEvent, Socket, EVFILT_WRITE, EV_DELETE, 0, 0, nil);
+  kevent(FKqueueHandle, @LEvent, 1, nil, 0, nil);
 
   inherited InternalClose;
 end;
@@ -447,6 +455,11 @@ begin
     begin
       LError := GetLastError;
 
+      // 所有就绪的连接都已处理完毕, 正常情况
+      if (LError = EAGAIN) or (LError = EWOULDBLOCK) then
+      begin
+        // 空处理, 仅用于区分 EMFILE 和其他错误
+      end else
       // 当句柄用完了的时候, 释放事先占用的临时句柄
       // 然后再次 accept, 然后将 accept 的句柄关掉
       // 这样可以保证在文件句柄耗尽的时候依然能响应连接请求
@@ -462,7 +475,8 @@ begin
         finally
           FIdleLock.Leave;
         end;
-      end;
+      end else
+        _LogLastOsError('Accept');
 
       Break;
     end;
@@ -610,7 +624,11 @@ begin
       LSendItem := LKqConnection.FSendQueue.Items[0];
 
       // 发送数据
+      {$IFNDEF MACOS}
+      LSent := TSocketAPI.Send(LConnection.Socket, LSendItem.Data^, LSendItem.Size, MSG_NOSIGNAL);
+      {$ELSE}
       LSent := TSocketAPI.Send(LConnection.Socket, LSendItem.Data^, LSendItem.Size);
+      {$ENDIF}
 
       // 对方主动断开连接
       if (LSent = 0) then
@@ -707,7 +725,7 @@ end;
 
 procedure TKqueueCrossSocket._SetNoSigPipe(ASocket: TSocket);
 begin
-	{$ifdef MACOS}
+	{$if defined(MACOS) or defined(FREEBSD)}
   TSocketAPI.SetSockOpt<Integer>(ASocket, SOL_SOCKET, SO_NOSIGPIPE, 1);
   {$endif}
 end;
@@ -847,7 +865,7 @@ begin
     begin
       LSocket := TSocketAPI.NewSocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
         LAddrInfo.ai_protocol);
-      if (LSocket = INVALID_HANDLE_VALUE) then
+      if (LSocket = INVALID_SOCKET) then
       begin
         _Failed1;
         Exit;
@@ -932,7 +950,7 @@ begin
       LListen := nil;
       LListenSocket := TSocketAPI.NewSocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
         LAddrInfo.ai_protocol);
-      if (LListenSocket = INVALID_HANDLE_VALUE) then
+      if (LListenSocket = INVALID_SOCKET) then
       begin
         {$IFDEF DEBUG}
         _LogLastOsError('TKqueueCrossSocket.Listen.NewSocket');
