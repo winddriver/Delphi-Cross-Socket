@@ -67,95 +67,6 @@ uses
 
   Utils.IOUtils;
 
-/// <summary>
-///   比较两个路径是否相同
-/// </summary>
-/// <param name="APath1">
-///   第一个路径
-/// </param>
-/// <param name="APath2">
-///   第二个路径
-/// </param>
-/// <returns>
-///   如果两个路径相同则返回True，否则返回False
-/// </returns>
-/// <remarks>
-///   Windows平台下不区分大小写，其他平台区分大小写
-/// </remarks>
-function _SamePathText(const APath1, APath2: string): Boolean;
-begin
-  {$IFDEF MSWINDOWS}
-  Result := SameText(APath1, APath2);
-  {$ELSE}
-  Result := (APath1 = APath2);
-  {$ENDIF}
-end;
-
-/// <summary>
-///   检查路径是否在基础目录下
-/// </summary>
-/// <param name="ABaseDir">
-///   基础目录路径
-/// </param>
-/// <param name="APath">
-///   需要检查的路径
-/// </param>
-/// <returns>
-///   如果APath在ABaseDir目录下则返回True，否则返回False
-/// </returns>
-function _IsPathInBaseDir(const ABaseDir, APath: string): Boolean;
-var
-  LBaseDir: string;
-begin
-  LBaseDir := IncludeTrailingPathDelimiter(ABaseDir);
-  Result := _SamePathText(Copy(APath, 1, Length(LBaseDir)), LBaseDir);
-end;
-
-/// <summary>
-///   尝试解析本地路径，确保路径安全性
-/// </summary>
-/// <param name="ALocalDir">
-///   本地基础目录
-/// </param>
-/// <param name="APath">
-///   要解析的相对路径
-/// </param>
-/// <param name="AResolvedPath">
-///   解析后的完整路径
-/// </param>
-/// <returns>
-///   如果路径有效且在基础目录内返回True，否则返回False
-/// </returns>
-/// <remarks>
-///   此函数会验证路径的安全性，防止路径遍历攻击
-/// </remarks>
-function _TryResolveLocalPath(const ALocalDir, APath: string;
-  out AResolvedPath: string): Boolean;
-var
-  LBaseDir, LPath, LCombinedPath: string;
-begin
-  AResolvedPath := '';
-  LPath := TCrossHttpUtils.GetPathWithoutParams(APath).Trim;
-
-  if (Pos(#0, LPath) > 0) then Exit(False);
-
-  {$IFDEF MSWINDOWS}
-  LPath := LPath.Replace('/', '\');
-  if TPathUtils.IsDriveRooted(LPath)
-    or TPathUtils.IsUNCRooted(LPath)
-    or LPath.StartsWith('\') then Exit(False);
-  {$ELSE}
-  LPath := LPath.Replace('\', '/');
-  if LPath.StartsWith('/') then Exit(False);
-  {$ENDIF}
-
-  LBaseDir := TPathUtils.GetFullPath(ALocalDir);
-  LCombinedPath := TPathUtils.Combine(LBaseDir, LPath);
-  AResolvedPath := TPathUtils.GetFullPath(LCombinedPath);
-  Result := _IsPathInBaseDir(LBaseDir, AResolvedPath)
-    or _SamePathText(LBaseDir, AResolvedPath);
-end;
-
 { TNetCrossRouter }
 
 class function TNetCrossRouter.Index(const ALocalDir, AFileParamName: string;
@@ -178,20 +89,16 @@ begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
-      LPath, LFile, LDefMainFile, LResolvedPath: string;
+      LLocalBaseDir, LFileName, LDefMainFileName, LResolvedPath: string;
     begin
-      if not _TryResolveLocalPath(ALocalDir, '', LPath) then
-      begin
-        AHandled := False;
-        Exit;
-      end;
-      LFile := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[AFileParamName]);
+      LLocalBaseDir := TPathUtils.GetFullPath(ALocalDir);
+      LFileName := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[AFileParamName]);
 
-      if (LFile = '') then
+      if (LFileName = '') then
       begin
-        for LDefMainFile in LDefIndexFiles do
+        for LDefMainFileName in LDefIndexFiles do
         begin
-          if _TryResolveLocalPath(LPath, LDefMainFile, LResolvedPath)
+          if TCrossHttpUtils.TryUrlPathToLocalPath(LLocalBaseDir, LDefMainFileName, LResolvedPath)
             and TFileUtils.Exists(LResolvedPath) then
           begin
             AResponse.SendFile(LResolvedPath);
@@ -201,7 +108,7 @@ begin
         end;
       end else
       begin
-        if _TryResolveLocalPath(LPath, LFile, LResolvedPath)
+        if TCrossHttpUtils.TryUrlPathToLocalPath(LLocalBaseDir, LFileName, LResolvedPath)
           and TFileUtils.Exists(LResolvedPath) then
         begin
           AResponse.SendFile(LResolvedPath);
@@ -220,17 +127,21 @@ begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
-      LFile, LResolvedPath: string;
+      LFileName, LResolvedPath: string;
     begin
-      AHandled := True;
-
-      LFile := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[AFileParamName]);
-      if not _TryResolveLocalPath(ALocalDir, LFile, LResolvedPath) then
+      LFileName := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[AFileParamName]);
+      if not TCrossHttpUtils.TryUrlPathToLocalPath(ALocalDir, LFileName, LResolvedPath) then
+      begin
+        AHandled := False;
+        Exit;
+      end;
+      if not TFileUtils.Exists(LResolvedPath) then
       begin
         AHandled := False;
         Exit;
       end;
       AResponse.SendFile(LResolvedPath);
+      AHandled := True;
     end;
 end;
 
@@ -240,12 +151,12 @@ begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
-      LFile, LResolvedPath: string;
+      LFileName, LResolvedPath: string;
     begin
       AHandled := True;
 
-      LFile := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[ADirParamName]);
-      if not _TryResolveLocalPath(ALocalDir, LFile, LResolvedPath) then
+      LFileName := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[ADirParamName]);
+      if not TCrossHttpUtils.TryUrlPathToLocalPath(ALocalDir, LFileName, LResolvedPath) then
       begin
         AHandled := False;
         Exit;
