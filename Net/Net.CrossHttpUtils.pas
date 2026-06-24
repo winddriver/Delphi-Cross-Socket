@@ -78,6 +78,7 @@ const
   HEADER_CROSS_HTTP_CLIENT     = 'Client';
   HEADER_CROSS_HTTP_SERVER     = 'Server';
   HEADER_ETAG                  = 'ETag';
+  HEADER_EXPECT                = 'Expect';
   HEADER_HOST                  = 'Host';
   HEADER_IF_MODIFIED_SINCE     = 'If-Modified-Since';
   HEADER_IF_NONE_MATCH         = 'If-None-Match';
@@ -1240,6 +1241,27 @@ type
 
     class function GetPathWithoutParams(const APath: string): string; static;
 
+    /// <summary>
+    ///   尝试解析本地路径，确保路径安全性
+    /// </summary>
+    /// <param name="ALocalBaseDir">
+    ///   本地基础目录
+    /// </param>
+    /// <param name="AUrlPath">
+    ///   要解析的相对路径
+    /// </param>
+    /// <param name="AResolvedPath">
+    ///   解析后的完整路径
+    /// </param>
+    /// <returns>
+    ///   如果路径有效且在基础目录内返回True，否则返回False
+    /// </returns>
+    /// <remarks>
+    ///   此函数会验证路径的安全性，防止路径遍历攻击
+    /// </remarks>
+    class function TryUrlPathToLocalPath(const ALocalBaseDir, AUrlPath: string;
+      out AResolvedPath: string): Boolean; static;
+
     class function HtmlEncode(const AInput: string): string; static;
     class function HtmlDecode(const AInput: string): string; static;
 
@@ -1777,6 +1799,15 @@ begin
 
   if not TryEncodeDateTime(LYear, LMonth, LDay, LHour, LMin, LSec, 0, Result) then
     Result := 0;
+end;
+
+class function TCrossHttpUtils.TryUrlPathToLocalPath(const ALocalBaseDir,
+  AUrlPath: string; out AResolvedPath: string): Boolean;
+begin
+  Result := TPathUtils.TryResolveLocalPath(
+    ALocalBaseDir,
+    TCrossHttpUtils.GetPathWithoutParams(AUrlPath).Trim,
+    AResolvedPath);
 end;
 
 class function TCrossHttpUtils.UrlDecode(const S: string): string;
