@@ -51,7 +51,11 @@ type
   ['{A4765486-A0F1-4EFD-BC39-FA16AED21A6A}']
     function GetSsl: Boolean;
     function GetSslMaxPendingWriteBytes: Int64;
+    function GetAllowUnsafeLegacyRenegotiation: Boolean;
+
     procedure SetSslMaxPendingWriteBytes(const AValue: Int64);
+    procedure SetAllowUnsafeLegacyRenegotiation(const AValue: Boolean);
+
 
     /// <summary>
     ///   从内存加载证书
@@ -139,6 +143,12 @@ type
     ///   仅 OpenSSL backend 当前实现 (MbedTLS 后续阶段补).
     /// </remarks>
     property SslMaxPendingWriteBytes: Int64 read GetSslMaxPendingWriteBytes write SetSslMaxPendingWriteBytes;
+
+    /// <summary>
+    ///  允许不安全的旧式重新协商(兼容工商银行ch5.dcep.ccb.com:443).
+    /// </summary>
+    property AllowUnsafeLegacyRenegotiation: Boolean
+      read GetAllowUnsafeLegacyRenegotiation write SetAllowUnsafeLegacyRenegotiation;
   end;
 
   TCrossSslListenBase = class(TCrossListen);
@@ -156,10 +166,13 @@ type
   private
     FSsl: Boolean;
     FSslMaxPendingWriteBytes: Int64;
+    FAllowUnsafeLegacyRenegotiation: Boolean;
   protected
     function GetSsl: Boolean;
     function GetSslMaxPendingWriteBytes: Int64;
     procedure SetSslMaxPendingWriteBytes(const AValue: Int64);
+    function GetAllowUnsafeLegacyRenegotiation: Boolean;
+    procedure SetAllowUnsafeLegacyRenegotiation(const AValue: Boolean);
   public
     constructor Create(const AIoThreads: Integer; const ASsl: Boolean); reintroduce; virtual;
 
@@ -175,6 +188,9 @@ type
 
     property Ssl: Boolean read GetSsl;
     property SslMaxPendingWriteBytes: Int64 read GetSslMaxPendingWriteBytes write SetSslMaxPendingWriteBytes;
+
+    property AllowUnsafeLegacyRenegotiation: Boolean
+      read GetAllowUnsafeLegacyRenegotiation write SetAllowUnsafeLegacyRenegotiation;
   end;
 
 implementation
@@ -204,6 +220,16 @@ end;
 procedure TCrossSslSocketBase.SetSslMaxPendingWriteBytes(const AValue: Int64);
 begin
   FSslMaxPendingWriteBytes := AValue;
+end;
+
+function TCrossSslSocketBase.GetAllowUnsafeLegacyRenegotiation: Boolean;
+begin
+  Result := FAllowUnsafeLegacyRenegotiation;
+end;
+
+procedure TCrossSslSocketBase.SetAllowUnsafeLegacyRenegotiation(const AValue: Boolean);
+begin
+  FAllowUnsafeLegacyRenegotiation := AValue;
 end;
 
 procedure TCrossSslSocketBase.SetCertificate(const ACertBytes: TBytes);
