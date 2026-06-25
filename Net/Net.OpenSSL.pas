@@ -85,6 +85,7 @@ uses
   {$ENDIF POSIX}
 
   SysUtils,
+  Classes,
   DateUtils,
   Math,
   Utils.DateTime,
@@ -363,6 +364,13 @@ const
   NID_anyExtendedKeyUsage                 = 910;
   NID_ct_cert_scts                        = 954;
   NID_ct_precert_scts                     = 951;
+
+  NID_pkcs9_emailAddress                  = 48;
+
+  MBSTRING_ASC  = $1001;
+  MBSTRING_UTF8 = $1002;
+
+  EVP_PKEY_RSA = 6;
 
   CRYPTO_LOCK		= 1;
   CRYPTO_UNLOCK	= 2;
@@ -691,6 +699,8 @@ type
   PEVP_MD = Pointer;
   PEVP_MD_CTX = Pointer;
   PRSA = Pointer;
+  PEVP_PKEY_CTX = Pointer;
+  PEVP_CIPHER = Pointer;
 
   PENGINE = Pointer;
 
@@ -1063,6 +1073,38 @@ var
   ASN1_BIT_STRING_free: procedure(p: Pointer); cdecl;
   DIST_POINT_free: procedure(p: Pointer); cdecl;
   SCT_free: procedure(p: Pointer); cdecl;
+
+  // SelfSignCert 相关函数
+  X509_new: function: PX509; cdecl;
+  X509_set_version: function(x: PX509; version: LongInt): Integer; cdecl;
+  X509_gmtime_adj: function(t: PASN1_TIME; adj: LongInt): PASN1_TIME; cdecl;
+  X509_set_pubkey: function(x: PX509; pkey: PEVP_PKEY): Integer; cdecl;
+  X509_NAME_add_entry_by_NID: function(name: PX509_NAME; nid: Integer; atype: Integer;
+    bytes: PAnsiChar; len, loc, is_set: Integer): Integer; cdecl;
+  X509_NAME_add_entry_by_txt: function(name: PX509_NAME; field: PAnsiChar; atype: Integer;
+    bytes: PAnsiChar; len, loc, is_set: Integer): Integer; cdecl;
+  X509_set_issuer_name: function(x: PX509; name: PX509_NAME): Integer; cdecl;
+  X509V3_EXT_conf_nid: function(conf: Pointer; ctx: Pointer; ext_nid: Integer;
+    value: PAnsiChar): PX509_EXTENSION; cdecl;
+  X509_add_ext: function(x: PX509; ext: PX509_EXTENSION; loc: Integer): Integer; cdecl;
+  X509_EXTENSION_free: procedure(ext: PX509_EXTENSION); cdecl;
+  ASN1_OCTET_STRING_new: function: PASN1_OCTET_STRING; cdecl;
+  ASN1_OCTET_STRING_set: function(s: PASN1_OCTET_STRING; data: PAnsiChar; len: Integer): Integer; cdecl;
+  X509V3_EXT_i2d: function(ext_nid: Integer; crit: Integer; value: Pointer): PX509_EXTENSION; cdecl;
+  AUTHORITY_KEYID_new: function: PAUTHORITY_KEYID; cdecl;
+  X509_sign: function(x: PX509; pkey: PEVP_PKEY; md: PEVP_MD): Integer; cdecl;
+  BIO_new_file: function(filename: PAnsiChar; mode: PAnsiChar): PBIO; cdecl;
+  PEM_write_bio_PKCS8PrivateKey: function(bp: PBIO; x: PEVP_PKEY; cipher: PEVP_CIPHER;
+    kstr: PAnsiChar; klen: Integer; cb: Pointer; u: Pointer): Integer; cdecl;
+  ASN1_INTEGER_set_int64: function(a: PASN1_INTEGER; v: Int64): Integer; cdecl;
+  // OpenSSL 3.0+ 密钥生成（可能为 nil）
+  EVP_PKEY_Q_keygenRSA: function(ctx: Pointer; propq: PAnsiChar; keytype: PAnsiChar;
+    bits: size_t): PEVP_PKEY; cdecl;
+  // OpenSSL 1.1 降级密钥生成
+  EVP_PKEY_keygen_init: function(ctx: PEVP_PKEY_CTX): Integer; cdecl;
+  EVP_PKEY_CTX_set_rsa_keygen_bits: function(ctx: PEVP_PKEY_CTX; bits: Integer): Integer; cdecl;
+  EVP_PKEY_keygen: function(ctx: PEVP_PKEY_CTX; ppkey: PPEVP_PKEY): Integer; cdecl;
+  EVP_PKEY_CTX_free: procedure(ctx: PEVP_PKEY_CTX); cdecl;
   {$ENDREGION}
 
   {$REGION 'SSL-FUNC'}
@@ -1376,6 +1418,59 @@ procedure DIST_POINT_free(p: Pointer); cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'DIST_POINT_free';
 procedure SCT_free(p: Pointer); cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'SCT_free';
+
+// SelfSignCert 相关函数
+function X509_new: PX509; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_new';
+function X509_set_version(x: PX509; version: LongInt): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_set_version';
+function X509_gmtime_adj(t: PASN1_TIME; adj: LongInt): PASN1_TIME; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_gmtime_adj';
+function X509_set_pubkey(x: PX509; pkey: PEVP_PKEY): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_set_pubkey';
+function X509_NAME_add_entry_by_NID(name: PX509_NAME; nid: Integer; atype: Integer;
+  bytes: PAnsiChar; len, loc, is_set: Integer): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_NAME_add_entry_by_NID';
+function X509_NAME_add_entry_by_txt(name: PX509_NAME; field: PAnsiChar; atype: Integer;
+  bytes: PAnsiChar; len, loc, is_set: Integer): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_NAME_add_entry_by_txt';
+function X509_set_issuer_name(x: PX509; name: PX509_NAME): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_set_issuer_name';
+function X509V3_EXT_conf_nid(conf: Pointer; ctx: Pointer; ext_nid: Integer;
+  value: PAnsiChar): PX509_EXTENSION; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509V3_EXT_conf_nid';
+function X509_add_ext(x: PX509; ext: PX509_EXTENSION; loc: Integer): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_add_ext';
+procedure X509_EXTENSION_free(ext: PX509_EXTENSION); cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_EXTENSION_free';
+function ASN1_OCTET_STRING_new: PASN1_OCTET_STRING; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'ASN1_OCTET_STRING_new';
+function ASN1_OCTET_STRING_set(s: PASN1_OCTET_STRING; data: PAnsiChar; len: Integer): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'ASN1_OCTET_STRING_set';
+function X509V3_EXT_i2d(ext_nid: Integer; crit: Integer; value: Pointer): PX509_EXTENSION; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509V3_EXT_i2d';
+function AUTHORITY_KEYID_new: PAUTHORITY_KEYID; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'AUTHORITY_KEYID_new';
+function X509_sign(x: PX509; pkey: PEVP_PKEY; md: PEVP_MD): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_sign';
+function BIO_new_file(filename: PAnsiChar; mode: PAnsiChar): PBIO; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'BIO_new_file';
+function PEM_write_bio_PKCS8PrivateKey(bp: PBIO; x: PEVP_PKEY; cipher: PEVP_CIPHER;
+  kstr: PAnsiChar; klen: Integer; cb: Pointer; u: Pointer): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'PEM_write_bio_PKCS8PrivateKey';
+function ASN1_INTEGER_set_int64(a: PASN1_INTEGER; v: Int64): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'ASN1_INTEGER_set_int64';
+function EVP_PKEY_Q_keygenRSA(ctx: Pointer; propq: PAnsiChar; keytype: PAnsiChar;
+  bits: size_t): PEVP_PKEY; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EVP_PKEY_Q_keygenRSA';
+function EVP_PKEY_keygen_init(ctx: PEVP_PKEY_CTX): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EVP_PKEY_keygen_init';
+function EVP_PKEY_CTX_set_rsa_keygen_bits(ctx: PEVP_PKEY_CTX; bits: Integer): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EVP_PKEY_CTX_set_rsa_keygen_bits';
+function EVP_PKEY_keygen(ctx: PEVP_PKEY_CTX; ppkey: PPEVP_PKEY): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EVP_PKEY_keygen';
+procedure EVP_PKEY_CTX_free(ctx: PEVP_PKEY_CTX); cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EVP_PKEY_CTX_free';
 {$ENDREGION}
 
 {$REGION 'LIBSSL-FUNC'}
@@ -1599,6 +1694,10 @@ type
     class procedure SetPrivateKey(AContext: PSSL_CTX; const APKeyBytes: TBytes); overload; static;
     class procedure SetPrivateKey(AContext: PSSL_CTX; const APKeyStr: string); overload; static;
     class procedure SetPrivateKeyFile(AContext: PSSL_CTX; const APKeyFile: string); static;
+
+    // 生成自签名证书
+    class procedure SelfSignCert(const ACert, AKey: string; const AName: TStringList;
+      ADays: Integer = 365; ASer: UInt64 = 0; ABits: Integer = 4096); static;
 
     // 从内存bio中读取字符串
     class function GetStrFromMemBIO(ABio: PBIO): string; static;
@@ -3333,6 +3432,35 @@ begin
     @ASN1_BIT_STRING_free := GetSslLibProc(FCryptoLibHandle, 'ASN1_BIT_STRING_free');
     @DIST_POINT_free := GetSslLibProc(FCryptoLibHandle, 'DIST_POINT_free');
     @SCT_free := GetSslLibProc(FCryptoLibHandle, 'SCT_free');
+
+    // SelfSignCert 相关函数
+    @X509_new := GetSslLibProc(FCryptoLibHandle, 'X509_new');
+    @X509_set_version := GetSslLibProc(FCryptoLibHandle, 'X509_set_version');
+    @X509_gmtime_adj := GetSslLibProc(FCryptoLibHandle, 'X509_gmtime_adj');
+    @X509_set_pubkey := GetSslLibProc(FCryptoLibHandle, 'X509_set_pubkey');
+    @X509_NAME_add_entry_by_NID := GetSslLibProc(FCryptoLibHandle, 'X509_NAME_add_entry_by_NID');
+    @X509_NAME_add_entry_by_txt := GetSslLibProc(FCryptoLibHandle, 'X509_NAME_add_entry_by_txt');
+    @X509_set_issuer_name := GetSslLibProc(FCryptoLibHandle, 'X509_set_issuer_name');
+    @X509V3_EXT_conf_nid := GetSslLibProc(FCryptoLibHandle, 'X509V3_EXT_conf_nid');
+    @X509_add_ext := GetSslLibProc(FCryptoLibHandle, 'X509_add_ext');
+    @X509_EXTENSION_free := GetSslLibProc(FCryptoLibHandle, 'X509_EXTENSION_free');
+    @ASN1_OCTET_STRING_new := GetSslLibProc(FCryptoLibHandle, 'ASN1_OCTET_STRING_new');
+    @ASN1_OCTET_STRING_set := GetSslLibProc(FCryptoLibHandle, 'ASN1_OCTET_STRING_set');
+    @X509V3_EXT_i2d := GetSslLibProc(FCryptoLibHandle, 'X509V3_EXT_i2d');
+    @AUTHORITY_KEYID_new := GetSslLibProc(FCryptoLibHandle, 'AUTHORITY_KEYID_new');
+    @X509_sign := GetSslLibProc(FCryptoLibHandle, 'X509_sign');
+    @BIO_new_file := GetSslLibProc(FCryptoLibHandle, 'BIO_new_file');
+    @PEM_write_bio_PKCS8PrivateKey := GetSslLibProc(FCryptoLibHandle, 'PEM_write_bio_PKCS8PrivateKey');
+    @ASN1_INTEGER_set_int64 := GetSslLibProc(FCryptoLibHandle, 'ASN1_INTEGER_set_int64');
+
+    // EVP_PKEY_Q_keygenRSA 仅 OpenSSL 3.0+，1.1 下为 nil
+    @EVP_PKEY_Q_keygenRSA := GetProc(FCryptoLibHandle, 'EVP_PKEY_Q_keygenRSA');
+
+    // OpenSSL 1.1 降级密钥生成
+    @EVP_PKEY_keygen_init := GetSslLibProc(FCryptoLibHandle, 'EVP_PKEY_keygen_init');
+    @EVP_PKEY_CTX_set_rsa_keygen_bits := GetSslLibProc(FCryptoLibHandle, 'EVP_PKEY_CTX_set_rsa_keygen_bits');
+    @EVP_PKEY_keygen := GetSslLibProc(FCryptoLibHandle, 'EVP_PKEY_keygen');
+    @EVP_PKEY_CTX_free := GetSslLibProc(FCryptoLibHandle, 'EVP_PKEY_CTX_free');
   end;
 
   if (FSslLibHandle = 0) then
@@ -3495,6 +3623,223 @@ begin
   Result := GetStrFromMemBIO(LBio);
 
   BIO_free(LBio);
+end;
+
+function DoRandom64: UInt64;
+begin
+  Result := (UInt64(Random(MaxInt)) shl 32) or UInt64(Random(MaxInt));
+end;
+
+class procedure TSSLTools.SelfSignCert(const ACert, AKey: string; const AName: TStringList;
+  ADays: Integer; ASer: UInt64; ABits: Integer);
+var
+  LKey: PEVP_PKEY;
+  LCert: PX509;
+  LPos: Integer;
+  LExt: PX509_EXTENSION;
+  LDig: TBytes;
+  LData: PASN1_OCTET_STRING;
+  LAuth: PAUTHORITY_KEYID;
+  LFile: PBIO;
+  LKeyWritten, LCertWritten: Boolean;
+
+  function GenKeyRsa: PEVP_PKEY;
+  var
+    LCtx: PEVP_PKEY_CTX;
+  begin
+    Result := nil;
+    if Assigned(EVP_PKEY_Q_keygenRSA) then
+    begin
+      Result := EVP_PKEY_Q_keygenRSA(nil, nil, 'RSA', ABits);
+    end else
+    begin
+      LCtx := EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nil);
+      if (LCtx = nil) then
+        raise ESsl.Create('Failed: EVP_PKEY_CTX_new_id');
+      try
+        if (EVP_PKEY_keygen_init(LCtx) <= 0) then
+          raise ESsl.Create('Failed: EVP_PKEY_keygen_init');
+        if (EVP_PKEY_CTX_set_rsa_keygen_bits(LCtx, ABits) <= 0) then
+          raise ESsl.Create('Failed: EVP_PKEY_CTX_set_rsa_keygen_bits');
+        if (EVP_PKEY_keygen(LCtx, @Result) <= 0) then
+          raise ESsl.Create('Failed: EVP_PKEY_keygen');
+      finally
+        EVP_PKEY_CTX_free(LCtx);
+      end;
+    end;
+    if (Result = nil) then
+      raise ESsl.Create('Failed: RSA key generation');
+  end;
+
+begin
+  if (AName = nil) then
+    raise ESsl.Create('AName cannot be nil.');
+
+  LKey := nil;
+  LCert := nil;
+  LKeyWritten := False;
+  LCertWritten := False;
+
+  try
+    // 1. 生成 RSA 密钥
+    LKey := GenKeyRsa;
+
+    // 2. 创建 X509 证书对象
+    LCert := X509_new;
+    if (LCert = nil) then
+      raise ESsl.Create('Failed: X509_new');
+
+    // 3. 设置版本号为 X509v3
+    if (X509_set_version(LCert, 2) = 0) then
+      raise ESsl.Create('Failed: X509_set_version');
+
+    // 4. 设置序列号
+    if (ASer = 0) then
+      ASer := DoRandom64;
+    if (ASN1_INTEGER_set_int64(X509_get_serialNumber(LCert), ASer) = 0) then
+      raise ESsl.Create('Failed: ASN1_INTEGER_set_int64');
+
+    // 5. 设置有效期
+    if (X509_gmtime_adj(X509_get0_notBefore(LCert), 0) = nil) then
+      raise ESsl.Create('Failed: X509_gmtime_adj(notBefore)');
+    if (X509_gmtime_adj(X509_get0_notAfter(LCert), ADays * 24 * 3600) = nil) then
+      raise ESsl.Create('Failed: X509_gmtime_adj(notAfter)');
+
+    // 6. 设置公钥
+    if (X509_set_pubkey(LCert, LKey) = 0) then
+      raise ESsl.Create('Failed: X509_set_pubkey');
+
+    // 7. 设置主题名称和颁发者（自签名：颁发者=主题）
+    for LPos := 0 to AName.Count - 1 do
+      if SameText(AName.Names[LPos], 'emailAddress') then
+      begin
+        if (X509_NAME_add_entry_by_NID(X509_get_subject_name(LCert),
+          NID_pkcs9_emailAddress, MBSTRING_ASC,
+          PAnsiChar(AnsiString(AName.ValueFromIndex[LPos])), -1, -1, 0) = 0) then
+          raise ESsl.CreateFmt('Failed: X509_NAME_add_entry_by_NID(emailAddress=%s)',
+            [AName.ValueFromIndex[LPos]]);
+      end else
+      begin
+        if (X509_NAME_add_entry_by_txt(X509_get_subject_name(LCert),
+          PAnsiChar(AnsiString(AName.Names[LPos])), MBSTRING_ASC,
+          PAnsiChar(AnsiString(AName.ValueFromIndex[LPos])), -1, -1, 0) = 0) then
+          raise ESsl.CreateFmt('Failed: X509_NAME_add_entry_by_txt(%s=%s)',
+            [AName.Names[LPos], AName.ValueFromIndex[LPos]]);
+      end;
+
+    if (X509_set_issuer_name(LCert, X509_get_subject_name(LCert)) = 0) then
+      raise ESsl.Create('Failed: X509_set_issuer_name');
+
+    // 8. 添加 X509v3 扩展
+    // 8a. 基本约束: CA:TRUE (critical)
+    LExt := X509V3_EXT_conf_nid(nil, nil, NID_basic_constraints, 'critical,CA:TRUE');
+    if (LExt <> nil) then
+    begin
+      if (X509_add_ext(LCert, LExt, -1) = 0) then
+        raise ESsl.Create('Failed: X509_add_ext(NID_basic_constraints)');
+      X509_EXTENSION_free(LExt);
+    end;
+
+    // 8b. 密钥用法 (critical)
+    LExt := X509V3_EXT_conf_nid(nil, nil, NID_key_usage,
+      'critical,digitalSignature,keyCertSign,cRLSign');
+    if (LExt <> nil) then
+    begin
+      if (X509_add_ext(LCert, LExt, -1) = 0) then
+        raise ESsl.Create('Failed: X509_add_ext(NID_key_usage)');
+      X509_EXTENSION_free(LExt);
+    end;
+
+    // 8c. 扩展密钥用法
+    LExt := X509V3_EXT_conf_nid(nil, nil, NID_ext_key_usage, 'serverAuth,clientAuth');
+    if (LExt <> nil) then
+    begin
+      if (X509_add_ext(LCert, LExt, -1) = 0) then
+        raise ESsl.Create('Failed: X509_add_ext(NID_ext_key_usage)');
+      X509_EXTENSION_free(LExt);
+    end;
+
+    // 8d. 主题密钥标识符 (SKI)
+    SetLength(LDig, EVP_MAX_MD_SIZE);
+    LPos := 0;
+    if (X509_pubkey_digest(LCert, EVP_sha256, @LDig[0], @LPos) = 0) then
+      raise ESsl.Create('Failed: X509_pubkey_digest');
+    SetLength(LDig, LPos);
+
+    LData := ASN1_OCTET_STRING_new;
+    if (LData = nil) then
+      raise ESsl.Create('Failed: ASN1_OCTET_STRING_new');
+    try
+      if (ASN1_OCTET_STRING_set(LData, PAnsiChar(LDig), LPos) = 0) then
+        raise ESsl.Create('Failed: ASN1_OCTET_STRING_set');
+
+      LExt := X509V3_EXT_i2d(NID_subject_key_identifier, 0, LData);
+      if (LExt <> nil) then
+      begin
+        if (X509_add_ext(LCert, LExt, -1) = 0) then
+          raise ESsl.Create('Failed: X509_add_ext(NID_subject_key_identifier)');
+        X509_EXTENSION_free(LExt);
+      end;
+    finally
+      ASN1_OCTET_STRING_free(LData);
+    end;
+
+    // 8e. 颁发机构密钥标识符 (AKI) — 自签名与 SKI 相同
+    LAuth := AUTHORITY_KEYID_new;
+    if (LAuth = nil) then
+      raise ESsl.Create('Failed: AUTHORITY_KEYID_new');
+    try
+      LAuth.keyid := ASN1_OCTET_STRING_new;
+      if (LAuth.keyid = nil) then
+        raise ESsl.Create('Failed: ASN1_OCTET_STRING_new');
+      if (ASN1_OCTET_STRING_set(LAuth.keyid, PAnsiChar(LDig), LPos) = 0) then
+        raise ESsl.Create('Failed: ASN1_OCTET_STRING_set');
+
+      LExt := X509V3_EXT_i2d(NID_authority_key_identifier, 0, LAuth);
+      if (LExt <> nil) then
+      begin
+        if (X509_add_ext(LCert, LExt, -1) = 0) then
+          raise ESsl.Create('Failed: X509_add_ext(NID_authority_key_identifier)');
+        X509_EXTENSION_free(LExt);
+      end;
+    finally
+      AUTHORITY_KEYID_free(LAuth);
+    end;
+
+    // 9. 自签名
+    if (X509_sign(LCert, LKey, EVP_sha256) = 0) then
+      raise ESsl.Create('Failed: X509_sign');
+
+    // 10. 写入私钥文件（PKCS#8 无加密 PEM 格式）
+    LFile := BIO_new_file(PAnsiChar(AnsiString(AKey)), 'wb');
+    if (LFile = nil) then
+      raise ESsl.CreateFmt('Failed to create key file: %s', [AKey]);
+    try
+      if (PEM_write_bio_PKCS8PrivateKey(LFile, LKey, nil, nil, 0, nil, nil) = 0) then
+        raise ESsl.Create('Failed: PEM_write_bio_PKCS8PrivateKey');
+      LKeyWritten := True;
+    finally
+      BIO_free(LFile);
+    end;
+
+    // 11. 写入证书文件（PEM 格式）
+    LFile := BIO_new_file(PAnsiChar(AnsiString(ACert)), 'wb');
+    if (LFile = nil) then
+      raise ESsl.CreateFmt('Failed to create cert file: %s', [ACert]);
+    try
+      if (PEM_write_bio_X509(LFile, LCert) = 0) then
+        raise ESsl.Create('Failed: PEM_write_bio_X509');
+      LCertWritten := True;
+    finally
+      BIO_free(LFile);
+    end;
+
+  finally
+    if (LCert <> nil) then
+      X509_free(LCert);
+    if (LKey <> nil) then
+      EVP_PKEY_free(LKey);
+  end;
 end;
 
 end.
