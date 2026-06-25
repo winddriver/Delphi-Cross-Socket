@@ -508,16 +508,16 @@ begin
   {$IFDEF MSWINDOWS}
   FD_ZERO(LFDSet);
   FD_SET(ASocket, LFDSet);
-  Result := Net.Winsock2.select(0, @LFDSet, nil, nil, P);
+  Result := Net.Winsock2.select(ASocket + 1, @LFDSet, nil, nil, P);
   {$ELSE MSWINDOWS}
   {$IFDEF DELPHI}
   FD_ZERO(LFDSet);
   _FD_SET(ASocket, LFDSet);
-  Result := Posix.SysSelect.select(0, @LFDSet, nil, nil, P);
+  Result := Posix.SysSelect.select(ASocket + 1, @LFDSet, nil, nil, P);
   {$ELSE DELPHI}
   fpFD_ZERO(LFDSet);
   fpFD_SET(ASocket, LFDSet);
-  Result := fpSelect(0, @LFDSet, nil, nil, P);
+  Result := fpSelect(ASocket + 1, @LFDSet, nil, nil, P);
   {$ENDIF DELPHI}
   {$ENDIF MSWINDOWS}
 end;
@@ -1103,16 +1103,16 @@ begin
   {$IFDEF MSWINDOWS}
   FD_ZERO(LFDSet);
   FD_SET(ASocket, LFDSet);
-  Result := Net.Winsock2.select(0, nil, @LFDSet, nil, P);
+  Result := Net.Winsock2.select(ASocket + 1, nil, @LFDSet, nil, P);
   {$ELSE}
   {$IFDEF DELPHI}
   FD_ZERO(LFDSet);
   _FD_SET(ASocket, LFDSet);
-  Result := Posix.SysSelect.select(0, nil, @LFDSet, nil, P);
+  Result := Posix.SysSelect.select(ASocket + 1, nil, @LFDSet, nil, P);
   {$ELSE}
   fpFD_ZERO(LFDSet);
   fpFD_SET(ASocket, LFDSet);
-  Result := fpselect(0, nil, @LFDSet, nil, P);
+  Result := fpselect(ASocket + 1, nil, @LFDSet, nil, P);
   {$ENDIF DELPHI}
   {$ENDIF MSWINDOWS}
 end;
