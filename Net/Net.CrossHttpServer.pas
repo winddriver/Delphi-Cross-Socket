@@ -128,6 +128,7 @@ type
     function GetQuery: THttpUrlParams;
     function GetQueryText: string;
     function GetBody: TObject;
+    function GetRawBody: TStream;
     function GetBodyType: TBodyType;
     function GetKeepAlive: Boolean;
     function GetAccept: string;
@@ -305,13 +306,13 @@ type
     property QueryText: string read GetQueryText;
 
     /// <summary>
-    ///   Body数据, 通过检查BodyType可以知道数据类型:
+    ///   解析后的Body数据, 通过检查BodyType可以知道数据类型:
     ///   <list type="bullet">
     ///     <item>
     ///       btNone(nil)
     ///     </item>
     ///     <item>
-    ///       btUrlEncoded(THttpUrlParams)
+    ///       btUrlEncoded(TFormUrlEncoded)
     ///     </item>
     ///     <item>
     ///       btMultiPart(THttpMultiPartFormData)
@@ -324,13 +325,21 @@ type
     property Body: TObject read GetBody;
 
     /// <summary>
+    ///   原始Body数据流, 仅对btUrlEncoded和btBinary缓存; multipart/form-data返回nil
+    /// </summary>
+    /// <remarks>
+    ///   调用方只读使用, 不负责释放
+    /// </remarks>
+    property RawBody: TStream read GetRawBody;
+
+    /// <summary>
     ///   Body的类型,
     ///   <list type="bullet">
     ///     <item>
     ///       btNone(nil)
     ///     </item>
     ///     <item>
-    ///       btUrlEncoded(THttpUrlParams)
+    ///       btUrlEncoded(TFormUrlEncoded)
     ///     </item>
     ///     <item>
     ///       btMultiPart(THttpMultiPartFormData)
@@ -1855,6 +1864,7 @@ type
     FParams: THttpUrlParams;
     FQuery: THttpUrlParams;
     FBody: TObject;
+    FRawBody: TMemoryStream;
     FBodyType: TBodyType;
     FIsChunked: Boolean;
   private
@@ -1874,6 +1884,7 @@ type
     function GetQueryText: string;
     function GetQuery: THttpUrlParams;
     function GetBody: TObject;
+    function GetRawBody: TStream;
     function GetBodyType: TBodyType;
     function GetKeepAlive: Boolean;
     function GetAccept: string;
@@ -1920,6 +1931,7 @@ type
     property Query: THttpUrlParams read GetQuery;
     property QueryText: string read GetQueryText;
     property Body: TObject read GetBody;
+    property RawBody: TStream read GetRawBody;
     property BodyType: TBodyType read GetBodyType;
     property KeepAlive: Boolean read GetKeepAlive;
     property Accept: string read GetAccept;
@@ -2841,7 +2853,11 @@ begin
         LMultiPart.StoragePath := FServer.FStoragePath;
         LMultiPart.AutoDeleteFiles := FServer.FAutoDeleteFiles;
         LMultiPart.InitWithBoundary(FRequestObj.RequestBoundary);
-        FreeAndNil(FRequestObj.FBody);
+        if (FRequestObj.FBody = FRequestObj.FRawBody) then
+          FRequestObj.FBody := nil
+        else
+          FreeAndNil(FRequestObj.FBody);
+        FreeAndNil(FRequestObj.FRawBody);
         FRequestObj.FBody := LMultiPart;
       end;
 
@@ -2853,8 +2869,13 @@ begin
           _OnParseFailed(413, 'Request body too large.');
           Exit;  // FBody 保持 nil, _OnBodyData/_OnBodyEnd 有 nil guard 安全跳过
         end;
-        FreeAndNil(FRequestObj.FBody);
-        FRequestObj.FBody := TMemoryStream.Create;
+        if (FRequestObj.FBody = FRequestObj.FRawBody) then
+          FRequestObj.FBody := nil
+        else
+          FreeAndNil(FRequestObj.FBody);
+        FreeAndNil(FRequestObj.FRawBody);
+        FRequestObj.FRawBody := TMemoryStream.Create;
+        FRequestObj.FBody := FRequestObj.FRawBody;
       end;
   end;
   {$endregion}
@@ -2872,40 +2893,49 @@ begin
       (FRequestObj.FBody as THttpMultiPartFormData).Decode(ADataPtr, ADataSize);
 
     btUrlEncoded, btBinary:
-      (FRequestObj.FBody as TStream).Write(ADataPtr^, ADataSize);
+      if (FRequestObj.FRawBody <> nil) then
+        FRequestObj.FRawBody.Write(ADataPtr^, ADataSize);
   end;
 end;
 
 procedure TCrossHttpConnection._OnBodyEnd;
 var
   LUrlEncodedStr: string;
-  LUrlEncodedBody: THttpUrlParams;
+  LUrlEncodedBody: TFormUrlEncoded;
 begin
   if (FRequestObj.FBody = nil) then Exit;
 
   case FRequestObj.GetBodyType of
     btUrlEncoded:
       begin
+        if (FRequestObj.FRawBody = nil) then Exit;
+
         SetString(LUrlEncodedStr,
-          MarshaledAString((FRequestObj.FBody as TMemoryStream).Memory),
-          (FRequestObj.FBody as TMemoryStream).Size);
-        LUrlEncodedBody := THttpUrlParams.Create;
+          MarshaledAString(FRequestObj.FRawBody.Memory),
+          FRequestObj.FRawBody.Size);
+        LUrlEncodedBody := TFormUrlEncoded.Create;
         if LUrlEncodedBody.Decode(LUrlEncodedStr) then
         begin
-          FreeAndNil(FRequestObj.FBody);
+          if (FRequestObj.FBody = FRequestObj.FRawBody) then
+            FRequestObj.FBody := nil
+          else
+            FreeAndNil(FRequestObj.FBody);
           FRequestObj.FBody := LUrlEncodedBody;
+          FRequestObj.FRawBody.Position := 0;
         end else
         begin
           FreeAndNil(LUrlEncodedBody);
           // 如果按 UrlEncoded 方式解码失败, 则保留原始数据
           // 并将类型改为 btBinary
           FRequestObj.FBodyType := btBinary;
-          (FRequestObj.FBody as TStream).Position := 0;
+          FRequestObj.FBody := FRequestObj.FRawBody;
+          FRequestObj.FRawBody.Position := 0;
         end;
       end;
 
     btBinary:
-      (FRequestObj.FBody as TStream).Position := 0;
+      if (FRequestObj.FRawBody <> nil) then
+        FRequestObj.FRawBody.Position := 0;
   end;
 end;
 
@@ -4318,7 +4348,11 @@ begin
   FreeAndNil(FCookies);
   FreeAndNil(FParams);
   FreeAndNil(FQuery);
-  FreeAndNil(FBody);
+  if (FBody = FRawBody) then
+    FBody := nil
+  else
+    FreeAndNil(FBody);
+  FreeAndNil(FRawBody);
 
   inherited;
 end;
@@ -4346,6 +4380,11 @@ end;
 function TCrossHttpRequest.GetBody: TObject;
 begin
   Result := FBody;
+end;
+
+function TCrossHttpRequest.GetRawBody: TStream;
+begin
+  Result := FRawBody;
 end;
 
 function TCrossHttpRequest.GetBodyType: TBodyType;
