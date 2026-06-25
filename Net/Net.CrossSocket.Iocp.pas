@@ -705,7 +705,7 @@ begin
 
       // 如果端口传入0，让所有地址统一用首个分配到的端口
       if (APort = 0) and (LAddrInfo.ai_next <> nil) then
-        LAddrInfo.ai_next.ai_addr.sin_port := LListen.LocalPort;
+        LAddrInfo.ai_next.ai_addr.sin_port := htons(LListen.LocalPort);
 
       LAddrInfo := PRawAddrInfo(LAddrInfo.ai_next);
     end;
