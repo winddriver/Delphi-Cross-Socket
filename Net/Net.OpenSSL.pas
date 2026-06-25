@@ -947,6 +947,7 @@ var
   EVP_PKEY_get_size: function(key: PEVP_PKEY): Integer; cdecl;
   EVP_PKEY_get_bits: function(key: PEVP_PKEY): Integer; cdecl;
   EVP_PKEY_get_id: function(key: PEVP_PKEY): Integer; cdecl;
+  EVP_PKEY_get0_type_name: function(key: PEVP_PKEY): PAnsiChar; cdecl;
   EVP_PKEY_get_security_bits: function(key: PEVP_PKEY): Integer; cdecl;
   EVP_PKEY_get0_RSA: function(key: PEVP_PKEY): PRSA; cdecl;
   EVP_PKEY_CTX_new_id: function(id: Integer; e: Pointer): PEVP_PKEY; cdecl;
@@ -1151,6 +1152,8 @@ function EVP_PKEY_get_bits(key: PEVP_PKEY): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF};
 function EVP_PKEY_get_id(key: PEVP_PKEY): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF};
+function EVP_PKEY_get0_type_name(key: PEVP_PKEY): PAnsiChar; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF};
 function EVP_PKEY_get_security_bits(key: PEVP_PKEY): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF};
 {$ELSE}
@@ -1167,6 +1170,7 @@ function EVP_PKEY_get_size(key: PEVP_PKEY): Integer; inline;
 function EVP_PKEY_get_bits(key: PEVP_PKEY): Integer; inline;
 function EVP_PKEY_get_id(key: PEVP_PKEY): Integer; inline;
 function EVP_PKEY_get_security_bits(key: PEVP_PKEY): Integer; inline;
+function EVP_PKEY_get0_type_name(key: PEVP_PKEY): PAnsiChar; cdecl;
 {$ENDIF}
 
 function EVP_sha256(): PEVP_MD; cdecl;
@@ -1764,11 +1768,23 @@ begin
   Result := EVP_PKEY_security_bits(key);
 end;
 
+function EVP_PKEY_get0_type_name(key: PEVP_PKEY): PAnsiChar;
+begin
+  if (key = nil) then Exit(nil);
+  Result := OBJ_nid2sn(EVP_PKEY_get_id(key));
+end;
+
 function SSL_get0_peer_certificate(s: PSSL): PX509;
 begin
   Result := SSL_get_peer_certificate(s);
 end;
 {$ENDIF}
+
+function Fallback_EVP_PKEY_get0_type_name(key: PEVP_PKEY): PAnsiChar; cdecl;
+begin
+  if (key = nil) then Exit(nil);
+  Result := OBJ_nid2sn(EVP_PKEY_get_id(key));
+end;
 
 function SSL_CTX_need_tmp_rsa(ctx: PSSL_CTX): Integer;
 begin
@@ -2532,7 +2548,7 @@ begin
     // 公钥ID(6=NID_rsaEncryption)
     ACertInfo.PubKeyID := EVP_PKEY_get_id(LPubKey);
     // 公钥类型(rsaEncryption)
-    ACertInfo.PubKeyType := UTF8ToString(OBJ_nid2sn(ACertInfo.PubKeyID));
+    ACertInfo.PubKeyType := UTF8ToString(EVP_PKEY_get0_type_name(LPubKey));
     // 公钥密码位数(2048)
     ACertInfo.PubKeyBits := EVP_PKEY_get_bits(LPubKey);
     // 公钥安全位数(112)
@@ -2927,7 +2943,7 @@ begin
   // 临时密钥ID(1034=NID_X25519)
   ASslInfo.TmpKeyID := EVP_PKEY_get_id(LTempKey);
   // 临时密钥类型(X25519)
-  ASslInfo.TmpKeyType := UTF8ToString(OBJ_nid2sn(ASslInfo.TmpKeyID));
+  ASslInfo.TmpKeyType := UTF8ToString(EVP_PKEY_get0_type_name(LTempKey));
   // 临时密钥密码位数(253)
   ASslInfo.TmpKeyBits := EVP_PKEY_get_bits(LTempKey);
   // 临时密钥安全位数(128)
@@ -3205,6 +3221,9 @@ begin
     @EVP_PKEY_get_security_bits := GetSslLibProc(FCryptoLibHandle, ['EVP_PKEY_get_security_bits', 'EVP_PKEY_security_bits']);
     @EVP_PKEY_get0_RSA := GetSslLibProc(FCryptoLibHandle, 'EVP_PKEY_get0_RSA');
     @EVP_PKEY_CTX_new_id := GetSslLibProc(FCryptoLibHandle, 'EVP_PKEY_CTX_new_id');
+    @EVP_PKEY_get0_type_name := GetProc(FCryptoLibHandle, 'EVP_PKEY_get0_type_name');
+    if (@EVP_PKEY_get0_type_name = nil) then
+      @EVP_PKEY_get0_type_name := @Fallback_EVP_PKEY_get0_type_name;
 
     @EVP_sha256 := GetSslLibProc(FCryptoLibHandle, 'EVP_sha256');
     @EVP_Digest := GetSslLibProc(FCryptoLibHandle, 'EVP_Digest');
