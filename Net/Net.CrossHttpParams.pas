@@ -1562,15 +1562,21 @@ function THttpUrlParams.Decode(const AEncodedParams: string; AClear: Boolean): B
 var
   p, pEnd, q: PChar;
   LName, LValue: string;
-  LSize: Integer;
+  LSize, LDecodedCount: Integer;
 begin
   if AClear then
     FParams.Clear;
 
+  LDecodedCount := 0;
   p := PChar(AEncodedParams);
   pEnd := p + Length(AEncodedParams);
   while (p < pEnd) do
   begin
+    // WHATWG application/x-www-form-urlencoded parser: 按 '&' 拆分并忽略空片段.
+    while (p < pEnd) and (p^ = '&') do
+      Inc(p);
+    if (p >= pEnd) then Break;
+
     q := p;
     LSize := 0;
     while (p < pEnd) and (p^ <> '=') and (p^ <> '&') do
@@ -1580,27 +1586,30 @@ begin
     end;
     SetString(LName, q, LSize);
     LName := TCrossHttpUtils.UrlDecode(LName);
-    // 跳过多余的'='
-    while (p < pEnd) and (p^ = '=') do
-      Inc(p);
 
-    q := p;
-    LSize := 0;
-    while (p < pEnd) and (p^ <> '&') do
+    if (p < pEnd) and (p^ = '=') then
     begin
-      Inc(LSize);
-      Inc(p);
-    end;
-    SetString(LValue, q, LSize);
-    LValue := TCrossHttpUtils.UrlDecode(LValue);
-    // 跳过多余的'&'
-    while (p < pEnd) and (p^ = '&') do
       Inc(p);
 
-    Add(LName, LValue);
+      q := p;
+      LSize := 0;
+      while (p < pEnd) and (p^ <> '&') do
+      begin
+        Inc(LSize);
+        Inc(p);
+      end;
+      SetString(LValue, q, LSize);
+      LValue := TCrossHttpUtils.UrlDecode(LValue);
+    end else
+    begin
+      LValue := '';
+    end;
+
+    Add(LName, LValue, True);
+    Inc(LDecodedCount);
   end;
 
-  Result := (Self.Count > 0);
+  Result := (LDecodedCount > 0);
 end;
 
 function THttpUrlParams.Encode: string;
@@ -1640,10 +1649,12 @@ var
   LCh: Char;
   LName, LValue: string;
   LLineValid, LInName: Boolean;
+  LDecodedCount: Integer;
 begin
   if AClear then
     FParams.Clear;
 
+  LDecodedCount := 0;
   P := PChar(AEncodedParams);
   PEnd := P + Length(AEncodedParams);
 
@@ -1740,9 +1751,10 @@ begin
       SetString(LValue, LValueStart, LValueEnd - LValueStart);
 
     Add(LName, LValue, True);
+    Inc(LDecodedCount);
   end;
 
-  Result := (Self.Count > 0);
+  Result := (LDecodedCount > 0);
 end;
 
 function THttpHeader.Encode: string;
@@ -1790,11 +1802,12 @@ function TDelimitParams.Decode(const AEncodedParams: string; AClear: Boolean): B
 var
   p, pEnd, q: PChar;
   LName, LValue: string;
-  LSize: Integer;
+  LSize, LDecodedCount: Integer;
 begin
   if AClear then
     FParams.Clear;
 
+  LDecodedCount := 0;
   p := PChar(AEncodedParams);
   pEnd := p + Length(AEncodedParams);
   while (p < pEnd) do
@@ -1826,9 +1839,10 @@ begin
       Inc(p);
 
     Add(LName, LValue);
+    Inc(LDecodedCount);
   end;
 
-  Result := (Self.Count > 0);
+  Result := (LDecodedCount > 0);
 end;
 
 function TDelimitParams.Encode: string;
@@ -1854,11 +1868,12 @@ function TRequestCookies.Decode(const AEncodedParams: string; AClear: Boolean): 
 var
   LParsedParams: TList<TNameValue>;
   LItem: TNameValue;
-  LPos, LLen, LPairEnd, LEqualsPos: Integer;
+  LPos, LLen, LPairEnd, LEqualsPos, LDecodedCount: Integer;
   LPair: string;
   LName, LValue: string;
   LNormalizedValue: string;
 begin
+  LDecodedCount := 0;
   Result := False;
   // 先解析到临时列表，确保整行 Cookie 全部合法后再提交，避免失败时留下半解析数据。
   LParsedParams := TList<TNameValue>.Create;
@@ -1902,6 +1917,7 @@ begin
 
       LParsedParams.Add(TNameValue.Create(LName, LNormalizedValue));
       LPos := LPairEnd + 1;
+      Inc(LDecodedCount);
     end;
 
     // 所有 cookie-pair 均校验通过后，才按 AClear 语义提交到 FParams。
@@ -1909,7 +1925,7 @@ begin
       FParams.Clear;
     for LItem in LParsedParams do
       Add(LItem.Name, LItem.Value);
-    Result := (Self.Count > 0);
+    Result := (LDecodedCount > 0);
   finally
     FreeAndNil(LParsedParams);
   end;
