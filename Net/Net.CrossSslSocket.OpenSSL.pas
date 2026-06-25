@@ -738,8 +738,8 @@ begin
 
     if (LEncryptedData <> nil) then
     begin
-      // 锁外发起异步发送, callback 内 CPS 继续推进 (新栈帧, 不在原栈上)
-      _Send(@LEncryptedData[0], Length(LEncryptedData),
+      // 锁外发起异步发送, TBytes 重载会持有缓冲区到 callback 触发
+      _Send(LEncryptedData,
         procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
         begin
           if not ASuccess then
