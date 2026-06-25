@@ -1038,8 +1038,8 @@ var
   ASN1_item_d2i: function(pval: PPASN1_VALUE; idata: PPointer; len: LongInt; it: PASN1_ITEM): PASN1_VALUE; cdecl;
   ASN1_BIT_STRING_get_bit: function(a: PASN1_BIT_STRING; n: Integer): Integer; cdecl;
   ASN1_BIT_STRING_set_bit: function(a: PASN1_BIT_STRING; n, value: Integer): Integer; cdecl;
-  ASN1_INTEGER_get: function(a: PASN1_BIT_STRING): LongInt; cdecl;
-  ASN1_INTEGER_set: function(a: PASN1_BIT_STRING; v: LongInt): Integer; cdecl;
+  ASN1_INTEGER_get: function(a: PASN1_INTEGER): LongInt; cdecl;
+  ASN1_INTEGER_set: function(a: PASN1_INTEGER; v: LongInt): Integer; cdecl;
 
   ASN1_INTEGER_to_BN: function(ai: PASN1_INTEGER; bn: PBIGNUM): PBIGNUM; cdecl;
   BN_to_ASN1_INTEGER: function(bn: PBIGNUM; ai: PASN1_INTEGER): PASN1_INTEGER; cdecl;
