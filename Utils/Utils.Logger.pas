@@ -299,7 +299,7 @@ var
 
   procedure _WriteBufferToFile(const ALogFile: string);
   var
-    LStream: TFileStream;
+    LStream: TStream;
   begin
     try
       LStream := TFileUtils.OpenWrite(ALogFile);
