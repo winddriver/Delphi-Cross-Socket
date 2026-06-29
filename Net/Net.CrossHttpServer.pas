@@ -2119,9 +2119,6 @@ type
     FRouterProcList: TList<TCrossHttpRouterProc>;
     FRouterMethodList: TList<TCrossHttpRouterMethod>;
 
-    // 正则表达式对象(仅用于正则模式)
-    FRegEx: IRegEx;
-
     function GetRouteType: TRouteType;
     function GetMethodPattern: string;
     function GetRegEx: IRegEx;
@@ -2145,7 +2142,6 @@ type
     FPattern: string;               // 完整模式
     FParams: TArray<TRouteParam>;   // 参数定义数组
     FRouteType: TRouteType;         // 路由类型
-    FRegEx: IRegEx;                 // 正则表达式对象(仅用于正则模式)
   public
     constructor Create(const AOriginal, APattern: string;
       const AParams: TArray<TRouteParam>; ARouteType: TRouteType);
@@ -3118,9 +3114,6 @@ begin
   FRouterProcList := TList<TCrossHttpRouterProc>.Create;
   FRouterMethodList := TList<TCrossHttpRouterMethod>.Create;
   FLock := TReadWriteLock.Create;
-
-  if (FRouteType = rtRegex) then
-    FRegEx := CreateRouterRegEx(AMethodPattern);
 end;
 
 destructor TRouter.Destroy;
@@ -3143,7 +3136,9 @@ end;
 
 function TRouter.GetRegEx: IRegEx;
 begin
-  Result := FRegEx;
+  Result := nil;
+  if (FRouteType = rtRegex) then
+    Result := CreateRouterRegEx(FMethodPattern);
 end;
 
 procedure TRouter.Execute(const ARequest: ICrossHttpRequest;
@@ -3191,29 +3186,28 @@ begin
   FPattern := APattern;
   FParams := AParams;
   FRouteType := ARouteType;
-
-  if (FRouteType = rtRegex) then
-    FRegEx := CreateRouterRegEx(APattern);
 end;
 
 function TRouteSegment.RegexMatch(const ASegment: string; const ARequest: ICrossHttpRequest): Boolean;
 var
   I: Integer;
+  LRegEx: IRegEx;
 begin
   Result := False;
 
   case FRouteType of
     rtRegex:
       begin
-        if FRegEx <> nil then
+        LRegEx := CreateRouterRegEx(FPattern);
+        if LRegEx <> nil then
         begin
-          FRegEx.Subject := ASegment;
-          Result := FRegEx.Match;
+          LRegEx.Subject := ASegment;
+          Result := LRegEx.Match;
           if Result and Assigned(ARequest) then
           begin
             // 提取所有参数值
             for I := 0 to High(FParams) do
-              ARequest.Params[FParams[I].Name] := FRegEx.Groups[I + 1];
+              ARequest.Params[FParams[I].Name] := LRegEx.Groups[I + 1];
           end;
         end;
       end;
@@ -3360,6 +3354,7 @@ function TRouteNode.MatchRouter(const AMethod: string;
   out ARouter: IRouter): Boolean;
 var
   LRouter: IRouter;
+  LRegEx: IRegEx;
 begin
   Result := False;
 
@@ -3373,11 +3368,12 @@ begin
   // 遍历所有正则方法路由项, 找到第一个匹配的
   for LRouter in FRegexRouteMethodItems do
   begin
-    // 正则表达式方法, 使用预编译的正则表达式
-    if (LRouter.RegEx <> nil) then
+    // 正则表达式方法使用局部匹配器, 避免并发请求共享匹配状态
+    LRegEx := LRouter.RegEx;
+    if (LRegEx <> nil) then
     begin
-      LRouter.RegEx.Subject := AMethod;
-      if LRouter.RegEx.Match then
+      LRegEx.Subject := AMethod;
+      if LRegEx.Match then
       begin
         ARouter := LRouter;
         Exit(True);
