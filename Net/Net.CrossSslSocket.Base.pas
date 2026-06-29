@@ -210,6 +210,19 @@ type
       populated before verify mode is enabled. }
     procedure SetVerifyPeer(const AVerify: Boolean); virtual; abstract;
 
+    { ── TLSOPT-1: passphrase for an encrypted PEM private key ──
+      Set the password OpenSSL uses to decrypt an encrypted PEM private key.
+      Must be called BEFORE SetPrivateKey / SetPrivateKeyFile so the key is
+      parsed with the passphrase available. Passing '' (the default) leaves the
+      unencrypted-key code path unchanged — a no-op for plain keys. }
+    procedure SetPrivateKeyPassword(const APassword: string); virtual; abstract;
+
+    { ── TLSOPT-2: override the negotiated cipher list (TLS 1.2 and below) ──
+      ACipherList is an OpenSSL cipher-list string (e.g.
+      'ECDHE-RSA-AES256-GCM-SHA384:...'). Empty leaves the built-in default
+      list set in _InitSslCtx. TLS 1.3 cipher suites are not affected. }
+    procedure SetCipherList(const ACipherList: string); virtual; abstract;
+
     property Ssl: Boolean read GetSsl;
     property SslMaxPendingWriteBytes: Int64 read GetSslMaxPendingWriteBytes write SetSslMaxPendingWriteBytes;
 

@@ -39,6 +39,15 @@ unit Net.CrossSslSocket.OpenSSL;
            When AVerify=False, reverts to SSL_VERIFY_NONE (default).
            Must be called AFTER SetCACertificate — the trust store must be
            populated before verify mode is enabled.
+
+  ── TLS-option additions ─────────────────────────────────────────────────────
+  [TLSOPT-1] SetPrivateKeyPassword(string) override + password-aware SetPrivateKey.
+             Stores a passphrase; the next SetPrivateKey parses an encrypted PEM
+             key with PEM_read_bio_PrivateKey + a password callback, then
+             SSL_CTX_use_PrivateKey. Empty passphrase keeps the unencrypted path.
+  [TLSOPT-2] SetCipherList(string) override.
+             Calls SSL_CTX_set_cipher_list to override the TLS 1.2 cipher list;
+             raises if the string selects no ciphers. TLS 1.3 suites unchanged.
 }
 
 interface
@@ -160,6 +169,7 @@ type
   TCrossOpenSslSocket = class(TCrossSslSocketBase)
   private
     FSslCtx: PSSL_CTX;
+    FPKeyPassword: AnsiString;   // [TLSOPT-1] passphrase for an encrypted key
 
     procedure _InitSslCtx;
     procedure _FreeSslCtx;
@@ -199,6 +209,12 @@ type
                       (handshake fails without a valid client cert)
       AVerify=False → SSL_VERIFY_NONE (default) }
     procedure SetVerifyPeer(const AVerify: Boolean); override;
+    { ── TLSOPT-1: store the passphrase used to decrypt an encrypted PEM private
+      key. Applied by the next SetPrivateKey call. }
+    procedure SetPrivateKeyPassword(const APassword: string); override;
+
+    { ── TLSOPT-2: override the TLS 1.2 cipher list via SSL_CTX_set_cipher_list. }
+    procedure SetCipherList(const ACipherList: string); override;
   end;
 
 {$IFDEF CROSS_OPENSSL_SELFTEST}
@@ -1141,11 +1157,87 @@ begin
     TSSLTools.SetCertificate(FSslCtx, ACertBuf, ACertBufSize);
 end;
 
+{ ── TLSOPT-1: OpenSSL PEM password callback ──────────────────────────────────
+  OpenSSL calls this to obtain the passphrase for an encrypted PEM key. AUserData
+  points to a null-terminated copy of the passphrase (PAnsiChar of an AnsiString).
+  Copies up to ASize bytes into ABuf and returns the length. No RTL dependency
+  (manual null-scan) so the unit stays dual-compile (Delphi + FPC). }
+function _IcsHorsePemPasswdCb(ABuf: Pointer; ASize, ARWFlag: Integer;
+  AUserData: Pointer): Integer; cdecl;
+var
+  P:    PAnsiChar;
+  LLen: Integer;
+begin
+  Result := 0;
+  if (AUserData = nil) or (ASize <= 0) then Exit;
+  P := PAnsiChar(AUserData);
+  LLen := 0;
+  while (P[LLen] <> #0) and (LLen < ASize) do
+    Inc(LLen);
+  if LLen > 0 then
+    Move(P^, ABuf^, LLen);
+  Result := LLen;
+end;
+
 procedure TCrossOpenSslSocket.SetPrivateKey(const APKeyBuf: Pointer;
   const APKeyBufSize: Integer);
+var
+  LBio:  PBIO;
+  LPKey: PEVP_PKEY;
 begin
-  if Ssl then
+  if not Ssl or (FSslCtx = nil) then Exit;
+
+  // Unencrypted key (no passphrase set) — unchanged upstream behaviour.
+  if FPKeyPassword = '' then
+  begin
     TSSLTools.SetPrivateKey(FSslCtx, APKeyBuf, APKeyBufSize);
+    Exit;
+  end;
+
+  // [TLSOPT-1] Encrypted PEM key — parse with the passphrase callback (mirrors
+  // the SetCACertificate BIO + PEM_read pattern), then install into the context.
+  LBio := BIO_new_mem_buf(APKeyBuf, APKeyBufSize);
+  if LBio = nil then
+    raise ESsl.Create('SetPrivateKey: BIO_new_mem_buf failed');
+  try
+    LPKey := PEM_read_bio_PrivateKey(LBio, nil, @_IcsHorsePemPasswdCb,
+      PAnsiChar(FPKeyPassword));
+    if LPKey = nil then
+      raise ESsl.Create(
+        'SetPrivateKey: PEM_read_bio_PrivateKey failed — wrong passphrase or ' +
+        'the buffer is not a valid PEM private key');
+    try
+      if SSL_CTX_use_PrivateKey(FSslCtx, LPKey) <> 1 then
+        raise ESsl.Create('SetPrivateKey: SSL_CTX_use_PrivateKey failed');
+    finally
+      EVP_PKEY_free(LPKey);
+    end;
+  finally
+    BIO_free(LBio);
+  end;
+end;
+
+{ ── TLSOPT-1: store the passphrase for the next SetPrivateKey call. ────────── }
+procedure TCrossOpenSslSocket.SetPrivateKeyPassword(const APassword: string);
+begin
+  FPKeyPassword := AnsiString(APassword);
+end;
+
+{ ── TLSOPT-2: override the TLS 1.2 cipher list. SSL_CTX_set_cipher_list returns
+  1 on success; a string that selects no ciphers returns 0. TLS 1.3 suites are
+  left at the _InitSslCtx defaults (they use a different naming/API). }
+procedure TCrossOpenSslSocket.SetCipherList(const ACipherList: string);
+var
+  LAnsi: AnsiString;
+begin
+  if not Ssl or (FSslCtx = nil) or (ACipherList = '') then Exit;
+  LAnsi := AnsiString(ACipherList);
+  // MarshaledAString = PAnsiChar; pass the AnsiString's buffer directly
+  // (mirrors the literal calls in _InitSslCtx).
+  if SSL_CTX_set_cipher_list(FSslCtx, PAnsiChar(LAnsi)) <> 1 then
+    raise ESsl.Create(
+      'SetCipherList: SSL_CTX_set_cipher_list rejected "' + ACipherList +
+      '" (no matching ciphers)');
 end;
 
 { ── MTLS-1: load a CA certificate (PEM buffer) into the SSL context ──────────
