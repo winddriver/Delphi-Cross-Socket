@@ -1242,22 +1242,4 @@ procedure zlibFreeMem(AppData, Block: Pointer); cdecl;
     FreeMem(Block);
   end;
 
-{$ifdef FPC}
-{$ifdef MSWINDOWS}
-// libz.a from msys2/MinGW is compiled with -fstack-protector, which emits
-// references to two symbols in every object file:
-//   __stack_chk_guard  — the canary value loaded onto the stack at function entry
-//   __stack_chk_fail   — called when the canary is corrupted on return
-// FPC does not link libssp automatically, and libssp_nonshared.a is absent
-// from GCC 15+ installs.  These stubs satisfy both linker references.
-var
-  StackChkGuard: PtrUInt; [public, alias: '__stack_chk_guard'];
-
-procedure StackChkFail; [public, alias: '__stack_chk_fail'];
-begin
-  Halt(127);
-end;
-{$endif}
-{$endif}
-
 end.
