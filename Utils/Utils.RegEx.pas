@@ -212,6 +212,8 @@ type
     procedure SetOptions(const AValue: TRegExOptions);
 
     procedure UpdateOptions;
+    function _InternalReplace(const AEvaluator: TMatchEvaluator;
+      const ACount: Integer; const AComputeReplacement: Boolean): string;
   public
     constructor Create(const APattern: string); overload;
     constructor Create; overload;
@@ -296,7 +298,10 @@ end;
 
 function TGroup.GetValue: string;
 begin
-  Result := FValue.Substring(FOffset - 1, FLength);
+  if (not FSuccess) or (FOffset < 1) or (FLength <= 0) then
+    Exit('');
+
+  Result := System.Copy(FValue, FOffset, FLength);
 end;
 
 { TGroupCollection }
@@ -305,6 +310,9 @@ constructor TGroupCollection.Create(const ARegEx: IRegEx; const AValue: string;
   const AOffset, ALength: Integer; const ASuccess: Boolean);
 var
   I: Integer;
+  LOffset: Integer;
+  LLength: Integer;
+  LSuccess: Boolean;
 begin
   FRegEx := ARegEx;
 
@@ -313,7 +321,12 @@ begin
     SetLength(FList, FRegEx.GroupCount + 1);
     FList[0] := TGroup.Create(AValue, AOffset, ALength, ASuccess);
     for I := 1 to Length(FList) - 1 do
-      FList[I] := TGroup.Create(AValue, FRegEx.GroupOffsets[I], FRegEx.GroupLengths[I], ASuccess);
+    begin
+      LOffset := FRegEx.GroupOffsets[I];
+      LLength := FRegEx.GroupLengths[I];
+      LSuccess := (LOffset >= 1) and (LLength > 0);
+      FList[I] := TGroup.Create(AValue, LOffset, LLength, LSuccess);
+    end;
   end;
 end;
 
@@ -709,15 +722,19 @@ begin
   Result := Matches(AInput, APattern, 1);
 end;
 
-function TRegEx.Replace(const AEvaluator: TMatchEvaluator;
-  const ACount: Integer): string;
+function TRegEx._InternalReplace(const AEvaluator: TMatchEvaluator;
+  const ACount: Integer; const AComputeReplacement: Boolean): string;
 var
   LRegEx: IRegEx;
   LMatch: TMatch;
+  LSubject: string;
+  LMatchOffset: Integer;
+  LMatchLength: Integer;
+  LReplaceStr: string;
   LPrevPos: Integer;
   I: Integer;
-  LReplaceStr: string;
 begin
+  LSubject := Self.Subject;
   Result := '';
   LPrevPos := 1;
 
@@ -728,23 +745,28 @@ begin
 
     while True do
     begin
+      LMatchOffset := Self.MatchedOffset;
+      LMatchLength := Self.MatchedLength;
+
       Result := Result + System.Copy(
-        Self.Subject,
+        LSubject,
         LPrevPos,
-        Self.MatchedOffset - LPrevPos);
+        LMatchOffset - LPrevPos);
 
-      LMatch := TMatch.Create(LRegEx, Self.Subject,
-        Self.MatchedOffset, Self.MatchedLength, True);
+      LMatch := TMatch.Create(LRegEx, LSubject, LMatchOffset, LMatchLength, True);
       LReplaceStr := AEvaluator(LMatch);
+      if AComputeReplacement then
+      begin
+        {$IFDEF FPC}
+        Result := Result + FRegEx.Substitute(LReplaceStr);
+        {$ELSE}
+        FRegEx.Replacement := LReplaceStr;
+        Result := Result + FRegEx.ComputeReplacement;
+        {$ENDIF}
+      end else
+        Result := Result + LReplaceStr;
 
-      {$IFDEF FPC}
-      Result := Result + FRegEx.Substitute(LReplaceStr);
-      {$ELSE}
-      FRegEx.Replacement := LReplaceStr;
-      Result := Result + FRegEx.ComputeReplacement;
-      {$ENDIF}
-
-      LPrevPos := Self.MatchedOffset + Self.MatchedLength;
+      LPrevPos := LMatchOffset + LMatchLength;
 
       Inc(I);
 
@@ -754,18 +776,25 @@ begin
     end;
   end;
 
-  Result := Result + System.Copy(Self.Subject, LPrevPos, MaxInt);
+  Result := Result + System.Copy(LSubject, LPrevPos, MaxInt);
+end;
+
+function TRegEx.Replace(const AEvaluator: TMatchEvaluator;
+  const ACount: Integer): string;
+begin
+  Result := _InternalReplace(AEvaluator, ACount, False);
 end;
 
 function TRegEx.Replace(const AReplacement: string;
   const ACount: Integer): string;
 begin
-  Result := Replace(
+  Result := _InternalReplace(
     function(const AMatch: TMatch): string
     begin
       Result := AReplacement;
     end,
-    ACount);
+    ACount,
+    True);
 end;
 
 function TRegEx.Replace(const AEvaluator: TMatchEvaluator): string;
@@ -857,7 +886,7 @@ end;
 class function TRegEx.Replace(const AInput, APattern: string;
   const AEvaluator: TMatchEvaluator; const ACount: Integer): string;
 begin
-  Result := Replace(AInput, APattern, AEvaluator, ACount, -1);
+  Result := Replace(AInput, APattern, AEvaluator, ACount, 1);
 end;
 
 class function TRegEx.Replace(const AInput, APattern: string;
@@ -992,16 +1021,22 @@ begin
 end;
 
 procedure TRegEx.UpdateOptions;
+{$IFDEF DELPHI}
+var
+  LOptions: TPerlRegExOptions;
+{$ENDIF}
 begin
   {$IFDEF DELPHI}
+  LOptions := [];
   if (roIgnoreCase in FOptions) then
-    FRegEx.Options := FRegEx.Options + [preCaseLess];
+    Include(LOptions, preCaseLess);
   if (roMultiLine in FOptions) then
-    FRegEx.Options := FRegEx.Options + [preMultiLine];
+    Include(LOptions, preMultiLine);
   if (roSingleLine in FOptions) then
-    FRegEx.Options := FRegEx.Options + [preSingleLine];
+    Include(LOptions, preSingleLine);
   if (roExtended in FOptions) then
-    FRegEx.Options := FRegEx.Options + [preExtended];
+    Include(LOptions, preExtended);
+  FRegEx.Options := LOptions;
   {$ELSE}
   FRegEx.ModifierI := roIgnoreCase in FOptions;
   FRegEx.ModifierS := roSingleLine in FOptions;
