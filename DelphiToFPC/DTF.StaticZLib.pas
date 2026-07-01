@@ -1242,4 +1242,5 @@ procedure zlibFreeMem(AppData, Block: Pointer); cdecl;
     FreeMem(Block);
   end;
 
+
 end.
