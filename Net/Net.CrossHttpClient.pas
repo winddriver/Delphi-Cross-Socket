@@ -862,10 +862,10 @@ type
     procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); virtual;
 
     {$region '内部: 基础发送方法'}
-    procedure _Send(const ASource: TCrossHttpChunkDataFunc;
-      const ASendCb: TCrossConnectionCallback = nil); overload;
-    procedure _Send(const AHeaderSource, ABodySource: TCrossHttpChunkDataFunc;
-      const ASendCb: TCrossConnectionCallback = nil); overload;
+    procedure _SocketSend(const ASource: TCrossHttpChunkDataFunc;
+      const ASendCb: TCrossConnectionCallback = nil);
+    procedure _HttpSend(const AHeaderSource, ABodySource: TCrossHttpChunkDataFunc;
+      const ASendCb: TCrossConnectionCallback = nil);
     {$endregion}
 
     {$region '不压缩发送'}
@@ -1449,7 +1449,7 @@ begin
   LIsFirstChunk := True;
   LChunkState := csHead;
 
-  _Send(
+  _HttpSend(
     // HEADER
     function(const AData: PPointer; const ADataSize: PNativeInt): Boolean
     begin
@@ -1551,7 +1551,7 @@ begin
   P := ABody;
   LBodySize := ABodySize;
 
-  _Send(
+  _HttpSend(
     // HEADER
     function(const AData: PPointer; const ADataSize: PNativeInt): Boolean
     begin
@@ -2101,7 +2101,7 @@ begin
   FReqLock.Leave;
 end;
 
-procedure TCrossHttpClientConnection._Send(
+procedure TCrossHttpClientConnection._SocketSend(
   const ASource: TCrossHttpChunkDataFunc;
   const ASendCb: TCrossConnectionCallback);
 var
@@ -2109,17 +2109,6 @@ var
   LSender: TCrossConnectionCallback;
 begin
   LHttpConnection := Self;
-
-  // 标记正在发送请求
-  _ReqLock;
-  try
-    _SetRequestStatus(rsSending);
-  finally
-    _ReqUnlock;
-  end;
-
-  // 更新计时器
-  _UpdateWatch;
 
   LSender :=
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
@@ -2185,22 +2174,35 @@ begin
   LSender(LHttpConnection, True);
 end;
 
-procedure TCrossHttpClientConnection._Send(const AHeaderSource,
+procedure TCrossHttpClientConnection._HttpSend(const AHeaderSource,
   ABodySource: TCrossHttpChunkDataFunc;
   const ASendCb: TCrossConnectionCallback);
 var
-  LHeaderDone: Boolean;
+  LMethodIsHead, LHeaderDone: Boolean;
 begin
+  // 更新计时器
+  _UpdateWatch;
+
+  _ReqLock;
+  try
+    // 标记正在发送请求
+    _SetRequestStatus(rsSending);
+
+    LMethodIsHead := (FRequest <> nil) and (FRequest.Method = 'HEAD');
+  finally
+    _ReqUnlock;
+  end;
+
   // HEAD 请求不应包含请求体 (RFC 7231 §4.3.2)
-  if (FRequest.Method = 'HEAD') then
+  if LMethodIsHead then
   begin
-    _Send(AHeaderSource, ASendCb);
+    _SocketSend(AHeaderSource, ASendCb);
     Exit;
   end;
 
   LHeaderDone := False;
 
-  _Send(
+  _SocketSend(
     function(const AData: PPointer; const ADataSize: PNativeInt): Boolean
     begin
       if not LHeaderDone then
@@ -3160,13 +3162,28 @@ procedure TCrossHttpClient.DoRequest(const AMethod, AUrl: string;
   const AInitProc: TCrossHttpRequestInitProc;
   const ACallback: TCrossHttpResponseProc);
 var
+  LIsGetReq: Boolean;
+  LUrl, LReqStr: string;
   LReqBytes: TBytes;
 begin
+  LIsGetReq := TStrUtils.SameText(AMethod, THttpMethod.GET);
+  LUrl := AUrl;
   if (ARequestBody <> nil) then
-    LReqBytes := TEncoding.UTF8.GetBytes(ARequestBody.Encode)
+    LReqStr := ARequestBody.Encode
   else
-    LReqBytes := nil;
-  DoRequest(AMethod, AUrl, AHttpHeaders,
+    LReqStr := '';
+  LReqBytes := nil;
+
+  if LIsGetReq then
+  begin
+    if (LReqStr <> '') then
+      LUrl := LUrl + '?' + LReqStr;
+  end else
+  begin
+    LReqBytes := TEncoding.UTF8.GetBytes(LReqStr)
+  end;
+
+  DoRequest(AMethod, LUrl, AHttpHeaders,
     LReqBytes,
     AResponseStream,
     procedure(const ARequest: ICrossHttpClientRequest)
@@ -3174,7 +3191,8 @@ begin
       if Assigned(AInitProc) then
         AInitProc(ARequest);
 
-      ARequest.Header[HEADER_CONTENT_TYPE] := TMediaType.APPLICATION_FORM_URLENCODED_TYPE;
+      if not LIsGetReq and (ARequest.Header[HEADER_CONTENT_TYPE] = '') then
+        ARequest.Header[HEADER_CONTENT_TYPE] := TMediaType.APPLICATION_FORM_URLENCODED_TYPE;
     end,
     ACallback);
 end;
