@@ -19,6 +19,35 @@ unit Net.CrossSslSocket.OpenSSL;
 
   传输层安全协议:
   https://zh.wikipedia.org/wiki/%E5%82%B3%E8%BC%B8%E5%B1%A4%E5%AE%89%E5%85%A8%E5%8D%94%E8%AD%B0
+
+  ── mTLS additions ───────────────────────────────────────────────────────────
+  [MTLS-1] SetCACertificate(Pointer, Integer) override added.
+           Loads a CA certificate from a memory buffer and registers it with
+           the SSL context for client-certificate verification (mTLS server
+           mode).  Uses BIO_new_mem_buf + PEM_read_bio_X509 to parse the PEM
+           data, then calls SSL_CTX_add_client_CA (populates the CA list sent
+           to clients in the CertificateRequest handshake message) and
+           X509_STORE_add_cert (adds the cert to the trust store used to
+           verify the presented certificate chain).
+           Companion overloads (TBytes / string / file) inherited from the
+           base class (Net.CrossSslSocket.Base) mirror the SetCertificate
+           overload family.
+
+  [MTLS-2] SetVerifyPeer(Boolean) override added.
+           When AVerify=True, sets SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT
+           so the server demands a valid client certificate.
+           When AVerify=False, reverts to SSL_VERIFY_NONE (default).
+           Must be called AFTER SetCACertificate — the trust store must be
+           populated before verify mode is enabled.
+
+  ── TLS-option additions ─────────────────────────────────────────────────────
+  [TLSOPT-1] SetPrivateKeyPassword(string) override + password-aware SetPrivateKey.
+             Stores a passphrase; the next SetPrivateKey parses an encrypted PEM
+             key with PEM_read_bio_PrivateKey + a password callback, then
+             SSL_CTX_use_PrivateKey. Empty passphrase keeps the unencrypted path.
+  [TLSOPT-2] SetCipherList(string) override.
+             Calls SSL_CTX_set_cipher_list to override the TLS 1.2 cipher list;
+             raises if the string selects no ciphers. TLS 1.3 suites unchanged.
 }
 
 interface
@@ -140,6 +169,7 @@ type
   TCrossOpenSslSocket = class(TCrossSslSocketBase)
   private
     FSslCtx: PSSL_CTX;
+    FPKeyPassword: AnsiString;   // [TLSOPT-1] passphrase for an encrypted key
 
     procedure _InitSslCtx;
     procedure _FreeSslCtx;
@@ -166,6 +196,25 @@ type
 
     procedure SetCertificate(const ACertBuf: Pointer; const ACertBufSize: Integer); overload; override;
     procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer); overload; override;
+
+    { ── MTLS-1: load a CA certificate (PEM buffer) for client-cert verification.
+      Calls SSL_CTX_add_client_CA to register the CA name in the
+      CertificateRequest list the server sends to clients during the
+      handshake, and X509_STORE_add_cert to populate the trust store used to
+      verify the certificate chain presented by the client. }
+    procedure SetCACertificate(const ACACertBuf: Pointer; const ACACertBufSize: Integer); overload; override;
+
+    { ── MTLS-2: enable / disable client-certificate verification.
+      AVerify=True  → SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT
+                      (handshake fails without a valid client cert)
+      AVerify=False → SSL_VERIFY_NONE (default) }
+    procedure SetVerifyPeer(const AVerify: Boolean); override;
+    { ── TLSOPT-1: store the passphrase used to decrypt an encrypted PEM private
+      key. Applied by the next SetPrivateKey call. }
+    procedure SetPrivateKeyPassword(const APassword: string); override;
+
+    { ── TLSOPT-2: override the TLS 1.2 cipher list via SSL_CTX_set_cipher_list. }
+    procedure SetCipherList(const ACipherList: string); override;
   end;
 
 {$IFDEF CROSS_OPENSSL_SELFTEST}
@@ -1108,11 +1157,151 @@ begin
     TSSLTools.SetCertificate(FSslCtx, ACertBuf, ACertBufSize);
 end;
 
+{ ── TLSOPT-1: OpenSSL PEM password callback ──────────────────────────────────
+  OpenSSL calls this to obtain the passphrase for an encrypted PEM key. AUserData
+  points to a null-terminated copy of the passphrase (PAnsiChar of an AnsiString).
+  Copies up to ASize bytes into ABuf and returns the length. No RTL dependency
+  (manual null-scan) so the unit stays dual-compile (Delphi + FPC). }
+function _IcsHorsePemPasswdCb(ABuf: Pointer; ASize, ARWFlag: Integer;
+  AUserData: Pointer): Integer; cdecl;
+var
+  P:    PAnsiChar;
+  LLen: Integer;
+begin
+  Result := 0;
+  if (AUserData = nil) or (ASize <= 0) then Exit;
+  P := PAnsiChar(AUserData);
+  LLen := 0;
+  while (P[LLen] <> #0) and (LLen < ASize) do
+    Inc(LLen);
+  if LLen > 0 then
+    Move(P^, ABuf^, LLen);
+  Result := LLen;
+end;
+
 procedure TCrossOpenSslSocket.SetPrivateKey(const APKeyBuf: Pointer;
   const APKeyBufSize: Integer);
+var
+  LBio:  PBIO;
+  LPKey: PEVP_PKEY;
 begin
-  if Ssl then
+  if not Ssl or (FSslCtx = nil) then Exit;
+
+  // Unencrypted key (no passphrase set) — unchanged upstream behaviour.
+  if FPKeyPassword = '' then
+  begin
     TSSLTools.SetPrivateKey(FSslCtx, APKeyBuf, APKeyBufSize);
+    Exit;
+  end;
+
+  // [TLSOPT-1] Encrypted PEM key — parse with the passphrase callback (mirrors
+  // the SetCACertificate BIO + PEM_read pattern), then install into the context.
+  LBio := BIO_new_mem_buf(APKeyBuf, APKeyBufSize);
+  if LBio = nil then
+    raise ESsl.Create('SetPrivateKey: BIO_new_mem_buf failed');
+  try
+    LPKey := PEM_read_bio_PrivateKey(LBio, nil, @_IcsHorsePemPasswdCb,
+      PAnsiChar(FPKeyPassword));
+    if LPKey = nil then
+      raise ESsl.Create(
+        'SetPrivateKey: PEM_read_bio_PrivateKey failed — wrong passphrase or ' +
+        'the buffer is not a valid PEM private key');
+    try
+      if SSL_CTX_use_PrivateKey(FSslCtx, LPKey) <> 1 then
+        raise ESsl.Create('SetPrivateKey: SSL_CTX_use_PrivateKey failed');
+    finally
+      EVP_PKEY_free(LPKey);
+    end;
+  finally
+    BIO_free(LBio);
+  end;
+end;
+
+{ ── TLSOPT-1: store the passphrase for the next SetPrivateKey call. ────────── }
+procedure TCrossOpenSslSocket.SetPrivateKeyPassword(const APassword: string);
+begin
+  FPKeyPassword := AnsiString(APassword);
+end;
+
+{ ── TLSOPT-2: override the TLS 1.2 cipher list. SSL_CTX_set_cipher_list returns
+  1 on success; a string that selects no ciphers returns 0. TLS 1.3 suites are
+  left at the _InitSslCtx defaults (they use a different naming/API). }
+procedure TCrossOpenSslSocket.SetCipherList(const ACipherList: string);
+var
+  LAnsi: AnsiString;
+begin
+  if not Ssl or (FSslCtx = nil) or (ACipherList = '') then Exit;
+  LAnsi := AnsiString(ACipherList);
+  // MarshaledAString = PAnsiChar; pass the AnsiString's buffer directly
+  // (mirrors the literal calls in _InitSslCtx).
+  if SSL_CTX_set_cipher_list(FSslCtx, PAnsiChar(LAnsi)) <> 1 then
+    raise ESsl.Create(
+      'SetCipherList: SSL_CTX_set_cipher_list rejected "' + ACipherList +
+      '" (no matching ciphers)');
+end;
+
+{ ── MTLS-1: load a CA certificate (PEM buffer) into the SSL context ──────────
+  Registers the certificate with both the CertificateRequest CA list (sent to
+  clients in the TLS handshake to indicate which CAs the server trusts) and
+  the X509 trust store (used to verify the certificate chain presented by the
+  client).  Must be called before SetVerifyPeer(True). }
+procedure TCrossOpenSslSocket.SetCACertificate(const ACACertBuf: Pointer;
+  const ACACertBufSize: Integer);
+var
+  LBio:    PBIO;
+  LCACert: PX509;
+  LStore:  PX509_STORE;
+begin
+  if not Ssl or (FSslCtx = nil) then Exit;
+
+  // Wrap the caller's buffer in a read-only memory BIO — no copy is made.
+  LBio := BIO_new_mem_buf(ACACertBuf, ACACertBufSize);
+  if LBio = nil then
+    raise ESsl.Create('SetCACertificate: BIO_new_mem_buf failed');
+  try
+    // Parse the PEM-encoded X.509 certificate.
+    LCACert := PEM_read_bio_X509(LBio, nil, nil, nil);
+    if LCACert = nil then
+      raise ESsl.Create(
+        'SetCACertificate: PEM_read_bio_X509 failed — ' +
+        'ensure the buffer contains a valid PEM certificate');
+    try
+      // Register the CA name in the CertificateRequest list.
+      SSL_CTX_add_client_CA(FSslCtx, LCACert);
+
+      // Add the cert to the trust store for chain verification.
+      LStore := SSL_CTX_get_cert_store(FSslCtx);
+      if Assigned(LStore) then
+        X509_STORE_add_cert(LStore, LCACert);
+      // X509_STORE_add_cert returns 0 if the cert is already in the store
+      // (duplicate) — this is benign, so we do not raise on <= 0 here.
+    finally
+      // Decrement our local ref-count.  The context and store hold their own.
+      X509_free(LCACert);
+    end;
+  finally
+    BIO_free(LBio);
+  end;
+end;
+
+{ ── MTLS-2: enable or disable mandatory client-certificate verification ──────
+  SSL_VERIFY_NONE             — no client certificate is requested (default).
+  SSL_VERIFY_PEER             — request and verify, but allow connections
+                                without a cert (or with an invalid cert).
+  SSL_VERIFY_FAIL_IF_NO_PEER_CERT — combined with PEER, requires the client
+                                to present a valid cert; handshake fails
+                                otherwise.
+  This implementation uses PEER | FAIL_IF_NO_PEER_CERT for AVerify=True so
+  the server demands a valid mTLS handshake. }
+procedure TCrossOpenSslSocket.SetVerifyPeer(const AVerify: Boolean);
+begin
+  if not Ssl or (FSslCtx = nil) then Exit;
+
+  if AVerify then
+    SSL_CTX_set_verify(FSslCtx,
+      SSL_VERIFY_PEER or SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nil)
+  else
+    SSL_CTX_set_verify(FSslCtx, SSL_VERIFY_NONE, nil);
 end;
 
 procedure TCrossOpenSslSocket.TriggerConnected(const AConnection: ICrossConnection);
