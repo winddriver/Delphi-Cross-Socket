@@ -872,9 +872,20 @@ begin
       Exit;
     end;
 
+    // PATCH-CSHTTP-2 — an explicit Content-Length is authoritative
+    // (RFC 7230 §3.3.3): "read body until connection close" may only be
+    // inferred when Content-Length is ABSENT (FContentLength < 0).
+    // Previously a response with Content-Length: 0 and no Connection header
+    // (HTTP/1.1 keep-alive is implicit — HTTP.sys/IIS omit the header) was
+    // treated as EOF-framed: FHasBody became True, and the psBodyData
+    // completion check `(FContentLength > 0) and (FParsedBodySize >=
+    // FContentLength)` can never fire with CL = 0, so the client hung until
+    // its timeout waiting for a close that never came on a kept-alive
+    // connection.
     FHasBody := (FContentLength > 0) or FIsChunked
-      or (FConnectionStr = '')
-      or TStrUtils.SameText(FConnectionStr, 'close');
+      or ((FContentLength < 0)
+        and ((FConnectionStr = '')
+          or TStrUtils.SameText(FConnectionStr, 'close')));
   end;
 
   if FHasBody then
