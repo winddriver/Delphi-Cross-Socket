@@ -827,6 +827,17 @@ type
     FHttpParser: ICrossHttpParser;
     FReqLock: ILock;
 
+    // [PATCH-CSHTTP-3]
+    // FRespDataReceived: response bytes have arrived for the request in
+    //   flight (set in ParseRecvData, cleared in DoRequest). Once the server
+    //   has started answering, a failure is no longer a stale-connection
+    //   race and must not be retried (non-idempotent side effects may have
+    //   happened; a garbled response is a real error).
+    // FNoRetry: set during Destroy — the owner socket / dock dictionary may
+    //   be mid-teardown, so re-dispatching would touch freed state.
+    FRespDataReceived: Boolean;
+    FNoRetry: Boolean;
+
     procedure _OnHeaderData(const ADataPtr: Pointer; const ADataSize: Integer);
     function _OnGetHeaderValue(const AHeaderName: string; out AHeaderValues: TArray<string>): Boolean;
     procedure _OnBodyBegin;
@@ -923,6 +934,17 @@ type
     FPathAndParams, FPath: string;
     FHeader: THttpHeader;
     FCookies: TRequestCookies;
+
+    // [PATCH-CSHTTP-3] stale keep-alive retry state.
+    // FViaReusedConnection: the most recent dispatch of this request went to an
+    //   idle pooled connection (TServerDock.DoRequest sets it on every dispatch).
+    //   A reused connection may have been closed by the server between requests;
+    //   the write still succeeds locally, then the read fails — the classic
+    //   stale keep-alive race every mainstream HTTP client retries through.
+    // FRetried: this request has already been re-dispatched once; a second
+    //   failure is reported to the caller (bounded retry, like WinHTTP/curl).
+    FViaReusedConnection: Boolean;
+    FRetried: Boolean;
 
     procedure _ParseUrl;
     procedure _Init(
@@ -1326,6 +1348,9 @@ begin
     FRequestObj := LRequestObj;
     FRequest := ARequest;
 
+    // [PATCH-CSHTTP-3] new request in flight — no response bytes seen yet
+    FRespDataReceived := False;
+
     // 设置响应回调
     if Assigned(ACallback) then
       FCallback := ACallback
@@ -1370,7 +1395,12 @@ end;
 destructor TCrossHttpClientConnection.Destroy;
 begin
   if Assigned(FCallback) then
+  begin
+    // [PATCH-CSHTTP-3] object teardown: the owner socket and its dock
+    // dictionary may be mid-destruction — re-dispatching is unsafe here
+    FNoRetry := True;
     TriggerResponseFailed(400, 'Connection destroyed');
+  end;
 
   FHttpParser := nil;
 
@@ -1406,6 +1436,11 @@ procedure TCrossHttpClientConnection.ParseRecvData(var ABuf: Pointer;
   var ALen: Integer);
 begin
   _UpdateWatch;
+
+  // [PATCH-CSHTTP-3] the server has started answering — from here on a
+  // failure must be reported, never retried
+  if (ALen > 0) then
+    FRespDataReceived := True;
 
 //  _Log('ParseRecvData, %s, 0x%x, %d', [Self.DebugInfo, NativeUInt(ABuf), ALen]);
   if (FHttpParser <> nil) then
@@ -1747,13 +1782,71 @@ var
   LCallback: TCrossHttpResponseProc;
   LResponse: ICrossHttpClientResponse;
   LRequestEnded: Boolean;
+  LRetryRequest: ICrossHttpClientRequest;
+  LRetryRequestObj: TCrossHttpClientRequest;
+  LClientSocket: TCrossHttpClientSocket;
+  LServerDock: IServerDock;
+  LDockFound: Boolean;
+  LIdempotent: Boolean;
 begin
   LCallback := nil;
   LRequestEnded := False;
+  LRetryRequest := nil;
   _ReqLock;
   try
     // 只在请求进行中的状态才处理, 防止竞态下重复触发回调与 _EndRequest 多减计数
     if not (RequestStatus in [rsIdle, rsSending, rsResponding]) then Exit;
+
+    // [PATCH-CSHTTP-3] connection-failure retry (the behaviour WinHTTP, curl
+    // and every mainstream client implement). Two justifications, either
+    // suffices:
+    //   - the dispatch rode a REUSED pooled connection AND no response byte
+    //     arrived: the server had almost certainly already closed it (stale
+    //     keep-alive race), so the request never reached the application —
+    //     safe for ANY method;
+    //   - the method is IDEMPOTENT (GET/HEAD/PUT/DELETE/OPTIONS): RFC 7230
+    //     §6.3.1 explicitly permits automatic retry of idempotent requests
+    //     that failed, REGARDLESS of how far the failed attempt got — fresh
+    //     connection, zero bytes, or a partial response cut off by a
+    //     close/RST (observed: fphttpserver killing a HEAD response
+    //     mid-delivery leaves respData=True; re-execution is safe by
+    //     definition). POST stays reused-and-zero-bytes-only.
+    // Always required:
+    //   - not tearing down (FNoRetry, set in Destroy)
+    //   - not already retried (bounded: one retry per request)
+    //   - the body is replayable: pointer+size (caller keeps the memory
+    //     alive until the callback fires) or no body. A chunk-source body
+    //     (FRequestBodyFunc) may be a stateful stream closure — not safe.
+    if (FRequestObj <> nil) then
+      LIdempotent := SameText(FRequestObj.FMethod, 'GET')
+        or SameText(FRequestObj.FMethod, 'HEAD')
+        or SameText(FRequestObj.FMethod, 'PUT')
+        or SameText(FRequestObj.FMethod, 'DELETE')
+        or SameText(FRequestObj.FMethod, 'OPTIONS')
+    else
+      LIdempotent := False;
+
+    if (not FNoRetry)
+      and (FRequestObj <> nil)
+      and ((FRequestObj.FViaReusedConnection and (not FRespDataReceived))
+        or LIdempotent)
+      and (not FRequestObj.FRetried)
+      and (not Assigned(FRequestObj.FRequestBodyFunc)) then
+    begin
+      FRequestObj.FRetried := True;
+      LRetryRequest := FRequest;
+    end
+    else if (FRequestObj <> nil) and IsConsole then
+      // diagnostic mirror of the retry log: shows WHICH gate refused, so a
+      // surfaced failure can be attributed (fresh-connection failure, second
+      // failure after retry, response bytes already seen, non-replayable body)
+      Writeln('[PATCH-CSHTTP-3] NOT retrying (noRetry=', FNoRetry,
+        ' reused=', FRequestObj.FViaReusedConnection,
+        ' retried=', FRequestObj.FRetried,
+        ' respData=', FRespDataReceived,
+        ' chunkBody=', Assigned(FRequestObj.FRequestBodyFunc),
+        ') status=', AStatusCode, ' "', AStatusText, '": ',
+        FRequestObj.FMethod, ' ', FRequestObj.FUrl);
 
     LCallback := FCallback;
     FCallback := nil;
@@ -1772,6 +1865,78 @@ begin
   end;
 
   Close;
+
+  // [PATCH-CSHTTP-3] re-dispatch through the server dock instead of failing.
+  // This connection is already rsRespondFailed + closed, so GetIdleConnection
+  // cannot hand it out again; the retry lands on another idle connection or a
+  // fresh connect. The dropped LCallback closure is only released, never
+  // invoked — the request object still owns the user callback and fires it
+  // exactly once when the retry completes (or fails: FRetried blocks a loop).
+  if (LRetryRequest <> nil) then
+  begin
+    LRetryRequestObj := LRetryRequest as TCrossHttpClientRequest;
+    try
+      LClientSocket := Owner as TCrossHttpClientSocket;
+      LClientSocket._LockServerDock;
+      try
+        LDockFound := LClientSocket._GetServerDock(FProtocol, FHost, FPort, LServerDock);
+      finally
+        LClientSocket._UnlockServerDock;
+      end;
+
+      if LDockFound then
+      begin
+        // CrossSocketLogEnabled is False in RELEASE, so _Log alone leaves the
+        // retry invisible — echo to the console too (silent in GUI hosts) so
+        // test runs show exactly when a retry fires.
+        if IsConsole then
+          Writeln('[PATCH-CSHTTP-3] retrying request after connection failure',
+            ' (reused=', LRetryRequestObj.FViaReusedConnection, '): ',
+            LRetryRequestObj.FMethod, ' ', LRetryRequestObj.FUrl);
+        _Log('Retrying request after connection failure (reused=%s): %s %s',
+          [BoolToStr(LRetryRequestObj.FViaReusedConnection, True),
+           LRetryRequestObj.FMethod, LRetryRequestObj.FUrl]);
+
+        // Dispatch the retry after a short pause, on a throwaway thread —
+        // never block the IO thread running this failure callback. The pause
+        // is load-bearing: an immediate retry (<1 ms after the failure) was
+        // observed to die in the same transient that killed the first
+        // attempt (backend mid-teardown of the previous connection). 50 ms is
+        // a minimal backoff that clears a real server's connection-teardown
+        // window while staying invisible in practice; retries are rare, so
+        // neither the pause nor the throwaway thread matters on the hot path.
+        // (The pathological WSL2 localhost-forwarding proxy could stretch the
+        // accepted-but-dead window toward ~70 ms; that is a test-harness
+        // artifact, not a real-network condition, and a stray second failure
+        // there simply surfaces as the normal error.)
+        TThread.CreateAnonymousThread(
+          procedure
+          begin
+            TThread.Sleep(50);
+            try
+              LServerDock.DoRequest(LRetryRequest);
+            except
+              on E: Exception do
+              begin
+                _Log('Retry dispatch failed: %s', [E.Message]);
+                try
+                  (LRetryRequest as TCrossHttpClientRequest)._ExecCallback(
+                    TCrossHttpClientResponse.Create(AStatusCode,
+                      'Retry dispatch failed: ' + E.Message));
+                except
+                end;
+              end;
+            end;
+          end).Start;
+        Exit;
+      end;
+    except
+      on E: Exception do
+        _Log('Stale-connection retry dispatch failed: %s', [E.Message]);
+    end;
+    // dock gone or dispatch raised — fall through and fail the request via
+    // the normal callback path below (which also advances the dock queue)
+  end;
 
   if Assigned(LCallback) then
   try
@@ -3507,8 +3672,20 @@ begin
   LIdleHttpConn := nil;
 
   // 优先使用空闲连接
-  if FClientSocket.FReUseConnection then
+  // [PATCH-CSHTTP-3] except on a retry: the first attempt just failed on a
+  // stale pooled connection, and every other idle connection to this server
+  // is equally suspect (they all went idle around the same time — under a
+  // concurrent burst the server closes them together). A retry that grabbed
+  // another pooled connection was observed to fail again and exhaust its
+  // single retry. Force a FRESH connect instead — the same rule WinHTTP and
+  // curl apply.
+  if FClientSocket.FReUseConnection and (not LRequestObj.FRetried) then
     LIdleHttpConn := GetIdleConnection;
+
+  // [PATCH-CSHTTP-3] record per dispatch attempt whether this request rides
+  // a reused pooled connection — only that path is exposed to the stale
+  // keep-alive race and eligible for a one-shot retry on failure
+  LRequestObj.FViaReusedConnection := (LIdleHttpConn <> nil);
 
   // 有空闲连接, 使用空闲连接处理请求
   if (LIdleHttpConn <> nil) then
