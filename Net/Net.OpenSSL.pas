@@ -1008,6 +1008,7 @@ var
   X509V3_EXT_d2i: function(ex: PX509_EXTENSION): Pointer; cdecl;
   X509V3_EXT_get: function(ex: PX509_EXTENSION): PX509V3_EXT_METHOD; cdecl;
   X509_STORE_add_cert: function(Store: PX509_STORE; Cert: PX509): Integer; cdecl;
+  X509_check_private_key: function(cert: PX509; pkey: PEVP_PKEY): Integer; cdecl;
 
   X509_digest: function(data: PX509; t: PEVP_MD; md: Pointer; len: PCardinal): Integer; cdecl;
   X509_pubkey_digest: function(data: PX509; t: PEVP_MD; md: Pointer; len: PCardinal): Integer; cdecl;
@@ -1122,6 +1123,7 @@ var
   SSL_CTX_set_ciphersuites: function(ctx: PSSL_CTX; CipherString: MarshaledAString): Integer; cdecl;
   SSL_CTX_use_PrivateKey: function(ctx: PSSL_CTX; pkey: PEVP_PKEY): Integer; cdecl;
   SSL_CTX_use_certificate: function(ctx: PSSL_CTX; cert: PX509): Integer; cdecl;
+  SSL_CTX_get0_certificate: function(const ctx: PSSL_CTX): PX509; cdecl;
   SSL_CTX_check_private_key: function(ctx: PSSL_CTX): Integer; cdecl;
   SSL_CTX_get_cert_store: function(const ctx: PSSL_CTX): PX509_STORE; cdecl;
   SSL_CTX_add_client_CA: function(const ctx: PSSL_CTX; CaCert: PX509): Integer; cdecl;
@@ -1302,6 +1304,8 @@ function X509V3_EXT_get(ex: PX509_EXTENSION): PX509V3_EXT_METHOD; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509V3_EXT_get';
 function X509_STORE_add_cert(Store: PX509_STORE; Cert: PX509): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_STORE_add_cert';
+function X509_check_private_key(cert: PX509; pkey: PEVP_PKEY): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_check_private_key';
 function X509_digest(data: PX509; t: PEVP_MD; md: Pointer; len: PCardinal): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'X509_digest';
 function X509_pubkey_digest(data: PX509; t: PEVP_MD; md: Pointer; len: PCardinal): Integer; cdecl;
@@ -1500,6 +1504,8 @@ function SSL_CTX_use_PrivateKey(ctx: PSSL_CTX; pkey: PEVP_PKEY): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_use_PrivateKey';
 function SSL_CTX_use_certificate(ctx: PSSL_CTX; cert: PX509): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_use_certificate';
+function SSL_CTX_get0_certificate(const ctx: PSSL_CTX): PX509; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_get0_certificate';
 function SSL_CTX_check_private_key(ctx: PSSL_CTX): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CTX_check_private_key';
 function SSL_CTX_get_cert_store(const ctx: PSSL_CTX): PX509_STORE; cdecl;
@@ -1587,6 +1593,8 @@ function SSL_CTX_set_tmp_rsa(ctx: PSSL_CTX; rsa: MarshaledAString): Integer; inl
 function SSL_CTX_set_tmp_dh(ctx: PSSL_CTX; dh: MarshaledAString): Integer; inline;
 function SSL_CTX_set_tmp_ecdh(ctx: PSSL_CTX; ecdh: PEC_KEY): Integer; inline;
 function SSL_CTX_add_extra_chain_cert(ctx: PSSL_CTX; cert: PX509): Integer; inline;
+function SSL_CTX_add1_chain_cert(ctx: PSSL_CTX; cert: PX509): Integer; inline;
+function SSL_CTX_clear_chain_certs(ctx: PSSL_CTX): Integer; inline;
 function SSL_CTX_set_mode(ctx: PSSL_CTX; op: Integer): Integer; inline;
 function SSL_CTX_clear_mode(ctx: PSSL_CTX; op: Integer): Integer; inline;
 function SSL_CTX_get_mode(ctx: PSSL_CTX): Integer; inline;
@@ -1620,6 +1628,9 @@ function SSL_is_fatal_error(ssl_ret: Integer): Boolean;
 function SSL_error_message(ssl_error: Cardinal): string;
 function OPENSSL_malloc(num: Integer): Pointer; inline;
 procedure OPENSSL_free(str: Pointer); inline;
+
+procedure ClearOpenSslErrors;
+function GetOpenSslErrors: string;
 
 type
   ESsl = class(Exception);
@@ -1690,14 +1701,18 @@ type
     class procedure SetCertificateFile(AContext: PSSL_CTX; const ACertFile: string); static;
 
     // 加载私钥
-    class procedure SetPrivateKey(AContext: PSSL_CTX; APKeyBuf: Pointer; APKeyBufSize: Integer); overload; static;
-    class procedure SetPrivateKey(AContext: PSSL_CTX; const APKeyBytes: TBytes); overload; static;
-    class procedure SetPrivateKey(AContext: PSSL_CTX; const APKeyStr: string); overload; static;
-    class procedure SetPrivateKeyFile(AContext: PSSL_CTX; const APKeyFile: string); static;
+    class procedure SetPrivateKey(AContext: PSSL_CTX; APKeyBuf: Pointer;
+      APKeyBufSize: Integer; const APassword: string = ''); overload; static;
+    class procedure SetPrivateKey(AContext: PSSL_CTX; const APKeyBytes: TBytes;
+      const APassword: string = ''); overload; static;
+    class procedure SetPrivateKey(AContext: PSSL_CTX; const APKeyStr: string;
+      const APassword: string = ''); overload; static;
+    class procedure SetPrivateKeyFile(AContext: PSSL_CTX; const APKeyFile: string;
+      const APassword: string = ''); static;
 
     // 生成自签名证书
-    class procedure SelfSignCert(const ACert, AKey: string; const AName: TStringList;
-      ADays: Integer = 365; ASer: UInt64 = 0; ABits: Integer = 4096); static;
+    class procedure SelfSignCert(const ASaveCertFileName, ASaveKeyFileName: string;
+      const AName: TStringList; ADays: Integer = 365; ASer: UInt64 = 0; ABits: Integer = 4096); static;
 
     // 从内存bio中读取字符串
     class function GetStrFromMemBIO(ABio: PBIO): string; static;
@@ -1846,6 +1861,46 @@ type
 
 implementation
 
+type
+  PPemPasswordData = ^TPemPasswordData;
+  TPemPasswordData = record
+    Data: PByte;
+    Length: Integer;
+  end;
+
+function PemPasswordCallback(buf: Pointer; size, rwflag: Integer;
+  userdata: Pointer): Integer; cdecl;
+var
+  LPasswordData: PPemPasswordData;
+begin
+  Result := -1;
+  try
+    if (buf = nil) or (userdata = nil) or (size < 0) or (rwflag <> 0) then Exit;
+
+    LPasswordData := PPemPasswordData(userdata);
+    if LPasswordData^.Length = 0 then
+    begin
+      Result := 0;
+      Exit;
+    end;
+    if (LPasswordData^.Data = nil) or
+       (LPasswordData^.Length > size) then Exit;
+
+    Move(LPasswordData^.Data^, PByte(buf)^, LPasswordData^.Length);
+    Result := LPasswordData^.Length;
+  except
+    // C 回调边界不得传播 Pascal 异常
+    Result := -1;
+  end;
+end;
+
+procedure ClearSensitiveBytes(var ABytes: TBytes);
+begin
+  if Length(ABytes) > 0 then
+    FillChar(ABytes[0], Length(ABytes), 0);
+  ABytes := nil;
+end;
+
 {$IF DEFINED(__SSL_STATIC__) AND NOT DEFINED(__SSL3__)}
 function EVP_PKEY_get_size(key: PEVP_PKEY): Integer;
 begin
@@ -1908,6 +1963,16 @@ end;
 function SSL_CTX_add_extra_chain_cert(ctx: PSSL_CTX; cert: PX509): Integer;
 begin
   Result := SSL_CTX_ctrl(ctx, SSL_CTRL_EXTRA_CHAIN_CERT, 0, MarshaledAString(cert));
+end;
+
+function SSL_CTX_add1_chain_cert(ctx: PSSL_CTX; cert: PX509): Integer;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_CHAIN_CERT, 1{增加 X509 引用计数}, cert);
+end;
+
+function SSL_CTX_clear_chain_certs(ctx: PSSL_CTX): Integer;
+begin
+  Result := SSL_CTX_ctrl(ctx, SSL_CTRL_CHAIN, 0, nil);
 end;
 
 function SSL_need_tmp_rsa(ssl: PSSL): Integer;
@@ -2079,6 +2144,32 @@ begin
   CRYPTO_free(str, '', 0);
 end;
 
+procedure ClearOpenSslErrors;
+begin
+  while ERR_get_error() <> 0 do;
+end;
+
+function GetOpenSslErrors: string;
+var
+  LError: Cardinal;
+  LMessage: string;
+begin
+  Result := '';
+  repeat
+    LError := ERR_get_error();
+    if LError = 0 then Break;
+
+    LMessage := Format('error %d %s', [LError, SSL_error_message(LError)]);
+    if (Result = '') then
+      Result := LMessage
+    else
+      Result := Result + '; ' + LMessage;
+  until False;
+
+  if (Result = '') then
+    Result := 'unknown OpenSSL error';
+end;
+
 { TSSLTools }
 
 class function TSSLTools.NewCTX(AMeth: PSSL_METHOD): PSSL_CTX;
@@ -2227,48 +2318,86 @@ end;
 
 class procedure TSSLTools.SetCertificate(AContext: PSSL_CTX; ACertBuf: Pointer;
   ACertBufSize: Integer);
-// 异常路径资源释放:
-//   BIO 全流程 try/finally; 每个 X509 在本轮 finally 释放,
-//   保证中间任一步 raise 都不泄漏 BIO/X509.
 var
   LBIOCert: PBIO;
   LSSLCert: PX509;
-  LStore: PX509_STORE;
+  LCerts: TArray<PX509>;
+  LCertCount, LValidSize, I: Integer;
+  LErrorMessage: string;
 begin
-  LBIOCert := BIO_new_mem_buf(ACertBuf, ACertBufSize);
-  if (LBIOCert = nil) then
-    raise ESsl.Create('Failed to allocate certificate cache.');
+  if (AContext = nil) then
+    raise ESsl.Create('SSL context is nil.');
+  if (ACertBuf = nil) or (ACertBufSize <= 0) then
+    raise ESsl.Create('Certificate data is empty.');
+
+  // 避免通过一次预期失败的 PEM 读取探测 EOF, 同时拒绝尾随非空白数据
+  LValidSize := ACertBufSize;
+  while (LValidSize > 0) do
+  begin
+    case PByte(NativeUInt(ACertBuf) + NativeUInt(LValidSize - 1))^ of
+      9, 10, 13, 32: Dec(LValidSize);
+    else
+      Break;
+    end;
+  end;
+  if (LValidSize = 0) then
+    raise ESsl.Create('Certificate data is empty.');
+
+  LCerts := nil;
   try
-    LSSLCert := PEM_read_bio_X509_AUX(LBIOCert, nil, nil, nil);
-    if (LSSLCert = nil) then
-      raise ESsl.Create('Failed to read certificate data.');
+    LBIOCert := BIO_new_mem_buf(ACertBuf, LValidSize);
+    if (LBIOCert = nil) then
+      raise ESsl.Create('Failed to allocate certificate cache.');
     try
-      if (SSL_CTX_use_certificate(AContext, LSSLCert) <= 0) then
-        raise ESsl.Create('Failed to use certificate.');
+      while (BIO_pending(LBIOCert) > 0) do
+      begin
+        ClearOpenSslErrors;
+        LSSLCert := PEM_read_bio_X509(LBIOCert, nil, nil, nil);
+        if (LSSLCert = nil) then
+          raise ESsl.CreateFmt('Failed to read certificate data: %s.',
+            [GetOpenSslErrors]);
+
+        try
+          LCertCount := Length(LCerts);
+          SetLength(LCerts, LCertCount + 1);
+          LCerts[LCertCount] := LSSLCert;
+          LSSLCert := nil;
+        finally
+          if LSSLCert <> nil then
+            X509_free(LSSLCert);
+        end;
+      end;
     finally
-      X509_free(LSSLCert);
+      BIO_free(LBIOCert);
     end;
 
-    LStore := SSL_CTX_get_cert_store(AContext);
-    if (LStore = nil) then
-      raise ESsl.Create('Failed to retrieve certificate store.');
+    if (Length(LCerts) = 0) then
+      raise ESsl.Create('Certificate data contains no certificate.');
 
-    // 将证书链中剩余的证书添加到仓库中
-    // 有完整证书链在 ssllabs.com 评分中才能评为 A
-    while not BIO_eof(LBIOCert) do
+    ClearOpenSslErrors;
+    if SSL_CTX_use_certificate(AContext, LCerts[0]) <= 0 then
+      raise ESsl.CreateFmt('Failed to use certificate: %s.',
+        [GetOpenSslErrors]);
+
+    ClearOpenSslErrors;
+    if SSL_CTX_clear_chain_certs(AContext) <= 0 then
+      raise ESsl.CreateFmt('Failed to clear certificate chain: %s.',
+        [GetOpenSslErrors]);
+
+    for I := 1 to High(LCerts) do
     begin
-      LSSLCert := PEM_read_bio_X509(LBIOCert, nil, nil, nil);
-      if (LSSLCert = nil) then
-        raise ESsl.Create('Failed to read certificate data.');
-      try
-        if (X509_STORE_add_cert(LStore, LSSLCert) <= 0) then
-          raise ESsl.Create('Failed to add certificate to the store.');
-      finally
-        X509_free(LSSLCert);
+      ClearOpenSslErrors;
+      if SSL_CTX_add1_chain_cert(AContext, LCerts[I]) <= 0 then
+      begin
+        LErrorMessage := GetOpenSslErrors;
+        SSL_CTX_clear_chain_certs(AContext);
+        raise ESsl.CreateFmt('Failed to add chain certificate: %s.',
+          [LErrorMessage]);
       end;
     end;
   finally
-    BIO_free(LBIOCert);
+    for I := 0 to High(LCerts) do
+      X509_free(LCerts[I]);
   end;
 end;
 
@@ -2291,50 +2420,96 @@ begin
 end;
 
 class procedure TSSLTools.SetPrivateKey(AContext: PSSL_CTX; APKeyBuf: Pointer;
-  APKeyBufSize: Integer);
+  APKeyBufSize: Integer; const APassword: string);
 // 异常路径资源释放: BIO 与 EVP_PKEY 全流程 try/finally,
 // 保证中间任一步 raise 都不泄漏.
 var
   LBIOKey: PBIO;
   LSSLPKey: PEVP_PKEY;
+  LSSLCert: PX509;
+  LPasswordBytes: TBytes;
+  LPasswordData: TPemPasswordData;
 begin
-  LBIOKey := BIO_new_mem_buf(APKeyBuf, APKeyBufSize);
-  if (LBIOKey = nil) then
-    raise ESsl.Create('Failed to allocate private key cache.');
+  ClearOpenSslErrors;
+  if AContext = nil then
+    raise ESsl.Create('SSL context is nil.');
+  if (APKeyBuf = nil) or (APKeyBufSize <= 0) then
+    raise ESsl.Create('Private key data is empty.');
+
+  LPasswordBytes := TEncoding.UTF8.GetBytes(APassword);
+  LPasswordData.Data := nil;
+  LPasswordData.Length := Length(LPasswordBytes);
+  if LPasswordData.Length > 0 then
+    LPasswordData.Data := @LPasswordBytes[0];
   try
-    LSSLPKey := PEM_read_bio_PrivateKey(LBIOKey, nil, nil, nil);
-    if (LSSLPKey = nil) then
-      raise ESsl.Create('Failed to read private key data.');
+    ClearOpenSslErrors;
+    LBIOKey := BIO_new_mem_buf(APKeyBuf, APKeyBufSize);
+    if (LBIOKey = nil) then
+      raise ESsl.CreateFmt('Failed to allocate private key cache: %s.',
+        [GetOpenSslErrors]);
     try
-      if (SSL_CTX_use_PrivateKey(AContext, LSSLPKey) <= 0) then
-        raise ESsl.Create('Failed to use private key.');
+      ClearOpenSslErrors;
+      LSSLPKey := PEM_read_bio_PrivateKey(LBIOKey, nil,
+        PemPasswordCallback, @LPasswordData);
+      if (LSSLPKey = nil) then
+        raise ESsl.CreateFmt('Failed to read private key data: %s.',
+          [GetOpenSslErrors]);
+      try
+        ClearOpenSslErrors;
+        LSSLCert := SSL_CTX_get0_certificate(AContext);
+        if LSSLCert = nil then
+          raise ESsl.Create('Certificate must be set before private key.');
+
+        ClearOpenSslErrors;
+        if X509_check_private_key(LSSLCert, LSSLPKey) <= 0 then
+          raise ESsl.CreateFmt('Private key does not match the certificate: %s.',
+            [GetOpenSslErrors]);
+
+        ClearOpenSslErrors;
+        if SSL_CTX_use_PrivateKey(AContext, LSSLPKey) <= 0 then
+          raise ESsl.CreateFmt('Failed to use private key: %s.',
+            [GetOpenSslErrors]);
+      finally
+        EVP_PKEY_free(LSSLPKey);
+      end;
     finally
-      EVP_PKEY_free(LSSLPKey);
+      BIO_free(LBIOKey);
     end;
   finally
-    BIO_free(LBIOKey);
+    ClearSensitiveBytes(LPasswordBytes);
   end;
-
-  if (SSL_CTX_check_private_key(AContext) <= 0) then
-    raise ESsl.Create('Private key does not match the public key of the certificate.');
 end;
 
 class procedure TSSLTools.SetPrivateKey(AContext: PSSL_CTX;
-  const APKeyBytes: TBytes);
+  const APKeyBytes: TBytes; const APassword: string);
 begin
-  SetPrivateKey(AContext, Pointer(APKeyBytes), Length(APKeyBytes));
+  SetPrivateKey(AContext, Pointer(APKeyBytes), Length(APKeyBytes), APassword);
 end;
 
 class procedure TSSLTools.SetPrivateKey(AContext: PSSL_CTX;
-  const APKeyStr: string);
+  const APKeyStr, APassword: string);
+var
+  LKeyBytes: TBytes;
 begin
-  SetPrivateKey(AContext, TEncoding.ANSI.GetBytes(APKeyStr));
+  LKeyBytes := TEncoding.ANSI.GetBytes(APKeyStr);
+  try
+    SetPrivateKey(AContext, LKeyBytes, APassword);
+  finally
+    ClearSensitiveBytes(LKeyBytes);
+  end;
 end;
 
 class procedure TSSLTools.SetPrivateKeyFile(AContext: PSSL_CTX;
-  const APKeyFile: string);
+  const APKeyFile, APassword: string);
+var
+  LKeyBytes: TBytes;
 begin
-  SetPrivateKey(AContext, TFileUtils.ReadAllBytes(APKeyFile));
+  LKeyBytes := TFileUtils.ReadAllBytes(APKeyFile);
+  try
+    SetPrivateKey(AContext, LKeyBytes, APassword);
+  finally
+    ClearSensitiveBytes(LKeyBytes);
+  end;
 end;
 
 class procedure TSSLTools.SslInit;
@@ -3369,6 +3544,7 @@ begin
     @X509V3_EXT_d2i := GetSslLibProc(FCryptoLibHandle, 'X509V3_EXT_d2i');
     @X509V3_EXT_get := GetSslLibProc(FCryptoLibHandle, 'X509V3_EXT_get');
     @X509_STORE_add_cert := GetSslLibProc(FCryptoLibHandle, 'X509_STORE_add_cert');
+    @X509_check_private_key := GetSslLibProc(FCryptoLibHandle, 'X509_check_private_key');
     @X509_digest := GetSslLibProc(FCryptoLibHandle, 'X509_digest');
     @X509_pubkey_digest := GetSslLibProc(FCryptoLibHandle, 'X509_pubkey_digest');
     @X509_free := GetSslLibProc(FCryptoLibHandle, 'X509_free');
@@ -3511,6 +3687,7 @@ begin
     @SSL_CTX_set_ciphersuites := GetSslLibProc(FSslLibHandle, 'SSL_CTX_set_ciphersuites');
     @SSL_CTX_use_PrivateKey := GetSslLibProc(FSslLibHandle, 'SSL_CTX_use_PrivateKey');
     @SSL_CTX_use_certificate := GetSslLibProc(FSslLibHandle, 'SSL_CTX_use_certificate');
+    @SSL_CTX_get0_certificate := GetSslLibProc(FSslLibHandle, 'SSL_CTX_get0_certificate');
     @SSL_CTX_check_private_key := GetSslLibProc(FSslLibHandle, 'SSL_CTX_check_private_key');
     @SSL_CTX_get_cert_store := GetSslLibProc(FSslLibHandle, 'SSL_CTX_get_cert_store');
     @SSL_CTX_add_client_CA := GetSslLibProc(FSslLibHandle, 'SSL_CTX_add_client_CA');
@@ -3630,8 +3807,8 @@ begin
   Result := (UInt64(Random(MaxInt)) shl 32) or UInt64(Random(MaxInt));
 end;
 
-class procedure TSSLTools.SelfSignCert(const ACert, AKey: string; const AName: TStringList;
-  ADays: Integer; ASer: UInt64; ABits: Integer);
+class procedure TSSLTools.SelfSignCert(const ASaveCertFileName, ASaveKeyFileName: string;
+  const AName: TStringList; ADays: Integer; ASer: UInt64; ABits: Integer);
 var
   LKey: PEVP_PKEY;
   LCert: PX509;
@@ -3811,9 +3988,9 @@ begin
       raise ESsl.Create('Failed: X509_sign');
 
     // 10. 写入私钥文件（PKCS#8 无加密 PEM 格式）
-    LFile := BIO_new_file(PAnsiChar(AnsiString(AKey)), 'wb');
+    LFile := BIO_new_file(PAnsiChar(AnsiString(ASaveKeyFileName)), 'wb');
     if (LFile = nil) then
-      raise ESsl.CreateFmt('Failed to create key file: %s', [AKey]);
+      raise ESsl.CreateFmt('Failed to create key file: %s', [ASaveKeyFileName]);
     try
       if (PEM_write_bio_PKCS8PrivateKey(LFile, LKey, nil, nil, 0, nil, nil) = 0) then
         raise ESsl.Create('Failed: PEM_write_bio_PKCS8PrivateKey');
@@ -3823,9 +4000,9 @@ begin
     end;
 
     // 11. 写入证书文件（PEM 格式）
-    LFile := BIO_new_file(PAnsiChar(AnsiString(ACert)), 'wb');
+    LFile := BIO_new_file(PAnsiChar(AnsiString(ASaveCertFileName)), 'wb');
     if (LFile = nil) then
-      raise ESsl.CreateFmt('Failed to create cert file: %s', [ACert]);
+      raise ESsl.CreateFmt('Failed to create cert file: %s', [ASaveCertFileName]);
     try
       if (PEM_write_bio_X509(LFile, LCert) = 0) then
         raise ESsl.Create('Failed: PEM_write_bio_X509');

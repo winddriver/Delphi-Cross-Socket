@@ -142,8 +142,10 @@ type
     procedure SetCertificate(const ACertBuf: Pointer; const ACertBufSize: Integer); overload; override;
     procedure SetCertificate(const ACertBytes: TBytes); overload; override;
 
-    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer); overload; override;
-    procedure SetPrivateKey(const APKeyBytes: TBytes); overload; override;
+    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer;
+      const APassword: string); overload; override;
+    procedure SetPrivateKey(const APKeyBytes: TBytes;
+      const APassword: string); overload; override;
   end;
 
 implementation
@@ -366,23 +368,36 @@ begin
 end;
 
 procedure TCrossMbedTlsSocket.SetPrivateKey(const APKeyBuf: Pointer;
-  const APKeyBufSize: Integer);
+  const APKeyBufSize: Integer; const APassword: string);
 begin
   if Ssl then
   begin
+    if (APKeyBuf = nil) or (APKeyBufSize <= 0) then
+      raise EMbedTls.Create(MBEDTLS_ERR_PK_BAD_INPUT_DATA,
+        'Private key data is empty.');
+    if APassword <> '' then
+      raise EMbedTls.Create(MBEDTLS_ERR_PK_FEATURE_UNAVAILABLE,
+        'Encrypted private keys are disabled for bundled Mbed TLS 2.14.0.');
+
     MbedCheck(mbedtls_pk_parse_key(@FPKey, APKeyBuf, APKeyBufSize, nil, 0), 'mbedtls_pk_parse_key SetPrivateKey:');
     _UpdateCert;
   end;
 end;
 
-procedure TCrossMbedTlsSocket.SetPrivateKey(const APKeyBytes: TBytes);
+procedure TCrossMbedTlsSocket.SetPrivateKey(const APKeyBytes: TBytes;
+  const APassword: string);
 var
   LPKeyBytes: TBytes;
 begin
   if Ssl then
   begin
     LPKeyBytes := _MbedCert(APKeyBytes);
-    SetPrivateKey(Pointer(LPKeyBytes), Length(LPKeyBytes));
+    try
+      SetPrivateKey(Pointer(LPKeyBytes), Length(LPKeyBytes), APassword);
+    finally
+      if Length(LPKeyBytes) > 0 then
+        FillChar(LPKeyBytes[0], Length(LPKeyBytes), 0);
+    end;
   end;
 end;
 

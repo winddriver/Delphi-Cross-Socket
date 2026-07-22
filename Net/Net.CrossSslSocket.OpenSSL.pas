@@ -165,7 +165,8 @@ type
     destructor Destroy; override;
 
     procedure SetCertificate(const ACertBuf: Pointer; const ACertBufSize: Integer); overload; override;
-    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer); overload; override;
+    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer;
+      const APassword: string); overload; override;
   end;
 
 {$IFDEF CROSS_OPENSSL_SELFTEST}
@@ -545,15 +546,7 @@ begin
   AErrCode := _SSL_get_error(ARetCode);
   Result := SSL_is_fatal_error(AErrCode);
   if Result then
-  begin
-    while True do
-    begin
-      LError := ERR_get_error();
-      if (LError = 0) then Break;
-
-      _Log(AOperation + ' error %d %s', [LError, SSL_error_message(LError)]);
-    end;
-  end;
+    _Log(AOperation + ' ' + GetOpenSslErrors);
 end;
 
 function TCrossOpenSslConnection._SSL_handle_error(const ARetCode: Integer;
@@ -1109,10 +1102,10 @@ begin
 end;
 
 procedure TCrossOpenSslSocket.SetPrivateKey(const APKeyBuf: Pointer;
-  const APKeyBufSize: Integer);
+  const APKeyBufSize: Integer; const APassword: string);
 begin
   if Ssl then
-    TSSLTools.SetPrivateKey(FSslCtx, APKeyBuf, APKeyBufSize);
+    TSSLTools.SetPrivateKey(FSslCtx, APKeyBuf, APKeyBufSize, APassword);
 end;
 
 procedure TCrossOpenSslSocket.TriggerConnected(const AConnection: ICrossConnection);

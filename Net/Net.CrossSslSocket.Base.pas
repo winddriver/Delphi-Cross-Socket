@@ -37,7 +37,7 @@ type
   ///   正确的使用步骤:
   ///   <list type="number">
   ///     <item>
-  ///       SetCertificateificate 或 SetCertificateificateFile
+  ///       SetCertificate 或 SetCertificateFile
   ///     </item>
   ///     <item>
   ///       SetPrivateKey 或 SetPrivateKeyFile, 客户端不需要这一步
@@ -46,9 +46,11 @@ type
   ///       Connect / Listen
   ///     </item>
   ///   </list>
+  ///   加密私钥密码当前由 OpenSSL 后端支持；内置 Mbed TLS 2.14.0
+  ///   因安全原因会拒绝非空密码。
   /// </remarks>
   ICrossSslSocket = interface(ICrossSocket)
-  ['{A4765486-A0F1-4EFD-BC39-FA16AED21A6A}']
+  ['{FCED3082-5CB4-4D7B-A44E-CAE79A458AA2}']
     function GetSsl: Boolean;
     function GetSslMaxPendingWriteBytes: Int64;
     function GetAllowUnsafeLegacyRenegotiation: Boolean;
@@ -101,15 +103,23 @@ type
     /// <param name="APKeyBufSize">
     ///   私钥缓冲区大小
     /// </param>
-    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer); overload;
+    /// <param name="APassword">
+    ///   加密私钥密码, 空字符串表示未提供密码
+    /// </param>
+    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer;
+      const APassword: string = ''); overload;
 
     /// <summary>
     ///   从字节数组加载私钥
     /// </summary>
-    /// <param name="APKeyStr">
+    /// <param name="APKeyBytes">
     ///   私钥字节数组
     /// </param>
-    procedure SetPrivateKey(const APKeyBytes: TBytes); overload;
+    /// <param name="APassword">
+    ///   加密私钥密码, 空字符串表示未提供密码
+    /// </param>
+    procedure SetPrivateKey(const APKeyBytes: TBytes;
+      const APassword: string = ''); overload;
 
     /// <summary>
     ///   从字符串加载私钥
@@ -117,7 +127,11 @@ type
     /// <param name="APKeyStr">
     ///   私钥字符串
     /// </param>
-    procedure SetPrivateKey(const APKeyStr: string); overload;
+    /// <param name="APassword">
+    ///   加密私钥密码, 空字符串表示未提供密码
+    /// </param>
+    procedure SetPrivateKey(const APKeyStr: string;
+      const APassword: string = ''); overload;
 
     /// <summary>
     ///   从文件加载私钥
@@ -125,7 +139,11 @@ type
     /// <param name="APKeyFile">
     ///   私钥文件
     /// </param>
-    procedure SetPrivateKeyFile(const APKeyFile: string);
+    /// <param name="APassword">
+    ///   加密私钥密码, 空字符串表示未提供密码
+    /// </param>
+    procedure SetPrivateKeyFile(const APKeyFile: string;
+      const APassword: string = '');
 
     /// <summary>
     ///   是否已启用 SSL
@@ -181,10 +199,14 @@ type
     procedure SetCertificate(const ACertStr: string); overload; virtual;
     procedure SetCertificateFile(const ACertFile: string); virtual;
 
-    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer); overload; virtual; abstract;
-    procedure SetPrivateKey(const APKeyBytes: TBytes); overload; virtual;
-    procedure SetPrivateKey(const APKeyStr: string); overload; virtual;
-    procedure SetPrivateKeyFile(const APKeyFile: string); virtual;
+    procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer;
+      const APassword: string = ''); overload; virtual; abstract;
+    procedure SetPrivateKey(const APKeyBytes: TBytes;
+      const APassword: string = ''); overload; virtual;
+    procedure SetPrivateKey(const APKeyStr: string;
+      const APassword: string = ''); overload; virtual;
+    procedure SetPrivateKeyFile(const APKeyFile: string;
+      const APassword: string = ''); virtual;
 
     property Ssl: Boolean read GetSsl;
     property SslMaxPendingWriteBytes: Int64 read GetSslMaxPendingWriteBytes write SetSslMaxPendingWriteBytes;
@@ -247,19 +269,38 @@ begin
   SetCertificate(TFileUtils.ReadAllBytes(ACertFile));
 end;
 
-procedure TCrossSslSocketBase.SetPrivateKey(const APKeyBytes: TBytes);
+procedure TCrossSslSocketBase.SetPrivateKey(const APKeyBytes: TBytes;
+  const APassword: string);
 begin
-  SetPrivateKey(Pointer(APKeyBytes), Length(APKeyBytes));
+  SetPrivateKey(Pointer(APKeyBytes), Length(APKeyBytes), APassword);
 end;
 
-procedure TCrossSslSocketBase.SetPrivateKey(const APKeyStr: string);
+procedure TCrossSslSocketBase.SetPrivateKey(const APKeyStr: string;
+  const APassword: string);
+var
+  LKeyBytes: TBytes;
 begin
-  SetPrivateKey(TEncoding.ANSI.GetBytes(APKeyStr));
+  LKeyBytes := TEncoding.ANSI.GetBytes(APKeyStr);
+  try
+    SetPrivateKey(LKeyBytes, APassword);
+  finally
+    if Length(LKeyBytes) > 0 then
+      FillChar(LKeyBytes[0], Length(LKeyBytes), 0);
+  end;
 end;
 
-procedure TCrossSslSocketBase.SetPrivateKeyFile(const APKeyFile: string);
+procedure TCrossSslSocketBase.SetPrivateKeyFile(const APKeyFile,
+  APassword: string);
+var
+  LKeyBytes: TBytes;
 begin
-  SetPrivateKey(TFileUtils.ReadAllBytes(APKeyFile));
+  LKeyBytes := TFileUtils.ReadAllBytes(APKeyFile);
+  try
+    SetPrivateKey(LKeyBytes, APassword);
+  finally
+    if Length(LKeyBytes) > 0 then
+      FillChar(LKeyBytes[0], Length(LKeyBytes), 0);
+  end;
 end;
 
 { TCrossSslConnectionBase }
