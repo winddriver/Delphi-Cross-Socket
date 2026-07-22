@@ -872,9 +872,12 @@ begin
       Exit;
     end;
 
+    // 显式 Content-Length 决定消息体长度; 只有缺失时才允许按连接关闭定界.
+    // 这样 Content-Length: 0 在 HTTP/1.1 隐式 keep-alive 下可立即完成解析.
     FHasBody := (FContentLength > 0) or FIsChunked
-      or (FConnectionStr = '')
-      or TStrUtils.SameText(FConnectionStr, 'close');
+      or ((FContentLength < 0)
+        and ((FConnectionStr = '')
+          or TStrUtils.SameText(FConnectionStr, 'close')));
   end;
 
   if FHasBody then
