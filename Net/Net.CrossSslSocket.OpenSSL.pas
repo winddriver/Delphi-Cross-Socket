@@ -154,6 +154,7 @@ type
       const ATriggerConnected: Boolean; var ADecryptedData: TBytes;
       const AFatal: Boolean);
   protected
+    procedure ApplyVerifyPeer(const AValue: Boolean); override;
     procedure TriggerConnected(const AConnection: ICrossConnection); override;
     procedure TriggerReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
 
@@ -165,6 +166,8 @@ type
     destructor Destroy; override;
 
     procedure SetCertificate(const ACertBuf: Pointer; const ACertBufSize: Integer); overload; override;
+    procedure AddCACertificate(const ABuf: Pointer;
+      const ASize: Integer); overload; override;
     procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer;
       const APassword: string); overload; override;
   end;
@@ -310,6 +313,7 @@ begin
 
   if Ssl then
   begin
+    TCrossOpenSslSocket(Owner).LockTlsConfiguration;
     FLock := TLock.Create;
 
     FSslData := SSL_new(TCrossOpenSslSocket(Owner).FSslCtx);
@@ -339,6 +343,15 @@ begin
       SSL_set_connect_state(FSslData); // 客户端连接
       LHostAnsi := AnsiString(AHost);
       SSL_set_tlsext_host_name(FSslData, MarshaledAString(LHostAnsi));
+      if TCrossOpenSslSocket(Owner).VerifyPeer then
+      begin
+        if AHost = '' then
+          raise ECrossSocket.Create('A host name is required when peer verification is enabled.');
+        ClearOpenSslErrors;
+        if SSL_set1_host(FSslData, PAnsiChar(LHostAnsi)) <= 0 then
+          raise ECrossSocket.CreateFmt('SSL_set1_host failed: %s.',
+            [GetOpenSslErrors]);
+      end;
     end;
   end;
 end;
@@ -1094,18 +1107,61 @@ begin
   TSSLTools.FreeCTX(FSslCtx);
 end;
 
+procedure TCrossOpenSslSocket.ApplyVerifyPeer(const AValue: Boolean);
+begin
+  if AValue then
+    SSL_CTX_set_verify(FSslCtx,
+      SSL_VERIFY_PEER or SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nil)
+  else
+    SSL_CTX_set_verify(FSslCtx, SSL_VERIFY_NONE, nil);
+end;
+
+procedure TCrossOpenSslSocket.AddCACertificate(const ABuf: Pointer;
+  const ASize: Integer);
+begin
+  if not Ssl then Exit;
+
+  BeginTlsConfigUpdate;
+  try
+    try
+      TSSLTools.AddCACertificate(FSslCtx, ABuf, ASize);
+      MarkCACertificateAdded;
+    except
+      on E: ESslContextInvalid do
+      begin
+        InvalidateTlsConfiguration;
+        raise;
+      end;
+    end;
+  finally
+    EndTlsConfigUpdate;
+  end;
+end;
+
 procedure TCrossOpenSslSocket.SetCertificate(const ACertBuf: Pointer;
   const ACertBufSize: Integer);
 begin
-  if Ssl then
+  if not Ssl then Exit;
+
+  BeginTlsConfigUpdate;
+  try
     TSSLTools.SetCertificate(FSslCtx, ACertBuf, ACertBufSize);
+  finally
+    EndTlsConfigUpdate;
+  end;
 end;
 
 procedure TCrossOpenSslSocket.SetPrivateKey(const APKeyBuf: Pointer;
   const APKeyBufSize: Integer; const APassword: string);
 begin
-  if Ssl then
+  if not Ssl then Exit;
+
+  BeginTlsConfigUpdate;
+  try
     TSSLTools.SetPrivateKey(FSslCtx, APKeyBuf, APKeyBufSize, APassword);
+  finally
+    EndTlsConfigUpdate;
+  end;
 end;
 
 procedure TCrossOpenSslSocket.TriggerConnected(const AConnection: ICrossConnection);

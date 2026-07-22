@@ -9,6 +9,8 @@
 {******************************************************************************}
 unit Net.CrossSslSocket.MbedTls;
 
+{$I zLib.inc}
+
 {
   SSL通讯基本流程:
   1. 当连接建立时进行 SSL 握手, 收到数据时也要检查握手状态
@@ -24,8 +26,8 @@ interface
 uses
   SysUtils,
   Classes,
-  IOUtils,
 
+  Net.SocketAPI,
   Net.CrossSocket.Base,
   Net.CrossSocket,
   Net.CrossSslSocket.Base,
@@ -103,8 +105,9 @@ type
     procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); override;
   public
-    constructor Create(const AOwner: ICrossSocket; const AClientSocket: THandle;
-      const AConnectType: TConnectType); override;
+    constructor Create(const AOwner: TCrossSocketBase;
+      const AClientSocket: TSocket; const AConnectType: TConnectType;
+      const AHost: string; const AConnectedCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
   end;
 
@@ -121,6 +124,8 @@ type
     FEntropy: TMbedtls_Entropy_Context;
     FCtrDrbg: TMbedtls_CTR_DRBG_Context ;
     FCert: TMbedtls_X509_CRT;
+    FCACert: TMbedtls_X509_CRT;
+    FCAData: TBytes;
     FPKey: TMbedtls_PK_Context;
     FCache: TMbedtls_SSL_Cache_Context;
 
@@ -130,17 +135,22 @@ type
     function _MbedCert(const ACertBytes: TBytes): TBytes;
     procedure _UpdateCert;
   protected
+    procedure ApplyVerifyPeer(const AValue: Boolean); override;
     procedure TriggerConnected(const AConnection: ICrossConnection); override;
     procedure TriggerReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
 
-    function CreateConnection(const AOwner: ICrossSocket; const AClientSocket: THandle;
-      const AConnectType: TConnectType): ICrossConnection; override;
+    function CreateConnection(const AOwner: TCrossSocketBase;
+      const AClientSocket: TSocket; const AConnectType: TConnectType;
+      const AHost: string; const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
   public
     constructor Create(const AIoThreads: Integer; const ASsl: Boolean); override;
     destructor Destroy; override;
 
     procedure SetCertificate(const ACertBuf: Pointer; const ACertBufSize: Integer); overload; override;
     procedure SetCertificate(const ACertBytes: TBytes); overload; override;
+
+    procedure AddCACertificate(const ABuf: Pointer;
+      const ASize: Integer); overload; override;
 
     procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer;
       const APassword: string); overload; override;
@@ -149,6 +159,67 @@ type
   end;
 
 implementation
+
+procedure ValidateCertificatePemBundle(const ABuf: Pointer;
+  const ASize: Integer);
+const
+  PEM_BEGIN: AnsiString = '-----BEGIN CERTIFICATE-----';
+  PEM_END: AnsiString = '-----END CERTIFICATE-----';
+var
+  LData: PByte;
+  LSize, LPos, LCertCount: Integer;
+
+  function _IsWhiteSpace(const AValue: Byte): Boolean; inline;
+  begin
+    Result := AValue in [9, 10, 13, 32];
+  end;
+
+  function _Matches(const AMarker: AnsiString): Boolean; inline;
+  begin
+    Result := (LPos + Length(AMarker) <= LSize)
+      and CompareMem(PByte(NativeUInt(LData) + NativeUInt(LPos)),
+        PAnsiChar(AMarker), Length(AMarker));
+  end;
+
+begin
+  if (ABuf = nil) or (ASize <= 0) then
+    raise EMbedTls.Create(MBEDTLS_ERR_X509_BAD_INPUT_DATA,
+      'CA certificate data is empty.');
+
+  LData := ABuf;
+  LSize := ASize;
+  while (LSize > 0) and ((LData[LSize - 1] = 0)
+    or _IsWhiteSpace(LData[LSize - 1])) do
+    Dec(LSize);
+  if LSize = 0 then
+    raise EMbedTls.Create(MBEDTLS_ERR_X509_BAD_INPUT_DATA,
+      'CA certificate data is empty.');
+
+  LPos := 0;
+  LCertCount := 0;
+  while LPos < LSize do
+  begin
+    while (LPos < LSize) and _IsWhiteSpace(LData[LPos]) do
+      Inc(LPos);
+    if LPos = LSize then Break;
+    if not _Matches(PEM_BEGIN) then
+      raise EMbedTls.Create(MBEDTLS_ERR_X509_BAD_INPUT_DATA,
+        'CA certificate bundle contains invalid trailing data.');
+    Inc(LPos, Length(PEM_BEGIN));
+
+    while (LPos < LSize) and not _Matches(PEM_END) do
+      Inc(LPos);
+    if not _Matches(PEM_END) then
+      raise EMbedTls.Create(MBEDTLS_ERR_X509_BAD_INPUT_DATA,
+        'CA certificate bundle contains an incomplete certificate.');
+    Inc(LPos, Length(PEM_END));
+    Inc(LCertCount);
+  end;
+
+  if LCertCount = 0 then
+    raise EMbedTls.Create(MBEDTLS_ERR_X509_BAD_INPUT_DATA,
+      'CA certificate data contains no certificate.');
+end;
 
 { EMbedTls }
 
@@ -187,13 +258,17 @@ end;
 
 { TCrossMbedTlsConnection }
 
-constructor TCrossMbedTlsConnection.Create(const AOwner: ICrossSocket;
-  const AClientSocket: THandle; const AConnectType: TConnectType);
+constructor TCrossMbedTlsConnection.Create(const AOwner: TCrossSocketBase;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
+  const AHost: string; const AConnectedCb: TCrossConnectionCallback);
+var
+  LHostAnsi: AnsiString;
 begin
-  inherited Create(AOwner, AClientSocket, AConnectType);
+  inherited Create(AOwner, AClientSocket, AConnectType, AHost, AConnectedCb);
 
   if Ssl then
   begin
+    TCrossMbedTlsSocket(Owner).LockTlsConfiguration;
     mbedtls_ssl_init(@FSsl);
 
     if (ConnectType = ctAccept) then
@@ -206,6 +281,19 @@ begin
     BIO_make_bio_pair(FSslBIO, FAppBIO);
 
     mbedtls_ssl_set_bio(@FSsl, FSslBIO, BIO_net_send, BIO_net_recv, nil);
+
+    if ConnectType = ctConnect then
+    begin
+      if (AHost = '') and TCrossMbedTlsSocket(Owner).VerifyPeer then
+        raise ECrossSocket.Create(
+          'A host name is required when peer verification is enabled.');
+      if AHost <> '' then
+      begin
+        LHostAnsi := AnsiString(AHost);
+        MbedCheck(mbedtls_ssl_set_hostname(@FSsl,
+          MarshaledAString(LHostAnsi)), 'mbedtls_ssl_set_hostname:');
+      end;
+    end;
   end;
 end;
 
@@ -324,7 +412,8 @@ end;
 
 { TCrossMbedTlsSocket }
 
-constructor TCrossMbedTlsSocket.Create(AIoThreads: Integer; const ASsl: Boolean);
+constructor TCrossMbedTlsSocket.Create(const AIoThreads: Integer;
+  const ASsl: Boolean);
 begin
   inherited Create(AIoThreads, ASsl);
 
@@ -340,19 +429,30 @@ begin
     _FreeSslConf;
 end;
 
-function TCrossMbedTlsSocket.CreateConnection(const AOwner: ICrossSocket;
-  const AClientSocket: THandle; const AConnectType: TConnectType): ICrossConnection;
+function TCrossMbedTlsSocket.CreateConnection(const AOwner: TCrossSocketBase;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
+  const AHost: string; const AConnectCb: TCrossConnectionCallback): ICrossConnection;
 begin
-  Result := TCrossMbedTlsConnection.Create(AOwner, AClientSocket, AConnectType);
+  Result := TCrossMbedTlsConnection.Create(AOwner, AClientSocket, AConnectType,
+    AHost, AConnectCb);
 end;
 
 procedure TCrossMbedTlsSocket.SetCertificate(const ACertBuf: Pointer;
   const ACertBufSize: Integer);
+var
+  LCode: Integer;
 begin
-  if Ssl then
-  begin
-    MbedCheck(mbedtls_x509_crt_parse(@FCert, ACertBuf, ACertBufSize), 'mbedtls_x509_crt_parse SetCertificate:');
+  if not Ssl then Exit;
+
+  BeginTlsConfigUpdate;
+  try
+    LCode := mbedtls_x509_crt_parse(@FCert, ACertBuf, ACertBufSize);
+    if LCode <> 0 then
+      raise EMbedTls.Create(LCode,
+        'mbedtls_x509_crt_parse SetCertificate:');
     _UpdateCert;
+  finally
+    EndTlsConfigUpdate;
   end;
 end;
 
@@ -367,11 +467,69 @@ begin
   end;
 end;
 
+procedure TCrossMbedTlsSocket.AddCACertificate(const ABuf: Pointer;
+  const ASize: Integer);
+var
+  LNewData: TBytes;
+  LNewCACert: TMbedtls_X509_CRT;
+  LOldSize, LNewSize, LCode: Integer;
+begin
+  if not Ssl then Exit;
+  ValidateCertificatePemBundle(ABuf, ASize);
+
+  BeginTlsConfigUpdate;
+  try
+    LOldSize := Length(FCAData);
+    while (LOldSize > 0) and (FCAData[LOldSize - 1] = 0) do
+      Dec(LOldSize);
+    LNewSize := ASize;
+    while (LNewSize > 0)
+      and (PByte(NativeUInt(ABuf) + NativeUInt(LNewSize - 1))^ = 0) do
+      Dec(LNewSize);
+    if LNewSize = 0 then
+      raise EMbedTls.Create(MBEDTLS_ERR_X509_BAD_INPUT_DATA,
+        'CA certificate data is empty.');
+
+    SetLength(LNewData, LOldSize + LNewSize + 3);
+    if LOldSize > 0 then
+      Move(FCAData[0], LNewData[0], LOldSize);
+    LNewData[LOldSize] := 13;
+    LNewData[LOldSize + 1] := 10;
+    Move(ABuf^, LNewData[LOldSize + 2], LNewSize);
+    LNewData[High(LNewData)] := 0;
+
+    FillChar(LNewCACert, SizeOf(LNewCACert), 0);
+    mbedtls_x509_crt_init(@LNewCACert);
+    try
+      LCode := mbedtls_x509_crt_parse(@LNewCACert, Pointer(LNewData),
+        Length(LNewData));
+      if LCode <> 0 then
+        raise EMbedTls.Create(LCode,
+          'mbedtls_x509_crt_parse AddCACertificate:');
+
+      mbedtls_x509_crt_free(@FCACert);
+      FCACert := LNewCACert;
+      FillChar(LNewCACert, SizeOf(LNewCACert), 0);
+      FCAData := LNewData;
+
+      mbedtls_ssl_conf_ca_chain(@FSrvConf, @FCACert, nil);
+      mbedtls_ssl_conf_ca_chain(@FCliConf, @FCACert, nil);
+      MarkCACertificateAdded;
+    finally
+      mbedtls_x509_crt_free(@LNewCACert);
+    end;
+  finally
+    EndTlsConfigUpdate;
+  end;
+end;
+
 procedure TCrossMbedTlsSocket.SetPrivateKey(const APKeyBuf: Pointer;
   const APKeyBufSize: Integer; const APassword: string);
 begin
-  if Ssl then
-  begin
+  if not Ssl then Exit;
+
+  BeginTlsConfigUpdate;
+  try
     if (APKeyBuf = nil) or (APKeyBufSize <= 0) then
       raise EMbedTls.Create(MBEDTLS_ERR_PK_BAD_INPUT_DATA,
         'Private key data is empty.');
@@ -381,6 +539,8 @@ begin
 
     MbedCheck(mbedtls_pk_parse_key(@FPKey, APKeyBuf, APKeyBufSize, nil, 0), 'mbedtls_pk_parse_key SetPrivateKey:');
     _UpdateCert;
+  finally
+    EndTlsConfigUpdate;
   end;
 end;
 
@@ -491,6 +651,7 @@ begin
   mbedtls_ssl_config_free(@FCliConf);
 
   mbedtls_x509_crt_free(@FCert);
+  mbedtls_x509_crt_free(@FCACert);
   mbedtls_pk_free(@FPKey);
 
   mbedtls_ctr_drbg_free(@FCtrDrbg);
@@ -501,6 +662,7 @@ end;
 procedure TCrossMbedTlsSocket._InitSslConf;
 begin
   mbedtls_x509_crt_init(@FCert);
+  mbedtls_x509_crt_init(@FCACert);
   mbedtls_pk_init(@FPKey);
   mbedtls_ctr_drbg_init(@FCtrDrbg);
   mbedtls_entropy_init(@FEntropy);
@@ -510,27 +672,40 @@ begin
 
   {$region '服务端SSL配置'}
   mbedtls_ssl_config_init(@FSrvConf);
-  mbedtls_ssl_conf_rng(@FSrvConf, mbedtls_ctr_drbg_random, @FCtrDrbg);
-  mbedtls_ssl_conf_authmode(@FSrvConf, MBEDTLS_SSL_VERIFY_OPTIONAL);
-  mbedtls_ssl_conf_session_cache(@FSrvConf, @FCache, mbedtls_ssl_cache_get, mbedtls_ssl_cache_set); // 仅服务端有效
-  mbedtls_ssl_conf_ciphersuites(@FSrvConf, PInteger(@DEFAULT_CIPHERSUITES_SERVER));
-  mbedtls_ssl_conf_min_version(@FSrvConf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3); // TLS v1.2
   MbedCheck(mbedtls_ssl_config_defaults(@FSrvConf,
     MBEDTLS_SSL_IS_SERVER,
     MBEDTLS_SSL_TRANSPORT_STREAM,
     MBEDTLS_SSL_PRESET_DEFAULT), 'mbedtls_ssl_config_defaults FSrvConf:');
+  mbedtls_ssl_conf_rng(@FSrvConf, mbedtls_ctr_drbg_random, @FCtrDrbg);
+  mbedtls_ssl_conf_authmode(@FSrvConf, MBEDTLS_SSL_VERIFY_NONE);
+  mbedtls_ssl_conf_session_cache(@FSrvConf, @FCache, mbedtls_ssl_cache_get, mbedtls_ssl_cache_set); // 仅服务端有效
+  mbedtls_ssl_conf_ciphersuites(@FSrvConf, PInteger(@DEFAULT_CIPHERSUITES_SERVER));
+  mbedtls_ssl_conf_min_version(@FSrvConf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3); // TLS v1.2
   {$endregion}
 
   {$region '客户端SSL配置'}
   mbedtls_ssl_config_init(@FCliConf);
-  mbedtls_ssl_conf_rng(@FCliConf, mbedtls_ctr_drbg_random, @FCtrDrbg);
-  mbedtls_ssl_conf_authmode(@FCliConf, MBEDTLS_SSL_VERIFY_OPTIONAL);
   MbedCheck(mbedtls_ssl_config_defaults(@FCliConf,
     MBEDTLS_SSL_IS_CLIENT,
     MBEDTLS_SSL_TRANSPORT_STREAM,
     MBEDTLS_SSL_PRESET_DEFAULT), 'mbedtls_ssl_config_defaults FCliConf:');
+  mbedtls_ssl_conf_rng(@FCliConf, mbedtls_ctr_drbg_random, @FCtrDrbg);
+  mbedtls_ssl_conf_authmode(@FCliConf, MBEDTLS_SSL_VERIFY_NONE);
   mbedtls_ssl_conf_ciphersuites(@FCliConf, PInteger(@DEFAULT_CIPHERSUITES_CLIENT));
   {$endregion}
+end;
+
+procedure TCrossMbedTlsSocket.ApplyVerifyPeer(const AValue: Boolean);
+var
+  LAuthMode: Integer;
+begin
+  if AValue then
+    LAuthMode := MBEDTLS_SSL_VERIFY_REQUIRED
+  else
+    LAuthMode := MBEDTLS_SSL_VERIFY_NONE;
+
+  mbedtls_ssl_conf_authmode(@FSrvConf, LAuthMode);
+  mbedtls_ssl_conf_authmode(@FCliConf, LAuthMode);
 end;
 
 function TCrossMbedTlsSocket._MbedCert(const ACertBytes: TBytes): TBytes;
@@ -548,15 +723,11 @@ begin
   // 尚未加载证书
   if (FCert.version = 0) then Exit;
 
-  mbedtls_ssl_conf_ca_chain(@FCliConf, @FCert, nil);
-
   // 尚未加载私钥
   if (FPKey.pk_info = nil) then Exit;
 
-  if (FCert.next <> nil) then
-    mbedtls_ssl_conf_ca_chain(@FSrvConf, FCert.next, nil);
-
   MbedCheck(mbedtls_ssl_conf_own_cert(@FSrvConf, @FCert, @FPKey), 'mbedtls_ssl_conf_own_cert:');
+  MbedCheck(mbedtls_ssl_conf_own_cert(@FCliConf, @FCert, @FPKey), 'mbedtls_ssl_conf_own_cert client:');
 end;
 
 end.

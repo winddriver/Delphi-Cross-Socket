@@ -222,7 +222,7 @@ type
   ///   跨平台WebSocket服务器
   /// </summary>
   ICrossWebSocketServer = interface(ICrossHttpServer)
-  ['{FF008E22-9938-4DC4-9421-083DA9EFFCDC}']
+  ['{FB333130-D736-43DD-9539-94FF7FB03E08}']
     function GetMaskingKey: Cardinal;
 
     procedure SetMaskingKey(const AValue: Cardinal);

@@ -29,7 +29,11 @@ uses
   Winapi.Windows,
   System.Win.Crtl,
 {$ENDIF}
+{$IFDEF FPC}
+  SysUtils;
+{$ELSE}
   System.SysUtils;
+{$ENDIF}
 
 // C 语言中枚举类型大小为 4 字节
 {$Z4}

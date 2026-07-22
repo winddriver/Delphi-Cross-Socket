@@ -45,6 +45,14 @@ Author: WiNDDRiVER(soulawing@gmail.com)
     - ICrossServer
     - ICrossSslServer
     
+## TLS / mTLS configuration
+
+- The existing non-verifying TLS behavior remains the default.
+- Before enabling peer verification, call `AddCACertificate` (repeated calls and PEM bundles are supported), then set `VerifyPeer := True`.
+- An mTLS server must set its certificate and private key. An mTLS client must also set its own certificate and private key before `Connect` or the first HTTPS request.
+- A verifying client checks both the server certificate chain and its DNS host name. System root stores are not loaded by this initial implementation.
+- Certificates, private keys, CAs, and `VerifyPeer` cannot be changed after the first SSL connection is created.
+
 ## Features
 - Use different IO models for different platforms:
   - IOCP

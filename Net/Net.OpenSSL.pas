@@ -468,6 +468,9 @@ const
   X509_VERSION_2  = 1;
   X509_VERSION_3  = 2;
 
+  X509_R_CERT_ALREADY_IN_HASH_TABLE = 101;
+  ERR_LIB_X509 = 11;
+
   X509_SIG_INFO_VALID = 1;
   X509_SIG_INFO_TLS   = 2;
 
@@ -951,6 +954,7 @@ var
 
   ERR_error_string_n: procedure(err: Cardinal; buf: MarshaledAString; len: size_t); cdecl;
   ERR_get_error: function: Cardinal; cdecl;
+  ERR_peek_last_error: function: Cardinal; cdecl;
 
   EVP_PKEY_new: function(): PEVP_PKEY; cdecl;
   EVP_PKEY_free: procedure(pkey: PEVP_PKEY); cdecl;
@@ -1146,6 +1150,7 @@ var
   SSL_CIPHER_get_name: function(cipher: PSSL_CIPHER): PAnsiChar; cdecl;
   SSL_CIPHER_get_bits: function(cipher: PSSL_CIPHER; alg_bits: PInteger): Integer; cdecl;
   SSL_get_servername: function(ssl: PSSL; t: Integer): PAnsiChar; cdecl;
+  SSL_set1_host: function(ssl: PSSL; const hostname: PAnsiChar): Integer; cdecl;
   SSL_get0_peer_certificate: function(ssl: PSSL): PX509; cdecl;
 
   SSL_ctrl: function(ssl: PSSL; Cmd: Integer; LArg: NativeInt; PArg: Pointer): NativeInt; cdecl;
@@ -1180,6 +1185,8 @@ procedure ERR_error_string_n(err: Cardinal; buf: MarshaledAString; len: size_t);
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'ERR_error_string_n';
 function ERR_get_error: Cardinal; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'ERR_get_error';
+function ERR_peek_last_error: Cardinal; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'ERR_peek_last_error';
 
 function EVP_PKEY_new(): PEVP_PKEY; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EVP_PKEY_new';
@@ -1546,6 +1553,8 @@ function SSL_CIPHER_get_bits(cipher: PSSL_CIPHER; alg_bits: PInteger): Integer; 
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_CIPHER_get_bits';
 function SSL_get_servername(s: PSSL; t: Integer): PAnsiChar; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_get_servername';
+function SSL_set1_host(s: PSSL; const hostname: PAnsiChar): Integer; cdecl;
+  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBSSL_NAME{$ENDIF} name 'SSL_set1_host';
 
 {$IFDEF __SSL3__}
 function SSL_get0_peer_certificate(s: PSSL): PX509; cdecl;
@@ -1636,6 +1645,7 @@ type
   ESsl = class(Exception);
   ESslInvalidLib = class(ESsl);
   ESslInvalidProc = class(ESsl);
+  ESslContextInvalid = class(ESsl);
 
   // FPC 中 一定要用 TLibHandle 来保存动态库的句柄
   // 否则在部分操作系统中调用 GetProcAddress 时会引发异常
@@ -1699,6 +1709,16 @@ type
     class procedure SetCertificate(AContext: PSSL_CTX; const ACertBytes: TBytes); overload; static;
     class procedure SetCertificate(AContext: PSSL_CTX; const ACertStr: string); overload; static;
     class procedure SetCertificateFile(AContext: PSSL_CTX; const ACertFile: string); static;
+
+    // 追加受信任 CA 证书
+    class procedure AddCACertificate(AContext: PSSL_CTX; ACABuf: Pointer;
+      ACABufSize: Integer); overload; static;
+    class procedure AddCACertificate(AContext: PSSL_CTX;
+      const ACABytes: TBytes); overload; static;
+    class procedure AddCACertificate(AContext: PSSL_CTX;
+      const ACAText: string); overload; static;
+    class procedure AddCACertificateFile(AContext: PSSL_CTX;
+      const ACAFileName: string); static;
 
     // 加载私钥
     class procedure SetPrivateKey(AContext: PSSL_CTX; APKeyBuf: Pointer;
@@ -2316,6 +2336,152 @@ begin
   {$ENDIF}
 end;
 
+class procedure TSSLTools.AddCACertificate(AContext: PSSL_CTX;
+  ACABuf: Pointer; ACABufSize: Integer);
+var
+  LBIOCert: PBIO;
+  LCACert: PX509;
+  LCACerts: TArray<PX509>;
+  LCertCount, LValidSize, I: Integer;
+  LCertStore: PX509_STORE;
+  LError: Cardinal;
+  LErrorLib: Integer;
+  LErrorMessage: string;
+  LAddedToStore: Boolean;
+begin
+  if AContext = nil then
+    raise ESsl.Create('SSL context is nil.');
+  if (ACABuf = nil) or (ACABufSize <= 0) then
+    raise ESsl.Create('CA certificate data is empty.');
+
+  // 只裁剪 PEM bundle 尾部允许的 ASCII 空白：TAB、LF、CR 和 SPACE。
+  // 其他尾随字节必须保留，后续完整解析会将“有效证书 + 非法数据”拒绝掉，
+  // 避免悄悄接受证书之后的垃圾内容。
+  LValidSize := ACABufSize;
+  while (LValidSize > 0) do
+  begin
+    case PByte(NativeUInt(ACABuf) + NativeUInt(LValidSize - 1))^ of
+      9, 10, 13, 32: Dec(LValidSize);
+    else
+      Break;
+    end;
+  end;
+  if LValidSize = 0 then
+    raise ESsl.Create('CA certificate data is empty.');
+
+  LCACerts := nil;
+  LBIOCert := nil;
+  try
+    try
+      ClearOpenSslErrors;
+      LBIOCert := BIO_new_mem_buf(ACABuf, LValidSize);
+      if LBIOCert = nil then
+        raise ESsl.CreateFmt('Failed to allocate CA certificate cache: %s.',
+          [GetOpenSslErrors]);
+
+      while BIO_pending(LBIOCert) > 0 do
+      begin
+        ClearOpenSslErrors;
+        LCACert := PEM_read_bio_X509_AUX(LBIOCert, nil, nil, nil);
+        if LCACert = nil then
+          raise ESsl.CreateFmt('Failed to read CA certificate data: %s.',
+            [GetOpenSslErrors]);
+
+        try
+          LCertCount := Length(LCACerts);
+          SetLength(LCACerts, LCertCount + 1);
+          LCACerts[LCertCount] := LCACert;
+          LCACert := nil;
+        finally
+          if LCACert <> nil then
+            X509_free(LCACert);
+        end;
+      end;
+    finally
+      if LBIOCert <> nil then
+        BIO_free(LBIOCert);
+    end;
+  except
+    for I := 0 to High(LCACerts) do
+      X509_free(LCACerts[I]);
+    raise;
+  end;
+
+  try
+    if Length(LCACerts) = 0 then
+      raise ESsl.Create('CA certificate data contains no certificate.');
+
+    LCertStore := SSL_CTX_get_cert_store(AContext);
+    if LCertStore = nil then
+      raise ESslContextInvalid.Create('Failed to get the SSL certificate store.');
+
+    for I := 0 to High(LCACerts) do
+    begin
+      LAddedToStore := False;
+      ClearOpenSslErrors;
+      if X509_STORE_add_cert(LCertStore, LCACerts[I]) > 0 then
+        LAddedToStore := True
+      else
+      begin
+        LError := ERR_peek_last_error();
+        // OpenSSL 错误码同时打包了来源库和具体原因。3.0 移除了旧版的
+        // function code 字段并调整了位布局，因此 ERR_GET_LIB 宏在 3.x
+        // 从第 23 位取 library code，而旧版从第 24 位取。
+        if SSLVersion >= $30000000 then
+          LErrorLib := (LError shr 23) and $FF
+        else
+          LErrorLib := (LError shr 24) and $FF;
+        // reason code 只在所属库内唯一，必须同时确认错误来自 X509 库。
+        // “证书已在哈希表中”的值为 101，位于两个版本共同的低 12 位；
+        // 只有精确匹配该组合时才按重复添加处理，其他错误不能被吞掉。
+        if (LErrorLib = ERR_LIB_X509)
+          and ((LError and $FFF) = X509_R_CERT_ALREADY_IN_HASH_TABLE) then
+          ClearOpenSslErrors
+        else
+        begin
+          LErrorMessage := GetOpenSslErrors;
+          raise ESslContextInvalid.CreateFmt(
+            'Failed to add CA certificate to the trust store: %s.',
+            [LErrorMessage]);
+        end;
+      end;
+
+      // 已存在于本上下文 trust store 的证书此前已加入 CA-list，跳过可保持幂等。
+      if not LAddedToStore then Continue;
+
+      ClearOpenSslErrors;
+      if SSL_CTX_add_client_CA(AContext, LCACerts[I]) <= 0 then
+      begin
+        LErrorMessage := GetOpenSslErrors;
+        raise ESslContextInvalid.CreateFmt(
+          'Failed to add CA certificate to the client CA list: %s.',
+          [LErrorMessage]);
+      end;
+    end;
+  finally
+    for I := 0 to High(LCACerts) do
+      X509_free(LCACerts[I]);
+  end;
+end;
+
+class procedure TSSLTools.AddCACertificate(AContext: PSSL_CTX;
+  const ACABytes: TBytes);
+begin
+  AddCACertificate(AContext, Pointer(ACABytes), Length(ACABytes));
+end;
+
+class procedure TSSLTools.AddCACertificate(AContext: PSSL_CTX;
+  const ACAText: string);
+begin
+  AddCACertificate(AContext, TEncoding.ANSI.GetBytes(ACAText));
+end;
+
+class procedure TSSLTools.AddCACertificateFile(AContext: PSSL_CTX;
+  const ACAFileName: string);
+begin
+  AddCACertificate(AContext, TFileUtils.ReadAllBytes(ACAFileName));
+end;
+
 class procedure TSSLTools.SetCertificate(AContext: PSSL_CTX; ACertBuf: Pointer;
   ACertBufSize: Integer);
 var
@@ -2330,7 +2496,9 @@ begin
   if (ACertBuf = nil) or (ACertBufSize <= 0) then
     raise ESsl.Create('Certificate data is empty.');
 
-  // 避免通过一次预期失败的 PEM 读取探测 EOF, 同时拒绝尾随非空白数据
+  // 只裁剪 PEM bundle 尾部允许的 ASCII 空白：TAB、LF、CR 和 SPACE。
+  // 其他尾随字节必须保留，后续完整解析会将“有效证书 + 非法数据”拒绝掉，
+  // 避免悄悄接受证书之后的垃圾内容。
   LValidSize := ACertBufSize;
   while (LValidSize > 0) do
   begin
@@ -3486,6 +3654,7 @@ begin
 
     @ERR_error_string_n := GetSslLibProc(FCryptoLibHandle, 'ERR_error_string_n');
     @ERR_get_error := GetSslLibProc(FCryptoLibHandle, 'ERR_get_error');
+    @ERR_peek_last_error := GetSslLibProc(FCryptoLibHandle, 'ERR_peek_last_error');
 
     @EVP_PKEY_new := GetSslLibProc(FCryptoLibHandle, 'EVP_PKEY_new');
     @EVP_PKEY_free := GetSslLibProc(FCryptoLibHandle, 'EVP_PKEY_free');
@@ -3709,6 +3878,7 @@ begin
     @SSL_CIPHER_get_name := GetSslLibProc(FSslLibHandle, 'SSL_CIPHER_get_name');
     @SSL_CIPHER_get_bits := GetSslLibProc(FSslLibHandle, 'SSL_CIPHER_get_bits');
     @SSL_get_servername := GetSslLibProc(FSslLibHandle, 'SSL_get_servername');
+    @SSL_set1_host := GetSslLibProc(FSslLibHandle, 'SSL_set1_host');
     @SSL_get0_peer_certificate := GetSslLibProc(FSslLibHandle, ['SSL_get0_peer_certificate', 'SSL_get_peer_certificate']);
 
     @SSL_ctrl := GetSslLibProc(FSslLibHandle, 'SSL_ctrl');

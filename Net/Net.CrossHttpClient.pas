@@ -383,7 +383,7 @@ type
   /// </summary>
   {$ENDREGION}
   ICrossHttpClientSocket = interface(ICrossSslSocket)
-  ['{F689E29A-0489-4F1E-A0B8-64DA80B0862E}']
+  ['{8944949B-EC8D-406E-B471-F1BF6BEDA15B}']
     function GetLocalPort: Word;
     procedure SetLocalPort(const AValue: Word);
 
@@ -436,7 +436,7 @@ type
   /// </summary>
   {$ENDREGION}
   ICrossHttpClient = interface
-  ['{99CC5305-02FE-48DA-9D62-3AE1A5FA86D1}']
+  ['{A136B460-1A81-42D8-9724-EDB7E65EFB3C}']
     function GetIdleout: Integer;
     function GetIoThreads: Integer;
     function GetMaxConnsPerServer: Integer;
@@ -446,6 +446,7 @@ type
     function GetConnectTimeout: Integer;
     function GetAutoUrlEncode: Boolean;
     function GetLocalPort: Word;
+    function GetVerifyPeer: Boolean;
 
     procedure SetIdleout(const AValue: Integer);
     procedure SetIoThreads(const AValue: Integer);
@@ -456,6 +457,128 @@ type
     procedure SetConnectTimeout(const AValue: Integer);
     procedure SetAutoUrlEncode(const AValue: Boolean);
     procedure SetLocalPort(const AValue: Word);
+    procedure SetVerifyPeer(const AValue: Boolean);
+
+    /// <summary>
+    ///   设置客户端证书
+    /// </summary>
+    /// <param name="ACertBuf">
+    ///   证书内存指针
+    /// </param>
+    /// <param name="ACertBufSize">
+    ///   证书内存大小
+    /// </param>
+    procedure SetCertificate(const ACertBuf: Pointer;
+      const ACertBufSize: Integer); overload;
+    /// <summary>
+    ///   设置客户端证书
+    /// </summary>
+    /// <param name="ACertBytes">
+    ///   证书字节数组
+    /// </param>
+    procedure SetCertificate(const ACertBytes: TBytes); overload;
+    /// <summary>
+    ///   设置客户端证书
+    /// </summary>
+    /// <param name="ACertStr">
+    ///   证书字符串
+    /// </param>
+    procedure SetCertificate(const ACertStr: string); overload;
+    /// <summary>
+    ///   设置客户端证书文件
+    /// </summary>
+    /// <param name="ACertFile">
+    ///   证书文件路径
+    /// </param>
+    procedure SetCertificateFile(const ACertFile: string);
+
+    /// <summary>
+    ///   设置客户端私钥
+    /// </summary>
+    /// <param name="APKeyBuf">
+    ///   私钥内存指针
+    /// </param>
+    /// <param name="APKeyBufSize">
+    ///   私钥内存大小
+    /// </param>
+    /// <param name="APassword">
+    ///   私钥密码, 默认为空
+    /// </param>
+    procedure SetPrivateKey(const APKeyBuf: Pointer;
+      const APKeyBufSize: Integer; const APassword: string = ''); overload;
+    /// <summary>
+    ///   设置客户端私钥
+    /// </summary>
+    /// <param name="APKeyBytes">
+    ///   私钥字节数组
+    /// </param>
+    /// <param name="APassword">
+    ///   私钥密码, 默认为空
+    /// </param>
+    procedure SetPrivateKey(const APKeyBytes: TBytes;
+      const APassword: string = ''); overload;
+    /// <summary>
+    ///   设置客户端私钥
+    /// </summary>
+    /// <param name="APKeyStr">
+    ///   私钥字符串
+    /// </param>
+    /// <param name="APassword">
+    ///   私钥密码, 默认为空
+    /// </param>
+    procedure SetPrivateKey(const APKeyStr: string;
+      const APassword: string = ''); overload;
+    /// <summary>
+    ///   设置客户端私钥文件
+    /// </summary>
+    /// <param name="APKeyFile">
+    ///   私钥文件路径
+    /// </param>
+    /// <param name="APassword">
+    ///   私钥密码, 默认为空
+    /// </param>
+    procedure SetPrivateKeyFile(const APKeyFile: string;
+      const APassword: string = '');
+
+    /// <summary>
+    ///   从内存追加用于验证 HTTPS 服务端证书链的受信任 CA 证书
+    /// </summary>
+    /// <remarks>
+    ///   此方法只配置服务端证书的信任锚，不会设置 mTLS 客户端身份。
+    ///   mTLS 客户端证书和私钥应分别通过 SetCertificate 和 SetPrivateKey
+    ///   设置。应先添加至少一个 CA，再设置 VerifyPeer=True，并且必须在
+    ///   首个 HTTPS 连接创建前完成配置。可多次调用以累积 CA，也可一次
+    ///   传入 PEM bundle；自签名服务端证书也可以作为信任锚直接添加。
+    /// </remarks>
+    /// <param name="ABuf">
+    ///   CA 证书或 PEM bundle 内存指针
+    /// </param>
+    /// <param name="ASize">
+    ///   CA 证书缓冲区大小
+    /// </param>
+    procedure AddCACertificate(const ABuf: Pointer;
+      const ASize: Integer); overload;
+    /// <summary>
+    ///   从字节数组追加用于验证 HTTPS 服务端证书链的受信任 CA 证书
+    /// </summary>
+    /// <param name="ABytes">
+    ///   CA 证书或 PEM bundle 字节数组
+    /// </param>
+    procedure AddCACertificate(const ABytes: TBytes); overload;
+    /// <summary>
+    ///   从字符串追加用于验证 HTTPS 服务端证书链的受信任 CA 证书
+    /// </summary>
+    /// <param name="AText">
+    ///   CA 证书或 PEM bundle 字符串
+    /// </param>
+    procedure AddCACertificate(const AText: string); overload;
+    /// <summary>
+    ///   从文件追加用于验证 HTTPS 服务端证书链的受信任 CA 证书
+    /// </summary>
+    /// <param name="AFileName">
+    ///   CA 证书或 PEM bundle 文件路径
+    /// </param>
+    procedure AddCACertificateFile(const AFileName: string);
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -806,6 +929,11 @@ type
     ///   本地端口(一般不需要指定, 设置为0由系统随机分配, 默认为0; 一定要在首次调用请求之前设置)
     /// </summary>
     property LocalPort: Word read GetLocalPort write SetLocalPort;
+
+    /// <summary>
+    ///   是否强制验证对端证书。服务端要求客户端证书，客户端同时验证服务端主机名。
+    /// </summary>
+    property VerifyPeer: Boolean read GetVerifyPeer write SetVerifyPeer;
   end;
 
   TCrossHttpClientConnection = class(TCrossSslConnection, ICrossHttpClientConnection)
@@ -1152,9 +1280,14 @@ type
     FRequestTimeout, FIdleout, FConnectTimeout: Integer;
     FReUseConnection, FAutoUrlEncode: Boolean;
     FLocalPort: Word;
+    FVerifyPeer: Boolean;
+    FCertificate, FPrivateKey: TBytes;
+    FPrivateKeyPassword: string;
+    FCACertificates: TArray<TBytes>;
 
     procedure _ProcTimeout;
     procedure _UpdateCliOptions;
+    procedure _ApplyTlsOptions(const ACli: ICrossHttpClientSocket);
   protected
     procedure _Lock; inline;
     procedure _Unlock; inline;
@@ -1170,6 +1303,7 @@ type
     function GetConnectTimeout: Integer;
     function GetAutoUrlEncode: Boolean;
     function GetLocalPort: Word;
+    function GetVerifyPeer: Boolean;
 
     procedure SetIdleout(const AValue: Integer);
     procedure SetIoThreads(const AValue: Integer);
@@ -1180,6 +1314,7 @@ type
     procedure SetConnectTimeout(const AValue: Integer);
     procedure SetAutoUrlEncode(const AValue: Boolean);
     procedure SetLocalPort(const AValue: Word);
+    procedure SetVerifyPeer(const AValue: Boolean);
   public
     constructor Create(const AIoThreads, AMaxConnsPerServer: Integer;
       const ACompressType: TCompressType = ctNone); overload;
@@ -1190,6 +1325,27 @@ type
     procedure Prepare(const AProtocols: array of string);
 
     procedure CancelAll; virtual;
+
+    procedure SetCertificate(const ACertBuf: Pointer;
+      const ACertBufSize: Integer); overload;
+    procedure SetCertificate(const ACertBytes: TBytes); overload;
+    procedure SetCertificate(const ACertStr: string); overload;
+    procedure SetCertificateFile(const ACertFile: string);
+
+    procedure SetPrivateKey(const APKeyBuf: Pointer;
+      const APKeyBufSize: Integer; const APassword: string = ''); overload;
+    procedure SetPrivateKey(const APKeyBytes: TBytes;
+      const APassword: string = ''); overload;
+    procedure SetPrivateKey(const APKeyStr: string;
+      const APassword: string = ''); overload;
+    procedure SetPrivateKeyFile(const APKeyFile: string;
+      const APassword: string = '');
+
+    procedure AddCACertificate(const ABuf: Pointer;
+      const ASize: Integer); overload;
+    procedure AddCACertificate(const ABytes: TBytes); overload;
+    procedure AddCACertificate(const AText: string); overload;
+    procedure AddCACertificateFile(const AFileName: string);
 
     {$region '裸数据请求'}
     // 所有请求方法的核心
@@ -1264,6 +1420,7 @@ type
     property ConnectTimeout: Integer read GetConnectTimeout write SetConnectTimeout;
     property AutoUrlEncode: Boolean read GetAutoUrlEncode write SetAutoUrlEncode;
     property LocalPort: Word read GetLocalPort write SetLocalPort;
+    property VerifyPeer: Boolean read GetVerifyPeer write SetVerifyPeer;
   end;
 
 const
@@ -2806,6 +2963,10 @@ begin
   if (FHttpsCli <> nil) then
     FHttpsCli.StopLoop;
 
+  if Length(FPrivateKey) > 0 then
+    FillChar(FPrivateKey[0], Length(FPrivateKey), 0);
+  FPrivateKeyPassword := '';
+
   inherited;
 end;
 
@@ -2815,6 +2976,8 @@ begin
 end;
 
 function TCrossHttpClient.CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket;
+var
+  LHttpsCli: ICrossHttpClientSocket;
 begin
   // 注意：调用方应该已经持有锁，这里的断言用于调试验证
   // 如果外部没有加锁，此方法内部不再重复加锁，以避免死锁
@@ -2835,10 +2998,12 @@ begin
   begin
     if (FHttpsCli = nil) then
     begin
-      FHttpsCli := TCrossHttpClientSocket.Create(Self, FIoThreads,
+      LHttpsCli := TCrossHttpClientSocket.Create(Self, FIoThreads,
         FMaxConnsPerServer, FMaxCompressRatio, True,
         FReUseConnection, FAutoUrlEncode,
         FCompressType);
+      _ApplyTlsOptions(LHttpsCli);
+      FHttpsCli := LHttpsCli;
       FHttpCliArr := FHttpCliArr + [FHttpsCli];
     end;
 
@@ -3025,6 +3190,150 @@ begin
     AResponseStream,
     AInitProc,
     ACallback);
+end;
+
+procedure TCrossHttpClient._ApplyTlsOptions(
+  const ACli: ICrossHttpClientSocket);
+var
+  LCACertificate: TBytes;
+begin
+  if Length(FCertificate) > 0 then
+    ACli.SetCertificate(FCertificate);
+  if Length(FPrivateKey) > 0 then
+    ACli.SetPrivateKey(FPrivateKey, FPrivateKeyPassword);
+  for LCACertificate in FCACertificates do
+    ACli.AddCACertificate(LCACertificate);
+  ACli.VerifyPeer := FVerifyPeer;
+end;
+
+procedure TCrossHttpClient.AddCACertificate(const ABuf: Pointer;
+  const ASize: Integer);
+var
+  LBytes: TBytes;
+begin
+  if (ABuf = nil) or (ASize <= 0) then
+    raise ECrossHttpClient.Create('CA certificate data is empty.');
+
+  SetLength(LBytes, ASize);
+  Move(ABuf^, LBytes[0], ASize);
+
+  _Lock;
+  try
+    if FHttpsCli <> nil then
+      FHttpsCli.AddCACertificate(LBytes);
+    FCACertificates := FCACertificates + [LBytes];
+  finally
+    _Unlock;
+  end;
+end;
+
+procedure TCrossHttpClient.AddCACertificate(const ABytes: TBytes);
+begin
+  AddCACertificate(Pointer(ABytes), Length(ABytes));
+end;
+
+procedure TCrossHttpClient.AddCACertificate(const AText: string);
+begin
+  AddCACertificate(TEncoding.ANSI.GetBytes(AText));
+end;
+
+procedure TCrossHttpClient.AddCACertificateFile(const AFileName: string);
+begin
+  AddCACertificate(TFileUtils.ReadAllBytes(AFileName));
+end;
+
+procedure TCrossHttpClient.SetCertificate(const ACertBuf: Pointer;
+  const ACertBufSize: Integer);
+var
+  LBytes: TBytes;
+begin
+  if (ACertBuf = nil) or (ACertBufSize <= 0) then
+    raise ECrossHttpClient.Create('Certificate data is empty.');
+
+  SetLength(LBytes, ACertBufSize);
+  Move(ACertBuf^, LBytes[0], ACertBufSize);
+
+  _Lock;
+  try
+    if FHttpsCli <> nil then
+      FHttpsCli.SetCertificate(LBytes);
+    FCertificate := LBytes;
+  finally
+    _Unlock;
+  end;
+end;
+
+procedure TCrossHttpClient.SetCertificate(const ACertBytes: TBytes);
+begin
+  SetCertificate(Pointer(ACertBytes), Length(ACertBytes));
+end;
+
+procedure TCrossHttpClient.SetCertificate(const ACertStr: string);
+begin
+  SetCertificate(TEncoding.ANSI.GetBytes(ACertStr));
+end;
+
+procedure TCrossHttpClient.SetCertificateFile(const ACertFile: string);
+begin
+  SetCertificate(TFileUtils.ReadAllBytes(ACertFile));
+end;
+
+procedure TCrossHttpClient.SetPrivateKey(const APKeyBuf: Pointer;
+  const APKeyBufSize: Integer; const APassword: string);
+var
+  LBytes: TBytes;
+begin
+  if (APKeyBuf = nil) or (APKeyBufSize <= 0) then
+    raise ECrossHttpClient.Create('Private key data is empty.');
+
+  SetLength(LBytes, APKeyBufSize);
+  Move(APKeyBuf^, LBytes[0], APKeyBufSize);
+
+  _Lock;
+  try
+    if FHttpsCli <> nil then
+      FHttpsCli.SetPrivateKey(LBytes, APassword);
+    if Length(FPrivateKey) > 0 then
+      FillChar(FPrivateKey[0], Length(FPrivateKey), 0);
+    FPrivateKey := LBytes;
+    FPrivateKeyPassword := APassword;
+  finally
+    _Unlock;
+  end;
+end;
+
+procedure TCrossHttpClient.SetPrivateKey(const APKeyBytes: TBytes;
+  const APassword: string);
+begin
+  SetPrivateKey(Pointer(APKeyBytes), Length(APKeyBytes), APassword);
+end;
+
+procedure TCrossHttpClient.SetPrivateKey(const APKeyStr,
+  APassword: string);
+var
+  LBytes: TBytes;
+begin
+  LBytes := TEncoding.ANSI.GetBytes(APKeyStr);
+  try
+    SetPrivateKey(LBytes, APassword);
+  finally
+    if Length(LBytes) > 0 then
+      FillChar(LBytes[0], Length(LBytes), 0);
+  end;
+end;
+
+procedure TCrossHttpClient.SetPrivateKeyFile(const APKeyFile,
+  APassword: string);
+var
+  LBytes: TBytes;
+begin
+  LBytes := TFileUtils.ReadAllBytes(APKeyFile);
+  try
+    SetPrivateKey(LBytes, APassword);
+  finally
+    if Length(LBytes) > 0 then
+      FillChar(LBytes[0], Length(LBytes), 0);
+  end;
 end;
 
 procedure TCrossHttpClient._Lock;
@@ -3265,6 +3574,16 @@ begin
   Result := FLocalPort;
 end;
 
+function TCrossHttpClient.GetVerifyPeer: Boolean;
+begin
+  _Lock;
+  try
+    Result := FVerifyPeer;
+  finally
+    _Unlock;
+  end;
+end;
+
 function TCrossHttpClient.GetMaxConnsPerServer: Integer;
 begin
   Result := FMaxConnsPerServer;
@@ -3322,6 +3641,21 @@ end;
 procedure TCrossHttpClient.SetLocalPort(const AValue: Word);
 begin
   FLocalPort := AValue;
+end;
+
+procedure TCrossHttpClient.SetVerifyPeer(const AValue: Boolean);
+begin
+  _Lock;
+  try
+    if AValue and (Length(FCACertificates) = 0) then
+      raise ECrossHttpClient.Create(
+        'At least one CA certificate is required before enabling peer verification.');
+    if FHttpsCli <> nil then
+      FHttpsCli.VerifyPeer := AValue;
+    FVerifyPeer := AValue;
+  finally
+    _Unlock;
+  end;
 end;
 
 procedure TCrossHttpClient.SetMaxCompressRatio(const AValue: Integer);

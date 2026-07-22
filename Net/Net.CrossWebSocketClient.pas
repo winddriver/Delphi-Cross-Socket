@@ -298,7 +298,7 @@ type
   /// </remarks>
   {$ENDREGION}
   ICrossWebSocketMgr = interface(ICrossHttpClient)
-  ['{3BAFCEDA-4A23-4CB1-9347-FBC4E9EF9214}']
+  ['{2B16E274-B59A-4FA2-AC20-AF48F69CD15C}']
     {$REGION 'Documentation'}
     /// <summary>
     ///   创建 WebSocket 对象

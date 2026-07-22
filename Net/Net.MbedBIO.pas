@@ -12,8 +12,6 @@ unit Net.MbedBIO;
 interface
 
 uses
-  System.SysUtils,
-  System.IOUtils,
   Net.MbedTls;
 
 const

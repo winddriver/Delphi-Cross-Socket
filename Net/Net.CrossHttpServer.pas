@@ -1140,7 +1140,7 @@ type
   ///   end);</code>
   /// </example>
   ICrossHttpServer = interface(ICrossServer)
-  ['{224D16AA-317C-435E-9C2E-92868E578DB3}']
+  ['{2B771F55-B187-49C6-870C-64B07A17FD70}']
     function GetStoragePath: string;
     function GetAutoDeleteFiles: Boolean;
     function GetMaxHeaderSize: Int64;

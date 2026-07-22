@@ -27,7 +27,7 @@ type
   end;
 
   ICrossServer = interface(ICrossSslSocket)
-  ['{DAEB2898-1EC4-4BCF-9BEB-078B582173AB}']
+  ['{4886AFC4-C4EB-4ACE-81F9-A661F66DBF70}']
     function GetAddr: string;
     function GetPort: Word;
     function GetActive: Boolean;

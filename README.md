@@ -45,6 +45,14 @@
   - ICrossServer
   - ICrossSslServer
 
+## TLS / mTLS 配置
+
+- 默认保持原有普通 TLS 行为，不验证对端证书。
+- 启用对端验证前，先调用 `AddCACertificate`（可多次调用或传入 PEM bundle），再设置 `VerifyPeer := True`。
+- mTLS 服务端还需调用 `SetCertificate`、`SetPrivateKey`；mTLS 客户端同样需要在 `Connect` 或首次 HTTPS 请求前设置自己的证书和私钥。
+- 客户端启用验证后会同时验证服务端证书链和 DNS 主机名；初版不加载系统根证书库。
+- 首个 SSL 连接创建后，不再允许修改证书、私钥、CA 或 `VerifyPeer`。
+
 ## 特性
 
 - 针对不同平台使用不同的IO模型:
