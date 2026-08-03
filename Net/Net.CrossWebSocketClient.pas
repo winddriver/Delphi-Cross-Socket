@@ -845,6 +845,7 @@ constructor TCrossWebSocket.Create(const AMgr: TCrossWebSocketMgr;
 begin
   FMgr := AMgr;
   FUrl := AUrl;
+  FMaskingKey := TCrossWebSocketParser.NewMaskingKey;
 
   FLock := TLock.Create;
 

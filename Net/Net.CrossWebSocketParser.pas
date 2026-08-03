@@ -113,6 +113,7 @@ type
     class function MakeFrameData(AOpCode: Byte; AFin: Boolean; AMaskKey: Cardinal; AData: Pointer; ADataSize: UInt64): TBytes; static;
 
     class function NewSecWebSocketKey: string; static;
+    class function NewMaskingKey: Cardinal; static;
     class function MakeSecWebSocketAccept(const ASecWebSocketKey: string): string; static;
   end;
 
@@ -407,6 +408,16 @@ begin
   if not TryFillCryptRandomBytes(LKeyBytes[0], WS_KEY_SIZE) then
     raise ECrossSocket.Create('Failed to generate WebSocket key: CSPRNG unavailable');
   Result := TBase64Utils.Encode(LKeyBytes);
+end;
+
+class function TCrossWebSocketParser.NewMaskingKey: Cardinal;
+begin
+  // RFC 6455 S5.3: unpredictable, from a strong source of entropy.
+  // MakeFrameData reads 0 as "send unmasked", so never return it.
+  repeat
+    if not TryFillCryptRandomBytes(Result, SizeOf(Result)) then
+      raise ECrossSocket.Create('Failed to generate WebSocket masking key: CSPRNG unavailable');
+  until (Result <> 0);
 end;
 
 class function TCrossWebSocketParser.OpCodeToReqType(AOpCode: Byte): TWsMessageType;
