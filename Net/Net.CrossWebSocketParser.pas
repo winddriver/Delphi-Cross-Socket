@@ -110,7 +110,23 @@ type
     procedure Decode(var ABuf: Pointer; var ALen: Integer);
 
     class function OpCodeToReqType(AOpCode: Byte): TWsMessageType; static;
-    class function MakeFrameData(AOpCode: Byte; AFin: Boolean; AMaskKey: Cardinal; AData: Pointer; ADataSize: UInt64): TBytes; static;
+    /// <summary>
+    ///   按照 RFC 6455 构造 WebSocket 发送帧
+    /// </summary>
+    /// <remarks>
+    ///   AIsServer=False 表示客户端角色。根据 RFC 6455 5.1、5.3 和
+    ///   10.3，客户端发送的每个数据帧、连续帧、控制帧及零载荷帧
+    ///   都必须使用新的、不可预测的 32 位掩码密钥，不能在连接或
+    ///   消息之间复用。AIsServer=True 表示服务端角色，服务端发送的
+    ///   帧不得设置掩码。全零值也是合法的掩码密钥，是否掩码仅由
+    ///   端点角色决定，不能根据密钥是否为零判断。本方法只负责发送
+    ///   帧构造；接收方向仍按兼容策略同时接受掩码帧和未掩码帧。
+    /// </remarks>
+    /// <exception cref="ECrossSocket">
+    ///   客户端帧所需的 CSPRNG 不可用时抛出，且不会返回不合规帧。
+    /// </exception>
+    class function MakeFrameData(AOpCode: Byte; AFin, AIsServer: Boolean;
+      AData: Pointer; ADataSize: UInt64): TBytes; static;
 
     class function NewSecWebSocketKey: string; static;
     class function MakeSecWebSocketAccept(const ASecWebSocketKey: string): string; static;
@@ -319,13 +335,22 @@ begin
   ABuf := PBuf;
 end;
 
-class function TCrossWebSocketParser.MakeFrameData(AOpCode: Byte; AFin: Boolean;
-  AMaskKey: Cardinal; AData: Pointer; ADataSize: UInt64): TBytes;
+class function TCrossWebSocketParser.MakeFrameData(AOpCode: Byte;
+  AFin, AIsServer: Boolean; AData: Pointer; ADataSize: UInt64): TBytes;
 var
   LPayload: Byte;
   LHeaderSize, LDataSize, I: Integer;
+  LMasked: Boolean;
+  LMaskingKey: Cardinal;
   LMaskKey: PByte;
 begin
+  LMasked := not AIsServer;
+  LMaskingKey := 0;
+  if LMasked
+    and not TryFillCryptRandomBytes(LMaskingKey, SizeOf(LMaskingKey)) then
+    raise ECrossSocket.Create(
+      'Failed to generate WebSocket masking key: CSPRNG unavailable');
+
   if (AData <> nil) and (ADataSize > 0) then
     LDataSize := ADataSize
   else
@@ -343,7 +368,7 @@ begin
     LPayload := 127;
     Inc(LHeaderSize, 8);
   end;
-  if (AMaskKey <> 0) then
+  if LMasked then
     Inc(LHeaderSize, 4);
 
   SetLength(Result, LHeaderSize + LDataSize);
@@ -353,7 +378,7 @@ begin
     Result[0] := Result[0] or $80;
   Result[0] := Result[0] or (AOpCode and $0F);
 
-  if (AMaskKey <> 0) then
+  if LMasked then
     Result[1] := Result[1] or $80;
   Result[1] := Result[1] or (LPayload and $7F);
 
@@ -374,14 +399,14 @@ begin
     Result[9] := PByte(@ADataSize)[0];
   end;
 
-  if (AMaskKey <> 0) then
-    Move(AMaskKey, Result[LHeaderSize - 4], 4);
+  if LMasked then
+    Move(LMaskingKey, Result[LHeaderSize - 4], 4);
 
   if (LDataSize > 0) then
   begin
-    if (AMaskKey <> 0) then
+    if LMasked then
     begin
-      LMaskKey := PByte(@AMaskKey);
+      LMaskKey := PByte(@LMaskingKey);
       for I := 0 to LDataSize - 1 do
         Result[LHeaderSize + I] := PByte(AData)[I] xor LMaskKey[I mod 4];
     end else

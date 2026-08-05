@@ -151,12 +151,9 @@ type
   /// </summary>
   {$ENDREGION}
   ICrossWebSocket = interface
-  ['{951728E5-5F85-44E1-847F-59C9D30EBBBA}']
+  ['{9764B709-3E5B-4B13-BD1D-526AC2BBEC17}']
     function GetStatus: TWsStatus;
     function GetUrl: string;
-    function GetMaskingKey: Cardinal;
-
-    procedure SetMaskingKey(const AValue: Cardinal);
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -281,12 +278,6 @@ type
     {$ENDREGION}
     property Url: string read GetUrl;
 
-    {$REGION 'Documentation'}
-    /// <summary>
-    ///   Masking-Key
-    /// </summary>
-    {$ENDREGION}
-    property MaskingKey: Cardinal read GetMaskingKey write SetMaskingKey;
   end;
 
   {$REGION 'Documentation'}
@@ -398,7 +389,6 @@ type
     FMgr: TCrossWebSocketMgr;
     FConnection: TCrossWebSocketClientConnection;
     FStatus: TWsStatus;
-    FMaskingKey: Cardinal;
     FLock: ILock;
 
     FOnOpenRequestEvents: TList<TWsClientOnOpenRequest>;
@@ -423,9 +413,6 @@ type
   protected
     function GetStatus: TWsStatus;
     function GetUrl: string;
-    function GetMaskingKey: Cardinal;
-
-    procedure SetMaskingKey(const AValue: Cardinal);
   public
     constructor Create(const AMgr: TCrossWebSocketMgr; const AUrl: string); overload; virtual;
     constructor Create(const AUrl: string); overload;
@@ -457,7 +444,6 @@ type
 
     property Status: TWsStatus read GetStatus;
     property Url: string read GetUrl;
-    property MaskingKey: Cardinal read GetMaskingKey write SetMaskingKey;
   end;
 
   TCrossWebSocketMgr = class(TCrossHttpClient, ICrossWebSocketMgr)
@@ -755,7 +741,7 @@ begin
   LWsFrameData := TCrossWebSocketParser.MakeFrameData(
     AOpCode,
     AFin,
-    FWebSocket.MaskingKey,
+    False,
     AData,
     ACount);
 
@@ -891,11 +877,6 @@ begin
   end;
 
   inherited;
-end;
-
-function TCrossWebSocket.GetMaskingKey: Cardinal;
-begin
-  Result := FMaskingKey;
 end;
 
 function TCrossWebSocket.GetStatus: TWsStatus;
@@ -1150,11 +1131,6 @@ begin
     FConnection.WsSend(AData, ACallback)
   else if Assigned(ACallback) then
     ACallback(False);
-end;
-
-procedure TCrossWebSocket.SetMaskingKey(const AValue: Cardinal);
-begin
-  FMaskingKey := AValue;
 end;
 
 procedure TCrossWebSocket._Lock;

@@ -222,10 +222,7 @@ type
   ///   跨平台WebSocket服务器
   /// </summary>
   ICrossWebSocketServer = interface(ICrossHttpServer)
-  ['{FB333130-D736-43DD-9539-94FF7FB03E08}']
-    function GetMaskingKey: Cardinal;
-
-    procedure SetMaskingKey(const AValue: Cardinal);
+  ['{13637DAA-35EF-4B0D-B2C5-74BF6A6FEC10}']
 
     /// <summary>
     ///   WebSocket连接建立时触发
@@ -266,13 +263,6 @@ type
     ///   hui'diaohanshu
     /// </param>
     function OnPong(const ACallback: TWsServerOnPong): ICrossWebSocketServer;
-
-    {$REGION 'Documentation'}
-    /// <summary>
-    ///   Masking-Key
-    /// </summary>
-    {$ENDREGION}
-    property MaskingKey: Cardinal read GetMaskingKey write SetMaskingKey;
   end;
 
   TCrossWebSocketConnection = class(TCrossHttpConnection, ICrossWebSocketConnection)
@@ -354,7 +344,6 @@ type
   }
   TCrossWebSocketServer = class(TCrossHttpServer, ICrossWebSocketServer)
   private
-    FMaskingKey: Cardinal;
     FOnOpenEvents: TList<TWsServerOnOpen>;
     FOnOpenEventsLock: ILock;
 
@@ -382,10 +371,6 @@ type
     procedure _OnPing(const AConnection: ICrossWebSocketConnection);
     procedure _OnPong(const AConnection: ICrossWebSocketConnection);
   protected
-    function GetMaskingKey: Cardinal;
-
-    procedure SetMaskingKey(const AValue: Cardinal);
-  protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AHost: string;
       const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
@@ -403,8 +388,6 @@ type
 
     function OnPing(const ACallback: TWsServerOnPing): ICrossWebSocketServer;
     function OnPong(const ACallback: TWsServerOnPong): ICrossWebSocketServer;
-
-    property MaskingKey: Cardinal read GetMaskingKey write SetMaskingKey;
   end;
 
 implementation
@@ -695,7 +678,7 @@ begin
   LWsFrameData := TCrossWebSocketParser.MakeFrameData(
     AOpCode,
     AFin,
-    (Owner as ICrossWebSocketServer).MaskingKey,
+    True,
     AData,
     ACount);
 
@@ -851,11 +834,6 @@ begin
   end;
 
   Result := Self;
-end;
-
-procedure TCrossWebSocketServer.SetMaskingKey(const AValue: Cardinal);
-begin
-  FMaskingKey := AValue;
 end;
 
 procedure TCrossWebSocketServer._OnClose(
@@ -1017,11 +995,6 @@ begin
       end);
   end else
     inherited DoOnRequest(LConnection, ARequest, AResponse);
-end;
-
-function TCrossWebSocketServer.GetMaskingKey: Cardinal;
-begin
-  Result := FMaskingKey;
 end;
 
 end.
