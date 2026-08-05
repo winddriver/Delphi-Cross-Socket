@@ -4684,7 +4684,7 @@ begin
       for I := 1 to High(LCLValues) do
         if not TStrUtils.SameText(LCLValues[I].Trim, LFirstCL) then
         begin
-          _Log('Multiple Content-Lengths are inconsistent:%s', [LCLValues]);
+          _Log('Multiple Content-Lengths are inconsistent:%s', [string.Join(',', LCLValues)]);
           Exit(False);
         end;
       FContentLength := StrToInt64Def(LFirstCL, -1);
