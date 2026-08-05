@@ -27,6 +27,29 @@
 
 interface
 
+/// <summary>
+///   使用操作系统提供的密码学安全随机数生成器填充缓冲区。
+/// </summary>
+/// <param name="ABuf">
+///   接收随机字节的目标存储区。调用者必须保证该存储区至少包含
+///   ASize 个可写字节。
+/// </param>
+/// <param name="ASize">
+///   要写入的字节数。负数直接返回 False；零直接返回 True，且不会
+///   访问或修改 ABuf。
+/// </param>
+/// <returns>
+///   成功填满全部 ASize 个字节时返回 True；底层随机源不可用或读取
+///   失败时返回 False。正长度调用失败时，ABuf 的内容未定义，可能已被
+///   部分修改，调用者不得使用其中的数据。
+/// </returns>
+/// <remarks>
+///   本函数使用各平台的系统 CSPRNG，不受 Randomize 或 RandSeed 影响，
+///   也绝不回退到 Pascal 的 Random。Windows 使用 BCryptGenRandom，并在
+///   失败时回退到 SystemFunction036；Linux 优先使用 getrandom，并回退到
+///   /dev/urandom；macOS、iOS、Android 和 FreeBSD 使用 arc4random_buf；
+///   其他 POSIX 平台使用 /dev/urandom。
+/// </remarks>
 function TryFillCryptRandomBytes(var ABuf; const ASize: Integer): Boolean;
 
 /// <summary>
