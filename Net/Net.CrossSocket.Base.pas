@@ -1733,7 +1733,7 @@ begin
     // the user callback; either can drop our last reference. Keep one here so
     // the object survives until InternalClose is done.
     LSelf := Self;
-    FOwner.TriggerDisconnected(Self);
+    FOwner.TriggerDisconnected(LSelf);
     InternalClose;
     FSocket := INVALID_SOCKET;
   end;
