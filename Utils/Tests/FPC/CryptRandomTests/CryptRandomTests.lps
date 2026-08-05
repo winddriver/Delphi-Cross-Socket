@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectSession>
+    <PathDelim Value="\"/>
+    <Version Value="13"/>
+    <Units>
+      <Unit>
+        <Filename Value="CryptRandomTests.lpr"/>
+        <IsPartOfProject Value="True"/>
+        <Loaded Value="True"/>
+        <UsageCount Value="27"/>
+        <TopLine Value="164"/>
+        <CursorPos X="11" Y="117"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\..\..\Utils.CryptRandom.pas"/>
+        <Loaded Value="True"/>
+        <UsageCount Value="13"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="1"/>
+        <TopLine Value="60"/>
+        <CursorPos X="56" Y="377"/>
+      </Unit>
+    </Units>
+    <JumpHistory HistoryIndex="1">
+      <Position>
+        <Filename Value="CryptRandomTests.lpr"/>
+        <Caret Line="12" Column="16"/>
+      </Position>
+      <Position>
+        <Filename Value="CryptRandomTests.lpr"/>
+        <Caret Line="307" Column="17" TopLine="276"/>
+      </Position>
+    </JumpHistory>
+    <RunParams>
+      <FormatVersion Value="2"/>
+      <Modes ActiveMode=""/>
+    </RunParams>
+  </ProjectSession>
+</CONFIG>
