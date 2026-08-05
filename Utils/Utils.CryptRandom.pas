@@ -1,10 +1,14 @@
-unit Utils.CryptRandom;
+﻿unit Utils.CryptRandom;
 {*
   加密随机数生成工具单元
   
   提供跨平台的加密安全随机数生成功能
   - Windows: 使用 BCryptGenRandom 或 SystemFunction036 (RtlGenRandom)
-  - Linux/Unix: 使用 /dev/urandom
+  - Linux: 优先使用 getrandom, 不可用时回退 /dev/urandom
+  - macOS/iOS/Android/FreeBSD: 使用 arc4random_buf
+  - 其他 POSIX: 使用 /dev/urandom
+  - Windows/Linux/其他 POSIX 的底层失败返回 False
+  - arc4random_buf 平台遵循系统“始终成功”契约并返回 True
   
   注意: 不使用 Pascal 自带的 Random/RandomRange 等函数，因为:
   1. 内置随机数生成器使用伪随机算法(如线性同余)，可预测性强
@@ -13,6 +17,13 @@ unit Utils.CryptRandom;
 *}
 
 {$I zLib.inc}
+
+{$IF defined(MACOS) or defined(IOS) or defined(ANDROID) or defined(FREEBSD)}
+  {$DEFINE CRYPT_USE_ARC4RANDOM}
+{$ENDIF}
+{$IF defined(LINUX) and not defined(CRYPT_USE_ARC4RANDOM)}
+  {$DEFINE CRYPT_USE_GETRANDOM}
+{$ENDIF}
 
 interface
 
@@ -26,7 +37,23 @@ uses
   {$IFDEF MSWINDOWS}
   , Windows
   {$ENDIF}
+  {$IF DEFINED(DELPHI) AND NOT DEFINED(MSWINDOWS)}
+  , Posix.Base
+  {$ENDIF}
+  {$IFDEF CRYPT_USE_GETRANDOM}
+    {$IFDEF DELPHI}
+  , Posix.Dlfcn
+    {$ELSE}
+  , dl
+    {$ENDIF}
+  {$ENDIF}
   ;
+
+{$IFDEF CRYPT_USE_ARC4RANDOM}
+  {$IFDEF FPC}{$LINKLIB c}{$ENDIF}
+procedure arc4random_buf(ABuf: Pointer; ASize: NativeUInt); cdecl;
+  external {$IFDEF DELPHI}libc name _PU + 'arc4random_buf'{$ENDIF};
+{$ENDIF}
 
 {$IFDEF MSWINDOWS}
 const
@@ -89,37 +116,64 @@ begin
 end;
 {$ENDIF}
 
-function TryFillCryptRandomBytes(var ABuf; const ASize: Integer): Boolean;
-{$IFDEF MSWINDOWS}
-begin
-  if (ASize < 0) then Exit(False);
-  if (ASize = 0) then Exit(True);
+{$IFDEF CRYPT_USE_GETRANDOM}
+type
+  TGetRandom = function(ABuf: Pointer; ASize: NativeUInt;
+    AFlags: Cardinal): NativeInt; cdecl;
 
-  Result := TryFillByBCrypt(@ABuf, Cardinal(ASize));
-  if not Result then
-    Result := TryFillBySystemFunction036(@ABuf, Cardinal(ASize));
+var
+  GGetRandom: TGetRandom;
+
+procedure InitCryptRandomLinux;
+begin
+  GGetRandom := TGetRandom(dlsym(RTLD_DEFAULT, 'getrandom'));
 end;
-{$ELSE}
+
+function TryFillByGetRandom(const ABuf: Pointer;
+  const ASize: Integer): Boolean;
+var
+  LRead: NativeInt;
+  LTotal: Integer;
+  P: PByte;
+begin
+  Result := False;
+  if not Assigned(GGetRandom) then Exit;
+
+  LTotal := 0;
+  P := ABuf;
+  while LTotal < ASize do
+  begin
+    LRead := GGetRandom(P, NativeUInt(ASize - LTotal), 0);
+    if (LRead <= 0) or (LRead > ASize - LTotal) then Exit;
+
+    Inc(P, Integer(LRead));
+    Inc(LTotal, Integer(LRead));
+  end;
+
+  Result := True;
+end;
+{$ENDIF}
+
+{$IF not defined(MSWINDOWS) and not defined(CRYPT_USE_ARC4RANDOM)}
+function TryFillByUrandom(const ABuf: Pointer;
+  const ASize: Integer): Boolean;
 var
   LStream: TFileStream;
   LRead: Integer;
   LTotal: Integer;
   P: PByte;
 begin
-  if (ASize < 0) then Exit(False);
-  if (ASize = 0) then Exit(True);
-
   Result := False;
-  LStream := nil;
   try
-    LStream := TFileStream.Create('/dev/urandom', fmOpenRead or fmShareDenyNone);
+    LStream := TFileStream.Create('/dev/urandom',
+      fmOpenRead or fmShareDenyNone);
     try
       LTotal := 0;
-      P := @ABuf;
+      P := ABuf;
       while LTotal < ASize do
       begin
         LRead := LStream.Read(P^, ASize - LTotal);
-        if (LRead <= 0) then Exit;
+        if LRead <= 0 then Exit;
 
         Inc(P, LRead);
         Inc(LTotal, LRead);
@@ -135,9 +189,33 @@ begin
 end;
 {$ENDIF}
 
+function TryFillCryptRandomBytes(var ABuf; const ASize: Integer): Boolean;
+begin
+  if (ASize < 0) then Exit(False);
+  if (ASize = 0) then Exit(True);
+
+{$IFDEF MSWINDOWS}
+  Result := TryFillByBCrypt(@ABuf, Cardinal(ASize));
+  if not Result then
+    Result := TryFillBySystemFunction036(@ABuf, Cardinal(ASize));
+{$ELSEIF defined(CRYPT_USE_ARC4RANDOM)}
+  arc4random_buf(@ABuf, NativeUInt(ASize));
+  Result := True;
+{$ELSEIF defined(CRYPT_USE_GETRANDOM)}
+  Result := TryFillByGetRandom(@ABuf, ASize);
+  if not Result then
+    Result := TryFillByUrandom(@ABuf, ASize);
+{$ELSE}
+  Result := TryFillByUrandom(@ABuf, ASize);
+{$ENDIF}
+end;
+
 initialization
 {$IFDEF MSWINDOWS}
   InitCryptRandomLibraries;
+{$ENDIF}
+{$IFDEF CRYPT_USE_GETRANDOM}
+  InitCryptRandomLinux;
 {$ENDIF}
 
 finalization
