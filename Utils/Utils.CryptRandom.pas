@@ -241,9 +241,27 @@ begin
 {$ENDIF}
 end;
 
+{
+  将一个均匀的 32 位随机数无偏地映射到 [0, ASpan)。
+
+  UInt32 共有 2^32 个等概率取值。如果 2^32 不能被 ASpan 整除，
+  直接使用 LRandom mod ASpan 会使较小的余数比其他余数多一个
+  映射来源，产生“模偏差”。
+
+  LLimit 是不大于 2^32 的最大 ASpan 倍数。只接受小于 LLimit
+  的随机数，就能将可接受区间分成整数个长度为 ASpan 的完整块；
+  每个余数在每个块中恰好出现一次，因此最后取模不会有偏差。
+
+  例如 ASpan=10 时，2^32 mod 10=6；舍弃 UInt32 末尾的 6 个
+  取值后，余数 0..9 具有完全相同的出现次数。
+
+  单次 UInt32 只能覆盖最多 2^32 个状态，而当前公共 Integer
+  重载的最大可能跨度为 2^32-1，因此 ASpan 上限为 High(UInt32)。
+}
 function TryCryptRandomOffset(const ASpan: UInt64;
   out AOffset: UInt64): Boolean;
 const
+  // UInt32 可能取值的总数，比 High(UInt32) 大 1。
   UINT32_VALUE_COUNT: UInt64 = $100000000;
 var
   LLimit: UInt64;
@@ -253,6 +271,7 @@ begin
   if (ASpan = 0) or (ASpan > High(UInt32)) then Exit(False);
 
   LRandom := 0;
+  // 舍弃 [LLimit, 2^32) 这个不足一个 ASpan 的尾部区间。
   LLimit := UINT32_VALUE_COUNT - (UINT32_VALUE_COUNT mod ASpan);
   repeat
     if not TryFillCryptRandomBytes(LRandom, SizeOf(LRandom)) then
@@ -309,8 +328,21 @@ begin
   Result := True;
 end;
 
+{
+  IEEE 754 Double 的有效精度为 53 个二进制位（包含隐含的最高位）。
+  64 位 CSPRNG 输出右移 11 位后，得到均匀分布在
+  [0, 2^53-1] 上的整数 K。
+
+  将 K 乘以 2^-53，可得到精确对齐 Double 有效位数的离散值
+  K/2^53。最大值为 1-2^-53，所以结果一定位于 [0, 1)，永远
+  不会因为除以最大整数而产生 1.0。
+
+  CSPRNG 的每个输出位都是均匀且不可预测的，因此舍弃 11 个低位
+  只是为了匹配 Double 的精度，不会降低剩余 53 位的均匀性。
+}
 function TryCryptRandom(out AValue: Double): Boolean;
 const
+  // 2^-53；二的整数次幂可被二进制浮点数精确表示。
   DOUBLE_RANDOM_UNIT: Double = 1.0 / 9007199254740992.0;
 var
   LRandom: UInt64;
