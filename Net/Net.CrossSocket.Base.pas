@@ -1722,11 +1722,17 @@ begin
 end;
 
 procedure TCrossConnectionBase.Close;
+var
+  LSelf: ICrossConnection;
 begin
   if (_SetConnectStatus(csClosed) = csClosed) then Exit;
 
   if (FSocket <> INVALID_SOCKET) then
   begin
+    // TriggerDisconnected removes this connection from the owner list and runs
+    // the user callback; either can drop our last reference. Keep one here so
+    // the object survives until InternalClose is done.
+    LSelf := Self;
     FOwner.TriggerDisconnected(Self);
     InternalClose;
     FSocket := INVALID_SOCKET;
