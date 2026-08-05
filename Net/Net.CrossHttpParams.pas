@@ -1292,7 +1292,8 @@ begin
   Result := True;
 end;
 
-function _TryNormalizeCookieValue(const AValue: string; out ANormalizedValue: string): Boolean;
+function _TryNormalizeCookieValue(const AValue: string;
+  out ANormalizedValue: string; const ACheckCookieOctets: Boolean): Boolean;
 begin
   ANormalizedValue := AValue;
   if (Length(ANormalizedValue) >= 2) then
@@ -1300,7 +1301,10 @@ begin
       and (ANormalizedValue[High(ANormalizedValue)] = '"') then
       ANormalizedValue := Copy(ANormalizedValue, 2, Length(ANormalizedValue) - 2);
 
-  Result := _IsCookieOctets(ANormalizedValue);
+  if ACheckCookieOctets then
+    Result := _IsCookieOctets(ANormalizedValue)
+  else
+    Result := True;
 end;
 
 function _NormalizeCookieDomain(const AValue: string): string;
@@ -1907,9 +1911,10 @@ begin
       LName := Copy(LPair, 1, LEqualsPos - 1);
       // 提取 value 部分（等号之后的所有内容）
       LValue := Copy(LPair, LEqualsPos + 1, MaxInt);
-      // 校验 name 是否为合法的 HTTP token, 以及 value 是否为合法的 cookie 值
+      // 请求 Cookie 接收端保持宽松：部分浏览器或第三方系统会发送包含
+      // 逗号等非标准字符的值，不应因此拒绝整个 HTTP 请求。
       if not _IsHttpToken(LName)
-        or not _TryNormalizeCookieValue(LValue, LNormalizedValue) then
+        or not _TryNormalizeCookieValue(LValue, LNormalizedValue, False) then
       begin
         if AClear then FParams.Clear;
         Exit;
@@ -2025,7 +2030,8 @@ begin
 
   Self.Name := LValues[0].Substring(0, LPos).Trim;
   if not _IsHttpToken(Self.Name)
-    or not _TryNormalizeCookieValue(LValues[0].Substring(LPos + 1).Trim, Self.Value) then
+    or not _TryNormalizeCookieValue(LValues[0].Substring(LPos + 1).Trim,
+      Self.Value, True) then
   begin
     Self.Name := '';
     Self.Value := '';
