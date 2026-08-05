@@ -29,6 +29,37 @@ interface
 
 function TryFillCryptRandomBytes(var ABuf; const ASize: Integer): Boolean;
 
+/// <summary>
+///   生成位于 [0, ARange) 的密码学安全随机整数。
+/// </summary>
+/// <remarks>
+///   ARange 必须大于 0。无效范围或系统 CSPRNG 失败时返回 False
+///   并将 AValue 置为 0。本函数不受 Randomize 或 RandSeed 影响。
+/// </remarks>
+function TryCryptRandom(const ARange: Integer;
+  out AValue: Integer): Boolean; overload;
+
+/// <summary>
+///   在两个边界之间生成密码学安全随机整数。
+/// </summary>
+/// <remarks>
+///   返回归一化后的半开区间 [Min(ARangeFrom, ARangeTo),
+///   Max(ARangeFrom, ARangeTo))，支持负数、跨零和反向边界。两个边界
+///   相等时直接成功返回该值。系统 CSPRNG 失败时返回 False
+///   并将 AValue 置为 0。本函数不受 Randomize 或 RandSeed 影响。
+/// </remarks>
+function TryCryptRandom(const ARangeFrom, ARangeTo: Integer;
+  out AValue: Integer): Boolean; overload;
+
+/// <summary>
+///   生成位于 [0, 1) 的密码学安全随机浮点数。
+/// </summary>
+/// <remarks>
+///   使用 53 个随机位构造 Double。系统 CSPRNG 失败时返回 False
+///   并将 AValue 置为 0。本函数不受 Randomize 或 RandSeed 影响。
+/// </remarks>
+function TryCryptRandom(out AValue: Double): Boolean; overload;
+
 implementation
 
 uses
@@ -208,6 +239,88 @@ begin
 {$ELSE}
   Result := TryFillByUrandom(@ABuf, ASize);
 {$ENDIF}
+end;
+
+function TryCryptRandomOffset(const ASpan: UInt64;
+  out AOffset: UInt64): Boolean;
+const
+  UINT32_VALUE_COUNT: UInt64 = $100000000;
+var
+  LLimit: UInt64;
+  LRandom: UInt32;
+begin
+  AOffset := 0;
+  if (ASpan = 0) or (ASpan > High(UInt32)) then Exit(False);
+
+  LRandom := 0;
+  LLimit := UINT32_VALUE_COUNT - (UINT32_VALUE_COUNT mod ASpan);
+  repeat
+    if not TryFillCryptRandomBytes(LRandom, SizeOf(LRandom)) then
+      Exit(False);
+  until UInt64(LRandom) < LLimit;
+
+  AOffset := UInt64(LRandom) mod ASpan;
+  Result := True;
+end;
+
+function TryCryptRandom(const ARange: Integer;
+  out AValue: Integer): Boolean;
+var
+  LOffset: UInt64;
+begin
+  AValue := 0;
+  if ARange <= 0 then Exit(False);
+  if ARange = 1 then Exit(True);
+  if not TryCryptRandomOffset(UInt64(ARange), LOffset) then Exit(False);
+
+  AValue := Integer(LOffset);
+  Result := True;
+end;
+
+function TryCryptRandom(const ARangeFrom, ARangeTo: Integer;
+  out AValue: Integer): Boolean;
+var
+  LLower: Int64;
+  LOffset: UInt64;
+  LSpan: UInt64;
+  LUpper: Int64;
+begin
+  AValue := 0;
+  if ARangeFrom = ARangeTo then
+  begin
+    AValue := ARangeFrom;
+    Exit(True);
+  end;
+
+  if ARangeFrom < ARangeTo then
+  begin
+    LLower := ARangeFrom;
+    LUpper := ARangeTo;
+  end else
+  begin
+    LLower := ARangeTo;
+    LUpper := ARangeFrom;
+  end;
+
+  LSpan := UInt64(LUpper - LLower);
+  if not TryCryptRandomOffset(LSpan, LOffset) then Exit(False);
+
+  AValue := Integer(LLower + Int64(LOffset));
+  Result := True;
+end;
+
+function TryCryptRandom(out AValue: Double): Boolean;
+const
+  DOUBLE_RANDOM_UNIT: Double = 1.0 / 9007199254740992.0;
+var
+  LRandom: UInt64;
+begin
+  AValue := 0;
+  LRandom := 0;
+  if not TryFillCryptRandomBytes(LRandom, SizeOf(LRandom)) then Exit(False);
+
+  AValue := Double(LRandom shr 11) * DOUBLE_RANDOM_UNIT;
+  Result := True;
 end;
 
 initialization
