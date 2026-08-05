@@ -2953,7 +2953,11 @@ begin
   try
     LParsed := (FRequest as TCrossHttpRequest).ParseHeader(ADataPtr, ADataSize);
   except
-    LParsed := False;
+    on e: Exception do
+    begin
+      LParsed := False;
+      _Log('ParseHeader error %s,%s', [e.ClassName, e.Message]);
+    end;
   end;
 
   if not LParsed then
@@ -4593,7 +4597,10 @@ begin
 
     // 拒绝包含 NUL 字节的请求 (可能导致跨编译器字符串行为差异)
     if (FRawRequestText.IndexOf(#0) >= 0) then
+    begin
+      _Log('The request header cannot contain #0');
       Exit(False);
+    end;
 
     I := FRawRequestText.IndexOf(#13#10);
     // 第一行是请求命令行
@@ -4612,7 +4619,11 @@ begin
     I := FRequestCmdLine.IndexOf(' ');
     if (I <= 0) then Exit(False);
     J := FRequestCmdLine.IndexOf(' ', I + 1);
-    if (J <= I + 1) or (J >= FRequestCmdLine.Length - 1) then Exit(False);
+    if (J <= I + 1) or (J >= FRequestCmdLine.Length - 1) then
+    begin
+      _Log('Invalid request command line:%s', [FRequestCmdLine]);
+      Exit(False);
+    end;
 
     // 请求方法(GET, POST, PUT, DELETE...)
     FMethod := FRequestCmdLine.Substring(0, I).ToUpper;
@@ -4672,7 +4683,10 @@ begin
       LFirstCL := LCLValues[0].Trim;
       for I := 1 to High(LCLValues) do
         if not TStrUtils.SameText(LCLValues[I].Trim, LFirstCL) then
+        begin
+          _Log('Multiple Content-Lengths are inconsistent:%s', [LCLValues]);
           Exit(False);
+        end;
       FContentLength := StrToInt64Def(LFirstCL, -1);
     end else
       FContentLength := -1;
@@ -4708,7 +4722,10 @@ begin
     begin
       if not TryStrToInt(LPortStr, LPortInt)
         or (LPortInt < 0) or (LPortInt > High(Word)) then
+      begin
+        _Log('Invalid port:%s', [LPortStr]);
         Exit(False);
+      end;
       FHostPort := Word(LPortInt);
     end else
       FHostPort := GetConnection.Server.Port;
@@ -4753,7 +4770,9 @@ begin
     // 解析Cookies
     if (FRequestCookies <> '') then
     begin
-      if not FCookies.Decode(FRequestCookies, True) then Exit(False);
+      // Cookies解析失败不要影响整个Header的解析
+      if not FCookies.Decode(FRequestCookies, True) then
+        _Log('Invalid cookies:%s', [FRequestCookies]);
     end else
       FCookies.Clear;
 
@@ -4769,8 +4788,11 @@ begin
     // 任何解析异常都归一为 Result := False, 由 _OnHeaderData 发 400.
     // 不记详细错误原因 (不足类型安全且可能被恶意请求刷日志),
     // 需要调试时可临时加 Logger 输出.
-    on Exception do
+    on e: Exception do
+    begin
+      _Log('ParseHeader error %s,%s', [e.ClassName, e.Message]);
       Result := False;
+    end;
   end;
 end;
 
