@@ -1,0 +1,36 @@
+﻿# 垃圾文件
+*.log
+*.bak
+*.identcache
+*.local
+*.dcu
+*.ppu
+*.o
+*.tmp
+*.dsk
+*.dsv
+*.~*
+*.exe
+*.rsj
+*.s
+
+# 垃圾目录
+__history/
+__recovery/
+*.log/
+lib/
+out/
+bin/
+backup/
+
+# Delphi 默认工程文件输出目录(*.dcu)
+Linux64/
+Win32/
+Win64/
+OSX32/
+iOSDevice32/
+iOSDevice64/
+Android32/
+Android64/
+*.mes
+Build/
