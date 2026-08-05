@@ -3636,7 +3636,9 @@ begin
         'libcrypto.so.1.1',
         'libcrypto.so'
         {$ELSEIF DEFINED(MACOS)}
-        'libssl.dylib'
+        'libcrypto.3.dylib',
+        'libcrypto.1.1.dylib',
+        'libcrypto.dylib'
         {$ENDIF}
       ];
     end;
@@ -3812,7 +3814,7 @@ begin
   begin
     if (FLibSSL <> '') then
       LSslLibs := [FLibSSL]
-    else if (LIBCRYPTO_NAME <> '') then
+    else if (LIBSSL_NAME <> '') then
       LSslLibs := [LIBSSL_NAME]
     else
     begin
@@ -3830,7 +3832,9 @@ begin
         'libssl.so.1.1',
         'libssl.so'
         {$ELSEIF DEFINED(MACOS)}
-        'libcrypto.dylib'
+        'libssl.3.dylib',
+        'libssl.1.1.dylib',
+        'libssl.dylib'
         {$ENDIF}
       ];
     end;
