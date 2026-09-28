@@ -5468,14 +5468,17 @@ procedure TCrossHttpResponse._Send(const AHeaderSource,
   ABodySource: TCrossHttpChunkDataFunc;
   const ACallback: TCrossConnectionCallback);
 var
-  LHeaderDone: Boolean;
+  LHeaderDone, LIsHead: Boolean;
 begin
   // HEAD 请求不应包含响应体 (RFC 7231 §4.3.2)
-  if (FRequest.Method = 'HEAD') then
-  begin
-    _Send(AHeaderSource, ACallback);
-    Exit;
-  end;
+  // [FIX-HEAD-LOOP-1] Route HEAD THROUGH the one-shot wrapper below rather
+  // than around it. Every header source rebuilds its header on each call and
+  // never returns False, and _SendQueueItem calls the source again after each
+  // completed SendBuf -- the wrapper is what ends the header. Passing
+  // AHeaderSource on its own therefore resent the header block until the peer
+  // reset the connection, and a keep-alive client read the copies as its next
+  // response.
+  LIsHead := (FRequest.Method = 'HEAD');
 
   LHeaderDone := False;
 
@@ -5487,6 +5490,9 @@ begin
         LHeaderDone := True;
         Result := Assigned(AHeaderSource) and AHeaderSource(AData, ACount);
       end else
+      if LIsHead then
+        Result := False
+      else
       begin
         Result := Assigned(ABodySource) and ABodySource(AData, ACount);
       end;
