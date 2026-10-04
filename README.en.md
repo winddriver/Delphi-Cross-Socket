@@ -57,11 +57,12 @@ Author: WiNDDRiVER(soulawing@gmail.com)
 
 The OpenSSL backend exposes two separate methods on `ICrossSslSocket`, for both clients and servers:
 
-The minimum protocol version is TLS 1.2. The component leaves the maximum version to the library and system configuration. Future protocol versions still require independent compatibility validation.
+The minimum protocol version is TLS 1.2 by default; `SetMinTlsVersion(tmvTls13)` raises it to TLS 1.3 only. The component leaves the maximum version to the library and system configuration. Future protocol versions still require independent compatibility validation.
 
 ```pascal
 LSocket.SetTls12CipherSuites('ECDHE-RSA-AES128-GCM-SHA256');
 LSocket.SetTls13CipherSuites('TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384');
+LSocket.SetMinTlsVersion(tmvTls13); // optional: TLS 1.3 only
 ```
 
 - `SetTls12CipherSuites` accepts OpenSSL TLS 1.2 cipher rules. `SetTls13CipherSuites` accepts TLS 1.3 suite names separated by colons, in preference order.
@@ -70,6 +71,7 @@ LSocket.SetTls13CipherSuites('TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384');
 - An empty string leaves the current configuration unchanged; it neither restores defaults nor disables a protocol. Pass the corresponding `DEFAULT_TLSxx_CIPHER_SUITES` constant to restore a suite list.
 - The lists are separate, but `@SECLEVEL` in TLS 1.2 rules changes the context-wide security level and can affect TLS 1.3 handshakes. Restoring a list or calling the TLS 1.3 setter does not reset that level.
 - Inputs follow native OpenSSL semantics. Unknown TLS 1.2 items may be ignored. Unknown TLS 1.3 names are rejected by OpenSSL 1.1.1 and may be ignored by 3.x. Both setters check the native result; failure raises `ESslContextInvalid` and invalidates the socket's entire TLS configuration. Recreate the socket after such a failure.
+- `SetMinTlsVersion` takes `TCrossTlsMinVersion` from `Net.CrossSslSocket.Types`: `tmvTls12` (the default, never lower) or `tmvTls13`. The OpenSSL backend reads the minimum back from the context after setting it; a failed call or a value that did not take raises `ESslContextInvalid` and invalidates the socket's TLS configuration. The maximum version and both suite lists are unchanged. The mbedTLS backend accepts `tmvTls12` and rejects `tmvTls13`.
 - Finish configuration before creating SSL connections. Each setter takes the configuration lock; the pair is not an atomic transaction. SSL-disabled sockets perform no configuration. The mbedTLS backend explicitly rejects non-empty configuration for both methods.
 - Rebuild all consumers and derived interfaces, including DCU/PPU/BPL/DLL files, from the same source version after the `ICrossSslSocket` interface change. Mixing old and new binaries is unsupported. No configuration forwarding methods have been added to `ICrossHttpClient`.
 
