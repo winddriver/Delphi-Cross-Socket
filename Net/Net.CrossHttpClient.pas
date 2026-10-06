@@ -2089,7 +2089,12 @@ begin
     // 设置数据传输方式
     if AChunked then
       FRequestObj.FHeader[HEADER_TRANSFER_ENCODING] := 'chunked'
-    else if (ABodySize > 0) then
+    // RFC 9110 8.6: send Content-Length when the method gives the body a
+    // meaning, even when the body is empty - http.sys answers 411 otherwise.
+    else if (ABodySize > 0)
+      or SameText(FRequestObj.FMethod, THttpMethod.POST)
+      or SameText(FRequestObj.FMethod, THttpMethod.PUT)
+      or SameText(FRequestObj.FMethod, 'PATCH') then
       FRequestObj.FHeader[HEADER_CONTENT_LENGTH] := ABodySize.ToString;
 
     // 设置接受的数据编码方式
