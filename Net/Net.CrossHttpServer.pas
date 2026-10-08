@@ -5490,7 +5490,7 @@ begin
   // AHeaderSource on its own therefore resent the header block until the peer
   // reset the connection, and a keep-alive client read the copies as its next
   // response.
-  LIsHead := (FRequest.Method = 'HEAD');
+  LIsHead := (FRequest.Method = THttpMethod.HEAD);
 
   LHeaderDone := False;
 
