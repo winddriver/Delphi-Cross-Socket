@@ -1,0 +1,181 @@
+object ProxyMainForm: TProxyMainForm
+  Left = 0
+  Top = 0
+  Caption = 'Delphi Cross Socket - Proxy Demo'
+  ClientHeight = 508
+  ClientWidth = 973
+  FormFactor.Width = 320
+  FormFactor.Height = 480
+  FormFactor.Devices = [Desktop]
+  DesignerMasterStyle = 0
+  object ProxyType: TComboBox
+    Items.Strings = (
+      'direct'
+      'http'
+      'https'
+      'socks4'
+      'socks5')
+    ItemIndex = 4
+    Position.X = 16.000000000000000000
+    Position.Y = 16.000000000000000000
+    Size.Width = 89.000000000000000000
+    Size.Height = 32.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 0
+  end
+  object ProxyHost: TEdit
+    Touch.InteractiveGestures = [LongTap, DoubleTap]
+    TabOrder = 1
+    Text = '127.0.0.1'
+    Position.X = 117.000000000000000000
+    Position.Y = 16.000000000000000000
+    Size.Width = 130.000000000000000000
+    Size.Height = 32.000000000000000000
+    Size.PlatformDefault = False
+  end
+  object ProxyPort: TEdit
+    Touch.InteractiveGestures = [LongTap, DoubleTap]
+    TabOrder = 2
+    Text = '10808'
+    Position.X = 257.000000000000000000
+    Position.Y = 16.000000000000000000
+    Size.Width = 70.000000000000000000
+    Size.Height = 32.000000000000000000
+    Size.PlatformDefault = False
+  end
+  object ProxyUser: TEdit
+    Touch.InteractiveGestures = [LongTap, DoubleTap]
+    TabOrder = 3
+    Position.X = 418.000000000000000000
+    Position.Y = 16.000000000000000000
+    Size.Width = 120.000000000000000000
+    Size.Height = 32.000000000000000000
+    Size.PlatformDefault = False
+    TextPrompt = 'user'
+  end
+  object ProxyPassword: TEdit
+    Touch.InteractiveGestures = [LongTap, DoubleTap]
+    TabOrder = 4
+    Password = True
+    Position.X = 548.000000000000000000
+    Position.Y = 16.000000000000000000
+    Size.Width = 120.000000000000000000
+    Size.Height = 32.000000000000000000
+    Size.PlatformDefault = False
+  end
+  object UseAuth: TCheckBox
+    Position.X = 335.000000000000000000
+    Position.Y = 16.000000000000000000
+    Size.Width = 100.000000000000000000
+    Size.Height = 32.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 20
+    Text = 'Use Auth'
+    OnChange = AuthClick
+  end
+  object GoogleButton: TButton
+    Position.X = 16.000000000000000000
+    Position.Y = 64.000000000000000000
+    Size.Width = 120.000000000000000000
+    Size.Height = 36.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 5
+    Text = 'Google HTTP'
+    OnClick = HttpClick
+  end
+  object DnsDirectButton: TButton
+    Position.X = 146.000000000000000000
+    Position.Y = 64.000000000000000000
+    Size.Width = 120.000000000000000000
+    Size.Height = 36.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 6
+    Text = 'DNS direct'
+    OnClick = DohDirectClick
+  end
+  object DnsProxyButton: TButton
+    Position.X = 276.000000000000000000
+    Position.Y = 64.000000000000000000
+    Size.Width = 120.000000000000000000
+    Size.Height = 36.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 7
+    Text = 'DNS proxy'
+    OnClick = DohProxyClick
+  end
+  object ResolveButton: TButton
+    Position.X = 536.000000000000000000
+    Position.Y = 64.000000000000000000
+    Size.Width = 120.000000000000000000
+    Size.Height = 36.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 14
+    Text = 'IPv4/IPv6'
+    OnClick = ResolveClick
+  end
+  object UdpDnsButton: TButton
+    Position.X = 406.000000000000000000
+    Position.Y = 64.000000000000000000
+    Size.Width = 120.000000000000000000
+    Size.Height = 36.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 8
+    Text = 'UDP DNS'
+    OnClick = UdpDnsClick
+  end
+  object WsDirectButton: TButton
+    Position.X = 666.000000000000000000
+    Position.Y = 64.000000000000000000
+    Size.Width = 120.000000000000000000
+    Size.Height = 36.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 9
+    Text = 'WS direct'
+    OnClick = WsDirectClick
+  end
+  object WsProxyButton: TButton
+    Position.X = 796.000000000000000000
+    Position.Y = 64.000000000000000000
+    Size.Width = 120.000000000000000000
+    Size.Height = 36.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 10
+    Text = 'WS proxy'
+    OnClick = WsProxyClick
+  end
+  object LogMemo: TMemo
+    Touch.InteractiveGestures = [Pan, LongTap, DoubleTap]
+    DataDetectorTypes = []
+    Lines.Strings = (
+
+        'Fields: proxy type (direct/http/https/socks4/socks5), host, port' +
+        ', user, password.')
+    Align = Bottom
+    Position.Y = 113.000000000000000000
+    Size.Width = 973.000000000000000000
+    Size.Height = 395.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 11
+    Viewport.Width = 969.000000000000000000
+    Viewport.Height = 391.000000000000000000
+  end
+  object EdtWS: TEdit
+    Touch.InteractiveGestures = [LongTap, DoubleTap]
+    TabOrder = 12
+    Text = 'wss://ws.postman-echo.com/raw'
+    Position.X = 710.000000000000000000
+    Position.Y = 16.000000000000000000
+    Size.Width = 217.000000000000000000
+    Size.Height = 32.000000000000000000
+    Size.PlatformDefault = False
+  end
+  object Label1: TLabel
+    Position.X = 678.000000000000000000
+    Position.Y = 23.000000000000000000
+    Size.Width = 33.000000000000000000
+    Size.Height = 17.000000000000000000
+    Size.PlatformDefault = False
+    Text = 'WS:'
+    TabOrder = 13
+  end
+end

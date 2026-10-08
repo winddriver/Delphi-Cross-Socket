@@ -28,6 +28,7 @@ uses
   Classes,
 
   Net.SocketAPI,
+  Net.CrossProxy,
   Net.CrossSocket.Base,
   Net.CrossSocket,
   Net.CrossSslSocket.Base,
@@ -104,6 +105,7 @@ type
   protected
     procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); override;
+    procedure SendProxyBytes(const ABytes: TBytes); override;
   public
     constructor Create(const AOwner: TCrossSocketBase;
       const AClientSocket: TSocket; const AConnectType: TConnectType;
@@ -295,6 +297,21 @@ begin
       end;
     end;
   end;
+end;
+
+procedure TCrossMbedTlsConnection.SendProxyBytes(const ABytes: TBytes);
+var
+  LBytes: TBytes;
+begin
+  if Length(ABytes) = 0 then
+    Exit;
+
+  LBytes := ABytes;
+  inherited DirectSend(@LBytes[0], Length(LBytes),
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+    begin
+      LBytes := nil;
+    end);
 end;
 
 destructor TCrossMbedTlsConnection.Destroy;
@@ -564,8 +581,23 @@ end;
 procedure TCrossMbedTlsSocket.TriggerConnected(const AConnection: ICrossConnection);
 var
   LConnection: TCrossMbedTlsConnection;
+  LProxyData: TBytes;
 begin
   LConnection := AConnection as TCrossMbedTlsConnection;
+
+  if LConnection.ProxyUsesTlsTransport then
+  begin
+    _Log('HTTPS proxy TLS transport requires the OpenSSL backend.');
+    LConnection.Close;
+    Exit;
+  end;
+
+  if LConnection.ProxyNeedsHandshake then
+  begin
+    if LConnection.ProxyStart(LProxyData) then
+      LConnection.SendProxyBytes(LProxyData);
+    Exit;
+  end;
 
   if Ssl then
   begin
@@ -586,8 +618,28 @@ procedure TCrossMbedTlsSocket.TriggerReceived(const AConnection: ICrossConnectio
 var
   LConnection: TCrossMbedTlsConnection;
   LRetCode: Integer;
+  LProxyData, LRemain: TBytes;
+  LProxyResult: TCrossProxyFeedResult;
 begin
   LConnection := AConnection as TCrossMbedTlsConnection;
+
+  if LConnection.ProxyNeedsHandshake then
+  begin
+    LProxyResult := LConnection.ProxyFeed(ABuf, ALen, LProxyData, LRemain);
+    case LProxyResult of
+      cpfrSendData:
+        LConnection.SendProxyBytes(LProxyData);
+      cpfrComplete:
+        begin
+          TriggerConnected(AConnection);
+          if Length(LRemain) > 0 then
+            TriggerReceived(AConnection, @LRemain[0], Length(LRemain));
+        end;
+      cpfrFailed:
+        LConnection.Close;
+    end;
+    Exit;
+  end;
 
   if Ssl then
   begin
