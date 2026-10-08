@@ -31,6 +31,7 @@ uses
   Net.CrossSocket.Base,
   Net.CrossSocket,
   Net.CrossSslSocket.Base,
+  Net.CrossSslSocket.Types,
   Net.MbedTls,
   Net.MbedBIO;
 
@@ -156,9 +157,31 @@ type
       const APassword: string); overload; override;
     procedure SetPrivateKey(const APKeyBytes: TBytes;
       const APassword: string); overload; override;
+    procedure SetMinTlsVersion(const AVersion: TCrossTlsMinVersion); override;
   end;
 
+{$IFDEF CROSS_MBEDTLS_SELFTEST}
+procedure CrossMbedTlsSelfTest_GetMinProtocolVersions(const ASocket: TCrossMbedTlsSocket;
+  out AClientVersion, AServerVersion: Integer);
+{$ENDIF}
+
 implementation
+
+{$IFDEF CROSS_MBEDTLS_SELFTEST}
+procedure CrossMbedTlsSelfTest_GetMinProtocolVersions(const ASocket: TCrossMbedTlsSocket;
+  out AClientVersion, AServerVersion: Integer);
+begin
+  ASocket.BeginTlsConfigUpdate;
+  try
+    AClientVersion := (Integer(ASocket.FCliConf.min_major_ver) shl 8) or
+      ASocket.FCliConf.min_minor_ver;
+    AServerVersion := (Integer(ASocket.FSrvConf.min_major_ver) shl 8) or
+      ASocket.FSrvConf.min_minor_ver;
+  finally
+    ASocket.EndTlsConfigUpdate;
+  end;
+end;
+{$ENDIF}
 
 procedure ValidateCertificatePemBundle(const ABuf: Pointer;
   const ASize: Integer);
@@ -692,7 +715,24 @@ begin
   mbedtls_ssl_conf_rng(@FCliConf, mbedtls_ctr_drbg_random, @FCtrDrbg);
   mbedtls_ssl_conf_authmode(@FCliConf, MBEDTLS_SSL_VERIFY_NONE);
   mbedtls_ssl_conf_ciphersuites(@FCliConf, PInteger(@DEFAULT_CIPHERSUITES_CLIENT));
+  mbedtls_ssl_conf_min_version(@FCliConf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3); // TLS v1.2
   {$endregion}
+end;
+
+procedure TCrossMbedTlsSocket.SetMinTlsVersion(const AVersion: TCrossTlsMinVersion);
+begin
+  if not Ssl then Exit;
+
+  BeginTlsConfigUpdate;
+  try
+    if AVersion <> tmvTls12 then
+      raise ECrossSocket.Create('Mbed TLS does not support minimum TLS versions above TLS 1.2.');
+
+    mbedtls_ssl_conf_min_version(@FCliConf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3);
+    mbedtls_ssl_conf_min_version(@FSrvConf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3);
+  finally
+    EndTlsConfigUpdate;
+  end;
 end;
 
 procedure TCrossMbedTlsSocket.ApplyVerifyPeer(const AValue: Boolean);

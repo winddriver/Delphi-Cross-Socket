@@ -95,6 +95,13 @@ begin
     on E: ECrossSocket do LRejected := True;
   end;
   if not LRejected then raise Exception.Create('真实连接后最低协议版本未锁定');
+  LRejected := False;
+  try
+    AApi.SetMinTlsVersion(tmvTls12);
+  except
+    on E: ECrossSocket do LRejected := True;
+  end;
+  if not LRejected then raise Exception.Create('真实连接后仍可恢复最低协议版本');
 end;
 
 procedure RunCipherHandshake;
@@ -105,8 +112,10 @@ var
   LPort: Integer;
 begin
   // 模式、端口、TLS12名单、TLS13名单、证书、私钥、CA、协议、预期套件。
+  // 可选第十项：default、tls13、restore12（先提升再恢复）。
   // 名单参数为 default 时不调用 setter，直接测试初始化默认值。
-  if ParamCount <> 9 then raise Exception.Create('握手测试参数数量不正确');
+  if (ParamCount <> 9) and (ParamCount <> 10) then
+    raise Exception.Create('握手测试参数数量不正确');
   LPort := StrToInt(ParamStr(2));
   if (LPort <= 0) or (LPort > 65535) then raise Exception.Create('测试端口无效');
   LObserver := THandshakeObserver.Create;
@@ -118,6 +127,19 @@ begin
     LSocket.Observer := LObserver;
     if ParamStr(3) <> 'default' then LApi.SetTls12CipherSuites(ParamStr(3));
     if ParamStr(4) <> 'default' then LApi.SetTls13CipherSuites(ParamStr(4));
+    if ParamCount = 10 then
+    begin
+      if ParamStr(10) = 'tls13' then
+        LApi.SetMinTlsVersion(tmvTls13)
+      else
+      if ParamStr(10) = 'restore12' then
+      begin
+        LApi.SetMinTlsVersion(tmvTls13);
+        LApi.SetMinTlsVersion(tmvTls12);
+      end else
+      if ParamStr(10) <> 'default' then
+        raise Exception.Create('最低协议版本测试参数无效');
+    end;
     LApi.SetCertificateFile(ParamStr(5));
     LApi.SetPrivateKeyFile(ParamStr(6));
     LApi.AddCACertificateFile(ParamStr(7));

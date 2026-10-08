@@ -1175,6 +1175,7 @@ type
     DELETE   = 'DELETE';
     HEAD     = 'HEAD';
     OPTIONS  = 'OPTIONS';
+    PATCH    = 'PATCH';
     TRACE    = 'TRACE';
     CONNECT  = 'CONNECT';
     PROPFIND = 'PROPFIND';

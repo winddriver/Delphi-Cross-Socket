@@ -223,13 +223,13 @@ type
 
     /// <summary>
     ///   设置最低 TLS 协议版本（默认 TLS 1.2）。
-    ///   Sets the minimum TLS protocol version (default TLS 1.2).
     /// </summary>
     /// <remarks>
-    ///   tmvTls13 表示仅接受 TLS 1.3；tmvTls12 恢复默认下限。不低于 TLS 1.2。
+    ///   tmvTls13 将下限提升至 TLS 1.3；tmvTls12 恢复默认下限。不低于 TLS 1.2。
     ///   当前仅 OpenSSL 后端支持 tmvTls13，设置后回读上下文确认已生效，
     ///   回读不一致或原生调用失败都抛 ESslContextInvalid，此 socket 的 TLS
-    ///   配置失效，必须重建对象。其他后端对 tmvTls13 明确抛出不支持异常。
+    ///   配置失效，必须重建对象。mbedTLS 仅支持 tmvTls12；未实现此配置的
+    ///   自定义后端对两种版本均明确抛出不支持异常。
     ///   必须在首个 SSL 连接创建前调用；未启用 SSL 时不执行配置。
     ///   不修改协议上限，也不修改 TLS 1.2 / TLS 1.3 套件名单。
     /// </remarks>
@@ -480,13 +480,12 @@ end;
 
 procedure TCrossSslSocketBase.SetMinTlsVersion(const AVersion: TCrossTlsMinVersion);
 begin
-  // TLS 1.2 是所有后端的默认下限，无需操作。
-  if not Ssl or (AVersion = tmvTls12) then Exit;
+  if not Ssl then Exit;
 
   BeginTlsConfigUpdate;
   try
     raise ECrossSocket.CreateFmt(
-      '%s does not support raising the minimum TLS version above TLS 1.2.',
+      '%s does not support minimum TLS version configuration.',
       [ClassName]);
   finally
     EndTlsConfigUpdate;

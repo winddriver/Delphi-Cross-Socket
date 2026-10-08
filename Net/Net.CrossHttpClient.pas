@@ -2094,7 +2094,7 @@ begin
     else if (ABodySize > 0)
       or SameText(FRequestObj.FMethod, THttpMethod.POST)
       or SameText(FRequestObj.FMethod, THttpMethod.PUT)
-      or SameText(FRequestObj.FMethod, 'PATCH') then
+      or SameText(FRequestObj.FMethod, THttpMethod.PATCH) then
       FRequestObj.FHeader[HEADER_CONTENT_LENGTH] := ABodySize.ToString;
 
     // 设置接受的数据编码方式

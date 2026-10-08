@@ -86,6 +86,11 @@ foreach ($oldCipher in 'ECDHE-RSA-AES128-SHA256','TLS_AES_128_CCM_SHA256','TLS_A
     $cases += @{ Version=$version; Cipher=$oldCipher; C12='default'; C13='default'; Expected='fail' }
 }
 
+# 套件相同且不额外限制版本，拒绝结果必须由新配置的协议下限产生。
+$cases += @{ Version='TLSv1.3'; Cipher=$default13[2]; C12='default'; C13='default'; Minimum='tls13'; Expected=$default13[2] }
+$cases += @{ Version='TLSv1.2'; Cipher=$default12[0]; C12='default'; C13='default'; Minimum='tls13'; Expected='fail' }
+$cases += @{ Version='TLSv1.2'; Cipher=$default12[0]; C12='default'; C13='default'; Minimum='restore12'; Expected=$default12[0] }
+
 $passed = 0
 foreach ($side in 'client','server') {
     foreach ($case in $cases) {
@@ -95,12 +100,14 @@ foreach ($side in 'client','server') {
         $key = Join-Path $runRoot "$kind-key.pem"
         $tlsArguments = if ($case.Version -eq 'TLSv1.2') { @('-tls1_2','-cipher',$case.Cipher) }
                         else { @('-tls1_3','-ciphersuites',$case.Cipher) }
-        $probeArguments = @("--$side", "$port", $case.C12, $case.C13, $cert, $key, $cert, $case.Version, $case.Expected)
+        $minimum = if ($case.Minimum) { $case.Minimum } else { 'default' }
+        $probeArguments = @("--$side", "$port", $case.C12, $case.C13, $cert, $key, $cert, $case.Version, $case.Expected, $minimum)
         $peer = $null
         $probe = $null
         $peerOut = $null
         $peerError = $null
         $label = '{0:D2}-{1}-{2}' -f ($passed + 1),$side,$case.Cipher
+        if ($minimum -ne 'default') { $label += '-' + $minimum }
         try {
             if ($side -eq 'client') {
                 $peer = Start-TestProcess $OpenSslExe (@('s_server','-accept',"127.0.0.1:$port",'-cert',$cert,'-key',$key,'-CAfile',$cert,'-Verify','1','-verify_return_error','-www') + $tlsArguments)
