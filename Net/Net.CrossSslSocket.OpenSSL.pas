@@ -172,6 +172,7 @@ type
       const APassword: string); overload; override;
     procedure SetTls12CipherSuites(const ACipherRules: string); override;
     procedure SetTls13CipherSuites(const ACipherSuites: string); override;
+    procedure SetMinTlsVersion(const AVersion: TCrossTlsMinVersion); override;
   end;
 
 {$IFDEF CROSS_OPENSSL_SELFTEST}
@@ -1274,6 +1275,55 @@ begin
         raise ESslContextInvalid.CreateFmt(
           'SetTls13CipherSuites failed; recreate the socket before using TLS: %s.',
           [LError]);
+      end;
+    finally
+      ERR_clear_error();
+    end;
+  finally
+    EndTlsConfigUpdate;
+  end;
+end;
+
+procedure TCrossOpenSslSocket.SetMinTlsVersion(const AVersion: TCrossTlsMinVersion);
+var
+  LVersion, LActual: Integer;
+  LError: string;
+begin
+  if not Ssl then Exit;
+
+  case AVersion of
+    tmvTls13: LVersion := TLS1_3_VERSION;
+  else
+    LVersion := TLS1_2_VERSION;
+  end;
+
+  BeginTlsConfigUpdate;
+  try
+    if FSslCtx = nil then
+    begin
+      InvalidateTlsConfiguration;
+      raise ESslContextInvalid.Create('SetMinTlsVersion: SSL context is nil.');
+    end;
+
+    ERR_clear_error();
+    try
+      if SSL_CTX_set_min_proto_version(FSslCtx, LVersion) <> 1 then
+      begin
+        InvalidateTlsConfiguration;
+        LError := GetOpenSslErrors;
+        raise ESslContextInvalid.CreateFmt(
+          'SetMinTlsVersion failed; recreate the socket before using TLS: %s.',
+          [LError]);
+      end;
+
+      // 回读确认：返回成功但未生效时同样视为失败，避免静默弱于配置。
+      LActual := SSL_CTX_get_min_proto_version(FSslCtx);
+      if LActual <> LVersion then
+      begin
+        InvalidateTlsConfiguration;
+        raise ESslContextInvalid.CreateFmt(
+          'SetMinTlsVersion: the context reports minimum $%.4x after setting $%.4x; ' +
+          'recreate the socket before using TLS.', [LActual, LVersion]);
       end;
     finally
       ERR_clear_error();

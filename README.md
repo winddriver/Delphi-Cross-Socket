@@ -57,11 +57,12 @@
 
 OpenSSL 后端支持两个独立配置入口，客户端和服务端均通过 `ICrossSslSocket` 使用：
 
-最低协议版本为 TLS 1.2；组件不固定最高版本，沿用运行库及系统配置的上限。未来协议版本仍需独立验证，不能仅凭取消上限视为已完成适配。
+最低协议版本默认为 TLS 1.2，`SetMinTlsVersion(tmvTls13)` 可提升为仅 TLS 1.3；组件不固定最高版本，沿用运行库及系统配置的上限。未来协议版本仍需独立验证，不能仅凭取消上限视为已完成适配。
 
 ```pascal
 LSocket.SetTls12CipherSuites('ECDHE-RSA-AES128-GCM-SHA256');
 LSocket.SetTls13CipherSuites('TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384');
+LSocket.SetMinTlsVersion(tmvTls13); // 可选：仅 TLS 1.3
 ```
 
 - `SetTls12CipherSuites` 接受 OpenSSL TLS 1.2 规则；`SetTls13CipherSuites` 接受冒号分隔、按优先顺序排列的 TLS 1.3 套件名称。
@@ -70,6 +71,7 @@ LSocket.SetTls13CipherSuites('TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384');
 - 空字符串表示不修改当前配置，不恢复默认值，也不禁用协议。恢复某一版本的默认名单时，显式传入对应的 `DEFAULT_TLSxx_CIPHER_SUITES` 常量。
 - 名单分别配置，但 TLS 1.2 规则中的 `@SECLEVEL` 会改变整个上下文的安全级别，可能影响 TLS 1.3 握手；恢复名单或调用 TLS 1.3 setter 都不会重置该级别。
 - 输入按 OpenSSL 原生规则处理。TLS 1.2 未知项可能被忽略；TLS 1.3 的未知名称在 OpenSSL 1.1.1 中会被拒绝，在 3.x 中可能被忽略。两个 setter 都检查原生返回值，失败后抛 `ESslContextInvalid` 并使整个 socket 的 TLS 配置失效，必须重建对象。
+- `SetMinTlsVersion` 接受 `Net.CrossSslSocket.Types` 中的 `TCrossTlsMinVersion`：`tmvTls12`（默认，不可更低）或 `tmvTls13`。OpenSSL 后端设置后回读上下文确认；原生调用失败或回读不一致都抛 `ESslContextInvalid` 并使整个 socket 的 TLS 配置失效。不修改协议上限和两份套件名单。mbedTLS 后端接受 `tmvTls12`，明确拒绝 `tmvTls13`。
 - 必须完成全部配置后再创建 SSL 连接。两个 setter 分别加锁，不提供双版本配置的事务提交。未启用 SSL 时不执行配置；mbedTLS 对两个方法的非空配置明确报告不支持。
 - `ICrossSslSocket` 新增方法后，使用者和派生接口所在的 DCU/PPU/BPL/DLL 必须从同一版本源码全量重编译，不支持新旧二进制混用。此处没有增加 `ICrossHttpClient` 的配置转发接口。
 

@@ -48,6 +48,7 @@ $env:CROSS_SOCKET_TEST_LIBCRYPTO = (Resolve-Path '..\..\..\Tools\OpenSSL\libcryp
 - `@SECLEVEL` 的上下文级影响、成功/失败路径错误队列和预置历史错误。
 - 串行替换原生 setter 指针注入初始化失败，统计上下文分配/释放，验证无部分可用对象及上下文泄漏；测试总是在 finally 恢复函数指针。
 - 未实现套件配置的自定义派生类可以实例化，并由公共基类明确拒绝非空配置。
+- `SetMinTlsVersion`：默认 TLS 1.2；提升到 TLS 1.3 后回读上下文确认，可恢复 TLS 1.2；协议上限及两份套件名单不变；配置锁定及真实连接后拒绝修改；注入“原生调用失败”和“返回成功但未生效”两种故障均抛 `ESslContextInvalid` 并使配置失效；基类与 mbedTLS 对 TLS 1.3 明确拒绝、对 TLS 1.2 不操作。
 - 既有 pending callback/握手发送失败 selftest 回归。
 - 真正生成 RSA 2048 位密钥，验证 OpenSSL 1.1.1 宏兼容封装及 3.x 直接调用。
 

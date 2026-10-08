@@ -88,6 +88,13 @@ begin
     on E: ECrossSocket do LRejected := True;
   end;
   if not LRejected then raise Exception.Create('真实连接后 TLS 1.3 配置未锁定');
+  LRejected := False;
+  try
+    AApi.SetMinTlsVersion(tmvTls13);
+  except
+    on E: ECrossSocket do LRejected := True;
+  end;
+  if not LRejected then raise Exception.Create('真实连接后最低协议版本未锁定');
 end;
 
 procedure RunCipherHandshake;
