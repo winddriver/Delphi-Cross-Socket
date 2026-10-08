@@ -5303,6 +5303,18 @@ begin
   LContType := GetContentType;
   LServer := GetConnection.Server;
 
+  // Never compress a body that is already encoded. Without this, a caller
+  // that compressed the body itself gets it compressed again, and
+  // SendZCompress OVERWRITES Content-Encoding rather than appending -- so the
+  // wire announces one gzip while carrying gzip(gzip(body)) and nothing hints
+  // at the second layer. NB this is the RESPONSE header; TCrossHttpRequest
+  // also has a ContentEncoding, which is what the CLIENT sent.
+  if FHeader[HEADER_CONTENT_ENCODING] <> '' then
+  begin
+    ACompressType := ctNone;
+    Exit(False);
+  end;
+
   if Assigned(LServer)
     and LServer.Compressible
     and (ABodySize > 0)
