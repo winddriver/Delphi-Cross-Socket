@@ -2351,11 +2351,12 @@ begin
   end;
 
   // HEAD 请求不应包含请求体 (RFC 7231 §4.3.2)
-  if LMethodIsHead then
-  begin
-    _SocketSend(AHeaderSource, ASendCb);
-    Exit;
-  end;
+  // [FIX-HEAD-LOOP-2] Client mirror of FIX-HEAD-LOOP-1 in
+  // TCrossHttpResponse._Send. _SocketSend calls the header source again after
+  // each completed SendBuf and the source never returns False, so passing
+  // AHeaderSource on its own resent the REQUEST header until the connection
+  // went away. Measured: the server parsed a 15747-byte read = 87 x the
+  // 181-byte HEAD header.
 
   LHeaderDone := False;
 
@@ -2367,6 +2368,9 @@ begin
         LHeaderDone := True;
         Result := Assigned(AHeaderSource) and AHeaderSource(AData, ADataSize);
       end else
+      if LMethodIsHead then
+        Result := False
+      else
       begin
         Result := Assigned(ABodySource) and ABodySource(AData, ADataSize);
       end;
