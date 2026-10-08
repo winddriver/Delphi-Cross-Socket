@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectOptions>
+    <Version Value="12"/>
+    <General>
+      <Flags><MainUnitHasCreateFormStatements Value="False"/></Flags>
+      <SessionStorage Value="InProjectDir"/>
+      <Title Value="HttpHeadTests"/>
+    </General>
+    <Units>
+      <Unit><Filename Value="HttpHeadTests.lpr"/><IsPartOfProject Value="True"/></Unit>
+    </Units>
+  </ProjectOptions>
+  <CompilerOptions>
+    <Version Value="11"/>
+    <Target><Filename Value="bin/$(TargetCPU)-$(TargetOS)/HttpHeadTests"/></Target>
+    <SearchPaths>
+      <IncludeFiles Value="../../../..;../../.."/>
+      <OtherUnitFiles Value="../../..;../../../../Utils;../../../../DelphiToFPC;$(LazarusDir)/components/lazutils/lib/$(TargetCPU)-$(TargetOS)"/>
+      <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
+    </SearchPaths>
+    <CodeGeneration><TargetCPU Value="x86_64"/><TargetOS Value="win64"/></CodeGeneration>
+  </CompilerOptions>
+</CONFIG>

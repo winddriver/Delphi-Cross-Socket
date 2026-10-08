@@ -1497,6 +1497,13 @@ begin
     if Assigned(LRequestObj.FInitProc) then
       LRequestObj.FInitProc(ARequest);
 
+    // HEAD 按无正文发送，跳过正文预读和压缩。
+    if (LRequestObj.FMethod = THttpMethod.HEAD) then
+    begin
+      SendNoCompress(Pointer(nil), 0);
+      Exit;
+    end;
+
     // 压缩方式
     if (FCompressType <> ctNone) then
       LRequestObj.FHeader[HEADER_CONTENT_ENCODING] := ZLIB_CONTENT_ENCODING[FCompressType];
@@ -2087,6 +2094,12 @@ begin
     end;
 
     // 设置数据传输方式
+    if (FRequestObj.FMethod = THttpMethod.HEAD) then
+    begin
+      // HEAD 不发送请求正文，同时清除调用方设置的正文定界头。
+      FRequestObj.FHeader.Remove(HEADER_CONTENT_LENGTH);
+      FRequestObj.FHeader.Remove(HEADER_TRANSFER_ENCODING);
+    end else
     if AChunked then
       FRequestObj.FHeader[HEADER_TRANSFER_ENCODING] := 'chunked'
     // RFC 9110 8.6: send Content-Length when the method gives the body a

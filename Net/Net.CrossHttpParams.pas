@@ -117,7 +117,7 @@ type
     procedure Add(const AEncodedParams: string); overload;
 
     /// <summary>
-    ///   根据名称删除指定参数
+    ///   根据名称删除所有同名参数，不区分大小写
     /// </summary>
     /// <param name="AName">
     ///   参数名称
@@ -1472,9 +1472,10 @@ procedure TBaseParams.Remove(const AName: string);
 var
   I: Integer;
 begin
-  I := GetParamIndex(AName);
-  if (I >= 0) then
-    FParams.Delete(I);
+  // 倒序删除，避免删除后索引移动导致漏项。
+  for I := FParams.Count - 1 downto 0 do
+    if TStrUtils.SameText(FParams[I].Name, AName) then
+      FParams.Delete(I);
 end;
 
 procedure TBaseParams.Remove(AIndex: Integer);
