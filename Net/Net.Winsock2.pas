@@ -6036,20 +6036,45 @@ begin
 end;
 {$ENDIF}
 
+// Non-raising variant of FixupStubEx for the startup preload.
+function TryFixupStubEx(hSocket: TSocket; const AGuid: TGUID; out AProc: Pointer): Boolean;
+var
+  LBytesSend: DWORD;
+begin
+  AProc := nil;
+  Result := (WSAIoctl(hSocket, SIO_GET_EXTENSION_FUNCTION_POINTER, @AGuid, LongWord(SIZE_GUID),
+    @AProc, SIZE_FARPROC, @LBytesSend, nil, nil) = 0) and Assigned(AProc);
+end;
+
+// A function that cannot be resolved here keeps its lazy Stub_* from
+// InitializeStubs and fails only when it is actually called (e.g. Wine's
+// ws2_32 has no TransmitPackets).
 procedure InitializeStubsEx;
 var
   LSocket: TSocket;
+  P, P2: Pointer;
 begin
   LSocket := WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, nil, 0, WSA_FLAG_OVERLAPPED);
+  if LSocket = INVALID_SOCKET then
+    Exit;
   try
-    @AcceptEx := FixupStubEx(LSocket, 'AcceptEx', WSAID_ACCEPTEX);
-    @GetAcceptExSockaddrs := FixupStubEx(LSocket, 'GetAcceptExSockaddrs', WSAID_GETACCEPTEXSOCKADDRS); {Do not localize}
-    @ConnectEx := FixupStubEx(LSocket, 'ConnectEx', WSAID_CONNECTEX); {Do not localize}
-    @DisconnectEx := FixupStubEx(LSocket, 'DisconnectEx', WSAID_DISCONNECTEX); {Do not localize}
-    @WSARecvMsg := FixupStubEx(LSocket, 'WSARecvMsg', WSAID_WSARECVMSG); {Do not localize}
-    @WSARecvMsg := FixupStubEx(LSocket, 'WSARecvMsg', WSAID_WSARECVMSG); {Do not localize}
-    @TransmitFile := FixupStubEx(LSocket, 'TransmitFile', WSAID_TRANSMITFILE); {Do not localize}
-    @TransmitPackets := FixupStubEx(LSocket, 'TransmitPackets', WSAID_TRANSMITPACKETS); {Do not localize}
+    // Resolved as a pair, like Stub_AcceptEx does.
+    if TryFixupStubEx(LSocket, WSAID_ACCEPTEX, P)
+      and TryFixupStubEx(LSocket, WSAID_GETACCEPTEXSOCKADDRS, P2) then
+    begin
+      @AcceptEx := P;
+      @GetAcceptExSockaddrs := P2;
+    end;
+    if TryFixupStubEx(LSocket, WSAID_CONNECTEX, P) then
+      @ConnectEx := P;
+    if TryFixupStubEx(LSocket, WSAID_DISCONNECTEX, P) then
+      @DisconnectEx := P;
+    if TryFixupStubEx(LSocket, WSAID_WSARECVMSG, P) then
+      @WSARecvMsg := P;
+    if TryFixupStubEx(LSocket, WSAID_TRANSMITFILE, P) then
+      @TransmitFile := P;
+    if TryFixupStubEx(LSocket, WSAID_TRANSMITPACKETS, P) then
+      @TransmitPackets := P;
 
     {$IFNDEF WINCE}
 //    @WSASendMsg := FixupStubEx(LSocket, 'WSASendMsg', WSAID_WSASENDMSG); {Do not localize}
