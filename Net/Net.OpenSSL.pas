@@ -1103,10 +1103,6 @@ var
   PEM_write_bio_PKCS8PrivateKey: function(bp: PBIO; x: PEVP_PKEY; cipher: PEVP_CIPHER;
     kstr: PAnsiChar; klen: Integer; cb: Pointer; u: Pointer): Integer; cdecl;
   ASN1_INTEGER_set_int64: function(a: PASN1_INTEGER; v: Int64): Integer; cdecl;
-  // OpenSSL 3.0+ 密钥生成（可能为 nil）
-  EVP_PKEY_Q_keygenRSA: function(ctx: Pointer; propq: PAnsiChar; keytype: PAnsiChar;
-    bits: size_t): PEVP_PKEY; cdecl;
-  // OpenSSL 1.1 降级密钥生成
   EVP_PKEY_keygen_init: function(ctx: PEVP_PKEY_CTX): Integer; cdecl;
   EVP_PKEY_CTX_set_rsa_keygen_bits: function(ctx: PEVP_PKEY_CTX; bits: Integer): Integer; cdecl;
   EVP_PKEY_keygen: function(ctx: PEVP_PKEY_CTX; ppkey: PPEVP_PKEY): Integer; cdecl;
@@ -1474,9 +1470,6 @@ function PEM_write_bio_PKCS8PrivateKey(bp: PBIO; x: PEVP_PKEY; cipher: PEVP_CIPH
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'PEM_write_bio_PKCS8PrivateKey';
 function ASN1_INTEGER_set_int64(a: PASN1_INTEGER; v: Int64): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'ASN1_INTEGER_set_int64';
-function EVP_PKEY_Q_keygenRSA(ctx: Pointer; propq: PAnsiChar; keytype: PAnsiChar;
-  bits: size_t): PEVP_PKEY; cdecl;
-  external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EVP_PKEY_Q_keygenRSA';
 function EVP_PKEY_keygen_init(ctx: PEVP_PKEY_CTX): Integer; cdecl;
   external {$IFDEF __STATIC_WITH_EXTERNAL__}LIBCRYPTO_NAME{$ENDIF} name 'EVP_PKEY_keygen_init';
 function EVP_PKEY_CTX_set_rsa_keygen_bits(ctx: PEVP_PKEY_CTX; bits: Integer): Integer; cdecl;
@@ -3815,10 +3808,6 @@ begin
     @PEM_write_bio_PKCS8PrivateKey := GetSslLibProc(FCryptoLibHandle, 'PEM_write_bio_PKCS8PrivateKey');
     @ASN1_INTEGER_set_int64 := GetSslLibProc(FCryptoLibHandle, 'ASN1_INTEGER_set_int64');
 
-    // EVP_PKEY_Q_keygenRSA 仅 OpenSSL 3.0+，1.1 下为 nil
-    @EVP_PKEY_Q_keygenRSA := GetProc(FCryptoLibHandle, 'EVP_PKEY_Q_keygenRSA');
-
-    // OpenSSL 1.1 降级密钥生成
     @EVP_PKEY_keygen_init := GetSslLibProc(FCryptoLibHandle, 'EVP_PKEY_keygen_init');
     @EVP_PKEY_CTX_set_rsa_keygen_bits := GetProc(FCryptoLibHandle, 'EVP_PKEY_CTX_set_rsa_keygen_bits');
     if not Assigned(EVP_PKEY_CTX_set_rsa_keygen_bits) then
@@ -4019,25 +4008,21 @@ var
     LCtx: PEVP_PKEY_CTX;
   begin
     Result := nil;
-    if Assigned(EVP_PKEY_Q_keygenRSA) then
-    begin
-      Result := EVP_PKEY_Q_keygenRSA(nil, nil, 'RSA', ABits);
-    end else
-    begin
-      LCtx := EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nil);
-      if (LCtx = nil) then
-        raise ESsl.Create('Failed: EVP_PKEY_CTX_new_id');
-      try
-        if (EVP_PKEY_keygen_init(LCtx) <= 0) then
-          raise ESsl.Create('Failed: EVP_PKEY_keygen_init');
-        if (EVP_PKEY_CTX_set_rsa_keygen_bits(LCtx, ABits) <= 0) then
-          raise ESsl.Create('Failed: EVP_PKEY_CTX_set_rsa_keygen_bits');
-        if (EVP_PKEY_keygen(LCtx, @Result) <= 0) then
-          raise ESsl.Create('Failed: EVP_PKEY_keygen');
-      finally
-        EVP_PKEY_CTX_free(LCtx);
-      end;
+
+    LCtx := EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nil);
+    if (LCtx = nil) then
+      raise ESsl.Create('Failed: EVP_PKEY_CTX_new_id');
+    try
+      if (EVP_PKEY_keygen_init(LCtx) <= 0) then
+        raise ESsl.Create('Failed: EVP_PKEY_keygen_init');
+      if (EVP_PKEY_CTX_set_rsa_keygen_bits(LCtx, ABits) <= 0) then
+        raise ESsl.Create('Failed: EVP_PKEY_CTX_set_rsa_keygen_bits');
+      if (EVP_PKEY_keygen(LCtx, @Result) <= 0) then
+        raise ESsl.Create('Failed: EVP_PKEY_keygen');
+    finally
+      EVP_PKEY_CTX_free(LCtx);
     end;
+
     if (Result = nil) then
       raise ESsl.Create('Failed: RSA key generation');
   end;
