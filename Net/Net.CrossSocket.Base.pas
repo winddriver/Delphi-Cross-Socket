@@ -33,6 +33,7 @@ uses
   {$ENDIF}
 
   Net.SocketAPI,
+  Net.CrossProxy,
   Utils.StrUtils,
   Utils.SyncObjs,
   Utils.Rtti;
@@ -239,6 +240,7 @@ type
     function GetConnectType: TConnectType;
     function GetConnectStatus: TConnectStatus;
     function GetLastNetError: Integer;
+    function GetProxyError: string;
 
     procedure SetConnectStatus(const AValue: TConnectStatus);
     procedure SetLastNetError(const AValue: Integer);
@@ -366,6 +368,10 @@ type
     ///   上层在连接失败回调中读取, 用于生成带有具体 WSA/errno 错误码的诊断日志
     /// </remarks>
     property LastNetError: Integer read GetLastNetError write SetLastNetError;
+    /// <summary>
+    ///   代理握手失败的协议级错误信息, 由上层连接失败回调读取
+    /// </summary>
+    property ProxyError: string read GetProxyError;
   end;
   TCrossConnections = TDictionary<UInt64, ICrossConnection>;
 
@@ -716,6 +722,12 @@ type
     FLastNetError: Integer;
     FRecvLock, FSentLock: ILock;
     FConnectCb: TCrossConnectionCallback;
+    FProxySettings: TCrossProxySettings;
+    FProxyTargetHost: string;
+    FProxyTargetPort: Word;
+    FProxyStage: Integer;
+    FProxyBuffer: TBytes;
+    FProxyError: string;
   protected
     procedure _LockRecv; inline;
     procedure _UnlockRecv; inline;
@@ -730,12 +742,25 @@ type
     function GetConnectType: TConnectType;
     function GetConnectStatus: TConnectStatus;
     function GetLastNetError: Integer;
+    function GetProxyError: string;
     function GetIsClosed: Boolean; override;
 
     function _SetConnectStatus(const AStatus: TConnectStatus): TConnectStatus; inline;
     procedure SetConnectStatus(const AValue: TConnectStatus);
     procedure SetLastNetError(const AValue: Integer);
 
+  public
+    procedure ConfigureProxy(const ASettings: TCrossProxySettings;
+      const ATargetHost: string; const ATargetPort: Word);
+    function ProxyUsesTlsTransport: Boolean;
+    function ProxySettings: TCrossProxySettings;
+    function ProxyError: string;
+    function ProxyNeedsHandshake: Boolean;
+    function ProxyStart(out ASendData: TBytes): Boolean;
+    function ProxyFeed(const ABuf: Pointer; const ALen: Integer;
+      out ASendData, ARemain: TBytes): TCrossProxyFeedResult;
+
+  protected
     procedure InternalClose; virtual;
     procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); virtual;
@@ -861,6 +886,9 @@ type
     function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer): ICrossListen; virtual; abstract;
 
+    procedure PrepareConnection(const AConnection: ICrossConnection;
+      const ALogicalHost: string; const ALogicalPort: Word); virtual;
+
     {$region '物理事件'}
     procedure TriggerListened(const AListen: ICrossListen); virtual;
     procedure TriggerListenEnd(const AListen: ICrossListen); virtual;
@@ -896,6 +924,10 @@ type
 
     procedure Connect(const AHost: string; const APort, ALocalPort: Word;
       const ACallback: TCrossConnectionCallback = nil); overload; virtual; abstract;
+    procedure ConnectTarget(const APhysicalHost: string;
+      const APhysicalPort, ALocalPort: Word; const ALogicalHost: string;
+      const ALogicalPort: Word;
+      const ACallback: TCrossConnectionCallback = nil); virtual; abstract;
     procedure Connect(const AHost: string; const APort: Word;
       const ACallback: TCrossConnectionCallback = nil); overload;
 
@@ -1119,6 +1151,12 @@ function TCrossSocketBase.CreateConnection(const AOwner: TCrossSocketBase;
   const AHost: string): ICrossConnection;
 begin
   Result := CreateConnection(AOwner, AClientSocket, AConnectType, AHost, nil);
+end;
+
+procedure TCrossSocketBase.PrepareConnection(
+  const AConnection: ICrossConnection; const ALogicalHost: string;
+  const ALogicalPort: Word);
+begin
 end;
 
 destructor TCrossSocketBase.Destroy;
@@ -1367,8 +1405,16 @@ end;
 procedure TCrossSocketBase.TriggerConnected(const AConnection: ICrossConnection);
 var
   LConnObj: TCrossConnectionBase;
+  LProxyData: TBytes;
 begin
   LConnObj := AConnection as TCrossConnectionBase;
+
+  if LConnObj.ProxyNeedsHandshake then
+  begin
+    if LConnObj.ProxyStart(LProxyData) then
+      LConnObj.SendBytes(LProxyData);
+    Exit;
+  end;
 
   LConnObj._Lock;
   try
@@ -1460,12 +1506,31 @@ procedure TCrossSocketBase.TriggerReceived(const AConnection: ICrossConnection;
   const ABuf: Pointer; const ALen: Integer);
 var
   LConnObj: TCrossConnectionBase;
+  LProxyResult: TCrossProxyFeedResult;
+  LProxyData, LRemain: TBytes;
 begin
   LConnObj := AConnection as TCrossConnectionBase;
 
   LConnObj._LockRecv;
   try
-    LogicReceived(AConnection, ABuf, ALen);
+    if LConnObj.ProxyNeedsHandshake then
+    begin
+      LProxyResult := LConnObj.ProxyFeed(ABuf, ALen, LProxyData, LRemain);
+      case LProxyResult of
+        cpfrSendData:
+          LConnObj.SendBytes(LProxyData);
+        cpfrComplete:
+          begin
+            TriggerConnected(AConnection);
+            if Length(LRemain) > 0 then
+              LogicReceived(AConnection, @LRemain[0], Length(LRemain));
+          end;
+        cpfrFailed:
+          LConnObj.Close;
+      end;
+    end
+    else
+      LogicReceived(AConnection, ABuf, ALen);
   finally
     LConnObj._UnlockRecv;
   end;
@@ -1803,6 +1868,195 @@ end;
 function TCrossConnectionBase.GetLastNetError: Integer;
 begin
   Result := AtomicCmpExchange(FLastNetError, 0, 0);
+end;
+
+procedure TCrossConnectionBase.ConfigureProxy(
+  const ASettings: TCrossProxySettings; const ATargetHost: string;
+  const ATargetPort: Word);
+begin
+  FProxySettings := ASettings;
+  FProxyTargetHost := ATargetHost;
+  FProxyTargetPort := ATargetPort;
+  FProxyBuffer := nil;
+  FProxyStage := 0;
+
+  if not ASettings.IsEnabled or ASettings.ShouldBypass(ATargetHost) then
+    Exit;
+
+  if ASettings.UsesHttpConnect then
+    FProxyStage := 1
+  else
+  if ASettings.ProxyType = cptSocks4 then
+    FProxyStage := 2
+  else
+  if ASettings.ProxyType = cptSocks5 then
+    FProxyStage := 3;
+end;
+
+function TCrossConnectionBase.ProxyNeedsHandshake: Boolean;
+begin
+  Result := FProxyStage <> 0;
+end;
+
+function TCrossConnectionBase.ProxyUsesTlsTransport: Boolean;
+begin
+  Result := FProxySettings.UsesTlsProxyTransport;
+end;
+
+function TCrossConnectionBase.ProxySettings: TCrossProxySettings;
+begin
+  Result := FProxySettings;
+end;
+
+function TCrossConnectionBase.ProxyError: string;
+begin
+  Result := FProxyError;
+end;
+
+function TCrossConnectionBase.GetProxyError: string;
+begin
+  Result := FProxyError;
+end;
+
+function TCrossConnectionBase.ProxyStart(out ASendData: TBytes): Boolean;
+begin
+  ASendData := nil;
+  if FProxyStage = 0 then
+    Exit(False);
+
+  case FProxyStage of
+    1:
+      ASendData := TCrossProxyCodec.BuildHttpConnect(
+        FProxyTargetHost, FProxyTargetPort,
+        FProxySettings.Username, FProxySettings.Password);
+    2:
+      ASendData := TCrossProxyCodec.BuildSocks4Connect(
+        FProxyTargetHost, FProxyTargetPort, FProxySettings.Username);
+    3:
+      ASendData := TCrossProxyCodec.BuildSocks5Greeting(
+        (FProxySettings.Username <> '') or (FProxySettings.Password <> ''));
+  else
+    Exit(False);
+  end;
+
+  Result := Length(ASendData) > 0;
+end;
+
+function TCrossConnectionBase.ProxyFeed(const ABuf: Pointer;
+  const ALen: Integer; out ASendData, ARemain: TBytes): TCrossProxyFeedResult;
+var
+  LConsumed, LStatus: Integer;
+  LMethod: Byte;
+  LSuccess: Boolean;
+  LBytes: TBytes;
+begin
+  ASendData := nil;
+  ARemain := nil;
+  if (ABuf = nil) or (ALen <= 0) then
+    Exit(cpfrNeedData);
+
+  LBytes := FProxyBuffer;
+  SetLength(FProxyBuffer, Length(LBytes) + ALen);
+  Move(ABuf^, FProxyBuffer[Length(LBytes)], ALen);
+
+  case FProxyStage of
+    1:
+      begin
+        if not TCrossProxyCodec.TryParseHttpConnectResponse(
+          FProxyBuffer, LConsumed, LStatus) then
+          Exit(cpfrNeedData);
+        if (LStatus < 200) or (LStatus >= 300) then
+        begin
+          // 保留代理返回的认证状态, 避免上层只能看到笼统的 Connect failed。
+          if LStatus = 407 then
+            FProxyError := 'HTTP proxy authentication failed (407 Proxy Authentication Required)'
+          else
+            FProxyError := Format('HTTP proxy CONNECT failed with status %d', [LStatus]);
+          Exit(cpfrFailed);
+        end;
+        ARemain := Copy(FProxyBuffer, LConsumed, MaxInt);
+  FProxyBuffer := nil;
+  FProxyError := '';
+        FProxyStage := 0;
+        Exit(cpfrComplete);
+      end;
+    2:
+      begin
+        if not TCrossProxyCodec.TryParseSocks4Response(
+          FProxyBuffer, LConsumed, LSuccess) then
+          Exit(cpfrNeedData);
+        if not LSuccess then
+          Exit(cpfrFailed);
+        ARemain := Copy(FProxyBuffer, LConsumed, MaxInt);
+        FProxyBuffer := nil;
+        FProxyStage := 0;
+        Exit(cpfrComplete);
+      end;
+    3:
+      begin
+        if not TCrossProxyCodec.TryParseSocks5MethodResponse(
+          FProxyBuffer, LConsumed, LMethod) then
+          Exit(cpfrNeedData);
+        FProxyBuffer := Copy(FProxyBuffer, LConsumed, MaxInt);
+        if LMethod = 0 then
+        begin
+          ASendData := TCrossProxyCodec.BuildSocks5Connect(
+            FProxyTargetHost, FProxyTargetPort);
+          FProxyStage := 5;
+        end
+        else
+        if LMethod = 2 then
+        begin
+          ASendData := TCrossProxyCodec.BuildSocks5Auth(
+            FProxySettings.Username, FProxySettings.Password);
+          FProxyStage := 4;
+        end
+        else
+        begin
+          // SOCKS5 返回 $FF 表示代理不接受客户端提供的任何认证方式。
+          if LMethod = $FF then
+            FProxyError := 'SOCKS5 proxy authentication failed: no acceptable authentication method'
+          else
+            FProxyError := Format('SOCKS5 proxy authentication method %d is not supported', [LMethod]);
+          Exit(cpfrFailed);
+        end;
+        Exit(cpfrSendData);
+      end;
+    4:
+      begin
+        if not TCrossProxyCodec.TryParseSocks5AuthResponse(
+          FProxyBuffer, LConsumed, LSuccess) then
+          Exit(cpfrNeedData);
+        if not LSuccess then
+        begin
+          // 用户名密码校验失败必须在连接对象销毁前保存, 供上层回调读取。
+          FProxyError := 'SOCKS5 proxy username/password authentication failed';
+          Exit(cpfrFailed);
+        end;
+        FProxyBuffer := Copy(FProxyBuffer, LConsumed, MaxInt);
+        ASendData := TCrossProxyCodec.BuildSocks5Connect(
+          FProxyTargetHost, FProxyTargetPort);
+        FProxyStage := 5;
+        Exit(cpfrSendData);
+      end;
+    5:
+      begin
+        if not TCrossProxyCodec.TryParseSocks5ConnectResponse(
+          FProxyBuffer, LConsumed, LSuccess) then
+          Exit(cpfrNeedData);
+        if not LSuccess then
+        begin
+          FProxyError := 'SOCKS5 proxy CONNECT request failed';
+          Exit(cpfrFailed);
+        end;
+        ARemain := Copy(FProxyBuffer, LConsumed, MaxInt);
+        FProxyBuffer := nil;
+        FProxyStage := 0;
+        Exit(cpfrComplete);
+      end;
+  end;
+
+  Result := cpfrFailed;
 end;
 
 procedure TCrossConnectionBase.SetLastNetError(const AValue: Integer);

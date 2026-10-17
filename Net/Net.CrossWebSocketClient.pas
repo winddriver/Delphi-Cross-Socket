@@ -20,6 +20,7 @@ uses
   Math,
 
   Net.SocketAPI,
+  Net.CrossProxy,
   Net.CrossSocket.Base,
   Net.CrossHttpClient,
   Net.CrossHttpUtils,
@@ -456,6 +457,7 @@ type
     class function GetDefault: ICrossWebSocketMgr; static;
   protected
     function CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket; override;
+    procedure SetProxySettings(const AValue: TCrossProxySettings); override;
   public
     constructor Create(const AIoThreads: Integer = 2); reintroduce;
     destructor Destroy; override;
@@ -1333,6 +1335,16 @@ begin
     Result := FWssCli;
   end else
     Result := inherited CreateHttpCli(AProtocol);
+end;
+
+procedure TCrossWebSocketMgr.SetProxySettings(
+  const AValue: TCrossProxySettings);
+var
+  LWsCli: ICrossHttpClientSocket;
+begin
+  inherited SetProxySettings(AValue);
+  for LWsCli in FWsCliArr do
+    (LWsCli as TObject as TCrossHttpClientSocket).SyncProxySettings(AValue);
 end;
 
 function TCrossWebSocketMgr.CreateWebSocket(

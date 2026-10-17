@@ -1,0 +1,38 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{D8C7E2E5-42C8-4D2D-9A77-7B0F9C6D1D24}</ProjectGuid>
+    <ProjectVersion>20.4</ProjectVersion>
+    <MainSource>ProxyClient.dpr</MainSource>
+    <Base>true</Base>
+    <Config Condition="'$(Config)'==''">Debug</Config>
+    <TargetedPlatforms>1</TargetedPlatforms>
+    <AppType>Console</AppType>
+    <FrameworkType>None</FrameworkType>
+    <Platform Condition="'$(Platform)'==''">Win32</Platform>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Base)'!=''">
+    <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;Winapi;System.Win;Data.Win;Web.Win;$(DCC_Namespace)</DCC_Namespace>
+    <DCC_UnitSearchPath>..\..\..\..\Net;..\..\..\..\Utils;..\..\..\..\DelphiToFPC;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+    <DCC_ExeOutput>bin\$(Platform)\</DCC_ExeOutput>
+    <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Release'">
+    <Base>true</Base>
+    <Cfg_1>true</Cfg_1>
+    <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
+    <DCC_DebugDCUs>false</DCC_DebugDCUs>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Config)'=='Debug'">
+    <Base>true</Base>
+    <Cfg_2>true</Cfg_2>
+    <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
+    <DCC_DebugDCUs>true</DCC_DebugDCUs>
+  </PropertyGroup>
+  <ItemGroup>
+    <DelphiCompile Include="$(MainSource)">
+      <MainSource>MainSource</MainSource>
+    </DelphiCompile>
+  </ItemGroup>
+  <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"
+    Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')" />
+</Project>

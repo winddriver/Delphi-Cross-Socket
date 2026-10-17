@@ -29,6 +29,7 @@ uses
   Generics.Collections,
 
   Net.SocketAPI,
+  Net.CrossProxy,
   Net.CrossSocket.Base,
   Net.CrossSocket,
   Net.CrossSslSocket.Types,
@@ -56,6 +57,10 @@ type
   private
     FSslData: PSSL;
     FBIOIn, FBIOOut: PBIO;
+    FProxySslData: PSSL;
+    FProxyBIOIn, FProxyBIOOut: PBIO;
+    FProxyTlsStarted: Boolean;
+    FProxyTlsReady: Boolean;
     FLock: ILock;
     // 握手阶段累计输入字节数: 仅在 csHandshaking 时累加, 超过
     // MAX_HANDSHAKE_RECV_BYTES 即视作 DoS 主动 fatal close. 防御
@@ -79,6 +84,8 @@ type
     function _BIO_read(Buf: Pointer; Len: Integer): Integer; inline;
     function _BIO_read_all: TBytes; overload;
     function _BIO_write(Buf: Pointer; Len: Integer): Integer; inline;
+    function _BIO_read_all(const ABIO: PBIO): TBytes; overload;
+    function _SSL_read_all(const ASslData: PSSL): TBytes; overload;
 
     function _SSL_read(Buf: Pointer; Len: Integer): Integer; overload; inline;
     function _SSL_read_all: TBytes; overload;
@@ -115,6 +122,14 @@ type
     // 其他路径传 Self as ICrossConnection.
     procedure _DrainPendingWritesAsFailed(const AConnection: ICrossConnection);
 
+    procedure _RawSend(const ABytes: TBytes;
+      const ACallback: TCrossConnectionCallback = nil);
+    procedure _ProxyTlsSend(const ABuffer: Pointer; const ACount: Integer;
+      const ACallback: TCrossConnectionCallback = nil);
+    function _StartProxyTls(out AHandshakeData: TBytes): Boolean;
+    function _FeedProxyTls(const ABuf: Pointer; const ALen: Integer;
+      out APlainData, AHandshakeData: TBytes; out AHandshakeCompleted: Boolean): Boolean;
+
     procedure _Send(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); overload;
     procedure _Send(const ABytes: TBytes;
@@ -122,6 +137,9 @@ type
   protected
     procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); override;
+    procedure SendProxyBytes(const ABytes: TBytes); override;
+    function ProxyTlsStarted: Boolean;
+    function ProxyTlsReady: Boolean;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AHost: string;
@@ -140,6 +158,7 @@ type
   TCrossOpenSslSocket = class(TCrossSslSocketBase)
   private
     FSslCtx: PSSL_CTX;
+    FTlsRuntimeLoaded: Boolean;
 
     procedure _InitSslCtx;
     procedure _FreeSslCtx;
@@ -153,6 +172,11 @@ type
       const AConnectionObj: TCrossOpenSslConnection;
       const ATriggerConnected: Boolean; var ADecryptedData: TBytes;
       const AFatal: Boolean);
+    procedure _ProcessReceivedPayload(const AConnection: ICrossConnection;
+      const APayload: Pointer; const APayloadLen: Integer);
+    procedure _FinishProxyTlsReceive(const AConnection: ICrossConnection;
+      const ASuccess: Boolean; const APlainData: TBytes;
+      const AHandshakeCompleted: Boolean);
   protected
     procedure ApplyVerifyPeer(const AValue: Boolean); override;
     procedure TriggerConnected(const AConnection: ICrossConnection); override;
@@ -170,6 +194,7 @@ type
       const ASize: Integer); overload; override;
     procedure SetPrivateKey(const APKeyBuf: Pointer; const APKeyBufSize: Integer;
       const APassword: string); overload; override;
+    procedure EnsureSslCtx;
     procedure SetTls12CipherSuites(const ACipherRules: string); override;
     procedure SetTls13CipherSuites(const ACipherSuites: string); override;
     procedure SetMinTlsVersion(const AVersion: TCrossTlsMinVersion); override;
@@ -430,26 +455,46 @@ begin
   end;
 end;
 
+procedure TCrossOpenSslConnection.SendProxyBytes(const ABytes: TBytes);
+begin
+  _Send(ABytes);
+end;
+
+function TCrossOpenSslConnection.ProxyTlsStarted: Boolean;
+begin
+  Result := FProxyTlsStarted;
+end;
+
+function TCrossOpenSslConnection.ProxyTlsReady: Boolean;
+begin
+  Result := FProxyTlsReady;
+end;
+
 destructor TCrossOpenSslConnection.Destroy;
 begin
-  if Ssl then
+  if (FPendingWrites <> nil) then
   begin
     // pending writes 析构 drain: 把所有挂起 callback 以 fail 通知上层,
     // 上层闭包持有的 TBytes 才能释放 (零拷贝契约). 传 nil connection 避免
     // (Self as ICrossConnection) 引起的 refcount 环 → 二次析构.
-    if (FPendingWrites <> nil) then
-    begin
-      _DrainPendingWritesAsFailed(nil);
-      FPendingWrites.Free;
-    end;
+    _DrainPendingWritesAsFailed(nil);
+    FPendingWrites.Free;
+  end;
 
-    if (FSslData <> nil) then
-    begin
-      if (SSL_shutdown(FSslData) = 0) then
-        SSL_shutdown(FSslData);
-      SSL_free(FSslData);
-      FSslData := nil;
-    end;
+  if (FSslData <> nil) then
+  begin
+    if (SSL_shutdown(FSslData) = 0) then
+      SSL_shutdown(FSslData);
+    SSL_free(FSslData);
+    FSslData := nil;
+  end;
+
+  if (FProxySslData <> nil) then
+  begin
+    if FProxyTlsReady and (SSL_shutdown(FProxySslData) = 0) then
+      SSL_shutdown(FProxySslData);
+    SSL_free(FProxySslData);
+    FProxySslData := nil;
   end;
 
   inherited Destroy;
@@ -471,6 +516,8 @@ end;
 
 procedure TCrossOpenSslConnection._SslLock;
 begin
+  if FLock = nil then
+    FLock := TLock.Create;
   FLock.Enter;
 end;
 
@@ -491,6 +538,11 @@ begin
 end;
 
 function TCrossOpenSslConnection._BIO_read_all: TBytes;
+begin
+  Result := _BIO_read_all(FBIOOut);
+end;
+
+function TCrossOpenSslConnection._BIO_read_all(const ABIO: PBIO): TBytes;
 const
   INITIAL_BUF_SIZE = 16384; // 初始缓冲区大小 16KB
   MAX_BUF_INCREMENT = 65536; // 最大增量 64KB
@@ -506,7 +558,7 @@ begin
   while True do
   begin
     // 获取当前可读数据量
-    LBlockSize := _BIO_pending;
+    LBlockSize := BIO_pending(ABIO);
     if (LBlockSize <= 0) then Break;
 
     // 计算缓冲区剩余空间
@@ -528,7 +580,7 @@ begin
     P := PByte(@Result[0]) + LReadedCount;
 
     // 从 BIO 读取数据(最多读取 LBlockSize)
-    LRetCode := _BIO_read(P, LBlockSize);
+    LRetCode := BIO_read(ABIO, P, LBlockSize);
 
     // BIO_read 返回 <= 0 表示没有更多数据可读
     // 对于内存 BIO，这是正常情况，不需要错误处理
@@ -557,6 +609,12 @@ begin
 end;
 
 function TCrossOpenSslConnection._SSL_read_all: TBytes;
+begin
+  Result := _SSL_read_all(FSslData);
+end;
+
+function TCrossOpenSslConnection._SSL_read_all(
+  const ASslData: PSSL): TBytes;
 const
   INITIAL_BUF_SIZE = 16384;  // 初始缓冲区 16KB
   MAX_BUF_INCREMENT = 65536; // 最大增量 64KB
@@ -589,13 +647,13 @@ begin
     P := PByte(@Result[0]) + LReadedCount;
 
     // 读取数据
-    LRetCode := _SSL_read(P, LFreeSpace);
+    LRetCode := SSL_read(ASslData, P, LFreeSpace);
 
     // 直到读不到数据为止
     if (LRetCode <= 0) then
     begin
-      // 随便记录一下, 不一定有错误
-      _SSL_handle_error(LRetCode, 'SSL_read');
+      if SSL_is_fatal_error(SSL_get_error(ASslData, LRetCode)) then
+        _Log('SSL_read ' + GetOpenSslErrors);
       Break;
     end;
 
@@ -650,10 +708,199 @@ begin
   Result := _SSL_handle_error(ARetCode, AOperation, LError);
 end;
 
+function TCrossOpenSslConnection._StartProxyTls(
+  out AHandshakeData: TBytes): Boolean;
+var
+  LHostAnsi: AnsiString;
+  LRetCode: Integer;
+begin
+  Result := False;
+  AHandshakeData := nil;
+  if not ProxyUsesTlsTransport or FProxyTlsStarted then
+    Exit;
+
+  TCrossOpenSslSocket(Owner).EnsureSslCtx;
+  TCrossOpenSslSocket(Owner).LockTlsConfiguration;
+  _SslLock;
+  try
+    FProxyTlsStarted := True;
+    FProxySslData := SSL_new(TCrossOpenSslSocket(Owner).FSslCtx);
+    if FProxySslData = nil then
+      raise ECrossSocket.Create('SSL_new for HTTPS proxy failed.');
+
+    FProxyBIOIn := BIO_new(BIO_s_mem());
+    FProxyBIOOut := BIO_new(BIO_s_mem());
+    if (FProxyBIOIn = nil) or (FProxyBIOOut = nil) then
+    begin
+      if FProxyBIOIn <> nil then
+        BIO_free(FProxyBIOIn);
+      if FProxyBIOOut <> nil then
+        BIO_free(FProxyBIOOut);
+      FProxyBIOIn := nil;
+      FProxyBIOOut := nil;
+      SSL_free(FProxySslData);
+      FProxySslData := nil;
+      raise ECrossSocket.Create('BIO_new for HTTPS proxy failed.');
+    end;
+    SSL_set_bio(FProxySslData, FProxyBIOIn, FProxyBIOOut);
+
+    SSL_set_connect_state(FProxySslData);
+    LHostAnsi := AnsiString(ProxySettings.Host);
+    SSL_set_tlsext_host_name(FProxySslData, MarshaledAString(LHostAnsi));
+    if TCrossOpenSslSocket(Owner).VerifyPeer then
+    begin
+      if LHostAnsi = '' then
+        raise ECrossSocket.Create(
+          'A HTTPS proxy host name is required when peer verification is enabled.');
+      ERR_clear_error();
+      if SSL_set1_host(FProxySslData, PAnsiChar(LHostAnsi)) <= 0 then
+        raise ECrossSocket.CreateFmt('SSL_set1_host for HTTPS proxy failed: %s.',
+          [GetOpenSslErrors]);
+    end;
+
+    LRetCode := SSL_do_handshake(FProxySslData);
+    if (LRetCode <> 1) and SSL_is_fatal_error(
+      SSL_get_error(FProxySslData, LRetCode)) then
+      raise ECrossSocket.CreateFmt('HTTPS proxy TLS handshake failed: %s.',
+        [GetOpenSslErrors]);
+    AHandshakeData := _BIO_read_all(FProxyBIOOut);
+    Result := Length(AHandshakeData) > 0;
+    if not Result then
+      raise ECrossSocket.CreateFmt(
+        'HTTPS proxy TLS produced no handshake bytes (ret=%d): %s',
+        [LRetCode, GetOpenSslErrors]);
+  finally
+    _SslUnlock;
+  end;
+end;
+
+function TCrossOpenSslConnection._FeedProxyTls(const ABuf: Pointer;
+  const ALen: Integer; out APlainData, AHandshakeData: TBytes;
+  out AHandshakeCompleted: Boolean): Boolean;
+var
+  LRetCode: Integer;
+begin
+  Result := False;
+  APlainData := nil;
+  AHandshakeData := nil;
+  AHandshakeCompleted := False;
+  if (not FProxyTlsStarted) or (FProxySslData = nil) or
+    (ABuf = nil) or (ALen <= 0) then
+    Exit;
+
+  _SslLock;
+  try
+    LRetCode := BIO_write(FProxyBIOIn, ABuf, ALen);
+    if LRetCode <> ALen then
+      Exit;
+
+    if not FProxyTlsReady then
+    begin
+      LRetCode := SSL_do_handshake(FProxySslData);
+      if (LRetCode <> 1) and SSL_is_fatal_error(
+        SSL_get_error(FProxySslData, LRetCode)) then
+      begin
+        _Log('HTTPS proxy TLS handshake failed: ' + GetOpenSslErrors);
+        Exit;
+      end;
+      AHandshakeData := _BIO_read_all(FProxyBIOOut);
+      if SSL_is_init_finished(FProxySslData) = 0 then
+      begin
+        Result := True;
+        Exit;
+      end;
+      FProxyTlsReady := True;
+      AHandshakeCompleted := True;
+    end;
+
+    APlainData := _SSL_read_all(FProxySslData);
+    Result := True;
+  finally
+    _SslUnlock;
+  end;
+end;
+
+procedure TCrossOpenSslConnection._RawSend(const ABytes: TBytes;
+  const ACallback: TCrossConnectionCallback);
+var
+  LBytes: TBytes;
+begin
+  if Length(ABytes) = 0 then
+  begin
+    if Assigned(ACallback) then
+      ACallback(Self, True);
+    Exit;
+  end;
+
+  LBytes := ABytes;
+  inherited DirectSend(@LBytes[0], Length(LBytes),
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+    begin
+      LBytes := nil;
+      if Assigned(ACallback) then
+        ACallback(AConnection, ASuccess);
+    end);
+end;
+
+procedure TCrossOpenSslConnection._ProxyTlsSend(const ABuffer: Pointer;
+  const ACount: Integer; const ACallback: TCrossConnectionCallback);
+var
+  LRetCode, LWritten: Integer;
+  LEncryptedData: TBytes;
+  LFatal: Boolean;
+begin
+  if (ACount <= 0) then
+  begin
+    if Assigned(ACallback) then
+      ACallback(Self, True);
+    Exit;
+  end;
+
+  LEncryptedData := nil;
+  LFatal := False;
+  LWritten := 0;
+  _SslLock;
+  try
+    LRetCode := SSL_write(FProxySslData, ABuffer, ACount);
+    if LRetCode > 0 then
+      LWritten := LRetCode
+    else
+      LFatal := SSL_is_fatal_error(SSL_get_error(FProxySslData, LRetCode));
+    LEncryptedData := _BIO_read_all(FProxyBIOOut);
+  finally
+    _SslUnlock;
+  end;
+
+  if LFatal or (LEncryptedData = nil) then
+  begin
+    if Assigned(ACallback) then
+      ACallback(Self, False);
+    Exit;
+  end;
+
+  _RawSend(LEncryptedData,
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+    begin
+      if not ASuccess then
+      begin
+        if Assigned(ACallback) then
+          ACallback(AConnection, False);
+        Exit;
+      end;
+      if LWritten < ACount then
+        _ProxyTlsSend(PByte(ABuffer) + LWritten, ACount - LWritten, ACallback)
+      else if Assigned(ACallback) then
+        ACallback(AConnection, True);
+    end);
+end;
+
 procedure TCrossOpenSslConnection._Send(const ABuffer: Pointer;
   const ACount: Integer; const ACallback: TCrossConnectionCallback);
 begin
-  inherited DirectSend(ABuffer, ACount, ACallback);
+  if FProxyTlsReady then
+    _ProxyTlsSend(ABuffer, ACount, ACallback)
+  else
+    inherited DirectSend(ABuffer, ACount, ACallback);
 end;
 
 procedure TCrossOpenSslConnection._Send(const ABytes: TBytes;
@@ -669,7 +916,7 @@ begin
   end;
 
   LBytes := ABytes;
-  _Send(@LBytes[0], Length(LBytes),
+  _Send(Pointer(@LBytes[0]), Length(LBytes),
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
       LBytes := nil;
@@ -1015,10 +1262,7 @@ begin
   inherited Create(AIoThreads, ASsl);
 
   if Ssl then
-  begin
-    TSSLTools.LoadSSL;
-    _InitSslCtx;
-  end;
+    EnsureSslCtx;
 end;
 
 destructor TCrossOpenSslSocket.Destroy;
@@ -1027,11 +1271,21 @@ begin
   // 不依赖 CTX 存活 (OpenSSL 保证), 所以 CTX 可以延后释放.
   inherited Destroy;
 
-  if Ssl then
+  if FTlsRuntimeLoaded then
   begin
     _FreeSslCtx;
     TSSLTools.UnloadSSL;
   end;
+end;
+
+procedure TCrossOpenSslSocket.EnsureSslCtx;
+begin
+  if not FTlsRuntimeLoaded then
+  begin
+    TSSLTools.LoadSSL;
+    FTlsRuntimeLoaded := True;
+  end;
+  _InitSslCtx;
 end;
 
 function TCrossOpenSslSocket.CreateConnection(const AOwner: TCrossSocketBase;
@@ -1339,8 +1593,30 @@ var
   LRetCode: Integer;
   LHandshakeData: TBytes;
   LFatal: Boolean;
+  LProxyData: TBytes;
 begin
   LConnection := AConnection as TCrossOpenSslConnection;
+
+  if LConnection.ProxyUsesTlsTransport and not LConnection.ProxyTlsStarted then
+  begin
+    if LConnection._StartProxyTls(LProxyData) then
+      LConnection._RawSend(LProxyData,
+        procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+        begin
+          if not ASuccess then
+            LConnection.Close;
+        end)
+    else
+      LConnection.Close;
+    Exit;
+  end;
+
+  if LConnection.ProxyNeedsHandshake then
+  begin
+    if LConnection.ProxyStart(LProxyData) then
+      LConnection.SendProxyBytes(LProxyData);
+    Exit;
+  end;
 
   if Ssl then
   begin
@@ -1386,18 +1662,43 @@ begin
     _Connected(LConnection);
 end;
 
-procedure TCrossOpenSslSocket.TriggerReceived(const AConnection: ICrossConnection;
-  const ABuf: Pointer; const ALen: Integer);
+procedure TCrossOpenSslSocket._ProcessReceivedPayload(
+  const AConnection: ICrossConnection; const APayload: Pointer;
+  const APayloadLen: Integer);
 var
   LConnectionObj: TCrossOpenSslConnection;
   LRetCode: Integer;
   LTriggerConnected: Boolean;
   LDecryptedData, LHandshakeData: TBytes;
   LFatal: Boolean;
+  LProxyData, LRemain: TBytes;
+  LProxyResult: TCrossProxyFeedResult;
 begin
+  LConnectionObj := AConnection as TCrossOpenSslConnection;
+  if (APayload = nil) or (APayloadLen <= 0) then
+    Exit;
+
+  if LConnectionObj.ProxyNeedsHandshake then
+  begin
+    LProxyResult := LConnectionObj.ProxyFeed(APayload, APayloadLen,
+      LProxyData, LRemain);
+    case LProxyResult of
+      cpfrSendData:
+        LConnectionObj.SendProxyBytes(LProxyData);
+      cpfrComplete:
+        begin
+          TriggerConnected(AConnection);
+          if Length(LRemain) > 0 then
+            _ProcessReceivedPayload(AConnection, @LRemain[0], Length(LRemain));
+        end;
+      cpfrFailed:
+        LConnectionObj.Close;
+    end;
+    Exit;
+  end;
+
   if Ssl then
   begin
-    LConnectionObj := AConnection as TCrossOpenSslConnection;
     LTriggerConnected := False;
     LDecryptedData := nil;
     LHandshakeData := nil;
@@ -1405,53 +1706,35 @@ begin
 
     LConnectionObj._SslLock;
     try
-      // 握手阶段输入字节限制:
-      //   仅在握手未完成时累加, 超阈值即视作 DoS 直接 fatal close.
-      //   握手成功后切换到正常数据流, 不再受此限制.
       if (LConnectionObj.ConnectStatus = csHandshaking) then
       begin
-        Inc(LConnectionObj.FHandshakeRecvBytes, ALen);
+        Inc(LConnectionObj.FHandshakeRecvBytes, APayloadLen);
         if (LConnectionObj.FHandshakeRecvBytes > MAX_HANDSHAKE_RECV_BYTES) then
           LFatal := True;
       end;
 
       if not LFatal then
       begin
-        // 将收到的加密数据写入内存 BIO, 让 OpenSSL 对其解密
-        // 最初收到的数据是握手数据
-        // 需要判断握手状态, 然后决定如何使用收到的数据
-        LRetCode := LConnectionObj._BIO_write(ABuf, ALen);
-        if (LRetCode <> ALen) then
+        LRetCode := LConnectionObj._BIO_write(APayload, APayloadLen);
+        if (LRetCode <> APayloadLen) then
         begin
-          // BIO_write 失败 fatal: 标记后到锁外 Close (避免锁内 Close 重入风险)
           if LConnectionObj._SSL_handle_error(LRetCode, 'BIO_write') then
             LFatal := True;
         end else
-        // 握手完成
         if (LConnectionObj._SSL_is_init_finished <> 0) then
         begin
           if (LConnectionObj.ConnectStatus = csHandshaking) then
             LTriggerConnected := True;
-
-          // 读取解密后的数据
           LDecryptedData := LConnectionObj._SSL_read_all;
         end else
         if (LConnectionObj.ConnectStatus = csHandshaking) then
         begin
-          // 继续握手
           LRetCode := LConnectionObj._SSL_do_handshake;
-
-          if (LRetCode <> 1) then
-            // 握手 fatal: 标记后到锁外 Close, 避免连接停滞 csHandshaking
-            if LConnectionObj._SSL_handle_error(LRetCode,
-                'SSL_do_handshake(TriggerReceived)') then
-              LFatal := True;
-
-          // 即使 fatal 也读出 BIO, 含可能的 TLS alert 发给对端 (RFC 5246 §7.2)
+          if (LRetCode <> 1) and
+            LConnectionObj._SSL_handle_error(LRetCode,
+              'SSL_do_handshake(TriggerReceived)') then
+            LFatal := True;
           LHandshakeData := LConnectionObj._BIO_read_all;
-
-          // 如果握手完成
-          // 读取解密后的数据
           if (LRetCode = 1) then
           begin
             LTriggerConnected := True;
@@ -1463,22 +1746,69 @@ begin
       LConnectionObj._SslUnlock;
     end;
 
-    // 有握手数据
     if (LHandshakeData <> nil) then
-    begin
-      // 先把握手数据发出去再触发连接事件和数据接收事件;
-      // fatal 时 alert 数据也通过这里发送, 发送完成后再 Close (优雅关闭)
       LConnectionObj._Send(LHandshakeData,
-        procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+        procedure(const AInnerConnection: ICrossConnection;
+          const ASuccess: Boolean)
         begin
-          _FinishHandshakeProgress(ASuccess, LConnectionObj, LTriggerConnected,
-            LDecryptedData, LFatal);
-        end);
-    end else
-      _FinishHandshakeProgress(True, LConnectionObj, LTriggerConnected,
-        LDecryptedData, LFatal);
+          _FinishHandshakeProgress(ASuccess, LConnectionObj,
+            LTriggerConnected, LDecryptedData, LFatal);
+        end)
+    else
+      _FinishHandshakeProgress(True, LConnectionObj,
+        LTriggerConnected, LDecryptedData, LFatal);
   end else
-    _Received(AConnection, ABuf, ALen);
+    _Received(AConnection, APayload, APayloadLen);
+end;
+
+procedure TCrossOpenSslSocket._FinishProxyTlsReceive(
+  const AConnection: ICrossConnection; const ASuccess: Boolean;
+  const APlainData: TBytes; const AHandshakeCompleted: Boolean);
+var
+  LConnectionObj: TCrossOpenSslConnection;
+begin
+  LConnectionObj := AConnection as TCrossOpenSslConnection;
+  if not ASuccess then
+  begin
+    LConnectionObj.Close;
+    Exit;
+  end;
+  if AHandshakeCompleted then
+    TriggerConnected(AConnection);
+  if Length(APlainData) > 0 then
+    _ProcessReceivedPayload(AConnection, @APlainData[0], Length(APlainData));
+end;
+
+procedure TCrossOpenSslSocket.TriggerReceived(const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer);
+var
+  LConnectionObj: TCrossOpenSslConnection;
+  LPlainData, LHandshakeData: TBytes;
+  LHandshakeCompleted: Boolean;
+begin
+  LConnectionObj := AConnection as TCrossOpenSslConnection;
+  if LConnectionObj.ProxyUsesTlsTransport then
+  begin
+    if not LConnectionObj._FeedProxyTls(ABuf, ALen, LPlainData,
+      LHandshakeData, LHandshakeCompleted) then
+    begin
+      LConnectionObj.Close;
+      Exit;
+    end;
+
+    if Length(LHandshakeData) > 0 then
+      LConnectionObj._RawSend(LHandshakeData,
+        procedure(const AInnerConnection: ICrossConnection;
+          const ASuccess: Boolean)
+        begin
+          _FinishProxyTlsReceive(AInnerConnection, ASuccess, LPlainData,
+            LHandshakeCompleted);
+        end)
+    else
+      _FinishProxyTlsReceive(AConnection, True, LPlainData,
+        LHandshakeCompleted);
+  end else
+    _ProcessReceivedPayload(AConnection, ABuf, ALen);
 end;
 
 end.

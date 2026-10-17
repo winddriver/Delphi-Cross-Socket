@@ -188,6 +188,10 @@ type
 
     procedure Connect(const AHost: string; const APort, ALocalPort: Word;
       const ACallback: TCrossConnectionCallback = nil); override;
+    procedure ConnectTarget(const APhysicalHost: string;
+      const APhysicalPort, ALocalPort: Word; const ALogicalHost: string;
+      const ALogicalPort: Word;
+      const ACallback: TCrossConnectionCallback = nil); override;
 
     procedure Send(const AConnection: ICrossConnection; const ABuf: Pointer;
       const ALen: Integer; const ACallback: TCrossConnectionCallback = nil); override;
@@ -777,6 +781,13 @@ end;
 
 procedure TKqueueCrossSocket.Connect(const AHost: string;
   const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
+begin
+  ConnectTarget(AHost, APort, ALocalPort, AHost, APort, ACallback);
+end;
+
+procedure TKqueueCrossSocket.ConnectTarget(const APhysicalHost: string;
+  const APhysicalPort, ALocalPort: Word; const ALogicalHost: string;
+  const ALogicalPort: Word; const ACallback: TCrossConnectionCallback);
 
   procedure _Failed1;
   begin
@@ -819,7 +830,8 @@ procedure TKqueueCrossSocket.Connect(const AHost: string;
     if (TSocketAPI.Connect(ASocket, AAddr.ai_addr, AAddr.ai_addrlen) = 0)
       or (GetLastError = EINPROGRESS) then
     begin
-      LConnection := CreateConnection(Self, ASocket, ctConnect, AHost, ACallback);
+      LConnection := CreateConnection(Self, ASocket, ctConnect, ALogicalHost, ACallback);
+      PrepareConnection(LConnection, ALogicalHost, ALogicalPort);
       TriggerConnecting(LConnection);
       LKqConnection := LConnection as TKqueueConnection;
 
@@ -852,7 +864,7 @@ begin
   LHints.ai_family := AF_UNSPEC;
   LHints.ai_socktype := SOCK_STREAM;
   LHints.ai_protocol := IPPROTO_TCP;
-  LAddrInfo := TSocketAPI.GetAddrInfo(AHost, APort, LHints);
+  LAddrInfo := TSocketAPI.GetAddrInfo(APhysicalHost, APhysicalPort, LHints);
   if (LAddrInfo = nil) then
   begin
     _Failed1;
