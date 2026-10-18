@@ -86,6 +86,7 @@ uses
 
   SysUtils,
   Classes,
+  SyncObjs,
   DateUtils,
   Math,
   Utils.DateTime,
@@ -1657,7 +1658,10 @@ type
   private
     class var FRef: Integer;
     class var FSslVersion: Longword;
+    // Serializes LoadSSL/UnloadSSL (FRef is only changed under it)
+    class var FLoadLock: TCriticalSection;
 
+    class constructor Create;
     class destructor Destroy;
 
     class var FLibPath, FLibSSL, FLibCRYPTO: string;
@@ -2292,10 +2296,16 @@ begin
   BIO_free(LBio);
 end;
 
+class constructor TSSLTools.Create;
+begin
+  FLoadLock := TCriticalSection.Create;
+end;
+
 class destructor TSSLTools.Destroy;
 begin
   if (@OPENSSL_cleanup <> nil) then
     OPENSSL_cleanup();
+  FreeAndNil(FLoadLock);
 end;
 
 class procedure TSSLTools.FreeCTX(var AContext: PSSL_CTX);
@@ -2306,24 +2316,50 @@ end;
 
 class procedure TSSLTools.LoadSSL;
 begin
-  if (AtomicIncrement(FRef) <> 1) then Exit;
+  // Serialized: a concurrent caller must not return before the first call has
+  // filled the procedure table, and FRef only counts a load that completed, so
+  // a failed load (e.g. library not found) is retried by the next call.
+  FLoadLock.Enter;
+  try
+    if (FRef > 0) then
+    begin
+      Inc(FRef);
+      Exit;
+    end;
 
-  {$IFNDEF __SSL_STATIC__}
-  LoadSslLibs;
-  {$ENDIF}
+    try
+      {$IFNDEF __SSL_STATIC__}
+      LoadSslLibs;
+      {$ENDIF}
 
-  SslInit;
+      SslInit;
+    except
+      UnloadSslLibs;
+      raise;
+    end;
+
+    FRef := 1;
+  finally
+    FLoadLock.Leave;
+  end;
 end;
 
 class procedure TSSLTools.UnloadSSL;
 begin
-  if (AtomicDecrement(FRef) <> 0) then Exit;
+  FLoadLock.Enter;
+  try
+    if (FRef <= 0) then Exit;
+    Dec(FRef);
+    if (FRef > 0) then Exit;
 
-  SslUninit;
+    SslUninit;
 
-  {$IFNDEF __SSL_STATIC__}
-  UnloadSslLibs;
-  {$ENDIF}
+    {$IFNDEF __SSL_STATIC__}
+    UnloadSslLibs;
+    {$ENDIF}
+  finally
+    FLoadLock.Leave;
+  end;
 end;
 
 class procedure TSSLTools.AddCACertificate(AContext: PSSL_CTX;
