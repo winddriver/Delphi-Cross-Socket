@@ -1035,6 +1035,11 @@ begin
           LEvent.Events and EPOLLERR,
           LEvent.Events and EPOLLHUP
         ]);
+        // EPOLLHUP does not discard data that is already buffered: read it
+        // first (EPOLLIN in the same event), otherwise the final bytes
+        // the peer sent before closing are lost.
+        if (LEvent.Events and EPOLLIN <> 0) then
+          _HandleRead(LConnection);
         LConnection.Close;
         Continue;
       end;
