@@ -81,8 +81,13 @@ type
   private
     FWsFrameState: TWsFrameParseState;
     FWsFrameHeader, FWsMessageBody: TMemoryStream;
+    // Control frames (close/ping/pong) may arrive between the fragments of a
+    // data message, so they get their own opcode and payload buffer
+    FWsControlBody: TMemoryStream;
+    FWsControlDone: Boolean;
     FWsFIN: Boolean;
     FWsOpCode: Byte;
+    FWsFrameOpCode: Byte;
     FWsMask: Boolean;
     FWsMaskKey: Cardinal;
     FWsMaskKeyShift: Integer;
@@ -96,6 +101,7 @@ type
 
     procedure _ResetFrameHeader;
     procedure _ResetRequest;
+    procedure _FrameEnd;
   protected
     procedure TriggerCommand(const AOpCode: Byte; const AData: TBytes);
     procedure TriggerMessage(const AType: TWsMessageType; const AData: TBytes);
@@ -145,6 +151,7 @@ begin
 
   FWsFrameHeader := TMemoryStream.Create;
   FWsMessageBody := TMemoryStream.Create;
+  FWsControlBody := TMemoryStream.Create;
   _ResetRequest;
 end;
 
@@ -152,6 +159,7 @@ destructor TCrossWebSocketParser.Destroy;
 begin
   FreeAndNil(FWsFrameHeader);
   FreeAndNil(FWsMessageBody);
+  FreeAndNil(FWsControlBody);
 
   inherited;
 end;
@@ -201,7 +209,10 @@ begin
 
               // 第1个字节低4位为 opcode 状态
               LByte := PHeader[0] and $0F;
-              if (LByte <> WS_OP_CONTINUATION) then
+              FWsFrameOpCode := LByte;
+              // a control frame must not replace the opcode of the data
+              // message whose fragments it may interrupt
+              if (LByte <> WS_OP_CONTINUATION) and (LByte < WS_OP_CLOSE) then
                 FWsOpCode := LByte;
 
               // 第2个字节最高位为 MASK 状态
@@ -223,10 +234,10 @@ begin
                 FWsMaskKeyShift := 0;
               end;
 
-              if not IsValidOpCode(FWsOpCode) then
+              if not IsValidOpCode(FWsFrameOpCode) then
               begin
                 _Log('websocket decode, invalid opcode[%d], ABuf=0x%p, ALen=%d', [
-                  FWsOpCode, ABuf, ALen
+                  FWsFrameOpCode, ABuf, ALen
                 ]);
                 Inc(PBuf, ALen);
                 ALen := 0;
@@ -271,15 +282,9 @@ begin
               // 接收完一帧
               if (FWsBodySize <= 0) then
               begin
-                // 如果这是一个独立帧或者连续帧的最后一帧
-                // 则表示一次请求数据接收完成
-                if FWsFIN then
-                begin
-                  FWsFrameState := wsDone;
+                _FrameEnd;
+                if (FWsFrameState = wsDone) then
                   Break;
-                // 否则继续接收下一帧
-                end else
-                  _ResetFrameHeader;
               end;
             end;
           end;
@@ -293,7 +298,10 @@ begin
               LByte := LByte xor PByte(@FWsMaskKey)[FWsMaskKeyShift];
               FWsMaskKeyShift := (FWsMaskKeyShift + 1) mod 4;
             end;
-            FWsMessageBody.Write(LByte, 1);
+            if (FWsFrameOpCode >= WS_OP_CLOSE) then
+              FWsControlBody.Write(LByte, 1)
+            else
+              FWsMessageBody.Write(LByte, 1);
             Dec(ALen);
             Inc(PBuf);
             Dec(FWsBodySize);
@@ -301,20 +309,28 @@ begin
             // 接收完一帧
             if (FWsBodySize <= 0) then
             begin
-              // 如果这是一个独立帧或者连续帧的最后一帧
-              // 则表示一次请求数据接收完成
-              if FWsFIN then
-              begin
-                FWsFrameState := wsDone;
+              _FrameEnd;
+              if (FWsFrameState = wsDone) then
                 Break;
-              // 否则继续接收下一帧
-              end else
-                _ResetFrameHeader;
             end;
           end;
       end;
     end;
 
+    // A control frame is complete: deliver it on its own and keep assembling
+    // the data message it may have interrupted
+    if (FWsFrameState = wsDone) and FWsControlDone then
+    begin
+      SetLength(LMessageData, FWsControlBody.Size);
+      FWsControlBody.Position := 0;
+      FWsControlBody.ReadBuffer(LMessageData, FWsControlBody.Size);
+      FWsControlBody.Clear;
+      FWsControlDone := False;
+      LByte := FWsFrameOpCode;
+      _ResetFrameHeader;
+
+      TriggerCommand(LByte, LMessageData);
+    end else
     // 一个完整的 WebSocket 数据帧接收完毕
     if (FWsFrameState = wsDone) then
     begin
@@ -471,11 +487,30 @@ begin
   FWsMaskKeyShift := 0;
 end;
 
+procedure TCrossWebSocketParser._FrameEnd;
+begin
+  // Control frames are never fragmented (RFC 6455 5.5) and may come between
+  // the fragments of a data message (5.4): deliver them on their own
+  if (FWsFrameOpCode >= WS_OP_CLOSE) then
+  begin
+    FWsControlDone := True;
+    FWsFrameState := wsDone;
+  end else
+  // 如果这是一个独立帧或者连续帧的最后一帧, 则表示一次请求数据接收完成
+  if FWsFIN then
+    FWsFrameState := wsDone
+  else
+  // 否则继续接收下一帧
+    _ResetFrameHeader;
+end;
+
 procedure TCrossWebSocketParser._ResetRequest;
 begin
   FWsFrameState := wsHeader;
   FWsFrameHeader.Clear;
   FWsMessageBody.Clear;
+  FWsControlBody.Clear;
+  FWsControlDone := False;
   FWsHeaderSize := 0;
   FWsMaskKeyShift := 0;
 end;
