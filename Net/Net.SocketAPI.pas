@@ -440,28 +440,85 @@ function getnameinfo(sa: PSockAddr; salen: TSockLen; host: PAnsiChar; hostlen: T
   serv: PAnsiChar; servlen: TSize; flags: cInt): cInt; cdecl; external;
 {$ENDIF}
 
+{$IFNDEF MSWINDOWS}
+// A descriptor without FD_CLOEXEC survives fork+exec, so every process the
+// application starts inherits all of its sockets. A listening socket then stays
+// open in the child after the server closed its own copy: the next bind to that
+// port fails with EADDRINUSE (SO_REUSEADDR does not cover a live listener), and
+// the orphan listener keeps accepting connections nobody will serve. An
+// inherited connected socket likewise sends no FIN until the child exits.
+{$IF Defined(LINUX) or Defined(ANDROID)}
+const
+  // socket()/accept4() flag: set FD_CLOEXEC atomically with the descriptor
+  // (Linux 2.6.27+ / 2.6.28+). Same value as O_CLOEXEC.
+  SOCK_CLOEXEC = $80000;
+
+{$IFDEF DELPHI}
+function accept4(ASocket: Integer; Addr: PSockAddr; AddrLen: PInteger;
+  AFlags: Integer): Integer; cdecl; external libc name _PU + 'accept4';
+
+var
+  // Cleared on a kernel without accept4. Concurrent writes from IO threads are
+  // harmless: the value only ever goes from True to False.
+  GAccept4Usable: Boolean = True;
+{$ENDIF DELPHI}
+{$ENDIF}
+
+procedure SetSocketCloseOnExec(const ASocket: TSocket);
+// Non-atomic path: macOS (no SOCK_CLOEXEC there), FPC accept, and the fallback
+// after a kernel rejected the atomic flag.
+var
+  LFlags: Integer;
+begin
+  if ASocket = INVALID_SOCKET then Exit;
+  {$IFDEF DELPHI}
+  LFlags := fcntl(ASocket, F_GETFD);
+  if LFlags < 0 then Exit;
+  if (LFlags and FD_CLOEXEC) = 0 then
+    fcntl(ASocket, F_SETFD, LFlags or FD_CLOEXEC);
+  {$ELSE}
+  LFlags := fpfcntl(ASocket, F_GETFD);
+  if LFlags < 0 then Exit;
+  if (LFlags and FD_CLOEXEC) = 0 then
+    fpfcntl(ASocket, F_SETFD, LFlags or FD_CLOEXEC);
+  {$ENDIF DELPHI}
+end;
+{$ENDIF MSWINDOWS}
+
 { TSocketAPI }
 
 class function TSocketAPI.NewSocket(const ADomain, AType,
   AProtocol: Integer): TSocket;
+{$IFNDEF MSWINDOWS}
+var
+  LType: Integer;
+{$ENDIF}
 begin
-  {$IFDEF DELPHI}
+  {$IFDEF MSWINDOWS}
+  Result := Net.Winsock2.socket(ADomain, AType, AProtocol);
+  {$ELSE}
+  // Ask for the flag together with the descriptor: between socket() and
+  // fcntl() another thread may fork and the child inherits it unmarked.
+  LType := AType{$IF Defined(LINUX) or Defined(ANDROID)} or SOCK_CLOEXEC{$ENDIF};
   Result :=
-    {$IFDEF MSWINDOWS}
-    Net.Winsock2.
-    {$ELSE}
-    Posix.SysSocket.
-    {$ENDIF MSWINDOWS}
-    socket(ADomain, AType, AProtocol);
-  {$ELSE DELPHI}
-  Result :=
-    {$IFDEF MSWINDOWS}
-    Net.Winsock2.socket
+    {$IFDEF DELPHI}
+    Posix.SysSocket.socket
     {$ELSE}
     Sockets.fpSocket
-    {$ENDIF MSWINDOWS}
-    (ADomain, AType, AProtocol);
-  {$ENDIF DELPHI}
+    {$ENDIF DELPHI}
+    (ADomain, LType, AProtocol);
+  // A kernel without SOCK_CLOEXEC answers EINVAL: retry without the flag and
+  // set it with fcntl instead.
+  if (Result = INVALID_SOCKET) and (LType <> AType) then
+    Result :=
+      {$IFDEF DELPHI}
+      Posix.SysSocket.socket
+      {$ELSE}
+      Sockets.fpSocket
+      {$ENDIF DELPHI}
+      (ADomain, AType, AProtocol);
+  SetSocketCloseOnExec(Result);
+  {$ENDIF MSWINDOWS}
 
   {$IFDEF DEBUG}
   if not IsValidSocket(Result) then
@@ -585,11 +642,28 @@ begin
   {$IFDEF MSWINDOWS}
   Result := Net.Winsock2.accept(ASocket, Addr, AddrLen);
   {$ELSE}
+  // An accepted socket does NOT inherit FD_CLOEXEC from the listener, it has
+  // to be set on its own. accept4 does that atomically.
+  {$IF Defined(DELPHI) and (Defined(LINUX) or Defined(ANDROID))}
+  if GAccept4Usable then
+  begin
+    Result := accept4(ASocket, Addr, AddrLen, SOCK_CLOEXEC);
+    if Result <> INVALID_SOCKET then Exit;
+    // EAGAIN and the like are genuine accept failures: return them as is.
+    // EINVAL means either "unknown flag" or "not listening", so retry with
+    // accept(), but remember the fallback only on ENOSYS - otherwise one bad
+    // call would disable the atomic path for good.
+    if (errno <> ENOSYS) and (errno <> EINVAL) then Exit;
+    if errno = ENOSYS then
+      GAccept4Usable := False;
+  end;
+  {$ENDIF}
   {$IFDEF DELPHI}
   Result := Posix.SysSocket.accept(ASocket, Addr^, socklen_t(AddrLen^));
   {$ELSE}
   Result := fpaccept(ASocket, Addr, psocklen(AddrLen));
   {$ENDIF DELPHI}
+  SetSocketCloseOnExec(Result);
   {$ENDIF MSWINDOWS}
 end;
 
