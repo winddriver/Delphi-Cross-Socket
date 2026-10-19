@@ -6,12 +6,12 @@ uses
   {$IF DEFINED(FPC) AND DEFINED(POSIX)}cthreads,{$ENDIF}
   SysUtils, Classes
   {$IFDEF FPC}
-  ,DTF.RTL in '..\..\..\..\DelphiToFPC\DTF.RTL.pas'
+  ,DTF.RTL
   {$ENDIF}
-  ,Utils.SyncObjs in '..\..\..\..\Utils\Utils.SyncObjs.pas'
-  ,Net.CrossHttpUtils in '..\..\..\Net.CrossHttpUtils.pas'
-  ,Net.CrossHttpParams in '..\..\..\Net.CrossHttpParams.pas'
-  ,Net.CrossHttpClient in '..\..\..\Net.CrossHttpClient.pas'
+  ,Utils.SyncObjs
+  ,Net.CrossHttpUtils
+  ,Net.CrossHttpParams
+  ,Net.CrossHttpClient
   ;
 
 type
@@ -256,9 +256,13 @@ begin
   end;
 end;
 
+{$I HttpClientResponseTests.inc}
+
 begin
   try
-    if ParamStr(1) = 'remove' then
+    if ParamStr(1).StartsWith('response-') then
+      TestClientResponse(ParamStr(1), ParamStr(2))
+    else if ParamStr(1) = 'remove' then
       TestRemove
     else
     begin

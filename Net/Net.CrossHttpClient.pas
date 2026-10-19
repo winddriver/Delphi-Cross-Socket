@@ -1114,6 +1114,7 @@ type
     FContentLength: Int64;
     FTransferEncoding, FContentEncoding: string;
     FIsChunked: Boolean;
+    FKeepAlive: Boolean;
 
     FHeader: THttpHeader;
     FCookies: TResponseCookies;
@@ -1981,7 +1982,8 @@ begin
     if IsClosed
       or ((not LIsSwitching)
         and ((not (Owner as TCrossHttpClientSocket).FReUseConnection)
-          or ((FResponseObj <> nil) and SameText(FResponseObj.FHeader[HEADER_CONNECTION], 'close')))) then
+          or ((FRequestObj <> nil) and FRequestObj.FHeader.ContainsToken(HEADER_CONNECTION, 'close'))
+          or ((FResponseObj <> nil) and not FResponseObj.FKeepAlive))) then
     begin
       _SetRequestStatus(rsClose);
       LNeedClose := True;
@@ -2236,7 +2238,12 @@ procedure TCrossHttpClientConnection._OnHeaderData(const ADataPtr: Pointer;
 begin
   if (FResponseObj <> nil) then
   begin
-    FResponseObj.ParseHeader(ADataPtr, ADataSize);
+    if not FResponseObj.ParseHeader(ADataPtr, ADataSize) then
+    begin
+      // 头部解码失败由 Parser 进入统一失败终态，不能继续发布空状态或部分头部。
+      (FHttpParser as TCrossHttpParser).Fail(400, 'Invalid response header.');
+      Exit;
+    end;
     if (FRequestObj <> nil) and (FHttpParser <> nil) then
       FHttpParser.SetNoBody(SameText(FRequestObj.FMethod, THttpMethod.HEAD)
         or ((FResponseObj.FStatusCode >= 100) and (FResponseObj.FStatusCode < 200))
@@ -2624,11 +2631,12 @@ end;
 function TCrossHttpClientResponse.ParseHeader(const ADataPtr: Pointer;
   const ADataSize: Integer): Boolean;
 var
-  LResponseFirstLine, LResponseHeader: string;
+  LResponseFirstLine, LResponseHeader, LCode: string;
   I, J: Integer;
   LHeader: TNameValue;
   LCookie: TResponseCookie;
 begin
+  Result := False;
   {
   HTTP/1.1 200 OK
   Content-Type: application/json;charset=utf-8
@@ -2650,21 +2658,33 @@ begin
   // 第一行是响应状态
   // HTTP/1.1 200 OK
   LResponseFirstLine := FRawResponseHeader.Substring(0, I);
+  if FRawResponseHeader.IndexOf(#0) >= 0 then Exit;
   // 第二行起是请求头
   LResponseHeader := FRawResponseHeader.Substring(I + 2);
   // 解析请求头
-  FHeader.Decode(LResponseHeader);
+  if (LResponseHeader <> '') and (LResponseHeader <> #13#10)
+    and not FHeader.Decode(LResponseHeader) then Exit;
 
   // HTTP版本(HTTP/1.0 HTTP/1.1)
   I := LResponseFirstLine.IndexOf(' ');
-  FHttpVer := LResponseFirstLine.Substring(0, I).ToUpper;
+  if I <> 8 then Exit;
+  FHttpVer := LResponseFirstLine.Substring(0, I);
+  if (FHttpVer <> 'HTTP/1.0') and (FHttpVer <> 'HTTP/1.1') then Exit;
 
   // 响应状态码(200 400 404)
   J := LResponseFirstLine.IndexOf(' ', I + 1);
-  FStatusCode := StrToIntDef(LResponseFirstLine.Substring(I + 1, J - I - 1), 0);
+  if J <> I + 4 then Exit;
+  LCode := LResponseFirstLine.Substring(I + 1, 3);
+  if (LCode[1] < '1') or (LCode[1] > '9')
+    or (LCode[2] < '0') or (LCode[2] > '9')
+    or (LCode[3] < '0') or (LCode[3] > '9') then Exit;
+  FStatusCode := StrToInt(LCode);
 
   // 响应状态文本(OK)
   FStatusText := LResponseFirstLine.SubString(J + 1);
+  if not TCrossHttpUtils.IsValidHeaderValue(FStatusText) then Exit;
+  FKeepAlive := not FHeader.ContainsToken(HEADER_CONNECTION, 'close')
+    and ((FHttpVer = 'HTTP/1.1') or FHeader.ContainsToken(HEADER_CONNECTION, 'keep-alive'));
 
   // 解析 Set-Cookie
   for LHeader in FHeader do

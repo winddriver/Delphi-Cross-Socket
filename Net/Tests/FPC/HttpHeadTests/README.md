@@ -51,3 +51,26 @@ python -B run_interim_tests.py bin/x86_64-win64/HttpHeadTests.exe --report bin/f
 生产修复只在解析完成时丢弃非 101 的临时响应对象，保留请求、回调和连接占用。101 继续走原有协议升级路径；现有 WebSocket 套件重新构建后，Delphi/FPC Win64 的组件、11,056 合法帧组合和各 11 个真实回环场景全部通过，包含客户端协议升级。逐字节发送不能保证操作系统按相同粒度交付，因此不称为穷举所有拆包；临时响应专项未运行 HTTPS、macOS 或压力测试。
 
 F10 串联 gzip 补充后新增第 9 项 `hints-gzip-members`：真实 TCP 先返回 103，再将 `o`、`k` 分别压缩为两个连续 gzip 成员作为同一个最终正文，客户端必须收到完整两字节并复用连接。Delphi/FPC Win64 按新 Parser 重编后各 **9/9**，记录为 `bin/f10-members-*-result.json`；这不改写此前四目标 8/8 的历史结果。
+
+## S02 客户端解析与复用决定
+
+`HttpClientResponseTests.inc` 与 `run_response_tests.py` 继续使用真实客户端和 TCP 服务。22 项包含版本/状态码/状态行分隔、非法及溢出 CL、CL/TE 冲突、不支持的传输编码、重复 Connection 和 token 列表、HTTP/1.0 默认关闭及显式保活、请求 close、关闭定界的扩展 token、合法空原因文本/空字段 204/HEAD 表示元数据，以及畸形报文后同包追加合法响应。每项发送后续请求，检查回调两次、正文和连接数量；声明 close 的定长响应故意不由服务端主动关连接，避免掩盖客户端错误复用。
+
+状态归属与相邻 HttpFailureTests 的服务端表一致：
+
+- Response 负责状态行及头部字段解码，失败必须交给 Parser.Fail；不会再以状态 0 或部分解码结果继续成功路径。
+- Parser 统一负责 CL/TE 有效性和消息定界。有体响应没有 CL/TE 时，始终读到 EOF；Connection 中的扩展 token 不能把正文变成空正文。无正文响应保留表示元数据例外，不为 HEAD 解码实际不会传输的编码。
+- 完成层使用请求 close、已解析的响应保活决定、客户端复用配置和实际闭态决定能否进入空闲池。HTTP/1.0 需显式 keep-alive，所有同名字段中的 close 优先；101 仍由升级协议接管。
+
+规则依据 [RFC 9112 §6.3](https://www.rfc-editor.org/rfc/rfc9112.html#section-6.3) 和 [§9.3](https://www.rfc-editor.org/rfc/rfc9112.html#section-9.3)。本客户端仅支持 chunked 传输编码；不支持的有体响应编码现在明确失败，不能把编码字节当业务正文交付。失败仍沿用既有本地 400 响应、Connection=nil 的通知约定，没有新增接口或状态机。
+
+首批 19 项红基线在 Delphi/FPC Win64 各 **4 通过、15 失败**，源码快照、二进制及结果为 `bin/s02-client-before/`；后加三个边界未冒称包含于该红基线。最终五目标（Delphi Win64/Win32、FPC Win64、Delphi/FPC Linux64）各 **22/22，共 110/110**。同一最终二进制的原 HEAD 各 14/14、临时响应各 9/9，共 70/70 和 45/45；结果保存在 `bin/s02-client-final/<target>/`。
+
+相关 Parser 回归重新构建：Delphi Win64 压缩/串联成员 144/144，FPC Win64 chunk/trailer 100/100。Windows Delphi/FPC 双目标重新构建 WebSocket 握手各 47/47（`../WebSocketFrameTests/bin/s02-client/`）；本批不重复宣称 macOS、TLS 下全部 HTTP 畸形响应或长压通过。
+
+```powershell
+python -B build_response_tests.py delphi-win64 delphi-win32 fpc-win64 delphi-linux64 fpc-linux64 --label response-current
+python -B run_response_tests.py bin/response-current/delphi-win64/HttpHeadTests.exe --report bin/response-current/delphi-win64/results.json
+```
+
+Linux 在本目录执行相同 runner，使用对应不带 `.exe` 的二进制。构建器接受 `--source-root` 选择隔离源码快照，不覆盖当前生产文件；所有输出仍位于忽略的 bin/lib。测试 uses 改为搜索路径形式，以便该快照选项真实生效。公开签名未改变，类私有字段变化需完整重编。

@@ -122,7 +122,7 @@ type
     FOnParseFailed: TOnParseFailed;
 
     FContentLength: Int64;
-    FTransferEncoding, FContentEncoding, FConnectionStr: string;
+    FTransferEncoding, FContentEncoding: string;
     FIsChunked: Boolean;
 
     FParsedBodySize, FDecodedBodySize: Int64;
@@ -953,10 +953,8 @@ begin
   // 数据的压缩方式
   _OnGetHeaderValue(HEADER_CONTENT_ENCODING, FContentEncoding);
 
-  // 读取响应头中连接保持方式
-  _OnGetHeaderValue(HEADER_CONNECTION, FConnectionStr);
-
-  if (FMode = pmServer) and LHasContentLength then
+  // 长度有效性由解析器统一负责，不能把非法长度降级成缺少长度。
+  if LHasContentLength then
   begin
     if not _TryParseContentLengthValue(LContentLength, FContentLength) then
     begin
@@ -964,14 +962,9 @@ begin
       Exit;
     end;
   end else
-  if LHasContentLength then
-  begin
-    if not _TryParseContentLengthValue(LContentLength, FContentLength) then
-      FContentLength := -1;
-  end else
     FContentLength := -1;
 
-  if (FMode = pmServer) and LHasTransferEncoding then
+  if LHasTransferEncoding and ((FMode = pmServer) or not FNoBody) then
   begin
     if not _TryParseTransferEncodingValue(FTransferEncoding,
       LTransferEncoding, FIsChunked) then
@@ -983,7 +976,8 @@ begin
   end else
     FIsChunked := TStrUtils.SameText(FTransferEncoding, 'chunked');
 
-  if (FMode = pmServer) and LHasContentLength and LHasTransferEncoding then
+  if LHasContentLength and LHasTransferEncoding
+    and ((FMode = pmServer) or not FNoBody) then
   begin
     _OnParseFailed(400, 'Content-Length and Transfer-Encoding conflict.');
     Exit;
@@ -1008,19 +1002,9 @@ begin
     FHasBody := (FContentLength > 0) or FIsChunked
   else
   begin
-    if (FContentLength < 0) and not FIsChunked
-      and TStrUtils.SameText(FConnectionStr, 'keep-alive') then
-    begin
-      _OnParseFailed(400, 'Invalid response data.');
-      Exit;
-    end;
-
-    // 显式 Content-Length 决定消息体长度; 只有缺失时才允许按连接关闭定界.
-    // 这样 Content-Length: 0 在 HTTP/1.1 隐式 keep-alive 下可立即完成解析.
-    FHasBody := (FContentLength > 0) or FIsChunked
-      or ((FContentLength < 0)
-        and ((FConnectionStr = '')
-          or TStrUtils.SameText(FConnectionStr, 'close')));
+    // 未指定 CL/TE 的响应以连接关闭定界，与 Connection 中有哪些扩展 token 无关。
+    // Connection 决定复用，不能替代消息定界；显式 CL=0 仍立即结束。
+    FHasBody := (FContentLength <> 0) or FIsChunked;
   end;
 
   if FHasBody then
