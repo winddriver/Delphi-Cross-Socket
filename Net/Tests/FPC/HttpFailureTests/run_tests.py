@@ -28,7 +28,8 @@ CASES = (["parser-" + kind for kind in ("length", "conflict", "chunk", "crlf", "
          ["queue-" + kind for kind in ("late", "late-nocompress", "late-release", "callback", "request-end",
                                       "cancel-callback", "active-close", "source-error", "reentry-send", "reentry-close",
                                       "request-end-close", "duplicate-physical", "ready-close-race", "logger")] +
-         ["tcp-" + kind for kind in ("length", "conflict", "chunk", "crlf", "same", "split", "normal", "body")]
+         ["tcp-" + kind for kind in ("length", "conflict", "chunk", "crlf", "same", "split", "normal", "body",
+                                    "trailer", "trailer-gzip", "trailer-bad")]
          + BODY_CASES)
 SOURCES = ["Net.CrossHttpParser.pas", "Net.CrossHttpServer.pas", "Net.CrossSocket.Base.pas",
            "Net.CrossSocket.Iocp.pas", "Net.CrossSocket.Epoll.pas", "Net.CrossSocket.Kqueue.pas"]

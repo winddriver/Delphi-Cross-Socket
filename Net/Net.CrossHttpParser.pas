@@ -37,7 +37,7 @@ const
 
 type
   TCrossHttpParseMode = (pmServer, pmClient);
-  TCrossHttpParseState = (psIdle, psHeader, psBodyData, psChunkSize, psChunkData, psChunkEnd, psDone, psFailed);
+  TCrossHttpParseState = (psIdle, psHeader, psBodyData, psChunkSize, psChunkData, psChunkEnd, psDone, psFailed, psTrailer);
 
   /// <summary>
   ///   psHeader 阶段严格 CRLF 状态机 (RFC 7230 §3): 拒绝 bare-CR / bare-LF / 错乱
@@ -127,7 +127,9 @@ type
 
     FParsedBodySize, FDecodedBodySize: Int64;
     FParseState: TCrossHttpParseState;
-    FCRCount, FLFCount: Integer;
+    FChunkAfterCR: Boolean;
+    FTrailerBytes, FTrailerFields, FTrailerLineLength: Integer;
+    FTrailerHasColon: Boolean;
     // psHeader 严格 CRLF 状态机 (含义详见 TCrossHttpHeaderCRLFState).
     FHeaderCRLFState: TCrossHttpHeaderCRLFState;
     FHeaderStream, FChunkSizeStream: TMemoryStream;
@@ -221,6 +223,9 @@ end;
 
 const
   MAX_CHUNK_SIZE_LINE = 64;
+  // 包括每行 CRLF 与最终空行；trailer 校验后丢弃，不合并到原始头部。
+  MAX_TRAILER_BYTES = 8192;
+  MAX_TRAILER_FIELDS = 100;
   // 解压初期累计输出小于此阈值时不检查 ratio, 避免短数据造成的误报
   MIN_DECOMPRESS_CHECK_BYTES = 1024;
 
@@ -481,31 +486,45 @@ begin
         // Chunked编码: 块尺寸
         psChunkSize:
           begin
-            case LPtr^ of
-              13{\r}: Inc(FCRCount);
-              10{\n}: Inc(FLFCount);
-            else
-              FCRCount := 0;
-              FLFCount := 0;
-              FChunkSizeStream.Write(LPtr^, 1);
-              if (FChunkSizeStream.Size > MAX_CHUNK_SIZE_LINE) then
-              begin
-                _OnParseFailed(400, 'Invalid chunk size.');
-                Exit;
-              end;
-            end;
-            Inc(LPtr);
-
-            if (FCRCount = 1) and (FLFCount = 1) then
+            if FChunkAfterCR then
             begin
+              if LPtr^ <> 10 then _OnParseFailed(400, 'Invalid chunk size CRLF.');
+              Inc(LPtr);
+              FChunkAfterCR := False;
               SetString(LLineStr, MarshaledAString(FChunkSizeStream.Memory), FChunkSizeStream.Size);
               if not _TryParseChunkSizeLine(LLineStr, FChunkSize) then
               begin
                 _OnParseFailed(400, 'Invalid chunk size.');
                 Exit;
               end;
-              FParseState := psChunkData;
-              FChunkLeftSize := FChunkSize;
+              FChunkSizeStream.Clear;
+              if FChunkSize = 0 then
+              begin
+                FreeAndNil(FChunkSizeStream);
+                FParseState := psTrailer;
+                FTrailerBytes := 0;
+                FTrailerFields := 0;
+                FTrailerLineLength := 0;
+                FTrailerHasColon := False;
+              end else
+              begin
+                FParseState := psChunkData;
+                FChunkLeftSize := FChunkSize;
+              end;
+            end else
+            begin
+              case LPtr^ of
+                13: FChunkAfterCR := True;
+                10: _OnParseFailed(400, 'Invalid chunk size CRLF.');
+              else
+                // 在 Trim 或忽略扩展之前拒绝原始控制字节。
+                if not TCrossHttpUtils.IsHeaderValueChar(Char(LPtr^)) then
+                  _OnParseFailed(400, 'Invalid chunk size character.');
+                FChunkSizeStream.Write(LPtr^, 1);
+                if FChunkSizeStream.Size > MAX_CHUNK_SIZE_LINE then
+                  _OnParseFailed(400, 'Invalid chunk size.');
+              end;
+              Inc(LPtr);
             end;
           end;
 
@@ -531,41 +550,70 @@ begin
             if (FChunkLeftSize <= 0) then
             begin
               FParseState := psChunkEnd;
-              FCRCount := 0;
-              FLFCount := 0;
+              FChunkAfterCR := False;
             end;
           end;
 
         // Chunked编码: 块结束符\r\n
         psChunkEnd:
           begin
-            case LPtr^ of
-              13{\r}: Inc(FCRCount);
-              10{\n}: Inc(FLFCount);
-            else
-              begin
-                _OnParseFailed(400, 'Invalid chunk data.');
-                Exit;
-              end;
+            if FChunkAfterCR then
+            begin
+              if LPtr^ <> 10 then _OnParseFailed(400, 'Invalid chunk data CRLF.');
+              FParseState := psChunkSize;
+              FChunkAfterCR := False;
+            end else
+            begin
+              if LPtr^ <> 13 then _OnParseFailed(400, 'Invalid chunk data CRLF.');
+              FChunkAfterCR := True;
             end;
             Inc(LPtr);
+          end;
 
-            if (FCRCount = 1) and (FLFCount = 1) then
+        psTrailer:
+          begin
+            Inc(FTrailerBytes);
+            if FTrailerBytes > MAX_TRAILER_BYTES then
+              _OnParseFailed(400, 'Trailer section too large.');
+            if FChunkAfterCR then
             begin
-              // 最后一块的ChunSize为0
-              if (FChunkSize > 0) then
-              begin
-                FParseState := psChunkSize;
-                FChunkSizeStream.Clear;
-                FCRCount := 0;
-                FLFCount := 0;
-              end else
+              if LPtr^ <> 10 then _OnParseFailed(400, 'Invalid trailer CRLF.');
+              Inc(LPtr);
+              FChunkAfterCR := False;
+              if FTrailerLineLength = 0 then
               begin
                 FParseState := psDone;
-                FreeAndNil(FChunkSizeStream);
-                _OnBodyEnd();
+                _OnBodyEnd;
                 Break;
               end;
+              if not FTrailerHasColon then _OnParseFailed(400, 'Invalid trailer field.');
+              Inc(FTrailerFields);
+              if FTrailerFields > MAX_TRAILER_FIELDS then
+                _OnParseFailed(400, 'Too many trailer fields.');
+              FTrailerLineLength := 0;
+              FTrailerHasColon := False;
+            end else
+            begin
+              case LPtr^ of
+                13: FChunkAfterCR := True;
+                10: _OnParseFailed(400, 'Invalid trailer CRLF.');
+              else
+                // 不保存字段内容；直接按原始字节校验，拒绝 obs-fold 和名称前空白。
+                if not FTrailerHasColon then
+                begin
+                  if LPtr^ = Ord(':') then
+                  begin
+                    if FTrailerLineLength = 0 then _OnParseFailed(400, 'Empty trailer name.');
+                    FTrailerHasColon := True;
+                  end else
+                  if not TCrossHttpUtils.IsTokenChar(Char(LPtr^)) then
+                    _OnParseFailed(400, 'Invalid trailer name.');
+                end else
+                if not TCrossHttpUtils.IsHeaderValueChar(Char(LPtr^)) then
+                  _OnParseFailed(400, 'Invalid trailer value.');
+                Inc(FTrailerLineLength);
+              end;
+              Inc(LPtr);
             end;
           end;
       end;
@@ -620,7 +668,7 @@ begin
         _Reset;
         _OnParseSuccess;
       end else
-      if FHasBody and (FParseState in [psBodyData, psChunkSize, psChunkData, psChunkEnd]) then
+      if FHasBody and (FParseState in [psBodyData, psChunkSize, psChunkData, psChunkEnd, psTrailer]) then
         _OnParseFailed(400, 'Incomplete HTTP body.');
     except
       on E: Exception do
@@ -999,8 +1047,11 @@ begin
   FParseState := psIdle;
   FHeaderStream.Clear;
   FreeAndNil(FChunkSizeStream);
-  FCRCount := 0;
-  FLFCount := 0;
+  FChunkAfterCR := False;
+  FTrailerBytes := 0;
+  FTrailerFields := 0;
+  FTrailerLineLength := 0;
+  FTrailerHasColon := False;
   FHeaderCRLFState := hcsLineBody;
   FParsedBodySize := 0;
   FDecodedBodySize := 0;

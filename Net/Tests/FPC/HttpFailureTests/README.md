@@ -144,3 +144,9 @@ Linux 启动最初在沙箱内得到 WSL `E_ACCESSDENIED`，经允许的沙箱�
 当前完整套件共 **85 项**（此前 37 项、47 个正文组件场景、1 个新增真实 TCP 场景）。Windows 三目标最新日志在 `bin/f09-final-length/<target>/`，Linux 两目标仍在各自 `bin/<target>/`。生产 Parser/Server、平台依赖和两个 include 的哈希由构建脚本记录；这是共享工作区的组合构建，不将并行 TLS 分工的中间版本算作已完成 TLS 修复。Windows 两目标的既有 WebSocket 组件、11,056 合法帧组合及各 11 个回环场景也通过，含 101 升级。
 
 最终 Delphi Win64/Win32、FPC Win64、Delphi/FPC Linux64 各 **85/85，共 425/425 通过**。提交前已核对本批 Server、测试主文件和两个 include 的哈希；Linux 可执行文件哈希也与运行记录一致。未执行 macOS、TLS 下的正文矩阵或性能测试。
+
+## A07 / F20 trailer 的 TCP 集成
+
+新增 `tcp-trailer`、`tcp-trailer-gzip` 和 `tcp-trailer-bad`。前两项在真实 TCP 上发送带 trailer 的明文/压缩分块请求，再在同一连接发送下一请求：业务端验证完整正文 `abc`，认证、Cookie、长度和传输编码等原始头不被 trailer 覆盖，随后响应没有残留字节。非法折行 trailer 必须得到完整 400 后关闭，同包尾部请求不进入业务。
+
+最终五目标完整重编并实际运行，各 **88/88，共 440/440**；Windows 日志为 `bin/f20-integration/<target>/`，Linux 为各目标目录。Parser 组件的严格 CRLF、大小/字段上限、全部拆包位置及原生解压资源验证详见相邻 HttpChunkTests；没有把其拆包次数当作额外 TCP 场景。

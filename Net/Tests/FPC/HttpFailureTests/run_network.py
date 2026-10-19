@@ -3,6 +3,7 @@ import queue
 import socket
 import subprocess
 import threading
+import gzip
 
 
 def good(path, method="GET", close=False):
@@ -17,6 +18,7 @@ def bad(kind):
         "conflict": prefix + b"Content-Length: 0\r\nTransfer-Encoding: chunked\r\n\r\n",
         "chunk": prefix + b"Transfer-Encoding: chunked\r\n\r\nxyz\r\n",
         "crlf": b"GET /bad HTTP/1.1\r\nHost: localhost\n\r\n",
+        "trailer-bad": prefix + b"Transfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\nX-Trailer: value\r\n folded\r\n\r\n" + good('/tail'),
     }[kind]
 
 
@@ -76,7 +78,21 @@ def run(executable, case):
         with socket.create_connection(("127.0.0.1", int(ready.split()[1])), timeout=3) as connection:
             connection.settimeout(2)
             responses = Responses(connection)
-            if case == "body":
+            if case in ('trailer', 'trailer-gzip'):
+                body = gzip.compress(b'abc', mtime=0) if case == 'trailer-gzip' else b'abc'
+                encoding = b'Content-Encoding: gzip\r\n' if case == 'trailer-gzip' else b''
+                payload = (b'POST /trailer HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n'
+                           b'Content-Type: application/octet-stream\r\nAuthorization: original\r\nCookie: original=1\r\n'
+                           + encoding + b'\r\n' + f'{len(body):x}\r\n'.encode() + body + b'\r\n0\r\n'
+                           b'Content-Length: 999\r\nTransfer-Encoding: identity\r\nAuthorization: changed\r\n'
+                           b'Cookie: changed=1\r\nX-Trailer: ignored\r\n\r\n' + good('/after', close=True))
+                connection.sendall(payload)
+                for expected_body in (b'abc', b'/after'):
+                    status, _, body = responses.response()
+                    assert status == 200 and body == expected_body, (status, body)
+                responses.closed()
+                expected = 2
+            elif case == "body":
                 connection.sendall(good('/204') + good('/304') + good('/head-gzip', 'HEAD')
                                    + good('/205') + good('/after', close=True))
                 for expected_status, is_head in [(204, True), (304, True), (200, True), (205, False)]:
@@ -146,8 +162,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable")
     parser.add_argument("--cases", nargs="+",
-                        choices=["length", "conflict", "chunk", "crlf", "same", "split", "normal", "body"],
-                        default=["length", "conflict", "chunk", "crlf", "same", "split", "normal", "body"])
+                        choices=["length", "conflict", "chunk", "crlf", "same", "split", "normal", "body", "trailer", "trailer-gzip", "trailer-bad"],
+                        default=["length", "conflict", "chunk", "crlf", "same", "split", "normal", "body", "trailer", "trailer-gzip", "trailer-bad"])
     options = parser.parse_args()
     failed = False
     for case in options.cases:

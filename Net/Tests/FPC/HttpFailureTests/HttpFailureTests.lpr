@@ -359,9 +359,25 @@ end;
 
 procedure TTestServer.DoOnRequest(const AConnection: ICrossHttpConnection;
   const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse);
+var
+  LBody: TBytes;
 begin
   Requests.Add(ARequest.Path);
-  if BodyPolicy and (ARequest.Path = '/204') then
+  if ARequest.Path = '/trailer' then
+  begin
+    Check(ARequest.Header['Authorization'] = 'original', 'trailer 改写了认证头');
+    Check(ARequest.Header['Cookie'] = 'original=1', 'trailer 改写了 Cookie');
+    Check(ARequest.Header['Transfer-Encoding'] = 'chunked', 'trailer 改写了定界头');
+    Check(not ARequest.Header.ExistsParam('Content-Length'), 'trailer 注入了长度头');
+    Check(not ARequest.Header.ExistsParam('X-Trailer'), 'trailer 被合并到原始头');
+    Check((ARequest.RawBody <> nil) and (ARequest.RawBody.Size = 3), 'trailer 正文尺寸错误');
+    SetLength(LBody, 3);
+    ARequest.RawBody.Position := 0;
+    ARequest.RawBody.ReadBuffer(LBody[0], 3);
+    Check(TEncoding.ASCII.GetString(LBody) = 'abc', 'trailer 正文内容错误');
+    AResponse.SendNoCompress(LBody);
+  end
+  else if BodyPolicy and (ARequest.Path = '/204') then
     AResponse.SendStatus(204)
   else if BodyPolicy and (ARequest.Path = '/304') then
     AResponse.SendStatus(304)
