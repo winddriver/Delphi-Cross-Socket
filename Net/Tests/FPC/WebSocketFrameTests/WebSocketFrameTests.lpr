@@ -3,6 +3,7 @@
 {$I zLib.inc}
 
 uses
+  {$IF DEFINED(FPC) AND DEFINED(POSIX)}cthreads,{$ENDIF}
   SysUtils
   ,Classes
   ,Net.CrossWebSocketParser

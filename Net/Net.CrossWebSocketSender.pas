@@ -6,6 +6,7 @@ interface
 
 uses
   SysUtils, Classes, SyncObjs, Generics.Collections,
+  {$IFDEF FPC}DTF.Generics,{$ENDIF}
   Net.CrossSocket.Base, Net.CrossWebSocketParser;
 
 type
@@ -30,15 +31,20 @@ type
     IsChunks, IsClose, FrameReady, FinalFrame, Completed: Boolean;
     NextOpCode: Byte;
     function GetItem: TWsSendItem;
+    {$IFDEF CROSS_WS_SENDER_SELFTEST}
+    destructor Destroy; override;
+    {$ENDIF}
   end;
 
   TCrossWebSocketSender = class
+  private type
+    TSendQueue = {$IFDEF FPC}TFpcQueue{$ELSE}TQueue{$ENDIF}<IWsSendItem>;
   private
     FConnection: TCrossConnectionBase;
     FIsServer: Boolean;
     FLock: TCriticalSection;
     FState: TWsSendState;
-    FMessages, FControls: TQueue<IWsSendItem>;
+    FMessages, FControls: TSendQueue;
     FActive, FCurrent: IWsSendItem;
     FPumping, FPending, FSendSuccess: Boolean;
     FClosePayload: TBytes;
@@ -78,9 +84,18 @@ type
 var
   // 仅专项测试注入构帧失败；正式构建没有该钩子。
   CrossWebSocketSenderBeforeFrame: TWsBeforeFrame;
+  CrossWebSocketSenderItemsDestroyed: Integer;
 {$ENDIF}
 
 implementation
+
+{$IFDEF CROSS_WS_SENDER_SELFTEST}
+destructor TWsSendItem.Destroy;
+begin
+  AtomicIncrement(CrossWebSocketSenderItemsDestroyed);
+  inherited;
+end;
+{$ENDIF}
 
 function TWsSendItem.GetItem: TWsSendItem;
 begin
@@ -95,8 +110,8 @@ begin
   FIsServer := AIsServer;
   FState := wssOpen;
   FLock := TCriticalSection.Create;
-  FMessages := TQueue<IWsSendItem>.Create;
-  FControls := TQueue<IWsSendItem>.Create;
+  FMessages := TSendQueue.Create;
+  FControls := TSendQueue.Create;
 end;
 
 destructor TCrossWebSocketSender.Destroy;

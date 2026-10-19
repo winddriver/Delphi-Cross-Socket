@@ -807,6 +807,7 @@ begin
 end;
 
 {$I TlsTerminalTests.inc}
+{$I TlsManagedQueueTests.inc}
 
 begin
   try
@@ -849,6 +850,10 @@ begin
       else if ParamStr(1) = 'terminal-log-reentry' then TestTerminalLogReentry
       else if ParamStr(1) = 'terminal-log-throw' then TestTerminalLogBoundary(True)
       else if ParamStr(1) = 'terminal-log-thread' then TestTerminalLogBoundary(False)
+      else if ParamStr(1) = 'managed-wrap' then TestManagedTlsQueue
+      else if ParamStr(1) = 'managed-clear-pending' then TestManagedTlsClear(0)
+      else if ParamStr(1) = 'managed-clear-cipher' then TestManagedTlsClear(1)
+      else if ParamStr(1) = 'managed-clear-plain' then TestManagedTlsClear(2)
       else raise Exception.Create('unknown mode');
     finally
       TSSLTools.UnloadSSL;

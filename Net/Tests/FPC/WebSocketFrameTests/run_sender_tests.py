@@ -17,7 +17,8 @@ CASES = ['legacy', 'fifo', 'control', 'sync-depth', 'source-error',
          'local-close', 'peer-close', 'protocol-close', 'timeout', 'external-close',
          'io-failure', 'cancel-error', 'source-error-queued', 'source-close',
          'source-close-error', 'callback-reentry', 'large-control',
-         'prepare-close-race', 'owner-lifetime', 'close-frame-error', 'close-frame-timeout']
+         'prepare-close-race', 'owner-lifetime', 'close-frame-error', 'close-frame-timeout',
+         'managed-message', 'managed-control']
 
 def build(target, label):
     out = HERE / 'bin' / ('sender-' + label) / target
@@ -60,7 +61,8 @@ end.
     if r.returncode:
         print((r.stdout+r.stderr).decode(errors='replace')[-7000:]);raise SystemExit(r.returncode)
     paths = [REPO/'Net/Net.CrossWebSocketSender.pas', REPO/'Net/Net.CrossWebSocketParser.pas',
-             REPO/'Net/Net.CrossSocket.Base.pas', HERE/'WebSocketSenderTests.pas',HERE/'WebSocketMessageQueueTests.inc']
+             REPO/'Net/Net.CrossSocket.Base.pas', REPO/'DelphiToFPC/DTF.Generics.pas',
+             HERE/'WebSocketSenderTests.pas',HERE/'WebSocketMessageQueueTests.inc']
     (out/'source.json').write_text(json.dumps({str(p.relative_to(REPO)):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths},indent=2),encoding='utf-8')
     print('PASS build',target,flush=True)
     return out

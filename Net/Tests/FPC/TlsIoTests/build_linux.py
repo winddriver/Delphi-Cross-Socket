@@ -43,7 +43,8 @@ def build(target, label):
         raise SystemExit(result.returncode)
     sources = [REPO / "Net/Net.CrossSslSocket.OpenSSL.pas", REPO / "Net/Net.OpenSSL.pas",
                REPO / "Net/Net.CrossSocket.Base.pas", REPO / "Net/Net.CrossSocket.Epoll.pas",
-               HERE / "TlsIoTests.lpr", HERE / "TlsTerminalTests.inc"]
+               HERE / "TlsIoTests.lpr", HERE / "TlsTerminalTests.inc", HERE / "TlsManagedQueueTests.inc",
+               REPO / "DelphiToFPC/DTF.Generics.pas"]
     metadata = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     metadata["selftest"] = True
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")

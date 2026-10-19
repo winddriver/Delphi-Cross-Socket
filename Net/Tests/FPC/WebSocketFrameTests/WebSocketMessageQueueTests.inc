@@ -1,4 +1,45 @@
 ﻿// 使用真实 Sender 和帧编码器，只控制底层物理发送完成时刻。
+procedure AddManagedWsWrite(const S:TCrossWebSocketSender;const C:ICrossConnection;
+  const Op:Byte;const Calls:PInteger);
+var Keep:ICrossConnection; Callback:TWsSendDone; Data:Byte;
+begin
+  Keep:=C;Data:=$41;
+  Callback:=procedure(const OK:Boolean)
+    begin Check(Keep<>nil,'WS捕获连接丢失');Inc(Calls^);end;
+  S.Send(Op,True,@Data,1,Callback);
+end;
+
+procedure RunManagedWsQueue(const Control:Boolean);
+{$IFDEF CROSS_WS_SENDER_SELFTEST}
+var C:TOwnedSenderConnection;Keep:ICrossConnection;S:TCrossWebSocketSender;
+    I,Base,Calls,Destroyed:Integer;Op:Byte;
+begin
+  C:=TOwnedSenderConnection.Create;Keep:=C;S:=TCrossWebSocketSender.Create(C,True);
+  C.Sender:=S;Destroyed:=0;C.Destroyed:=@Destroyed;Calls:=0;
+  Base:=CrossWebSocketSenderItemsDestroyed;
+  Op:=2;if Control then Op:=9;
+  try
+    C.AutoComplete:=False;
+    for I:=0 to 63 do AddManagedWsWrite(S,Keep,Op,@Calls);
+    for I:=0 to 2047 do begin C.Complete(True);AddManagedWsWrite(S,Keep,Op,@Calls);end;
+    Check(Calls=2048,'WS wrap完成次数错误');
+    Check(CrossWebSocketSenderItemsDestroyed-Base=2048,'WS wrap旧尾槽保留已完成item');
+    C.Close;S.RequestClose;
+    Check((Calls=2111) and (CrossWebSocketSenderItemsDestroyed-Base=2111),
+      'WS关闭未及时释放未提交item');
+    C.Complete(True);
+    Check((Calls=2112) and (CrossWebSocketSenderItemsDestroyed-Base=2112),
+      'WS物理完成后仍保留item，不能靠Sender析构释放');
+    Keep:=nil;
+    Check(Destroyed=1,'WS捕获连接未释放');
+  finally
+    if Keep<>nil then begin C.Close;while C.Pending.Count>0 do C.Complete(False);Keep:=nil;end;
+  end;
+end;
+{$ELSE}
+begin raise Exception.Create('managed WS test requires CROSS_WS_SENDER_SELFTEST');end;
+{$ENDIF}
+
 procedure RunWebSocketMessageQueueTest(const AName:string);
 var
   C:TTestConnection; Keep:ICrossConnection; S:TCrossWebSocketSender;
@@ -9,6 +50,8 @@ var
   var Limit:Integer;
   begin Limit:=0;while C.Pending.Count>0 do begin Inc(Limit);Check(Limit<100,'发送泵未停止');C.Complete(True);end;end;
 begin
+  if AName='managed-message' then begin RunManagedWsQueue(False);Exit;end;
+  if AName='managed-control' then begin RunManagedWsQueue(True);Exit;end;
   Destroyed:=0;
   if AName='owner-lifetime' then C:=TOwnedSenderConnection.Create else C:=TTestConnection.Create;
   Keep:=C;S:=TCrossWebSocketSender.Create(C,(AName<>'close-frame-error') and (AName<>'close-frame-timeout'));

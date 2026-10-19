@@ -103,3 +103,14 @@ F12 红绿证据和最终结果：
 - 最终二进制与源码（含新增测试 inc）哈希、采集时间和结果汇总在 `bin/f12-final-manifest.json`。
 
 未验证 macOS/Kqueue 运行、移动端/静态链接、长期压力或吞吐；不修改 MbedTLS，也不包含后续缓冲分配优化。此处正常 EOF 指 TLS close_notify，未把内存 BIO 测试视为所有内核断连竞争的覆盖。
+
+## F12 之后的托管队列兼容
+
+在 F12 提交 `9acc87f` 之后单独接入 `37f2f82` 已提供的 `DTF.Generics.TFpcQueue`。仅 FPC 的 pending、cipher、plain 三类队列改用兼容类型；Delphi 保留 TQueue。本批不修改第三方 RTL、不改变协议状态机或缓冲所有权，也未开始 O06 性能优化。
+
+- `managed-wrap`：真实 OpenSSL 连接保持 64 条逻辑写，完成一条再补一条，反复 2048 次；回调捕获独立计数对象和连接。Close 后未提交捕获立即释放，在途一条到物理完成才释放，连接随后析构一次。断言发生在队列/连接对象仍存活时。
+- `managed-clear-pending/cipher/plain`：自测宏内对连接自身的三个真实队列固定深度入队/出队，再 Clear；FPC 逐物理槽确认 callback 和 TBytes 都已清空。该组检验容器集成，不能冒充三种协议生产泵的全覆盖；真实发送路径由前一项及既有 34 项验证。
+- 通用记录、接口、字符串和容量变化的原 RTL 红证据复用 `../QueueFifoTests/bin/managed-raw/{fpc64,fpc-linux64}/`，本批未重跑或修改该套件。此次实际 TLS 红例在 `bin/managed-before/`：Delphi 4/4，FPC 0/4；FPC 的关闭捕获和三个 Clear 尾槽检查失败。类型切换后全绿。
+- 最终七组原 34 加新增 4 项，**38/38，共 266/266**；目标/运行库组合与 F12 相同，产物为 `bin/managed-final3/` 和 `bin/managed-final111/`。关闭测试宏的 Delphi/FPC Win64 各 **33/33**，位于 `bin/managed-release/`。
+
+沿用上述命令，将标签改为 `managed-final3`、`managed-final111`、`managed-release` 即可。源码、实际二进制哈希及本批 WebSocket 组合结果汇总在 `bin/managed-final-manifest.json`。

@@ -27,6 +27,7 @@ uses
   SysUtils,
   Classes,
   Generics.Collections,
+  {$IFDEF FPC}DTF.Generics,{$ENDIF}
 
   Net.SocketAPI,
   Net.CrossSocket.Base,
@@ -58,6 +59,9 @@ type
       Data: TBytes;
       Callback: TCrossConnectionCallback;
     end;
+    TPendingWriteQueue = {$IFDEF FPC}TFpcQueue{$ELSE}TQueue{$ENDIF}<TPendingWrite>;
+    TCipherWriteQueue = {$IFDEF FPC}TFpcQueue{$ELSE}TQueue{$ENDIF}<TCipherWrite>;
+    TReceivedQueue = {$IFDEF FPC}TFpcQueue{$ELSE}TQueue{$ENDIF}<TBytes>;
   private
     FSslData: PSSL;
     FBIOIn, FBIOOut: PBIO;
@@ -70,16 +74,16 @@ type
     // pending write 队列: BIO 空 + WANT_* 时把待写明文挂起,
     // 等 TriggerReceived 推进 SSL 状态后由 _PumpPendingWrites 唤醒.
     // FIFO 顺序保证 SSL 状态机不会被穿插数据弄乱.
-    FPendingWrites: TQueue<TPendingWrite>;
+    FPendingWrites: TPendingWriteQueue;
     FPendingBytes: Int64;       // 已挂起明文字节数 (用于背压判定)
     FMaxPendingBytes: Int64;    // 上限 (从 Owner 复制, 0 = 不限)
     FPumping: Boolean;          // 正在 pump 标志 (单 pumper 不变量)
     FStartingWrites, FResumePending: Boolean;
     FRetryWrite: TPendingWrite;
     FHasRetryWrite: Boolean;
-    FCipherWrites: TQueue<TCipherWrite>;
+    FCipherWrites: TCipherWriteQueue;
     FCipherSending, FCipherPumping, FCipherClosed: Boolean;
-    FReceivedData: TQueue<TBytes>;
+    FReceivedData: TReceivedQueue;
     FDeliveringData, FConnectedPublished: Boolean;
     FTlsEnded: Boolean;
     FTerminalData: TBytes;
@@ -217,6 +221,8 @@ function CrossOpenSslSelfTest_PendingCallbackExceptionDoesNotStall(
   out AErrMsg: string): Boolean;
 function CrossOpenSslSelfTest_HandshakeSendFailureDoesNotPromote(
   out AErrMsg: string): Boolean;
+function CrossOpenSslSelfTest_QueueClear(const AConnection: ICrossConnection;
+  const AKind: Integer): Boolean;
 var
   // 只固定解密登记后、明文发布前的调度时序，不替换原生 TLS 或发送完成。
   CrossOpenSslSelfTest_BeforeReceived: TCrossConnectionCallback;
@@ -237,6 +243,89 @@ const
   MAX_HANDSHAKE_RECV_BYTES = 128 * 1024;
 
 {$IFDEF CROSS_OPENSSL_SELFTEST}
+{$IFDEF FPC}
+type
+  TQueueSlotView<T> = class(TQueue<T>)
+    function Slot(const AIndex: Integer): T;
+    function SlotCount: Integer;
+  end;
+function TQueueSlotView<T>.Slot(const AIndex: Integer): T;
+begin Result := FItems[AIndex]; end;
+function TQueueSlotView<T>.SlotCount: Integer;
+begin Result := Length(FItems); end;
+{$ENDIF}
+
+function CrossOpenSslSelfTest_QueueClear(const AConnection: ICrossConnection;
+  const AKind: Integer): Boolean;
+var
+  C: TCrossOpenSslConnection;
+  P: TCrossOpenSslConnection.TPendingWrite;
+  W: TCrossOpenSslConnection.TCipherWrite;
+  B: TBytes;
+  I: Integer;
+  {$IFDEF FPC}
+  PV: TQueueSlotView<TCrossOpenSslConnection.TPendingWrite>;
+  WV: TQueueSlotView<TCrossOpenSslConnection.TCipherWrite>;
+  BV: TQueueSlotView<TBytes>;
+  {$ENDIF}
+begin
+  C := AConnection as TCrossOpenSslConnection;
+  C._SslLock;
+  try
+    // 使用连接自身的三种托管队列；保持固定深度，强制触发 RTL 搬移而非仅析构释放。
+    P := Default(TCrossOpenSslConnection.TPendingWrite);
+    W := Default(TCrossOpenSslConnection.TCipherWrite);
+    P.Callback := procedure(const X: ICrossConnection; const OK: Boolean) begin end;
+    W.Callback := P.Callback;
+    B := TBytes.Create(1, 2, 3);
+    W.Data := B;
+    for I := 0 to 2111 do
+    begin
+      if I >= 64 then
+        case AKind of
+          0: C.FPendingWrites.Dequeue;
+          1: C.FCipherWrites.Dequeue;
+          2: C.FReceivedData.Dequeue;
+        end;
+      case AKind of
+        0: C.FPendingWrites.Enqueue(P);
+        1: C.FCipherWrites.Enqueue(W);
+        2: C.FReceivedData.Enqueue(B);
+      end;
+    end;
+    case AKind of
+      0: C.FPendingWrites.Clear;
+      1: C.FCipherWrites.Clear;
+      2: C.FReceivedData.Clear;
+    end;
+    P := Default(TCrossOpenSslConnection.TPendingWrite);
+    W := Default(TCrossOpenSslConnection.TCipherWrite);
+    B := nil;
+    Result := True;
+    {$IFDEF FPC}
+    PV := TQueueSlotView<TCrossOpenSslConnection.TPendingWrite>(C.FPendingWrites);
+    WV := TQueueSlotView<TCrossOpenSslConnection.TCipherWrite>(C.FCipherWrites);
+    BV := TQueueSlotView<TBytes>(C.FReceivedData);
+    case AKind of
+      0: for I := 0 to PV.SlotCount - 1 do
+         begin
+           P := PV.Slot(I);
+           if Assigned(P.Callback) then Exit(False);
+         end;
+      1: for I := 0 to WV.SlotCount - 1 do
+         begin
+           W := WV.Slot(I);
+           if (Length(W.Data) > 0) or Assigned(W.Callback) then Exit(False);
+         end;
+      2: for I := 0 to BV.SlotCount - 1 do
+         if Length(BV.Slot(I)) > 0 then Exit(False);
+    end;
+    {$ENDIF}
+  finally
+    C._SslUnlock;
+  end;
+end;
+
 function CrossOpenSslSelfTest_GetCipherList(
   const ASocket: TCrossOpenSslSocket): TArray<string>;
 var
@@ -352,7 +441,7 @@ begin
       TSocketAPI.NewTcp, ctConnect, '', nil);
     LConnectionIntf := LConnection;
     LConnection.FLock := TLock.Create;
-    LConnection.FPendingWrites := TQueue<TCrossOpenSslConnection.TPendingWrite>.Create;
+    LConnection.FPendingWrites := TCrossOpenSslConnection.TPendingWriteQueue.Create;
     try
       try
         if LConnection.Socket = INVALID_SOCKET then raise Exception.Create('测试套接字创建失败');
@@ -411,7 +500,7 @@ begin
       ctConnect, '', nil);
     LConnectionIntf := LConnection as ICrossConnection;
     LConnection.FLock := TLock.Create;
-    LConnection.FPendingWrites := TQueue<TCrossOpenSslConnection.TPendingWrite>.Create;
+    LConnection.FPendingWrites := TCrossOpenSslConnection.TPendingWriteQueue.Create;
     try
       try
         LItem.Buf := nil;
@@ -533,9 +622,9 @@ begin
 
     SSL_set_bio(FSslData, FBIOIn, FBIOOut);
 
-    FPendingWrites := TQueue<TPendingWrite>.Create;
-    FCipherWrites := TQueue<TCipherWrite>.Create;
-    FReceivedData := TQueue<TBytes>.Create;
+    FPendingWrites := TPendingWriteQueue.Create;
+    FCipherWrites := TCipherWriteQueue.Create;
+    FReceivedData := TReceivedQueue.Create;
     FMaxPendingBytes := TCrossOpenSslSocket(AOwner).SslMaxPendingWriteBytes;
 
     if (ConnectType = ctAccept) then

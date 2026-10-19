@@ -114,3 +114,24 @@ python -B run_handshake_tests.py bin/f15-final-ascii/win64/WebSocketLoopback.exe
 首轮后补充自定义 key、非法子协议、观察回调异常。独立复核再以两目标 **43/45** 复现合法 key 首尾空白被误拒绝、被 Encode 丢弃的非法协议头仍被当成已提议；修复前快照在 `bin/f15-before-request-boundaries/`。另在 FPC Linux 实测 `webſocket` 被 Unicode 大小写折叠误识别为 websocket，保存为 `bin/f15-final-boundaries/fpc-linux64/unicode-baseline.json`；ASCII token校验修复后拒绝。
 
 最终 Delphi Win64/Win32、FPC Win64、Delphi/FPC Linux64 各 **47/47，共 235/235**；最终结果和源码/二进制哈希在 `bin/f15-final-ascii/<target>/`。前述四 Windows 目标的完整组件/合法帧矩阵/11 个回环，以及两 Linux 目标的原 11 个真实回环，均在本轮 F14/F15 组合下通过。未验证浏览器、HTTPS 握手矩阵、macOS 或生产长压，不从这些结果推导吞吐收益。
+
+## TLS/WS 托管队列兼容
+
+FPC 的 message/control 两个实际队列改用已提交的 TFpcQueue，Delphi 仍使用 TQueue。发送器会在完成时清除 item 的 callback/source/frame，因此仅检查捕获释放会漏掉仍被旧尾槽持有的 item 本体；自测宏额外提供原子析构计数，正式构建不增加计数分支。
+
+`managed-message`、`managed-control` 分别使用真实 Sender 和帧编码器，固定深度 64，循环 2048 次“完成一条后补一条”。在 Sender 仍存活时确认完成项析构；关闭后未提交项及时释放，在途项留到物理完成；最后释放外部连接引用并确认拥有 Sender 的连接析构一次。不能把 Sender 最终析构释放旧槽当成 Clear/关闭及时释放。
+
+Delphi Win64 红基线两项通过，FPC Win64 两项均在关闭后的及时析构检查失败，日志位于 `bin/sender-managed-before/`。兼容后 Delphi Win64/Win32、FPC Win64、Delphi/FPC Linux64 五目标各 **23/23，共 115/115**，产物位于 `bin/sender-managed-final/`。
+
+```powershell
+python -B run_sender_tests.py delphi-win64 delphi-win32 fpc-win64 --label managed-final
+python -B run_sender_tests.py delphi-linux64 fpc-linux64 --label managed-final --build-only
+python -B build_managed_tests.py --label managed-final delphi-win64 fpc-win64 delphi-linux64 fpc-linux64
+python -B run_managed_tests.py --label managed-final delphi-win64 fpc-win64
+```
+
+Linux 在本目录使用现有 WSL 环境运行 `python3 -B run_sender_tests.py delphi-linux64 fpc-linux64 --label managed-final --run-only`，以及 `python3 -B run_managed_tests.py --label managed-final delphi-linux64 fpc-linux64`。
+
+最终组合：Windows Delphi/FPC 与 Linux Delphi/FPC 四目标均完整重编并通过组件 61 项、旧 Sender 生命周期检查、每目标 **11,056** 组合法帧/拆分矩阵、每目标 **11 个真实 TCP 回环**。产物及哈希位于 `bin/managed-final/`。四目标记录的 HttpServer SHA256 均为 `05e11b5e00dc07c22b173064dbd3f1851c619c219f367d47dc80d6b855386833`，覆盖 S02 发送策略下的 101 升级兼容；不把后续共享工作区改动算入这些二进制。
+
+本批只处理托管尾槽引用，不宣称性能收益。O06 后续必须基于本批修复后的源码另取基线。统一冻结记录在相邻 `TlsIoTests/bin/managed-final-manifest.json`。

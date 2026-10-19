@@ -17,7 +17,8 @@ MODES = ["order12", "order13", "want12", "capacity", "disconnected-error", "conn
          "bad-tag12", "bad-tag13", "eof12", "eof13", "bad-tag-active", "eof-active",
          "bad-tag-sync", "eof-sync", "bad-tag-send-fail", "eof-send-fail", "terminal-disconnect-error", "handshake-tag12",
          "terminal-close-race", "terminal-release-last", "terminal-prefix-race", "terminal-prefix-io-fail", "terminal-log-reentry",
-         "terminal-log-throw", "terminal-log-thread"]
+         "terminal-log-throw", "terminal-log-thread", "managed-wrap",
+         "managed-clear-pending", "managed-clear-cipher", "managed-clear-plain"]
 
 
 def execute(args, timeout=90):
@@ -53,6 +54,7 @@ def build(target, output, source_root, selftest=True):
         "tls_io_sha256": hashlib.sha256((source_root / "Net.CrossSslSocket.OpenSSL.pas").read_bytes()).hexdigest(),
         "test_sha256": hashlib.sha256((HERE / "TlsIoTests.lpr").read_bytes()).hexdigest(),
         "terminal_test_sha256": hashlib.sha256((HERE / "TlsTerminalTests.inc").read_bytes()).hexdigest(),
+        "managed_test_sha256": hashlib.sha256((HERE / "TlsManagedQueueTests.inc").read_bytes()).hexdigest(),
     }, indent=2), encoding="utf-8")
 
 
@@ -69,7 +71,7 @@ def main():
     parser.add_argument("--source-root", type=Path, default=REPO / "Net")
     options = parser.parse_args()
     if options.no_selftest:
-        options.modes = [mode for mode in options.modes if not mode.startswith("terminal-prefix-")]
+        options.modes = [mode for mode in options.modes if not mode.startswith(("terminal-prefix-", "managed-clear-"))]
     if not options.label.replace("-", "").replace("_", "").isalnum():
         parser.error("label 只允许字母数字及横线")
     if bool(options.ssl) != bool(options.crypto):
