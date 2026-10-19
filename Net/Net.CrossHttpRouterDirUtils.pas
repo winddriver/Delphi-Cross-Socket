@@ -38,6 +38,18 @@ type
   TPathComparer = {$IFDEF DELPHI}TDelegatedComparer{$ELSE}TDelegatedComparerAnonymousFunc{$ENDIF}<THttpFileEntry>;
 
 function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
+  function EncodeDirPath(const APath: string): string;
+  var
+    LParts: TArray<string>;
+    I: Integer;
+  begin
+    LParts := APath.Split(['/'], TStringSplitOptions.ExcludeEmpty);
+    for I := 0 to High(LParts) do
+      LParts[I] := TCrossHttpUtils.UrlEncode(LParts[I]);
+    Result := '/' + string.Join('/', LParts);
+    if Length(LParts) > 0 then Result := Result + '/';
+  end;
+
   function SmartSizeToStr(const ABytes: Int64): string;
   const
     KBYTES = Int64(1024);
@@ -60,7 +72,7 @@ function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
       Result := Format('%.2fP ', [ABytes / PBYTES]);
   end;
 
-  function FormatDirEntry(const APath: string; const F: THttpFileEntry): string;
+  function FormatDirEntry(const AUrlPath: string; const F: THttpFileEntry): string;
   var
     Attr, Link, NameString, SizeString: string;
   begin
@@ -76,12 +88,12 @@ function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
     begin
       Attr[1] := 'd';
       SizeString := '';
-      NameString := '<font color="#0074d9">' + F.Name + '</font>';
+      NameString := '<font color="#0074d9">' + TCrossHttpUtils.HtmlEncode(F.Name) + '</font>';
     end
     else
     begin
       SizeString := SmartSizeToStr(F.Size);
-      NameString := F.Name;
+      NameString := TCrossHttpUtils.HtmlEncode(F.Name);
     end;
 
     if F.ReadOnly then
@@ -93,13 +105,11 @@ function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
     if F.Hidden then
       Attr[5] := 'h';
 
-    if (APath[Length(APath)] = '/') then
-      Link := TCrossHttpUtils.UrlEncode(F.Name)
-    else
-      Link := APath + '/' + TCrossHttpUtils.UrlEncode(F.Name);
+    Link := AUrlPath + TCrossHttpUtils.UrlEncode(F.Name);
+    if F.Directory then Link := Link + '/';
 
     Result :=
-      '<TD WIDTH="55%" NOWRAP><A HREF="' + Link + '">' + NameString + '</A></TD>' +
+      '<TD WIDTH="55%" NOWRAP><A HREF="' + TCrossHttpUtils.HtmlEncode(Link) + '">' + NameString + '</A></TD>' +
       '<TD WIDTH="5%" ALIGN="LEFT" NOWRAP>' + Attr + '</TD>' +
       '<TD WIDTH="%15" ALIGN="right" NOWRAP>' + SizeString + '</TD>' +
       '<TD WIDTH="5%" NOWRAP></TD>' +
@@ -109,16 +119,8 @@ function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
   function PathToURL(const APath, AHome: string): string;
     function _NormalizePath(const APathStr: string): string;
     begin
-      Result := APathStr.Replace('\/', '/').Replace('\\', '/').Replace('//', '/');
-      if (Result = '') then
-        Result := '/'
-      else
-      begin
-        if (Result.Chars[0] <> '/') then
-          Result := '/' + Result;
-        if (Result.Chars[Result.Length - 1] <> '/') then
-          Result := Result + '/';
-      end;
+      Result := '/' + string.Join('/', APathStr.Split(['/'], TStringSplitOptions.ExcludeEmpty));
+      if Result <> '/' then Result := Result + '/';
     end;
   var
     LPath, LHome, LSubPath: string;
@@ -128,8 +130,8 @@ function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
     LPath := _NormalizePath(APath);
     LHome := _NormalizePath(AHome);
 
-    LPathArr := LPath.Split(['/', '\'], TStringSplitOptions.ExcludeEmpty);
-    LHomeArr := LHome.Split(['/', '\'], TStringSplitOptions.ExcludeEmpty);
+    LPathArr := LPath.Split(['/'], TStringSplitOptions.ExcludeEmpty);
+    LHomeArr := LHome.Split(['/'], TStringSplitOptions.ExcludeEmpty);
     if Length(LHomeArr) > Length(LPathArr) then Exit('');
 
     I := 0;
@@ -141,7 +143,7 @@ function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
     end;
 
     Result := Format('<A HREF="%s"><b><font color="#ff4136">Home</font></b></A> / ',
-      [LHome]);
+      [TCrossHttpUtils.HtmlEncode(EncodeDirPath(LHome))]);
     LSubPath := LHome;
 
     while True do
@@ -150,7 +152,7 @@ function BuildDirList(const ARealPath, ARequestPath, AHome: string): string;
 
       LSubPath := LSubPath + LPathArr[I] + '/';
       Result := Result + Format('<A HREF="%s"><b><font color="#0074d9">%s</font></b></A> / ',
-        [LSubPath, LPathArr[I]]);
+        [TCrossHttpUtils.HtmlEncode(EncodeDirPath(LSubPath)), TCrossHttpUtils.HtmlEncode(LPathArr[I])]);
       Inc(I);
     end;
   end;
@@ -163,8 +165,9 @@ var
   i: Integer;
   Total: Cardinal;
   TotalBytes: Int64;
-  HTML: string;
+  HTML, LRequestUrl: string;
 begin
+  LRequestUrl := EncodeDirPath(ARequestPath);
   LComparer := TPathComparer.Create(
     function(const ALeft, ARight: THttpFileEntry): Integer
     begin
@@ -174,7 +177,7 @@ begin
 
   DirList := TList<THttpFileEntry>.Create;
   FileList := TList<THttpFileEntry>.Create;
-  Status := FindFirst(TPathUtils.Combine(ARealPath, '*.*'), faAnyFile, F);
+  Status := FindFirst(TPathUtils.Combine(ARealPath, '*'), faAnyFile, F);
   while Status = 0 do
   begin
     if (F.Name <> '.') and (F.Name <> '..') then
@@ -250,13 +253,13 @@ begin
     for i := 0 to DirList.Count - 1 do
     begin
       Data := DirList[i];
-      HTML := HTML + '<TR>' + FormatDirEntry(ARequestPath, Data) + '</TR>';
+      HTML := HTML + '<TR>' + FormatDirEntry(LRequestUrl, Data) + '</TR>';
     end;
 
     for i := 0 to FileList.Count - 1 do
     begin
       Data := FileList[i];
-      HTML := HTML + '<TR>' + FormatDirEntry(ARequestPath, Data) + '</TR>';
+      HTML := HTML + '<TR>' + FormatDirEntry(LRequestUrl, Data) + '</TR>';
       TotalBytes := TotalBytes + Data.Size;
     end;
 

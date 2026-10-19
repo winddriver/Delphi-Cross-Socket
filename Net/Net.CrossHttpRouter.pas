@@ -151,20 +151,33 @@ begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
-      LFileName, LResolvedPath: string;
+      LFileName, LResolvedPath, LLocalBaseDir, LRelativePath, LRequestPath: string;
     begin
       AHandled := True;
 
+      LLocalBaseDir := TPathUtils.GetFullPath(ALocalDir);
       LFileName := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[ADirParamName]);
-      if not TCrossHttpUtils.TryUrlPathToLocalPath(ALocalDir, LFileName, LResolvedPath) then
+      if not TCrossHttpUtils.TryUrlPathToLocalPath(LLocalBaseDir, LFileName, LResolvedPath) then
       begin
         AHandled := False;
         Exit;
       end;
 
       if (TDirectoryUtils.Exists(LResolvedPath)) then
-        AResponse.Send(BuildDirList(LResolvedPath, ARequest.Path, APath))
-      else if TFileUtils.Exists(LResolvedPath) then
+      begin
+        // 导航使用已通过边界检查的路径，不能重新展示被 .. 消除的请求片段。
+        if TPathUtils.IsSamePath(LLocalBaseDir, LResolvedPath) then
+          LRelativePath := ''
+        else
+          LRelativePath := Copy(LResolvedPath,
+            Length(IncludeTrailingPathDelimiter(LLocalBaseDir)) + 1, MaxInt);
+        {$IFDEF MSWINDOWS}
+        LRelativePath := LRelativePath.Replace('\', '/');
+        {$ENDIF}
+        LRequestPath := TPathUtils.Combine(APath, LRelativePath, '/');
+        AResponse.Send(BuildDirList(LResolvedPath, LRequestPath, APath));
+      end else
+      if TFileUtils.Exists(LResolvedPath) then
         AResponse.SendFile(LResolvedPath)
       else
         AHandled := False;

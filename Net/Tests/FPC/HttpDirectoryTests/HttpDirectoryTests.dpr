@@ -1,0 +1,1 @@
+﻿{$I HttpDirectoryTests.lpr}
