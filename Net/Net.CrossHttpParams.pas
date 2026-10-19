@@ -21,11 +21,8 @@ uses
   DateUtils,
   Math,
 
-  {$IFDEF DELPHI}
-  System.Diagnostics,
-  {$ELSE}
+  {$IFDEF FPC}
   DTF.Types,
-  DTF.Diagnostics,
   DTF.Generics,
   {$ENDIF}
 
@@ -1003,6 +1000,7 @@ type
     function GetSessionClass: TSessionClass;
     function GetCount: Integer;
     function GetItem(const AIndex: Integer): ISession;
+    /// <summary>内部写锁检查过期并续期；不要在外部读锁内调用。</summary>
     function GetSession(const ASessionID: string): ISession;
     function GetExpiryTime: Integer;
     procedure SetSessionClass(const Value: TSessionClass);
@@ -1042,6 +1040,7 @@ type
     /// <param name="ASession">
     ///   如果存在指定的Session， 则将实例保存到该参数中
     /// </param>
+    /// <remarks>会检查过期并刷新访问时间；不要在外部读锁内调用。</remarks>
     function ExistsSession(const ASessionID: string; var ASession: ISession): Boolean; overload;
 
     /// <summary>
@@ -1050,6 +1049,7 @@ type
     /// <param name="ASessionID">
     ///   Session ID
     /// </param>
+    /// <remarks>会检查过期并刷新访问时间；不要在外部读锁内调用。</remarks>
     function ExistsSession(const ASessionID: string): Boolean; overload;
 
     /// <summary>
@@ -1127,11 +1127,12 @@ type
     property Items[const AIndex: Integer]: ISession read GetItem;
 
     /// <summary>
-    ///   获取指定ID的Session, 如果不存在则会新建一个
+    ///   获取有效Session；未知或过期ID会被替换为新的服务端ID
     /// </summary>
     /// <param name="ASessionID">
     ///   Session ID
     /// </param>
+    /// <remarks>本属性会取得写锁并刷新访问时间；不要在外部读锁内调用。</remarks>
     property Sessions[const ASessionID: string]: ISession read GetSession; default;
 
     /// <summary>
@@ -1188,15 +1189,30 @@ type
     property ExpiryTime: Integer read GetExpiryTime write SetExpiryTime;
   end;
 
+  {$IFDEF CROSS_SESSION_TESTS}
+  TSessionTestHook = reference to procedure;
+  TSessionTestOptions = record
+    BeforeStart, BeforeThreadStart, AfterThreadStart, BeforeCleanup, AfterThreadExit, BeforeDestroyWait: TSessionTestHook;
+    CleanupIntervalMs: Cardinal;
+  end;
+  {$ENDIF}
+
   TSessions = class(TSessionsBase)
   private
     FNewGUIDFunc: TFunc<string>;
     FLocker: IReadWriteLock;
     FSessionClass: TSessionClass;
     FExpire: Integer;
-    FShutdown, FExpiredProcRunning: Boolean;
+    FShutdown: Integer;
+    FExpiredThread: TThread;
+    FExpiredThreadStarted: Boolean;
+    FStopEvent: IEvent;
+    {$IFDEF CROSS_SESSION_TESTS}
+    FTestOptions: TSessionTestOptions;
+    {$ENDIF}
 
     procedure _ClearExpiredSessions;
+    function _FindSessionLocked(const ASessionID: string; out ASession: ISession): Boolean;
   protected
     FSessions: TDictionary<string, ISession>;
 
@@ -1236,7 +1252,21 @@ type
     property NewGUIDFunc: TFunc<string> read FNewGUIDFunc write FNewGUIDFunc;
   end;
 
+{$IFDEF CROSS_SESSION_TESTS}
+procedure SetSessionTestOptions(const AOptions: TSessionTestOptions);
+{$ENDIF}
+
 implementation
+
+{$IFDEF CROSS_SESSION_TESTS}
+var
+  GSessionTestOptions: TSessionTestOptions;
+
+procedure SetSessionTestOptions(const AOptions: TSessionTestOptions);
+begin
+  GSessionTestOptions := AOptions;
+end;
+{$ENDIF}
 
 function _IsHttpToken(const AValue: string): Boolean;
 var
@@ -3296,10 +3326,15 @@ end;
 
 constructor TSessions.Create(ANewGUIDFunc: TFunc<string>);
 begin
+  {$IFDEF CROSS_SESSION_TESTS}
+  FTestOptions := GSessionTestOptions;
+  if FTestOptions.CleanupIntervalMs = 0 then FTestOptions.CleanupIntervalMs := 60000;
+  {$ENDIF}
   FNewGUIDFunc := ANewGUIDFunc;
   FSessions := TDictionary<string, ISession>.Create;
   FLocker := TReadWriteLock.Create;
   FSessionClass := TSession;
+  FStopEvent := TEvent.Create(True, False);
   CreateExpiredProcThread;
 end;
 
@@ -3314,16 +3349,27 @@ begin
 end;
 
 destructor TSessions.Destroy;
-var
-  LTimeout: TStopwatch;
 begin
-  FShutdown := True;
-  LTimeout := TStopwatch.StartNew;
-  while FExpiredProcRunning and (LTimeout.ElapsedMilliseconds < 5000) do Sleep(10);
-
-  BeginWrite;
-  FSessions.Clear;
-  EndWrite;
+  AtomicExchange(FShutdown, 1);
+  if FStopEvent <> nil then FStopEvent.SetEvent;
+  {$IFDEF CROSS_SESSION_TESTS}
+  if Assigned(FTestOptions.BeforeDestroyWait) then FTestOptions.BeforeDestroyWait();
+  {$ENDIF}
+  // 不持会话锁等待；线程真正退出后才释放其可能访问的字典和锁。
+  if FExpiredThread <> nil then
+  begin
+    if FExpiredThreadStarted then FExpiredThread.WaitFor;
+    FreeAndNil(FExpiredThread);
+  end;
+  if FLocker <> nil then
+  begin
+    BeginWrite;
+    try
+      if FSessions <> nil then FSessions.Clear;
+    finally
+      EndWrite;
+    end;
+  end;
   FreeAndNil(FSessions);
 
   inherited;
@@ -3369,36 +3415,68 @@ end;
 function TSessions.ExistsSession(const ASessionID: string;
   var ASession: ISession): Boolean;
 begin
+  BeginWrite;
+  try
+    Result := _FindSessionLocked(ASessionID, ASession);
+  finally
+    EndWrite;
+  end;
+end;
+
+function TSessions._FindSessionLocked(const ASessionID: string;
+  out ASession: ISession): Boolean;
+begin
+  ASession := nil;
   Result := FSessions.TryGetValue(ASessionID, ASession);
-  if Result then
-    ASession.Touch;
+  if not Result then Exit;
+  if OnCheckExpiredSession(ASession) then
+  begin
+    FSessions.Remove(ASessionID);
+    ASession := nil;
+    Exit(False);
+  end;
+  ASession.Touch;
 end;
 
 procedure TSessions.CreateExpiredProcThread;
 begin
-  TAnonymousThread.Create(
+  FExpiredThread := TAnonymousThread.Create(
     procedure
     var
-      LWatch: TStopwatch;
+      LInterval: Cardinal;
     begin
-      FExpiredProcRunning := True;
       try
-        LWatch := TStopwatch.StartNew;
-        while not FShutdown do
+        {$IFDEF CROSS_SESSION_TESTS}
+        if Assigned(FTestOptions.BeforeThreadStart) then FTestOptions.BeforeThreadStart();
+        if Assigned(FTestOptions.AfterThreadStart) then FTestOptions.AfterThreadStart();
+        {$ENDIF}
+        LInterval := 60000;
+        {$IFDEF CROSS_SESSION_TESTS}
+        LInterval := FTestOptions.CleanupIntervalMs;
+        {$ENDIF}
+        while FStopEvent.WaitFor(LInterval) = TWaitResult.wrTimeout do
         begin
-          // 每 1 分钟清理一次超时 Session
-          if (FExpire > 0) and (LWatch.Elapsed.TotalMinutes >= 1) then
+          if AtomicCmpExchange(FShutdown, 0, 0) <> 0 then Break;
+          if GetExpiryTime > 0 then
           begin
-            _ClearExpiredSessions;
-            LWatch.Reset;
-            LWatch.Start;
+            {$IFDEF CROSS_SESSION_TESTS}
+            if Assigned(FTestOptions.BeforeCleanup) then FTestOptions.BeforeCleanup();
+            {$ENDIF}
+            if AtomicCmpExchange(FShutdown, 0, 0) = 0 then _ClearExpiredSessions;
           end;
-          Sleep(10);
         end;
       finally
-        FExpiredProcRunning := False;
+        {$IFDEF CROSS_SESSION_TESTS}
+        if Assigned(FTestOptions.AfterThreadExit) then FTestOptions.AfterThreadExit();
+        {$ENDIF}
       end;
-    end).Start;
+    end);
+  FExpiredThread.FreeOnTerminate := False;
+  {$IFDEF CROSS_SESSION_TESTS}
+  if Assigned(FTestOptions.BeforeStart) then FTestOptions.BeforeStart();
+  {$ENDIF}
+  FExpiredThread.Start;
+  FExpiredThreadStarted := True;
 end;
 
 function TSessions.NewSessionID: string;
@@ -3426,7 +3504,7 @@ end;
 
 function TSessions.GetExpiryTime: Integer;
 begin
-  Result := FExpire;
+  Result := AtomicCmpExchange(FExpire, 0, 0);
 end;
 
 function TSessions.GetItem(const AIndex: Integer): ISession;
@@ -3446,23 +3524,26 @@ end;
 function TSessions.GetSession(const ASessionID: string): ISession;
 var
   LSessionID: string;
+  I: Integer;
 begin
-  LSessionID := ASessionID;
   BeginWrite;
   try
-    if (LSessionID = '') then
-      LSessionID := NewSessionID;
-    if not FSessions.TryGetValue(LSessionID, Result) then
+    if _FindSessionLocked(ASessionID, Result) then Exit;
+    // 显式 AddSession(ID) 仍可导入指定 ID；客户端未知 ID 不参与新会话创建。
+    for I := 1 to 16 do
     begin
+      LSessionID := NewSessionID;
+      if (LSessionID = '') or (LSessionID = ASessionID)
+        or FSessions.ContainsKey(LSessionID) then Continue;
       Result := FSessionClass.Create(Self, LSessionID);
       Result.ExpiryTime := ExpiryTime;
       AddSession(LSessionID, Result);
+      Exit;
     end;
+    raise Exception.Create('无法生成唯一的 Session ID');
   finally
     EndWrite;
   end;
-
-  Result.LastAccessTime := Now;
 end;
 
 function TSessions.GetSessionClass: TSessionClass;
@@ -3480,7 +3561,7 @@ end;
 
 procedure TSessions.SetExpiryTime(const Value: Integer);
 begin
-  FExpire := Value;
+  AtomicExchange(FExpire, Value);
 end;
 
 procedure TSessions.SetSessionClass(const Value: TSessionClass);
@@ -3500,7 +3581,7 @@ begin
     LDelSessions := nil;
     for LPair in FSessions do
     begin
-      if FShutdown then Break;
+      if AtomicCmpExchange(FShutdown, 0, 0) <> 0 then Break;
 
       if OnCheckExpiredSession(LPair.Value) then
         LDelSessions := LDelSessions + [LPair.Value];
