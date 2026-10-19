@@ -60,6 +60,10 @@ type
   TOnParseSuccess = procedure of object;
   TOnParseFailed = procedure(const ACode: Integer; const AError: string) of object;
 
+  {$IFDEF CROSS_HTTP_COMPRESSION_TESTS}
+  THttpInflateInitHook = procedure(var AStream: TZStreamRec);
+  {$ENDIF}
+
   ICrossHttpParser = interface
   ['{A7E3F8D1-6B2C-4A9E-B5D7-1F0E8C3A2B4D}']
     procedure Decode(var ABuf: Pointer; var ALen: Integer);
@@ -138,6 +142,7 @@ type
     FZOutSize: Integer;
     FZBuffer: TBytes;
 
+    procedure _EndInflate;
     procedure _OnHeaderData(const ADataPtr: Pointer; const ADataSize: Integer);
     function _OnGetHeaderValues(const AHeaderName: string; out AHeaderValues: TArray<string>): Boolean;
     function _OnGetHeaderValue(const AHeaderName: string; out AHeaderValue: string): Boolean;
@@ -197,7 +202,22 @@ type
     property OnParseFailed: TOnParseFailed read GetOnParseFailed write SetOnParseFailed;
   end;
 
+{$IFDEF CROSS_HTTP_COMPRESSION_TESTS}
+// 仅测试构建可替换 zlib 分配器，记录真实原生资源生命周期。
+procedure SetHttpInflateInitHook(const AHook: THttpInflateInitHook);
+{$ENDIF}
+
 implementation
+
+{$IFDEF CROSS_HTTP_COMPRESSION_TESTS}
+var
+  GHttpInflateInitHook: THttpInflateInitHook;
+
+procedure SetHttpInflateInitHook(const AHook: THttpInflateInitHook);
+begin
+  GHttpInflateInitHook := AHook;
+end;
+{$ENDIF}
 
 const
   MAX_CHUNK_SIZE_LINE = 64;
@@ -316,12 +336,17 @@ end;
 
 destructor TCrossHttpParser.Destroy;
 begin
-  Finish;
-
-  FreeAndNil(FHeaderStream);
-  FreeAndNil(FChunkSizeStream);
-
-  inherited;
+  try
+    // 保留关闭定界响应的既有 EOF 行为；其他未完成消息只清理，
+    // 不能在所属连接已经开始析构后新增业务通知。
+    if (FMode = pmClient) and (FParseState = psBodyData) and FHasBody
+      and (FContentLength < 0) and not FIsChunked then Finish;
+  finally
+    _EndInflate;
+    FreeAndNil(FHeaderStream);
+    FreeAndNil(FChunkSizeStream);
+    inherited;
+  end;
 end;
 
 procedure TCrossHttpParser.Decode(var ABuf: Pointer; var ALen: Integer);
@@ -584,14 +609,35 @@ end;
 
 procedure TCrossHttpParser.Finish;
 begin
-  if (FMode = pmClient) and (FParseState = psBodyData) and FHasBody
-    and (FContentLength < 0) and not FIsChunked then
-  begin
-    FParseState := psDone;
-    _OnBodyEnd;
-    if (FParseState = psFailed) then Exit;
-    _Reset;
-    _OnParseSuccess;
+  try
+    try
+      if (FMode = pmClient) and (FParseState = psBodyData) and FHasBody
+        and (FContentLength < 0) and not FIsChunked then
+      begin
+        FParseState := psDone;
+        _OnBodyEnd;
+        if (FParseState = psFailed) then Exit;
+        _Reset;
+        _OnParseSuccess;
+      end else
+      if FHasBody and (FParseState in [psBodyData, psChunkSize, psChunkData, psChunkEnd]) then
+        _OnParseFailed(400, 'Incomplete HTTP body.');
+    except
+      on E: Exception do
+      begin
+        // 与 Decode 一样保留失败终态；失败通知的异常不能再次通知。
+        if (FParseState <> psFailed) and not (E is EAbort) then
+        begin
+          try
+            _OnParseFailed(500, E.Message);
+          except
+            on EAbort do ;
+          end;
+        end;
+      end;
+    end;
+  finally
+    _EndInflate;
   end;
 end;
 
@@ -600,11 +646,22 @@ begin
   FNoBody := AValue;
 end;
 
+procedure TCrossHttpParser._EndInflate;
+begin
+  if FZCompressed then
+  begin
+    // 先撤销所有权，使失败、Finish、Reset 和析构重复到达时仍只释放一次。
+    FZCompressed := False;
+    inflateEnd(FZStream);
+  end;
+  FZBuffer := nil;
+end;
+
 procedure TCrossHttpParser._OnBodyBegin;
 var
   LCompressType: TCompressType;
 begin
-  FZCompressed := False;
+  _EndInflate;
   FDecodedBodySize := 0;
   LCompressType := ctNone;
 
@@ -616,15 +673,13 @@ begin
     if TStrUtils.SameText(FContentEncoding, 'gzip') then
     begin
       LCompressType := ctGZip;
-      FZCompressed := True;
     end else
     if TStrUtils.SameText(FContentEncoding, 'deflate') then
     begin
       LCompressType := ctDeflate;
-      FZCompressed := True;
     end;
 
-    if FZCompressed then
+    if LCompressType <> ctNone then
     begin
       SetLength(FZBuffer, ZLIB_BUF_SIZE);
 
@@ -632,12 +687,16 @@ begin
       FZResult := Z_OK;
       FZFlush := Z_NO_FLUSH;
 
+      {$IFDEF CROSS_HTTP_COMPRESSION_TESTS}
+      if Assigned(GHttpInflateInitHook) then GHttpInflateInitHook(FZStream);
+      {$ENDIF}
+
       if (inflateInit2(FZStream, ZLIB_WINDOW_BITS[LCompressType]) <> Z_OK) then
       begin
-        FZCompressed := False;
         _OnParseFailed(400, 'inflateInit2 failed');
         Exit;
       end;
+      FZCompressed := True;
     end;
   end;
 
@@ -720,14 +779,14 @@ end;
 
 procedure TCrossHttpParser._OnBodyEnd;
 begin
-  if FZCompressed then
-  begin
-    inflateEnd(FZStream);
-    FZCompressed := False;
-  end;
+  // HTTP 定界结束不等于 gzip/deflate 完整；必须收到压缩尾部并通过校验。
+  if FZCompressed and (FZResult <> Z_STREAM_END) then
+    _OnParseFailed(400, 'Incomplete compressed body.');
+  _EndInflate;
 
   if Assigned(FOnBodyEnd) then
     FOnBodyEnd();
+  if (FParseState = psFailed) then Abort;
 end;
 
 function TCrossHttpParser._OnGetHeaderValues(const AHeaderName: string;
@@ -778,11 +837,7 @@ begin
   if (FParseState = psFailed) then Abort;
   FParseState := psFailed;
 
-  if FZCompressed then
-  begin
-    inflateEnd(FZStream);
-    FZCompressed := False;
-  end;
+  _EndInflate;
   FreeAndNil(FChunkSizeStream);
 
   if Assigned(FOnParseFailed) then
@@ -927,6 +982,7 @@ end;
 
 procedure TCrossHttpParser._Reset;
 begin
+  _EndInflate;
   FParseState := psIdle;
   FHeaderStream.Clear;
   FreeAndNil(FChunkSizeStream);
