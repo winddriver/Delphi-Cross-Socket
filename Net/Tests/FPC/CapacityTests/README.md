@@ -174,3 +174,11 @@ python run_send_bench.py win64 fpc64 --before socket-bench-before --after socket
 ```
 
 Linux运行同名脚本，并额外运行 `--cases socket-partial socket-partial-close`；默认基准用 `--count 10000 --samples 9`。基准会向after目录写send-bench.json，重现历史时应使用新标签，避免覆盖保留的原始结果。
+
+## 最终工程与实际应用检查
+
+以最终 Base `1dea2013…` 及同一份当前生产源码，经 MSBuild 全量构建三个正式 `.dproj`：HttpServer、HttpClient、WebSocketServer 的 Release/Win64 均通过。记录在 `bin/final-formal-win64/<工程>/`，每项保存构建日志、程序 SHA-256 和编译前后确认未变化的 13 个核心单元哈希。构建生成的示例资源已恢复，没有启动 HttpClient 图形界面。
+
+最终 HttpServer 程序另用 `HttpSessionTests/run_demo_upload.py` 做实际应用验收：严格证书/主机名校验下，TLS 1.2/1.3 各两次 multipart 请求，共 12 个文件、24 个 MD5/SHA1 全部正确。回车正常退出，测试进程、8080 监听及本测试上传文件均已清理；结果为 `bin/final-formal-win64/HttpServer/upload-final/results.json`。上传文件的清理由测试脚本完成，未改变示例原有 `AutoDeleteFiles=False`。
+
+同一最终 Base 还通过两组四目标真实组合：原生 TLS **16/16**、TLS+WS **16/16**，最终清单分别是 `TlsIoTests/bin/base-combination-final-manifest.json` 和 `WebSocketTlsCapacityTests/bin/final-base-source.json`。对应正常/限额两个分支均使用最终源码重编；旧版本证据保留，没有用旧程序替代最终复验。
