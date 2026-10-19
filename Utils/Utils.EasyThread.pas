@@ -31,7 +31,8 @@ type
   TEasyThread = class(TInterfacedObject, IEasyThread)
   private
     FThread: TThread;
-    FTerminated: Boolean;
+    FTerminated: Integer;
+    FThreadStarted: Boolean;
 
     function GetTerminated: Boolean;
     function GetThreadID: TThreadID;
@@ -47,7 +48,21 @@ type
     property ThreadID: TThreadID read GetThreadID;
   end;
 
+{$IFDEF CROSS_EASY_THREAD_TESTS}
+procedure SetEasyThreadStartHook(const AHook: TAnonymousProc);
+{$ENDIF}
+
 implementation
+
+{$IFDEF CROSS_EASY_THREAD_TESTS}
+var
+  GEasyThreadStartHook: TAnonymousProc;
+
+procedure SetEasyThreadStartHook(const AHook: TAnonymousProc);
+begin
+  GEasyThreadStartHook := AHook;
+end;
+{$ENDIF}
 
 { TEasyThread }
 
@@ -61,7 +76,11 @@ begin
     end);
 
   FThread.FreeOnTerminate := False;
+  {$IFDEF CROSS_EASY_THREAD_TESTS}
+  if Assigned(GEasyThreadStartHook) then GEasyThreadStartHook();
+  {$ENDIF}
   FThread.Start;
+  FThreadStarted := True;
 end;
 
 constructor TEasyThread.Create(const AEasyThreadProc: TEasyThreadProc);
@@ -85,16 +104,26 @@ end;
 destructor TEasyThread.Destroy;
 begin
   Terminate;
-  WaitFor;
-
-  FreeAndNil(FThread);
+  if FThread <> nil then
+  begin
+    if FThread.ThreadID = TThread.CurrentThread.ThreadID then
+    begin
+      // Execute 尚未返回，不能等待或释放正在执行自身回调的 TThread。
+      FThread.FreeOnTerminate := True;
+      FThread := nil;
+    end else
+    begin
+      WaitFor;
+      FreeAndNil(FThread);
+    end;
+  end;
 
   inherited;
 end;
 
 function TEasyThread.GetTerminated: Boolean;
 begin
-  Result := FTerminated;
+  Result := AtomicCmpExchange(FTerminated, 0, 0) <> 0;
 end;
 
 function TEasyThread.GetThreadID: TThreadID;
@@ -104,15 +133,14 @@ end;
 
 procedure TEasyThread.Terminate;
 begin
-  FTerminated := True;
+  AtomicExchange(FTerminated, 1);
 end;
 
 procedure TEasyThread.WaitFor;
 begin
-  // TThread.WaitFor 在线程退出后调用会死循环
-  // 所以这里通过检查线程的结束状态(FThread.Finished)来实现
-  while (FThread <> nil) and not FThread.Finished do
-    Sleep(1);
+  if (FThread <> nil) and FThreadStarted
+    and (FThread.ThreadID <> TThread.CurrentThread.ThreadID) then
+    FThread.WaitFor;
 end;
 
 end.
