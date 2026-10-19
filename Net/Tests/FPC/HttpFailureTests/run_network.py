@@ -54,7 +54,7 @@ class Responses:
 
 
 def run(executable, case):
-    process = subprocess.Popen([str(executable), "server"], stdin=subprocess.PIPE,
+    process = subprocess.Popen([str(executable), "server"] + (["body"] if case == "body" else []), stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     messages = queue.Queue()
@@ -76,7 +76,24 @@ def run(executable, case):
         with socket.create_connection(("127.0.0.1", int(ready.split()[1])), timeout=3) as connection:
             connection.settimeout(2)
             responses = Responses(connection)
-            if case == "normal":
+            if case == "body":
+                connection.sendall(good('/204') + good('/304') + good('/head-gzip', 'HEAD')
+                                   + good('/205') + good('/after', close=True))
+                for expected_status, is_head in [(204, True), (304, True), (200, True), (205, False)]:
+                    status, headers, body = responses.response(is_head)
+                    assert status == expected_status and body == b'', (status, body)
+                    if status in (204, 304):
+                        assert b'content-length' not in headers, headers
+                    if status == 200:
+                        assert headers.get(b'content-encoding') == b'gzip', headers
+                        assert b'content-length' not in headers, headers
+                    if status == 205:
+                        assert headers.get(b'content-length') == b'0', headers
+                status, _, body = responses.response()
+                assert status == 200 and body == b'/after', (status, body)
+                responses.closed()
+                expected = 5
+            elif case == "normal":
                 connection.sendall(good("/one") + good("/head", "HEAD") + good("/two"))
                 for path, head in [(b"/one", False), (b"", True), (b"/two", False)]:
                     status, _, body = responses.response(head)
@@ -129,8 +146,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable")
     parser.add_argument("--cases", nargs="+",
-                        choices=["length", "conflict", "chunk", "crlf", "same", "split", "normal"],
-                        default=["length", "conflict", "chunk", "crlf", "same", "split", "normal"])
+                        choices=["length", "conflict", "chunk", "crlf", "same", "split", "normal", "body"],
+                        default=["length", "conflict", "chunk", "crlf", "same", "split", "normal", "body"])
     options = parser.parse_args()
     failed = False
     for case in options.cases:

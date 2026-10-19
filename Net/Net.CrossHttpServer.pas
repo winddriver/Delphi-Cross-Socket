@@ -1987,7 +1987,9 @@ type
     FQueueItem: IHttpResponseQueueItem;
 
     procedure Reset;
+    function _HasBody: Boolean;
     function _CreateHeader(const ABodySize: Int64; AChunked: Boolean): TBytes;
+    procedure _SendHeaders(const ABodySize: Int64; const ACallback: TCrossConnectionCallback);
 
     {$region '内部: 基础发送方法'}
     procedure _Send(const ASource: TCrossHttpChunkDataFunc; const ACallback: TCrossConnectionCallback = nil); overload;
@@ -5156,6 +5158,12 @@ var
   LChunkData: Pointer;
   LChunkSize: NativeInt;
 begin
+  if not _HasBody then
+  begin
+    // 长度未知时不读取 provider；HEAD/304 可以保留调用方提供的表示元数据。
+    _SendHeaders(-1, ACallback);
+    Exit;
+  end;
   // 先取出第一个数据块
   // 如果有数据才需要使用 chunked 方式发送数据
   if Assigned(AChunkSource) then
@@ -5404,6 +5412,7 @@ var
 begin
   ACompressType := ctNone;
   Result := False;
+  if not _HasBody and not SameText(FRequest.Method, THttpMethod.HEAD) then Exit;
   LConnection := GetConnection;
   if (LConnection = nil) or (LConnection.ConnectStatus in [csDisconnected, csClosed]) then Exit;
   LContType := GetContentType;
@@ -5488,11 +5497,24 @@ begin
   Result := False;
 end;
 
+function TCrossHttpResponse._HasBody: Boolean;
+begin
+  Result := not (SameText(FRequest.Method, THttpMethod.HEAD)
+    or ((FStatusCode >= 100) and (FStatusCode < 200))
+    or (FStatusCode = 204) or (FStatusCode = 205) or (FStatusCode = 304)
+    or (SameText(FRequest.Method, THttpMethod.CONNECT)
+      and (FStatusCode >= 200) and (FStatusCode < 300)));
+end;
+
 function TCrossHttpResponse._CreateHeader(const ABodySize: Int64;
   AChunked: Boolean): TBytes;
 var
   LHeaderStr, LStatusText, LHttpVersion: string;
   LCookie: TResponseCookie;
+  LLengths: TArray<string>;
+  LLength, LValue: string;
+  C: Char;
+  LValid: Boolean;
 begin
   if (GetContentType = '') then
     SetContentType(TMediaType.APPLICATION_OCTET_STREAM);
@@ -5504,10 +5526,36 @@ begin
       FHeader[HEADER_CONNECTION] := 'keep-alive';
   end;
 
-  if (FStatusCode = 204) or (FStatusCode = 304) then
+  if not _HasBody then
   begin
+    LLength := '';
+    if FStatusCode = 205 then
+      LLength := '0'
+    else if (FStatusCode = 304) or SameText(FRequest.Method, THttpMethod.HEAD) then
+    begin
+      if (FStatusCode <> 304) and (ABodySize >= 0) then
+        LLength := ABodySize.ToString
+      else if FHeader.GetHeaderValues(HEADER_CONTENT_LENGTH, LLengths) then
+      begin
+        // 304 或未知长度的 HEAD 只能沿用业务已知的表示长度；拒绝冲突或非法值。
+        LValid := Length(LLengths) > 0;
+        for LValue in LLengths do
+        begin
+          if LLength = '' then LLength := LValue;
+          LValid := LValid and (LValue <> '') and (LValue = LLength);
+          for C in LValue do
+            if (C < '0') or (C > '9') then LValid := False;
+        end;
+        if not LValid then LLength := '';
+      end;
+    end;
+    // 这些状态/方法禁止长度头，优先于 HEAD 的表示长度规则。
+    if ((FStatusCode >= 100) and (FStatusCode < 200)) or (FStatusCode = 204)
+      or (SameText(FRequest.Method, THttpMethod.CONNECT)
+        and (FStatusCode >= 200) and (FStatusCode < 300)) then LLength := '';
     FHeader.Remove(HEADER_CONTENT_LENGTH);
     FHeader.Remove(HEADER_TRANSFER_ENCODING);
+    if LLength <> '' then FHeader[HEADER_CONTENT_LENGTH] := LLength;
   end
   else if AChunked then
   begin
@@ -5560,6 +5608,22 @@ begin
   Result := TEncoding.ASCII.GetBytes(LHeaderStr);
 end;
 
+procedure TCrossHttpResponse._SendHeaders(const ABodySize: Int64;
+  const ACallback: TCrossConnectionCallback);
+var
+  LHeader: TBytes;
+begin
+  _Send(
+    function(const AData: PPointer; const ACount: PNativeInt): Boolean
+    begin
+      LHeader := _CreateHeader(ABodySize, False);
+      AData^ := Pointer(LHeader);
+      ACount^ := Length(LHeader);
+      Result := ACount^ > 0;
+    end,
+    nil, ACallback);
+end;
+
 procedure TCrossHttpResponse._Send(const ASource: TCrossHttpChunkDataFunc;
   const ACallback: TCrossConnectionCallback);
 var
@@ -5584,17 +5648,10 @@ procedure TCrossHttpResponse._Send(const AHeaderSource,
   ABodySource: TCrossHttpChunkDataFunc;
   const ACallback: TCrossConnectionCallback);
 var
-  LHeaderDone, LIsHead: Boolean;
+  LHeaderDone, LHasBody: Boolean;
 begin
-  // HEAD 请求不应包含响应体 (RFC 7231 §4.3.2)
-  // [FIX-HEAD-LOOP-1] Route HEAD THROUGH the one-shot wrapper below rather
-  // than around it. Every header source rebuilds its header on each call and
-  // never returns False, and _SendQueueItem calls the source again after each
-  // completed SendBuf -- the wrapper is what ends the header. Passing
-  // AHeaderSource on its own therefore resent the header block until the peer
-  // reset the connection, and a keep-alive client read the copies as its next
-  // response.
-  LIsHead := (FRequest.Method = THttpMethod.HEAD);
+  // 所有入口使用相同正文规则；头部仍经一次性包装，不能反复发送。
+  LHasBody := _HasBody;
 
   LHeaderDone := False;
 
@@ -5606,7 +5663,7 @@ begin
         LHeaderDone := True;
         Result := Assigned(AHeaderSource) and AHeaderSource(AData, ACount);
       end else
-      if LIsHead then
+      if not LHasBody then
         Result := False
       else
       begin
@@ -5724,6 +5781,12 @@ begin
   LCount := ACount;
   TCrossHttpUtils.AdjustOffsetCount(ABody.Size, LOffset, LCount);
 
+  if not _HasBody then
+  begin
+    _SendHeaders(LCount, ACallback);
+    Exit;
+  end;
+
   if _GetMemoryStreamPointer(ABody, LOffset, LCount, LP, LSize) then
   begin
     SendNoCompress(LP^, LSize, ACallback);
@@ -5821,6 +5884,20 @@ begin
   if (ACompressType = ctNone) then
   begin
     SendNoCompress(AChunkSource, ACallback);
+    Exit;
+  end;
+
+  if not _HasBody then
+  begin
+    if SameText(FRequest.Method, THttpMethod.HEAD) then
+    begin
+      FHeader[HEADER_CONTENT_ENCODING] := ZLIB_CONTENT_ENCODING[ACompressType];
+      FHeader[HEADER_VARY] := HEADER_ACCEPT_ENCODING;
+      // 本次将改变表示编码，原长度不能冒充压缩后的长度。
+      FHeader.Remove(HEADER_CONTENT_LENGTH);
+    end;
+    // 没有压缩后的实际长度；不分配 zlib 状态，也不预取正文。
+    _SendHeaders(-1, ACallback);
     Exit;
   end;
 
@@ -6012,6 +6089,16 @@ var
   LP: PByte;
   LSize: Int64;
 begin
+  if ACompressType = ctNone then
+  begin
+    SendNoCompress(ABody, AOffset, ACount, ACallback);
+    Exit;
+  end;
+  if not _HasBody then
+  begin
+    SendZCompress(TCrossHttpChunkDataFunc(nil), ACompressType, ACallback);
+    Exit;
+  end;
   if (ABody = nil) then
   begin
     SendNoCompress(nil, 0, ACallback);

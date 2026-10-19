@@ -130,3 +130,17 @@ python Net/Tests/FPC/HttpFailureTests/run_tests.py --label queue-current --targe
 Linux 启动最初在沙箱内得到 WSL `E_ACCESSDENIED`，经允许的沙箱外调用后完成实测；已有 `/etc/wsl.conf` 的 `network.ipv6` 警告未修改，未影响结果。以上为当前未提交的 A04 HTTP 与平台改动组合验证，不能称为某个旧提交的独立运行结果。
 
 平台最终补齐早期 Connect 失败通知抛异常时的 socket 收尾后，再次全量构建并运行，五目标仍为 **185/185**。Windows 最新日志在 `bin/a04-final-cleanup/<target>/`，Linux 保留上述目标目录；全部生产/测试哈希已与提交前源码核对。当前 Client 的临时响应修复及 Session 独立改动未计入本专项完成数量。
+
+## A07 / F09 无正文响应
+
+`HttpBodyPolicyTests.inc` 继续复用内存物理写与真实 HTTP 对象，覆盖状态发送、字节、流、provider、显式 gzip 和自动压缩。统一检验 HEAD、1xx、204、205、304、成功 CONNECT 的正文抑制，以及后续响应和完成通知；组件里的 CONNECT 仅验证响应定界，不表示新增隧道功能。公开发送方法签名保持不变。
+
+协议依据为 [RFC 9110 §8.6](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.6)、[§15.3.6](https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.6) 与 [RFC 9112 §6.3](https://www.rfc-editor.org/rfc/rfc9112.html#section-6.3)。正文不能发送时，provider 不预取、流不读取、zlib 不初始化。HEAD 保留已知表示长度；304 或未知长度 HEAD 仅保留业务提供的合法、一致长度。1xx/204/成功 CONNECT 移除 CL/TE，205 使用 CL=0。HEAD/304 的 TE 元数据在协议上允许省略，本实现选择省略，测试不把原 HEAD 自动压缩的 TE 误报成协议违规。
+
+原版 Delphi/FPC Win64 首批各 **7/37 通过、30 项失败**，记录在 `bin/f09-protocol-baseline/`；Server 原始快照保留在 `bin/f09-baseline/Net.CrossHttpServer.pas.snapshot`。HEAD 状态/字节/流/自动压缩及三个正常 200 场景原本通过，不作为缺陷复现。
+
+随后补充长度冲突、非法长度、HEAD 与 204/304 组合、ctNone 流和真实 TCP 场景。`tcp-body` 在同一个连接上连续请求 204、304、HEAD gzip、205 与普通 200，检查无残留字节并在最后请求后真正关闭。独立复核再发现 HEAD 转换为 gzip 时保留旧 CL 的问题：`body-head-{auto,gzip,gzip-stream}-length` 在首轮修复的双目标均失败，邻近的预编码场景通过；快照/日志在 `bin/f09-before-encoded-length/`。最终修复在本次改变表示编码时清掉旧长度，不影响预编码表示。
+
+当前完整套件共 **85 项**（此前 37 项、47 个正文组件场景、1 个新增真实 TCP 场景）。Windows 三目标最新日志在 `bin/f09-final-length/<target>/`，Linux 两目标仍在各自 `bin/<target>/`。生产 Parser/Server、平台依赖和两个 include 的哈希由构建脚本记录；这是共享工作区的组合构建，不将并行 TLS 分工的中间版本算作已完成 TLS 修复。Windows 两目标的既有 WebSocket 组件、11,056 合法帧组合及各 11 个回环场景也通过，含 101 升级。
+
+最终 Delphi Win64/Win32、FPC Win64、Delphi/FPC Linux64 各 **85/85，共 425/425 通过**。提交前已核对本批 Server、测试主文件和两个 include 的哈希；Linux 可执行文件哈希也与运行记录一致。未执行 macOS、TLS 下的正文矩阵或性能测试。

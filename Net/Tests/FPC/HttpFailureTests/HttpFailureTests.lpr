@@ -5,7 +5,7 @@
 
 uses
   {$IF DEFINED(FPC) AND DEFINED(POSIX)}cthreads,{$ENDIF}
-  SysUtils, Classes, Generics.Collections, Utils.SyncObjs,
+  SysUtils, Classes, Math, Generics.Collections, Utils.SyncObjs, Net.CrossHttpUtils,
   Net.SocketAPI, Net.CrossSocket.Base, Net.CrossHttpParser,
   Net.CrossHttpServer;
 
@@ -52,7 +52,7 @@ type
       const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse); override;
   public
     Requests: TStringList;
-    HoldFirst: Boolean;
+    HoldFirst, BodyPolicy: Boolean;
     Held: ICrossHttpResponse;
     constructor Create; reintroduce;
     destructor Destroy; override;
@@ -361,7 +361,15 @@ procedure TTestServer.DoOnRequest(const AConnection: ICrossHttpConnection;
   const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse);
 begin
   Requests.Add(ARequest.Path);
-  if HoldFirst and (ARequest.Path = '/first') then
+  if BodyPolicy and (ARequest.Path = '/204') then
+    AResponse.SendStatus(204)
+  else if BodyPolicy and (ARequest.Path = '/304') then
+    AResponse.SendStatus(304)
+  else if BodyPolicy and (ARequest.Path = '/205') then
+    AResponse.SendStatus(205)
+  else if BodyPolicy and (ARequest.Path = '/head-gzip') then
+    AResponse.SendZCompress('abc', ctGZip)
+  else if HoldFirst and (ARequest.Path = '/first') then
     Held := AResponse
   else
     AResponse.Send(ARequest.Path);
@@ -445,6 +453,7 @@ begin
   LServerRef := LServer;
   LPort := 0;
   LServer.Addr := '127.0.0.1';
+  LServer.BodyPolicy := ParamStr(2) = 'body';
   LServer.Port := 0;
   LServer.Start(
     procedure(const AListen: ICrossListen; const ASuccess: Boolean)
@@ -463,6 +472,7 @@ begin
 end;
 
 {$I HttpResponseQueueTests.inc}
+{$I HttpBodyPolicyTests.inc}
 
 begin
   try
@@ -476,6 +486,8 @@ begin
         TestMemory(ParamStr(2))
       else if ParamStr(1) = 'queue' then
         TestResponseQueue(ParamStr(2))
+      else if ParamStr(1) = 'body' then
+        TestBodyPolicy(ParamStr(2))
       else
         Check(False, 'unknown mode');
       Writeln('PASS ', ParamStr(1), ' ', ParamStr(2));

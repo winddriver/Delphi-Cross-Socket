@@ -15,13 +15,21 @@ REPO = HERE.parents[3]
 DELPHI = Path(r"D:\Design\Delphi\D13.1")
 LAZBUILD = Path(r"D:\Design\FreePascal\lazarus\lazbuild.exe")
 CN = Path(r"D:\Design\Delphi\VclFmxRtl\cncrypto\Source")
+BODY_CASES = (["body-" + status + "-" + kind for status in ("204", "304", "head")
+               for kind in ("status", "bytes", "chunk", "stream", "gzip", "gzip-stream", "auto")] +
+              ["body-304-metadata", "body-304-metadata-bad", "body-304-metadata-conflict",
+               "body-head-metadata", "body-head-identity-stream", "body-head204-bytes", "body-head304-bytes"] +
+              ["body-head-auto-length", "body-head-gzip-length", "body-head-gzip-stream-length", "body-head-preencoded"] +
+              ["body-" + status + "-" + kind for status in ("103", "101", "205", "connect", "200")
+               for kind in ("bytes", "chunk", "gzip")])
 CASES = (["parser-" + kind for kind in ("length", "conflict", "chunk", "crlf", "abort", "callback")] +
          ["reject-" + kind for kind in ("header", "bodydata", "bodyend", "reentry")] +
          ["memory-" + kind for kind in ("same", "split", "queued", "header", "limit", "sync")] +
          ["queue-" + kind for kind in ("late", "late-nocompress", "late-release", "callback", "request-end",
                                       "cancel-callback", "active-close", "source-error", "reentry-send", "reentry-close",
                                       "request-end-close", "duplicate-physical", "ready-close-race", "logger")] +
-         ["tcp-" + kind for kind in ("length", "conflict", "chunk", "crlf", "same", "split", "normal")])
+         ["tcp-" + kind for kind in ("length", "conflict", "chunk", "crlf", "same", "split", "normal", "body")]
+         + BODY_CASES)
 SOURCES = ["Net.CrossHttpParser.pas", "Net.CrossHttpServer.pas", "Net.CrossSocket.Base.pas",
            "Net.CrossSocket.Iocp.pas", "Net.CrossSocket.Epoll.pas", "Net.CrossSocket.Kqueue.pas"]
 
@@ -52,6 +60,7 @@ def build(target, output, label):
                 for name in SOURCES}
     metadata["test_sha256"] = hashlib.sha256((HERE / "HttpFailureTests.lpr").read_bytes()).hexdigest()
     metadata["queue_test_sha256"] = hashlib.sha256((HERE / "HttpResponseQueueTests.inc").read_bytes()).hexdigest()
+    metadata["body_test_sha256"] = hashlib.sha256((HERE / "HttpBodyPolicyTests.inc").read_bytes()).hexdigest()
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print("BUILD PASS", target, flush=True)
 
@@ -85,7 +94,11 @@ def main():
                     result = subprocess.run([str(output / "HttpFailureTests.exe"), mode, kind],
                                             cwd=HERE, capture_output=True, timeout=15,
                                             creationflags=subprocess.CREATE_NO_WINDOW)
-                    text = (result.stdout + result.stderr).decode("utf-8", errors="replace").strip()
+                    raw = result.stdout + result.stderr
+                    try:
+                        text = raw.decode("utf-8").strip()
+                    except UnicodeDecodeError:
+                        text = raw.decode("gb18030", errors="replace").strip()
                     passed = result.returncode == 0 and text.startswith("PASS ")
                 except subprocess.TimeoutExpired:
                     text = "TIMEOUT (child killed and reaped)"
