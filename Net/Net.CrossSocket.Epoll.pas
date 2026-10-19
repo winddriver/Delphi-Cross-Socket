@@ -274,6 +274,7 @@ var
   LSendItem: PSendItem;
   LCallbacks: TArray<TCrossConnectionCallback>;
   LCallback: TCrossConnectionCallback;
+  LCount, LIndex: NativeInt;
 begin
   LConnection := Self;
   LCallbacks := [];
@@ -284,9 +285,17 @@ begin
     // 避免回调中再次发送数据导致死锁
     if (FSendQueue.Count > 0) then
     begin
+      LCount := 0;
+      for LSendItem in FSendQueue do
+        if Assigned(LSendItem.Callback) then Inc(LCount);
+      SetLength(LCallbacks, LCount);
+      LIndex := 0;
       for LSendItem in FSendQueue do
         if Assigned(LSendItem.Callback) then
-          TArrayUtils<TCrossConnectionCallback>.Append(LCallbacks, LSendItem.Callback);
+        begin
+          LCallbacks[LIndex] := LSendItem.Callback;
+          Inc(LIndex);
+        end;
 
       FSendQueue.Clear;
     end;
@@ -530,11 +539,13 @@ var
   LSent, LError: Integer;
   LSendCbArr: TArray<TCrossConnectionCallback>;
   LSendCb: TCrossConnectionCallback;
+  LCallbackCount, I: NativeInt;
   LSendFailed, LCallbackFailed: Boolean;
 begin
   LConnection := AConnection;
   LEpConnection := LConnection as TEpollConnection;
   LSendCbArr := [];
+  LCallbackCount := 0;
   LSendFailed := False;
   LCallbackFailed := False;
 
@@ -586,7 +597,11 @@ begin
       // 全部发送完成
       if (LSent >= LSendItem.Size) then
       begin
-        TArrayUtils<TCrossConnectionCallback>.Append(LSendCbArr, LSendItem.Callback);
+        // 首次有完整发送才分配，零完成的 EAGAIN 不产生回调数组。
+        if LCallbackCount = 0 then
+          SetLength(LSendCbArr, LEpConnection.FSendQueue.Count);
+        LSendCbArr[LCallbackCount] := LSendItem.Callback;
+        Inc(LCallbackCount);
 
         // 发送成功, 移除已发送成功的数据
         // 必须先从队列移除已发完的数据项, 然后再执行发送成功的回调
@@ -609,9 +624,12 @@ begin
 
   // 关闭和回调均在发送队列锁外，单个回调异常不能跳过其余通知。
   if LSendFailed then _CloseCrossData(LConnection);
-  for LSendCb in LSendCbArr do
+  for I := 0 to LCallbackCount - 1 do
+  begin
+    LSendCb := LSendCbArr[I];
     if not _CallConnectionCallback(LSendCb, LConnection, True) then
       LCallbackFailed := True;
+  end;
   if LCallbackFailed then _CloseCrossData(LConnection);
 end;
 

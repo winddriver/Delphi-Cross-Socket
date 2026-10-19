@@ -1262,6 +1262,7 @@ type
 
 {$IFDEF CROSS_SESSION_TESTS}
 procedure SetSessionTestOptions(const AOptions: TSessionTestOptions);
+procedure ClearExpiredSessionsForTest(const ASessions: TSessions);
 {$ENDIF}
 
 implementation
@@ -1273,6 +1274,11 @@ var
 procedure SetSessionTestOptions(const AOptions: TSessionTestOptions);
 begin
   GSessionTestOptions := AOptions;
+end;
+
+procedure ClearExpiredSessionsForTest(const ASessions: TSessions);
+begin
+  ASessions._ClearExpiredSessions;
 end;
 {$ENDIF}
 
@@ -3618,24 +3624,46 @@ procedure TSessions._ClearExpiredSessions;
 var
   LPair: TPair<string, ISession>;
   LDelSessions: TArray<ISession>;
+  LCount, LCapacity, LTotal: NativeInt;
 begin
-  BeginWrite;
+  LDelSessions := nil;
   try
-    BeforeClearExpiredSessions;
+    BeginWrite;
+    try
+      BeforeClearExpiredSessions;
 
-    LDelSessions := nil;
-    for LPair in FSessions do
-    begin
-      if AtomicCmpExchange(FShutdown, 0, 0) <> 0 then Break;
+      // 判定和删除保持在同一写锁内，续期/同 ID 替换不会插入其中。
+      LTotal := FSessions.Count;
+      LCount := 0;
+      for LPair in FSessions do
+      begin
+        if AtomicCmpExchange(FShutdown, 0, 0) <> 0 then Break;
+        if OnCheckExpiredSession(LPair.Value) then
+        begin
+          // 零过期不分配快照；稀疏过期只保留小数组，满后几何增长。
+          if LCount = Length(LDelSessions) then
+          begin
+            if LCount = 0 then LCapacity := 8
+            else if LCount <= LTotal div 2 then LCapacity := LCount * 2
+            else LCapacity := LTotal;
+            if LCapacity > LTotal then LCapacity := LTotal;
+            SetLength(LDelSessions, LCapacity);
+          end;
+          LDelSessions[LCount] := LPair.Value;
+          Inc(LCount);
+        end;
+      end;
+      SetLength(LDelSessions, LCount);
+      RemoveSessions(LDelSessions);
 
-      if OnCheckExpiredSession(LPair.Value) then
-        LDelSessions := LDelSessions + [LPair.Value];
+      AfterClearExpiredSessions;
+    finally
+      EndWrite;
     end;
-    RemoveSessions(LDelSessions);
-
-    AfterClearExpiredSessions;
   finally
-    EndWrite;
+    // 包括钩子抛异常的路径，删除对象的最后引用也只在解锁后释放。
+    LPair.Value := nil;
+    LDelSessions := nil;
   end;
 end;
 

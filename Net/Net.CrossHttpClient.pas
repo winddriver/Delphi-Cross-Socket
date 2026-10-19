@@ -966,6 +966,8 @@ type
     procedure _OnParseFailed(const ACode: Integer; const AError: string);
 
     procedure _BeginRequest; inline;
+    function _TryBeginRequest: Boolean;
+    procedure _CloseIfTimeout(const AConnecting: Boolean);
     procedure _EndRequest; inline;
     function _IsIdle: Boolean; inline;
     procedure _UpdateWatch;
@@ -1430,7 +1432,33 @@ type
 const
   SND_BUF_SIZE = 32768;
 
+{$IFDEF CROSS_HTTP_TIMEOUT_TESTS}
+type THttpTimeoutCollectedProc = reference to procedure;
+procedure StopHttpTimeoutTimerForTest(const AClient: TCrossHttpClient);
+procedure ProcHttpTimeoutForTest(const AClient: TCrossHttpClient;
+  const AAfterCollect: THttpTimeoutCollectedProc);
+{$ENDIF}
+
 implementation
+
+{$IFDEF CROSS_HTTP_TIMEOUT_TESTS}
+var GHttpTimeoutAfterCollect: THttpTimeoutCollectedProc;
+procedure StopHttpTimeoutTimerForTest(const AClient: TCrossHttpClient);
+begin
+  if AClient.FTimer <> nil then
+  begin
+    AClient.FTimer.Terminate;
+    AClient.FTimer.WaitFor;
+    AClient.FTimer := nil;
+  end;
+end;
+procedure ProcHttpTimeoutForTest(const AClient: TCrossHttpClient;
+  const AAfterCollect: THttpTimeoutCollectedProc);
+begin
+  GHttpTimeoutAfterCollect := AAfterCollect;
+  try AClient._ProcTimeout; finally GHttpTimeoutAfterCollect := nil; end;
+end;
+{$ENDIF}
 
 { TCrossHttpClientConnection }
 
@@ -2026,19 +2054,19 @@ begin
   _ReqLock;
   try
     // 只在请求进行中的状态才处理, 防止重复触发与 _EndRequest 多减计数
-    if not (RequestStatus in [rsSending, rsResponding]) then Exit;
+    // 候选收集后可能已有新正文或被后续请求复用，必须在同一请求锁内重验。
+    if not _IsRequestTimeout then Exit;
 
     LCallback := FCallback;
     FCallback := nil;
     LRequestEnded := True;
 
     _SetRequestStatus(rsRespondTimeout);
-  finally
     FRequest := nil;
     FRequestObj := nil;
     FResponse := nil;
     FResponseObj := nil;
-
+  finally
     _ReqUnlock;
     if LRequestEnded then
       _EndRequest;
@@ -2059,6 +2087,32 @@ procedure TCrossHttpClientConnection._BeginRequest;
 begin
   AtomicIncrement(FPending);
   _UpdateWatch;
+end;
+
+function TCrossHttpClientConnection._TryBeginRequest: Boolean;
+begin
+  _ReqLock;
+  try
+    Result := _IsIdle;
+    if Result then _BeginRequest;
+  finally
+    _ReqUnlock;
+  end;
+end;
+
+procedure TCrossHttpClientConnection._CloseIfTimeout(const AConnecting: Boolean);
+var
+  LClose: Boolean;
+begin
+  _ReqLock;
+  try
+    if AConnecting then LClose := _IsConnectTimeout else LClose := _IsIdleout;
+    // 与池复用共享请求锁；认领关闭后不允许新请求再预占此连接。
+    if LClose then _SetRequestStatus(rsClose);
+  finally
+    _ReqUnlock;
+  end;
+  if LClose then Close;
 end;
 
 function TCrossHttpClientConnection._CreateRequestHeader(const ABodySize: Int64;
@@ -2170,36 +2224,50 @@ function TCrossHttpClientConnection._IsIdleout: Boolean;
 var
   LIdleout: Integer;
 begin
-  LIdleout := (Owner as TCrossHttpClientSocket).FHttpClient.FIdleout;
-  if (LIdleout <= 0) then Exit(False);
+  _ReqLock;
+  try
+    LIdleout := (Owner as TCrossHttpClientSocket).FHttpClient.FIdleout;
+    if (LIdleout <= 0) then Exit(False);
 
-  // 仅判定已连接(csConnected)的空闲连接, csConnecting 状态交由 _IsConnectTimeout 处理
-  Result := (ConnectStatus = csConnected)
-    and (GetRequestStatus = rsIdle)
-    and (FWatch.ElapsedMilliseconds div 1000 >= LIdleout);
+    // 仅判定已连接(csConnected)的空闲连接, csConnecting 状态交由 _IsConnectTimeout 处理
+    Result := _IsIdle
+      and (FWatch.ElapsedMilliseconds div 1000 >= LIdleout);
+  finally
+    _ReqUnlock;
+  end;
 end;
 
 function TCrossHttpClientConnection._IsRequestTimeout: Boolean;
 var
   LRequestTimeout: Integer;
 begin
-  LRequestTimeout := (Owner as TCrossHttpClientSocket).FHttpClient.FRequestTimeout;
-  if (LRequestTimeout <= 0) then Exit(False);
+  _ReqLock;
+  try
+    LRequestTimeout := (Owner as TCrossHttpClientSocket).FHttpClient.FRequestTimeout;
+    if (LRequestTimeout <= 0) then Exit(False);
 
-  Result := (GetRequestStatus in [rsSending, rsResponding])
-    and (FWatch.ElapsedMilliseconds div 1000 >= LRequestTimeout);
+    Result := (GetRequestStatus in [rsSending, rsResponding])
+      and (FWatch.ElapsedMilliseconds div 1000 >= LRequestTimeout);
+  finally
+    _ReqUnlock;
+  end;
 end;
 
 function TCrossHttpClientConnection._IsConnectTimeout: Boolean;
 var
   LConnectTimeout: Integer;
 begin
-  LConnectTimeout := (Owner as TCrossHttpClientSocket).FHttpClient.FConnectTimeout;
-  if (LConnectTimeout <= 0) then Exit(False);
+  _ReqLock;
+  try
+    LConnectTimeout := (Owner as TCrossHttpClientSocket).FHttpClient.FConnectTimeout;
+    if (LConnectTimeout <= 0) then Exit(False);
 
-  // 处理 ConnectEx 投递成功但 SYN 永远收不到响应的退化场景
-  Result := (ConnectStatus = csConnecting)
-    and (FWatch.ElapsedMilliseconds div 1000 >= LConnectTimeout);
+    // 处理 ConnectEx 投递成功但 SYN 永远收不到响应的退化场景
+    Result := (ConnectStatus = csConnecting)
+      and (FWatch.ElapsedMilliseconds div 1000 >= LConnectTimeout);
+  finally
+    _ReqUnlock;
+  end;
 end;
 
 procedure TCrossHttpClientConnection._OnBodyBegin;
@@ -2428,7 +2496,12 @@ end;
 
 procedure TCrossHttpClientConnection._UpdateWatch;
 begin
-  FWatch.Reset;
+  _ReqLock;
+  try
+    FWatch.Reset;
+  finally
+    _ReqUnlock;
+  end;
 end;
 
 { TCrossHttpClientRequest }
@@ -3408,14 +3481,21 @@ procedure TCrossHttpClient._ProcTimeout;
     LHttpConn: ICrossHttpClientConnection;
     LHttpConnObj: TCrossHttpClientConnection;
     LRequestTimeoutArr, LIdleoutArr, LConnectTimeoutArr: TArray<ICrossHttpClientConnection>;
+    LRequestCount, LIdleCount, LConnectCount, I: NativeInt;
     {$IFDEF DEBUG}
     LIdleCnt, LSendingCnt, LRespondingCnt, LRespondFailedCnt, LRespondTimeoutCnt: Integer;
-    LFirstIdleConn: TCrossHttpClientConnection;
+    LFirstIdleConn: ICrossHttpClientConnection;
+    LConnectionCount: Integer;
+    LWatchElapsed: Int64;
+    LWatchTime: TDateTime;
     {$ENDIF}
   begin
     LRequestTimeoutArr := [];
     LIdleoutArr := [];
     LConnectTimeoutArr := [];
+    LRequestCount := 0;
+    LIdleCount := 0;
+    LConnectCount := 0;
 
     LConns := AHttpCli.LockConnections;
     try
@@ -3426,6 +3506,7 @@ procedure TCrossHttpClient._ProcTimeout;
       LRespondFailedCnt := 0;
       LRespondTimeoutCnt := 0;
       LFirstIdleConn := nil;
+      LConnectionCount := LConns.Count;
       {$ENDIF}
 
       for LConn in LConns.Values do
@@ -3436,11 +3517,21 @@ procedure TCrossHttpClient._ProcTimeout;
         if not LConn.IsClosed then
         begin
           if LHttpConnObj._IsRequestTimeout then
-            LRequestTimeoutArr := LRequestTimeoutArr + [LHttpConn]
-          else if LHttpConnObj._IsConnectTimeout then
-            LConnectTimeoutArr := LConnectTimeoutArr + [LHttpConn]
-          else if LHttpConnObj._IsIdleout then
-            LIdleoutArr := LIdleoutArr + [LHttpConn];
+          begin
+            if LRequestCount = 0 then SetLength(LRequestTimeoutArr, LConns.Count);
+            LRequestTimeoutArr[LRequestCount] := LHttpConn;
+            Inc(LRequestCount);
+          end else if LHttpConnObj._IsConnectTimeout then
+          begin
+            if LConnectCount = 0 then SetLength(LConnectTimeoutArr, LConns.Count);
+            LConnectTimeoutArr[LConnectCount] := LHttpConn;
+            Inc(LConnectCount);
+          end else if LHttpConnObj._IsIdleout then
+          begin
+            if LIdleCount = 0 then SetLength(LIdleoutArr, LConns.Count);
+            LIdleoutArr[LIdleCount] := LHttpConn;
+            Inc(LIdleCount);
+          end;
 
           {$IFDEF DEBUG}
           case LHttpConn.RequestStatus of
@@ -3448,7 +3539,7 @@ procedure TCrossHttpClient._ProcTimeout;
               begin
                 Inc(LIdleCnt);
                 if (LFirstIdleConn = nil) then
-                  LFirstIdleConn := LHttpConnObj;
+                  LFirstIdleConn := LHttpConn;
               end;
 
             rsSending: Inc(LSendingCnt);
@@ -3467,32 +3558,44 @@ procedure TCrossHttpClient._ProcTimeout;
     _Log(
       'http-client, conn:%d, timeout:%d, connect-timeout:%d, idleout:%d' +
       ', idle:%d, sending:%d, responding:%d, respond-failed:%d, respond-timeout:%d', [
-      LConns.Count, Length(LRequestTimeoutArr), Length(LConnectTimeoutArr), Length(LIdleoutArr),
+      LConnectionCount, LRequestCount, LConnectCount, LIdleCount,
       LIdleCnt, LSendingCnt, LRespondingCnt, LRespondFailedCnt, LRespondTimeoutCnt
     ]);
 
     if (LFirstIdleConn <> nil) then
     begin
+      LHttpConnObj := LFirstIdleConn as TCrossHttpClientConnection;
+      LHttpConnObj._ReqLock;
+      try
+        LWatchElapsed := LHttpConnObj.FWatch.ElapsedMilliseconds;
+        LWatchTime := LHttpConnObj.FWatch.LastTime;
+      finally
+        LHttpConnObj._ReqUnlock;
+      end;
       _Log('first idle conn [%u] idle watch: %d ms / start-time: %s', [
-        LFirstIdleConn.UID,
-        LFirstIdleConn.FWatch.ElapsedMilliseconds,
-        FormatDateTime('hh":"nn":"ss.zzz', LFirstIdleConn.FWatch.LastTime)
+        LFirstIdleConn.UID, LWatchElapsed,
+        FormatDateTime('hh":"nn":"ss.zzz', LWatchTime)
       ]);
     end;
     {$ENDIF}
 
-    for LHttpConn in LRequestTimeoutArr do
+    {$IFDEF CROSS_HTTP_TIMEOUT_TESTS}
+    if (LRequestCount + LConnectCount + LIdleCount > 0)
+      and Assigned(GHttpTimeoutAfterCollect) then GHttpTimeoutAfterCollect;
+    {$ENDIF}
+
+    for I := 0 to LRequestCount - 1 do
     begin
-      LHttpConnObj := LHttpConn as TCrossHttpClientConnection;
+      LHttpConnObj := LRequestTimeoutArr[I] as TCrossHttpClientConnection;
       LHttpConnObj.TriggerResponseTimeout;
     end;
 
     // 连接建立超时: 直接关闭, 触发 LogicDisconnected → 上层连接失败回调
-    for LHttpConn in LConnectTimeoutArr do
-      LHttpConn.Close;
+    for I := 0 to LConnectCount - 1 do
+      (LConnectTimeoutArr[I] as TCrossHttpClientConnection)._CloseIfTimeout(True);
 
-    for LHttpConn in LIdleoutArr do
-      LHttpConn.Close;
+    for I := 0 to LIdleCount - 1 do
+      (LIdleoutArr[I] as TCrossHttpClientConnection)._CloseIfTimeout(False);
   end;
 var
   LHttpCliArr: TArray<ICrossHttpClientSocket>;
@@ -4027,9 +4130,8 @@ begin
     for LConn in FConnections do
     begin
       LHttpConnObj := LConn as TCrossHttpClientConnection;
-      if LHttpConnObj._IsIdle then
+      if LHttpConnObj._TryBeginRequest then
       begin
-        LHttpConnObj._BeginRequest;
         Exit(LConn as ICrossHttpClientConnection);
       end;
     end;
