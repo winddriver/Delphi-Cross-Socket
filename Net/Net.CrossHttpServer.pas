@@ -1771,6 +1771,8 @@ type
     FResponseQueue: TList<IHttpResponseQueueItem>;
     FResponseQueueLock: ILock;
     FSendingResponse: Boolean;
+    FResponseQueueClosed: Boolean;
+    FActiveResponse: IHttpResponseQueueItem;
 
     {$region 'HttpParser事件'}
     // 以下事件都在 FHttpParser.Decode 中被触发
@@ -1794,15 +1796,16 @@ type
       const ACallback: TCrossConnectionCallback);
     procedure _SendQueueItem(const AItem: IHttpResponseQueueItem);
     procedure _FinishQueueItem(const AItem: IHttpResponseQueueItem; const ASuccess: Boolean);
+    procedure _NotifyResponseEnd(const ARequest: ICrossHttpRequest;
+      const AResponse: ICrossHttpResponse; const ACallback: TCrossConnectionCallback;
+      const ASuccess: Boolean);
 
     // 调用前必须已持有 FResponseQueueLock; 若可发送则取出队首 ready item
     // 并设置 FSendingResponse / item.Sending, 否则返回 nil
     function _TryDequeueReadyLocked: IHttpResponseQueueItem;
 
-    // 调用前必须已持有 FResponseQueueLock; 清空队列, 同时主动断开每个 item
-    // 内对 request/response/source/callback 的接口引用, 避免与 response.FQueueItem
-    // 等形成的循环引用导致 item 永不释放
-    procedure _ClearResponseQueueLocked;
+    // 锁内标记取消并解绑连接；返回条目由调用方在锁外清理和通知。
+    function _ClearResponseQueueLocked: TArray<IHttpResponseQueueItem>;
   protected
     function GetRequest: ICrossHttpRequest;
     function GetResponse: ICrossHttpResponse;
@@ -1973,8 +1976,8 @@ type
   public const
     SND_BUF_SIZE = TCrossConnection.SND_BUF_SIZE;
   private
-    FConnectionObj: TCrossHttpConnection;
     FConnection: ICrossHttpConnection;
+    FConnectionLock: ILock;
     FRequest: ICrossHttpRequest;
     FStatusCode: Integer;
     FStatusText: string;
@@ -2541,7 +2544,14 @@ begin
     (FRequest as TCrossHttpRequest).FConnection := nil;
 
   if (FResponse <> nil) then
-    (FResponse as TCrossHttpResponse).FConnection := nil;
+  begin
+    FResponseQueueLock.Enter;
+    try
+      (FResponse as TCrossHttpResponse).FConnection := nil;
+    finally
+      FResponseQueueLock.Leave;
+    end;
+  end;
 
   ReleaseRequest;
   ReleaseResponse;
@@ -2610,6 +2620,11 @@ procedure TCrossHttpConnection.InternalClose;
 var
   LLastRequest: ICrossHttpRequest;
   LRequestObj: TCrossHttpRequest;
+  LItems: TArray<IHttpResponseQueueItem>;
+  LItem: IHttpResponseQueueItem;
+  LRequest: ICrossHttpRequest;
+  LResponse: ICrossHttpResponse;
+  LCallback: TCrossConnectionCallback;
 begin
   FLastRequestLock.Enter;
   try
@@ -2635,33 +2650,57 @@ begin
     LRequestObj.FConnectionObj := nil;
     LRequestObj.FConnection := nil;
   end;
-  if (FResponse <> nil) then
-    (FResponse as TCrossHttpResponse).FConnection := nil;
-  ReleaseRequest;
-  ReleaseResponse;
-
-  // 清空响应队列中剩余 items: 它们持有的 request/response/source/callback 接口字段
-  // 与 response.FQueueItem 形成循环引用. 必须先逐个清空 item 内的接口字段,
-  // 再 Clear 队列, 否则 items 引用计数减 1 之后仍因循环引用而不会归零, 导致泄漏
+  LItems := nil;
   if (FResponseQueueLock <> nil) and (FResponseQueue <> nil) then
   begin
     FResponseQueueLock.Enter;
     try
-      FSendingResponse := False;
-      _ClearResponseQueueLocked;
+      // 关闭与 ready 接纳共用锁，迟发响应不能观察到已清空的请求字段。
+      FResponseQueueClosed := True;
+      if FResponse <> nil then
+        (FResponse as TCrossHttpResponse).FConnection := nil;
+      if FActiveResponse <> nil then
+      begin
+        if FActiveResponse.Response <> nil then
+          (FActiveResponse.Response as TCrossHttpResponse).FConnection := nil;
+        if FActiveResponse.Request <> nil then
+        begin
+          (FActiveResponse.Request as TCrossHttpRequest).FConnectionObj := nil;
+          (FActiveResponse.Request as TCrossHttpRequest).FConnection := nil;
+        end;
+        // 在途 Source 和清理回调须保留到物理完成，不能提前释放发送缓冲。
+      end;
+      LItems := _ClearResponseQueueLocked;
     finally
       FResponseQueueLock.Leave;
     end;
   end;
+  ReleaseRequest;
+  ReleaseResponse;
 
-  inherited InternalClose;
+  try
+    for LItem in LItems do
+    begin
+      LRequest := LItem.Request;
+      LResponse := LItem.Response;
+      LCallback := LItem.Callback;
+      LItem.Request := nil;
+      LItem.Response := nil;
+      LItem.Source := nil;
+      LItem.Callback := nil;
+      _NotifyResponseEnd(LRequest, LResponse, LCallback, False);
+    end;
+  finally
+    inherited InternalClose;
+  end;
 end;
 
 function TCrossHttpConnection._TryDequeueReadyLocked: IHttpResponseQueueItem;
 begin
   Result := nil;
 
-  if FSendingResponse then Exit;
+  if FResponseQueueClosed or FSendingResponse
+    or (ConnectStatus in [csDisconnected, csClosed]) then Exit;
   if (FResponseQueue = nil) or (FResponseQueue.Count = 0) then Exit;
   if not FResponseQueue[0].Ready then Exit;
 
@@ -2669,44 +2708,31 @@ begin
   Result := FResponseQueue[0];
   FResponseQueue.Delete(0);
   FSendingResponse := True;
+  FActiveResponse := Result;
   Result.Sending := True;
 end;
 
-// _ClearResponseQueueLocked:
-//   调用前必须持有 FResponseQueueLock.
-//   按队列注册顺序 (FIFO) 收集所有 callback, 清空队列并逐个清空 item 内部接口引用,
-//   锁外按收集顺序触发 callback(False) 通知业务方发送失败.
-//   注意: callback 中不应操作连接状态 (如 Disconnect), 因为此时连接正在关闭流程中.
-procedure TCrossHttpConnection._ClearResponseQueueLocked;
+// 锁内终结未开始发送的条目并解绑连接，调用方在锁外清理和通知。
+function TCrossHttpConnection._ClearResponseQueueLocked: TArray<IHttpResponseQueueItem>;
 var
-  I: Integer;
   LItem: IHttpResponseQueueItem;
-  LCallbacks: TArray<TCrossConnectionCallback>;
 begin
+  Result := nil;
   if (FResponseQueue = nil) then Exit;
-
-  // 收集所有待通知 callback (在本方法尾部、队列清空后触发),
-  // 避免静默丢弃导致业务方 hang 等通知.
-  SetLength(LCallbacks, FResponseQueue.Count);
-  for I := 0 to FResponseQueue.Count - 1 do
+  Result := FResponseQueue.ToArray;
+  FResponseQueue.Clear;
+  for LItem in Result do
   begin
-    LItem := FResponseQueue[I];
-    if (LItem <> nil) then
+    LItem.Completed := True;
+    AtomicDecrement(FPending);
+    if LItem.Response <> nil then
+      (LItem.Response as TCrossHttpResponse).FConnection := nil;
+    if LItem.Request <> nil then
     begin
-      LCallbacks[I] := LItem.Callback;
-      LItem.Request := nil;
-      LItem.Response := nil;
-      LItem.Source := nil;
-      LItem.Callback := nil;
+      (LItem.Request as TCrossHttpRequest).FConnectionObj := nil;
+      (LItem.Request as TCrossHttpRequest).FConnection := nil;
     end;
   end;
-
-  FResponseQueue.Clear;
-
-  // 触发所有被丢弃的 callback (通知失败)
-  for I := 0 to High(LCallbacks) do
-    if Assigned(LCallbacks[I]) then
-      LCallbacks[I](Self, False);
 end;
 
 procedure TCrossHttpConnection._QueueResponseReady(
@@ -2731,7 +2757,8 @@ begin
   // 减少 happy path 上的锁/解锁次数, 降低高并发竞争开销
   FResponseQueueLock.Enter;
   try
-    if AItem.Ready or AItem.Completed then
+    if FResponseQueueClosed or (ConnectStatus in [csDisconnected, csClosed])
+      or AItem.Ready or AItem.Completed then
     begin
       // 同一个 item 不允许重复 ready, 不修改原有 Source/Callback
       LAlreadyReadyOrCompleted := True;
@@ -2768,115 +2795,165 @@ var
   LSender: TCrossConnectionCallback;
 begin
   LConnection := Self;
-
   LSender :=
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     var
+      LKeepAlive: ICrossHttpConnection;
       LData: Pointer;
       LCount: NativeInt;
       LSource: TCrossHttpChunkDataFunc;
+      LClosed, LCompleted, LHasData: Boolean;
+      LWriteDone: Integer;
+      LWriteCallback: TCrossConnectionCallback;
     begin
-      if not ASuccess then
+      LKeepAlive := LConnection;
+      FResponseQueueLock.Enter;
+      try
+        LCompleted := AItem.Completed;
+        LClosed := FResponseQueueClosed or (ConnectStatus in [csDisconnected, csClosed]);
+      finally
+        FResponseQueueLock.Leave;
+      end;
+      if LCompleted or not ASuccess or LClosed then
       begin
-        _FinishQueueItem(AItem, False);
-        LConnection := nil;
-        LSender := nil;
+        try
+          if not LCompleted then _FinishQueueItem(AItem, False);
+        finally
+          LSender := nil;
+          LConnection := nil;
+        end;
         Exit;
       end;
 
-      LSource := AItem.Source;
       LData := nil;
       LCount := 0;
-      if not Assigned(LSource)
-        or not LSource(@LData, @LCount)
-        or (LData = nil)
-        or (LCount <= 0) then
+      try
+        LSource := AItem.Source;
+        LHasData := Assigned(LSource) and LSource(@LData, @LCount)
+          and (LData <> nil) and (LCount > 0);
+      except
+        on E: Exception do
+        begin
+          _LogException('HTTP response source failed', E);
+          try
+            _FinishQueueItem(AItem, False);
+          finally
+            LSender := nil;
+            LConnection := nil;
+          end;
+          Exit;
+        end;
+      end;
+      if not LHasData then
       begin
-        // StatusCode>=500 表示压缩/发送过程中发生了不可恢复的错误
-        _FinishQueueItem(AItem, AItem.StatusCode < 500);
-        LConnection := nil;
-        LSender := nil;
+        try
+          _FinishQueueItem(AItem, AItem.StatusCode < 500);
+        finally
+          LSender := nil;
+          LConnection := nil;
+        end;
         Exit;
       end;
 
-      AConnection.SendBuf(LData^, LCount, LSender);
+      // 每次物理写单独结算；同步完成后抛出的异常不能再失败同一次写。
+      LWriteDone := 0;
+      LWriteCallback :=
+        procedure(const C: ICrossConnection; const OK: Boolean)
+        begin
+          if AtomicExchange(LWriteDone, 1) <> 0 then Exit;
+          if Assigned(LSender) then LSender(C, OK);
+        end;
+      try
+        AConnection.SendBuf(LData^, LCount, LWriteCallback);
+      except
+        on E: Exception do
+        begin
+          _LogException('HTTP response physical send failed', E);
+          LWriteCallback(AConnection, False);
+        end;
+      end;
     end;
-
   LSender(LConnection, True);
+end;
+
+procedure TCrossHttpConnection._NotifyResponseEnd(const ARequest: ICrossHttpRequest;
+  const AResponse: ICrossHttpResponse; const ACallback: TCrossConnectionCallback;
+  const ASuccess: Boolean);
+begin
+  try
+    if Assigned(ACallback) then ACallback(Self, ASuccess);
+  except
+    on E: Exception do _LogException('HTTP response callback failed', E);
+  end;
+  try
+    FServer.DoOnRequestEnd(Self, ARequest, AResponse, ASuccess);
+  except
+    on E: Exception do _LogException('HTTP request-end callback failed', E);
+  end;
 end;
 
 procedure TCrossHttpConnection._FinishQueueItem(
   const AItem: IHttpResponseQueueItem; const ASuccess: Boolean);
 var
+  LConnection: ICrossHttpConnection;
   LRequest: ICrossHttpRequest;
   LResponse: ICrossHttpResponse;
   LCallback: TCrossConnectionCallback;
-  LNeedDisconnect, LDoEnd: Boolean;
+  LSuccess, LNeedDisconnect: Boolean;
   LItemNext: IHttpResponseQueueItem;
 begin
-  LDoEnd := False;
-  LNeedDisconnect := False;
-  LRequest := nil;
-  LResponse := nil;
-  LCallback := nil;
+  LConnection := Self;
   LItemNext := nil;
-
-  // 单次锁块完成 "标记 completed + 释放 sending 标志 + 尝试 take 下一个 ready item"
-  // 三件事, 锁外再触发下一个 item 的发送, 避免两次进出锁的开销
   FResponseQueueLock.Enter;
   try
-    // 先复位 FSendingResponse, 确保无论 AItem 是否已经 Completed 都不会挂起后续响应
-    FSendingResponse := False;
-    if not AItem.Completed then
-    begin
-      LRequest := AItem.Request;
-      LResponse := AItem.Response;
-      LCallback := AItem.Callback;
-      LNeedDisconnect := ASuccess and ((not AItem.KeepAlive) or (AItem.StatusCode >= 500));
-
-      AItem.Completed := True;
-      LDoEnd := True;
-
-      // 关键: 立即清空 item 对外部对象的接口引用, 打破循环引用导致的内存泄漏:
-      //   response.FQueueItem -> item.FResponse -> response  (双向接口循环)
-      //   item.FSource -> 匿名方法 (captured Self=response) -> response  (隐式循环)
-      // 不在此处释放, 这些引用要等到 connection 释放才能解开, 而 connection
-      // 又被 request.FConnection / response.FConnection 持有, 形成多重循环
-      AItem.Request := nil;
-      AItem.Response := nil;
-      AItem.Source := nil;
-      AItem.Callback := nil;
-
-      // 仅在 happy path 下提前 take 下一个 item; 失败/disconnect 路径不取,
-      // 让 connection 关闭流程清理剩余 queue
-      if ASuccess and (not LNeedDisconnect) then
-        LItemNext := _TryDequeueReadyLocked;
-    end;
+    // 已结算的迟到完成不能复位另一条响应占用的发送状态。
+    if AItem.Completed then Exit;
+    LSuccess := ASuccess and not FResponseQueueClosed
+      and not (ConnectStatus in [csDisconnected, csClosed]);
+    LNeedDisconnect := not LSuccess or not AItem.KeepAlive or (AItem.StatusCode >= 500);
+    LRequest := AItem.Request;
+    LResponse := AItem.Response;
+    LCallback := AItem.Callback;
+    AItem.Completed := True;
+    AItem.Request := nil;
+    AItem.Response := nil;
+    AItem.Source := nil;
+    AItem.Callback := nil;
+    AtomicDecrement(FPending);
   finally
     FResponseQueueLock.Leave;
   end;
 
-  if LDoEnd then
-  begin
-    // 不写 FRequest/FResponse 连接级字段, 这两个字段仅由 _OnParseBegin
-    // 在 _LockRecv 内独占写入. 当前完成 item 的 request/response 通过
-    // LRequest/LResponse 显式传给 DoOnRequestEnd, 进而传给 OnRequestEnd 事件,
-    // 事件 handler 可直接从参数拿到精确对应的请求/响应, 不需要读连接字段
-    AtomicDecrement(FPending);
-
-    // 用户 callback 可能抛异常, 必须用 try/finally 保证 DoOnRequestEnd 触发
+  // 直到通知结束才释放发送占用，重入 Send 只能准备下一项，不能越过关闭决定。
+  try
+    _NotifyResponseEnd(LRequest, LResponse, LCallback, LSuccess);
+  finally
     try
-      if Assigned(LCallback) then
-        LCallback(Self, ASuccess);
+      FResponseQueueLock.Enter;
+      try
+        // 通知可重入 Close，迟到物理完成也无需再次请求断开。
+        if FResponseQueueClosed or (ConnectStatus in [csDisconnected, csClosed]) then
+          LNeedDisconnect := False;
+      finally
+        FResponseQueueLock.Leave;
+      end;
+      if LNeedDisconnect then Disconnect;
     finally
-      FServer.DoOnRequestEnd(Self, LRequest, LResponse, ASuccess);
+      FResponseQueueLock.Enter;
+      try
+        if FActiveResponse = AItem then
+        begin
+          FActiveResponse := nil;
+          FSendingResponse := False;
+          AItem.Sending := False;
+          LItemNext := _TryDequeueReadyLocked;
+        end;
+      finally
+        FResponseQueueLock.Leave;
+      end;
     end;
   end;
-
-  if (not ASuccess) or LNeedDisconnect then
-    Disconnect
-  else if (LItemNext <> nil) then
-    _SendQueueItem(LItemNext);
+  if LItemNext <> nil then _SendQueueItem(LItemNext);
 end;
 
 procedure TCrossHttpConnection._OnBodyBegin;
@@ -4877,7 +4954,7 @@ constructor TCrossHttpResponse.Create(const AConnection: TCrossHttpConnection;
   const ARequest: ICrossHttpRequest;
   const AQueueItem: IHttpResponseQueueItem);
 begin
-  FConnectionObj := AConnection;
+  FConnectionLock := AConnection.FResponseQueueLock;
   FConnection := AConnection;
   FRequest := ARequest;
   FQueueItem := AQueueItem;
@@ -4903,7 +4980,12 @@ end;
 
 function TCrossHttpResponse.GetConnection: ICrossHttpConnection;
 begin
-  Result := FConnection;
+  FConnectionLock.Enter;
+  try
+    Result := FConnection;
+  finally
+    FConnectionLock.Leave;
+  end;
 end;
 
 function TCrossHttpResponse.GetContentType: string;
@@ -5315,12 +5397,17 @@ function TCrossHttpResponse._CheckCompress(const ABodySize: Int64;
 var
   LContType, LRequestAcceptEncoding, LEnc, LQPart: string;
   LServer: ICrossHttpServer;
+  LConnection: ICrossHttpConnection;
   LEncodings: TArray<string>;
   I, LQSep: Integer;
   LGzipQ, LDeflateQ, LBestQ: Double;
 begin
+  ACompressType := ctNone;
+  Result := False;
+  LConnection := GetConnection;
+  if (LConnection = nil) or (LConnection.ConnectStatus in [csDisconnected, csClosed]) then Exit;
   LContType := GetContentType;
-  LServer := GetConnection.Server;
+  LServer := LConnection.Server;
 
   // Never compress a body that is already encoded. Without this, a caller
   // that compressed the body itself gets it compressed again, and
@@ -5475,24 +5562,22 @@ end;
 
 procedure TCrossHttpResponse._Send(const ASource: TCrossHttpChunkDataFunc;
   const ACallback: TCrossConnectionCallback);
+var
+  LConnection: ICrossHttpConnection;
 begin
-  // 用 AtomicCmpExchange 抢首次发送权限: 如果已有 Send 调用, 直接拒绝.
-  // 防止两个 Send 之间的 Source/Callback 覆盖导致第一个 callback 永远不触发.
+  LConnection := GetConnection;
   if AtomicCmpExchange(FSendStatus, 1, 0) <> 0 then
   begin
-    if Assigned(ACallback) then
-      ACallback(FConnection, False);
+    if Assigned(ACallback) then ACallback(LConnection, False);
     Exit;
   end;
-
-  if (FConnectionObj = nil) or (FQueueItem = nil) then
+  if (LConnection = nil) or (FQueueItem = nil) then
   begin
-    if Assigned(ACallback) then
-      ACallback(FConnection, False);
+    if Assigned(ACallback) then ACallback(LConnection, False);
     Exit;
   end;
-
-  FConnectionObj._QueueResponseReady(FQueueItem, ASource, ACallback);
+  // 强引用保证关闭与 ready 竞争时连接仍存活；接纳检查由队列锁完成。
+  (LConnection as TCrossHttpConnection)._QueueResponseReady(FQueueItem, ASource, ACallback);
 end;
 
 procedure TCrossHttpResponse._Send(const AHeaderSource,

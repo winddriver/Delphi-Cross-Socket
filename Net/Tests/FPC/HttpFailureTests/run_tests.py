@@ -18,8 +18,12 @@ CN = Path(r"D:\Design\Delphi\VclFmxRtl\cncrypto\Source")
 CASES = (["parser-" + kind for kind in ("length", "conflict", "chunk", "crlf", "abort", "callback")] +
          ["reject-" + kind for kind in ("header", "bodydata", "bodyend", "reentry")] +
          ["memory-" + kind for kind in ("same", "split", "queued", "header", "limit", "sync")] +
+         ["queue-" + kind for kind in ("late", "late-nocompress", "late-release", "callback", "request-end",
+                                      "cancel-callback", "active-close", "source-error", "reentry-send", "reentry-close",
+                                      "request-end-close", "duplicate-physical", "ready-close-race", "logger")] +
          ["tcp-" + kind for kind in ("length", "conflict", "chunk", "crlf", "same", "split", "normal")])
-SOURCES = ["Net.CrossHttpParser.pas", "Net.CrossHttpServer.pas"]
+SOURCES = ["Net.CrossHttpParser.pas", "Net.CrossHttpServer.pas", "Net.CrossSocket.Base.pas",
+           "Net.CrossSocket.Iocp.pas", "Net.CrossSocket.Epoll.pas", "Net.CrossSocket.Kqueue.pas"]
 
 
 def build(target, output, label):
@@ -47,6 +51,7 @@ def build(target, output, label):
     metadata = {name: hashlib.sha256((REPO / "Net" / name).read_bytes()).hexdigest()
                 for name in SOURCES}
     metadata["test_sha256"] = hashlib.sha256((HERE / "HttpFailureTests.lpr").read_bytes()).hexdigest()
+    metadata["queue_test_sha256"] = hashlib.sha256((HERE / "HttpResponseQueueTests.inc").read_bytes()).hexdigest()
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print("BUILD PASS", target, flush=True)
 

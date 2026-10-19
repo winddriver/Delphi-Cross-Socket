@@ -89,3 +89,44 @@ wsl.exe -d Ubuntu-22.04 --cd /mnt/d/GitHub/Delphi-Cross-Socket/Net/Tests/FPC/Htt
 - 同两目标的既有 WebSocket 组件、11,056 合法帧组合及 11 个真实回环场景全部通过。
 - 正式 WebSocketServer 和 HttpClient 的 Release/Win64 工程构建通过；日志位于 `bin/f03-formal-win64/`，构建生成的示例资源副作用已清理。
 - 源文件保持 UTF-8 BOM/CRLF；修改检查使用 `git -c core.whitespace=cr-at-eol diff --check`。仍有既有依赖/字符串转换等警告，未改第三方源码；未进行 macOS/Kqueue 运行、吞吐或长期压力测试。
+
+## A04 / F06、F11 响应队列回归
+
+`HttpResponseQueueTests.inc` 复用上述 `TMemoryConnection` / `TTestServer`，新增 `queue-*` 用例，不另建重复测试工程。它仍使用真实解析器、请求/响应对象和队列，只控制物理写的完成时机。
+
+```powershell
+python Net/Tests/FPC/HttpFailureTests/run_tests.py --label queue-current --targets win64 fpc64 --cases `
+  queue-late queue-late-nocompress queue-late-release queue-callback queue-request-end `
+  queue-cancel-callback queue-active-close queue-source-error
+```
+
+- `late` / `late-nocompress`：保存尚未发送的响应，经真实 InternalClose 后首次发送，无异常且一次 False。
+- `late-release`：进一步释放外部连接引用并确认连接已经析构，保存的响应仍应安全拒绝发送。
+- `callback` / `request-end`：R1 的完成回调或请求结束通知抛异常，R2 仍按序完成；两条完成通知各一次，不把已完成的成功回调改判成第二次 False。
+- `cancel-callback`：R1 尚未 ready，因此 R2/R3 只是排队、没有在途物理写。关闭取消时首个 False 通知抛异常，后面的通知仍各一次。
+- `active-close`：HTTP 头已完成，真实 TMemoryStream 的正文指针已交给延迟物理写；Close 不能提前调用负责释放流的完成通知。物理完成前流未析构、字节仍有效；迟到的物理 True 应以取消 False 结算一次，不再启动后续写。
+- `source-error`：chunk source 第一次返回真实载荷，第二次读取抛异常；响应必须 False 结算并请求关闭，不能永久挂在发送状态。
+
+2026-10-19 修复前基线：Delphi Win64、FPC Win64 各 **0/8**。首 5 项在 `bin/queue-baseline/<target>/`，后 3 项在 `bin/queue-extra-baseline/<target>/`，均从当时尚未修改的 `Net.CrossHttpServer.pas` 重新构建；Server 快照在 `bin/queue-baseline/Net.CrossHttpServer.pas`。
+
+具体失败：三种迟发调用均抛异常；R1 两种回调异常均阻断 R2；排队取消的首个异常阻断后续 False；在途流没有提前释放，但迟到物理完成被错误报告为成功；source 第二次读取异常后没有完成通知。每目标 `source.json` 包含生产源码、主测试及新增 include 的哈希。这些是待修复的红色验收，不是新实现通过结果。
+
+### A04 修复后增量及最终验证
+
+在上述 8 项转绿后，补充 6 项边界：
+
+- `queue-reentry-send`：R1 完成回调使 R2 ready，但 R2 不能越过仍在执行的 R1 完成通知。
+- `queue-reentry-close` / `queue-request-end-close`：完成回调或请求结束通知主动关闭，R2 仅取消一次，不能开始发送。
+- `queue-duplicate-physical`：同一个物理完成回调被重复执行，不得推进或完成两次。
+- `queue-ready-close-race`：64 轮用同一个事件同时释放发送线程和关闭线程，随后处理实际保留的物理完成；每轮通知一次 False、Pending 归零、连接析构一次。
+- `queue-logger`：业务完成通知和日志处理器都抛异常，下一响应仍然完成。生产代码复用 A04 平台部分的 `_LogException`，不会让日志异常打断清理。
+
+2026-10-19，最终套件为 **37 项**（原 23 项＋队列 14 项）。从当前工作区完整重编并运行：Delphi Win64、Delphi Win32、FPC Win64、Delphi Linux64、FPC Linux64 均 **37/37**，共 **185/185**。三个 Windows 最终结果在 `bin/a04-final/<target>/`；两 Linux 最终结果在 `bin/{delphi-linux64,fpc-linux64}/linux-results.json`。元数据同时记录 HTTP 生产单元、所依赖的平台/基类及新增 include 的 SHA-256，最终比对与冻结源码一致。
+
+自检又给 `active-close` 加入“物理完成后仍为 Closed”断言，在 `bin/queue-before-closed-guard/` 两目标得到红色结果：旧 Disconnect 先写入 Disconnected 再判断旧状态，造成闭态回退。HTTP 侧补通知后的关闭状态检查，A04 平台部分使用 CAS 阻止 Closed 回退。上述最终 185/185 是两层保护均完成后的重新构建结果；此前 `bin/queue-final-logger/` 仅保留为中间记录。
+
+生产边界：关闭与 ready 接纳在同一队列锁内决定；Response 复用该锁取得连接强引用，关闭后解绑；尚未开始项取消并在锁外通知，活跃项的 source/清理回调保留至物理完成。完成通知异常仅记录，不再次失败已完成请求；通知结束后再决定启动下一项。此轮没有更换 FIFO 容器，没有重构 HTTP 定界，也不宣称覆盖当前解析对象与关闭之间的全部并发情形。公开接口签名保持不变；类的私有布局已变化，使用方须完整重编译。
+
+Linux 启动最初在沙箱内得到 WSL `E_ACCESSDENIED`，经允许的沙箱外调用后完成实测；已有 `/etc/wsl.conf` 的 `network.ipv6` 警告未修改，未影响结果。以上为当前未提交的 A04 HTTP 与平台改动组合验证，不能称为某个旧提交的独立运行结果。
+
+平台最终补齐早期 Connect 失败通知抛异常时的 socket 收尾后，再次全量构建并运行，五目标仍为 **185/185**。Windows 最新日志在 `bin/a04-final-cleanup/<target>/`，Linux 保留上述目标目录；全部生产/测试哈希已与提交前源码核对。当前 Client 的临时响应修复及 Session 独立改动未计入本专项完成数量。

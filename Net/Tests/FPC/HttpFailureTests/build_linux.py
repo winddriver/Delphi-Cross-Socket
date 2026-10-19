@@ -42,7 +42,8 @@ def build(target):
         print((result.stdout + result.stderr).decode(errors="replace")[-6000:])
         raise SystemExit(result.returncode)
     sources = [REPO / "Net/Net.CrossHttpParser.pas", REPO / "Net/Net.CrossHttpServer.pas",
-               HERE / "HttpFailureTests.lpr"]
+               REPO / "Net/Net.CrossSocket.Base.pas", REPO / "Net/Net.CrossSocket.Epoll.pas",
+               HERE / "HttpFailureTests.lpr", HERE / "HttpResponseQueueTests.inc"]
     metadata = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print("PASS build", target, flush=True)

@@ -5,7 +5,7 @@
 
 uses
   {$IF DEFINED(FPC) AND DEFINED(POSIX)}cthreads,{$ENDIF}
-  SysUtils, Classes, Generics.Collections,
+  SysUtils, Classes, Generics.Collections, Utils.SyncObjs,
   Net.SocketAPI, Net.CrossSocket.Base, Net.CrossHttpParser,
   Net.CrossHttpServer;
 
@@ -462,6 +462,8 @@ begin
   LServerRef := nil;
 end;
 
+{$I HttpResponseQueueTests.inc}
+
 begin
   try
     if ParamStr(1) = 'server' then Serve else
@@ -472,6 +474,8 @@ begin
         TestCallbackFailure(ParamStr(2))
       else if ParamStr(1) = 'memory' then
         TestMemory(ParamStr(2))
+      else if ParamStr(1) = 'queue' then
+        TestResponseQueue(ParamStr(2))
       else
         Check(False, 'unknown mode');
       Writeln('PASS ', ParamStr(1), ' ', ParamStr(2));
