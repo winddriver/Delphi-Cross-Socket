@@ -1,0 +1,1 @@
+﻿{$I WebSocketCapacityTests.lpr}

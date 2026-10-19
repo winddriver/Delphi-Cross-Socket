@@ -155,6 +155,12 @@ type
     property ErrorCode: Word read FErrorCode;
   end;
 
+{$IFDEF CROSS_WS_SENDER_SELFTEST}
+var
+  // 仅专项测试模拟随机源返回失败，正式构建不包含该入口。
+  CrossWebSocketMaskFailureForTest: Boolean;
+{$ENDIF}
+
 implementation
 
 constructor TCrossWebSocketParser.Create(const AOnCommand: TWsOnCommand;
@@ -625,20 +631,22 @@ var
   LPayload: Byte;
   LHeaderSize, LDataSize, I: Integer;
   LMasked: Boolean;
+  LRandomOK: Boolean;
   LMaskingKey: Cardinal;
   LMaskKey: PByte;
 begin
   LMasked := not AIsServer;
   LMaskingKey := 0;
-  if LMasked
-    and not TryFillCryptRandomBytes(LMaskingKey, SizeOf(LMaskingKey)) then
-    raise ECrossSocket.Create(
-      'Failed to generate WebSocket masking key: CSPRNG unavailable');
-
-  if (AData <> nil) and (ADataSize > 0) then
-    LDataSize := ADataSize
-  else
-    LDataSize := 0;
+  if LMasked then
+  begin
+    {$IFDEF CROSS_WS_SENDER_SELFTEST}
+    if CrossWebSocketMaskFailureForTest then LRandomOK := False else
+    {$ENDIF}
+      LRandomOK := TryFillCryptRandomBytes(LMaskingKey, SizeOf(LMaskingKey));
+    if not LRandomOK then
+      raise ECrossSocket.Create(
+        'Failed to generate WebSocket masking key: CSPRNG unavailable');
+  end;
 
   LHeaderSize := 2;
   if (ADataSize < 126) then
@@ -655,6 +663,15 @@ begin
   if LMasked then
     Inc(LHeaderSize, 4);
 
+  // 实体帧必须先验证 UInt64，再窄化到数组/Move 使用的 Integer。
+  // nil 载荷保留仅构造任意长度头部的既有用途。
+  LDataSize := 0;
+  if (AData <> nil) and (ADataSize > 0) then
+  begin
+    if ADataSize > UInt64(High(Integer) - LHeaderSize) then
+      raise ECrossSocket.Create('WebSocket 实体帧长度超出支持范围');
+    LDataSize := Integer(ADataSize);
+  end;
   SetLength(Result, LHeaderSize + LDataSize);
   FillChar(Result[0], LHeaderSize, 0);
 

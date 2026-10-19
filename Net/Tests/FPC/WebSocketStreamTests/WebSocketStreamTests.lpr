@@ -7,7 +7,8 @@ uses
   {$IF DEFINED(FPC) AND DEFINED(POSIX)}cthreads, cwstring,{$ENDIF}
   SysUtils, Classes, Math, Generics.Collections,
   Net.SocketAPI, Net.CrossSocket.Base, Net.CrossHttpUtils, Net.CrossHttpClient,
-  Net.CrossHttpServer, Net.CrossWebSocketClient, Net.CrossWebSocketServer;
+  Net.CrossHttpServer, Net.CrossWebSocketClient, Net.CrossWebSocketServer,
+  Net.CrossWebSocketSender;
 
 type
   TPendingWrite = record
@@ -295,6 +296,7 @@ var
   ErrorClass, ErrorMessage, Expected: string;
   Messages: TArray<string>;
   Offset, Count: Int64;
+  {$IFDEF WS_STREAM_QUEUE_LIMITS}QueueLimits: TWsSendQueueLimits;{$ENDIF}
   procedure SendText(const Text: string; const Done: TWsClientCallback);
   begin
     if Side = 'client' then WebSocket.Send(Text, Done)
@@ -363,6 +365,15 @@ begin
       Require((Opens = 1) and ServerConnection.IsWebSocket, '真实服务端握手失败');
     end;
     Require(Wire.Pending.Count = 0, '握手写入未完成');
+    {$IFDEF WS_STREAM_QUEUE_LIMITS}
+    QueueLimits := Default(TWsSendQueueLimits);
+    QueueLimits.MaxMessageCount := 4;
+    QueueLimits.MaxMessageBytes := 256;
+    QueueLimits.MaxControlCount := 2;
+    QueueLimits.MaxControlBytes := 256;
+    if Side = 'client' then ClientConnection.SetWebSocketSendQueueLimits(QueueLimits)
+    else ServerConnection.SetWebSocketSendQueueLimits(QueueLimits);
+    {$ENDIF}
     Wire.Frames.Clear; Wire.AutoComplete := False;
     if not SetupFailure then
       SendText('B', procedure(const OK: Boolean) begin Require(OK, '阻塞帧失败'); Inc(BlockerCalls); end);

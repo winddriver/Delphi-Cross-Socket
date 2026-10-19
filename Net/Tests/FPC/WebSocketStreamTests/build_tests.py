@@ -15,7 +15,7 @@ CN = Path(r"D:\Design\Delphi\VclFmxRtl\cncrypto\Source")
 SDK = Path.home() / "Documents/Embarcadero/Studio/SDKs/ubuntu22.04.sdk"
 
 
-def build(target, label, source_dir=None):
+def build(target, label, source_dir=None, queue_limits=False):
     output, units = HERE / "bin" / (label + "-" + target), HERE / "lib" / (label + "-" + target)
     output.mkdir(parents=True, exist_ok=True)
     units.mkdir(parents=True, exist_ok=True)
@@ -42,6 +42,8 @@ def build(target, label, source_dir=None):
         if source_dir:
             index = next(i for i, arg in enumerate(args) if str(arg).startswith("-U"))
             args[index] = "-U" + str(source_dir) + ";" + str(args[index])[2:]
+    if queue_limits:
+        args.insert(1, "-dWS_STREAM_QUEUE_LIMITS" if target.startswith("fpc") else "-DWS_STREAM_QUEUE_LIMITS")
     result = subprocess.run(list(map(str, args)), cwd=HERE, capture_output=True, timeout=120,
                             creationflags=subprocess.CREATE_NO_WINDOW)
     (output / "build.log").write_bytes(result.stdout + result.stderr)
@@ -52,6 +54,8 @@ def build(target, label, source_dir=None):
                "Net.CrossWebSocketSender.pas", "Net.CrossWebSocketParser.pas", "Net.CrossHttpClient.pas",
                "Net.CrossHttpServer.pas", "Net.CrossHttpParser.pas", "Net.CrossHttpParams.pas", "Net.CrossSocket.Base.pas"]]
     sources += [REPO / "Utils/Utils.IOUtils.pas", HERE / "WebSocketStreamTests.lpr"]
+    if (REPO / "Net/Net.CrossHttpSessions.pas").exists():
+        sources.append(REPO / "Net/Net.CrossHttpSessions.pas")
     metadata = {}
     for path in sources:
         actual = source_dir / path.name if source_dir and (source_dir / path.name).exists() else path
@@ -66,6 +70,7 @@ if __name__ == "__main__":
     parser.add_argument("targets", nargs="+", choices=["delphi-win64", "delphi-win32", "fpc-win64", "delphi-linux64", "fpc-linux64"])
     parser.add_argument("--label", required=True)
     parser.add_argument("--source-dir", type=Path, help="使用已保存的旧生产单元快照构建同一组断言")
+    parser.add_argument("--queue-limits", action="store_true", help="通过两端具体类配置有限发送队列")
     options = parser.parse_args()
     for target in options.targets:
-        build(target, options.label, options.source_dir.resolve(strict=True) if options.source_dir else None)
+        build(target, options.label, options.source_dir.resolve(strict=True) if options.source_dir else None, options.queue_limits)

@@ -301,6 +301,8 @@ type
     // 开始接收前配置。接口不变，具体连接类增加可选资源策略。
     procedure SetWebSocketLimits(const AMaxMessageSize: UInt64;
       const AMessageTimeoutMs, ACloseTimeoutMs: Cardinal);
+    // 发送器必须空闲；既有连接接口布局不变。
+    procedure SetWebSocketSendQueueLimits(const ALimits: TWsSendQueueLimits);
     // 由调用方定期调用；内部与接收解析互斥，不创建后台线程。
     procedure CheckWebSocketTimeouts;
 
@@ -578,6 +580,12 @@ end;
 procedure TCrossWebSocketConnection.WsClose;
 begin
   FWsSender.RequestClose;
+end;
+
+procedure TCrossWebSocketConnection.SetWebSocketSendQueueLimits(
+  const ALimits: TWsSendQueueLimits);
+begin
+  FWsSender.SetQueueLimits(ALimits);
 end;
 
 procedure TCrossWebSocketConnection.WsPing;

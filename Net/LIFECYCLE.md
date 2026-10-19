@@ -22,7 +22,7 @@
 
 HTTP Parser 的失败是终态：回调吞掉 `EAbort`、再次 Decode / Finish 或重入解析，都不能把失败改成成功。HTTP 正文发送策略与连接复用规则另见 [HTTP 状态归属及发送策略](Tests/FPC/HttpFailureTests/README.md)。
 
-实现入口：[Socket 通知隔离](Net.CrossSocket.Base.pas#L951)、[OpenSSL 逻辑写完成](Net.CrossSslSocket.OpenSSL.pas#L1169)、[HTTP 完成通知](Net.CrossHttpServer.pas#L2907)、[WS 完成与发送泵](Net.CrossWebSocketSender.pas#L149)。这些入口集中各自职责，不要求把它们迁移到一个通用框架。
+实现入口：[Socket 通知隔离](Net.CrossSocket.Base.pas#L951)、[OpenSSL 逻辑写完成](Net.CrossSslSocket.OpenSSL.pas#L1169)、[HTTP 完成通知](Net.CrossHttpServer.pas#L2907)、[WS 完成与发送泵](Net.CrossWebSocketSender.pas#L324)。这些入口集中各自职责，不要求把它们迁移到一个通用框架。
 
 ## 锁边界：队列锁外不等于没有锁
 
@@ -83,3 +83,5 @@ HTTP Parser 的失败是终态：回调吞掉 `EAbort`、再次 Decode / Finish 
 本文件整理既有行为，没有新增运行结果。平台事件异常与收尾见 [SocketCallbackTests](Tests/FPC/SocketCallbackTests/README.md)，HTTP 数据与连接寿命见 [HttpRequestLifetimeTests](Tests/FPC/HttpRequestLifetimeTests/README.md)，OpenSSL 的有序输出、终态、有效前缀和缓冲寿命见 [TlsIoTests](Tests/FPC/TlsIoTests/README.md)。各套件明确区分组件夹具、真实 TCP、原生 TLS、实际运行、仅编译和未覆盖平台，不能把其中一种证据扩大为全部场景保证。
 
 容量配置及其超限策略以各层专项说明为准；后续改变所有权、回调时机或锁边界时，应同步更新本约定及对应回归。
+
+WS 两端具体连接的 `SetWebSocketSendQueueLimits` 使用 `TWsSendQueueLimits`，默认四项为 0，不改变既有接口。计数包含构帧、排队及在途项；字节仅覆盖本层编码后帧（含头部/掩码），不覆盖 provider 源缓冲或下层队列。完整数据消息入队前超限以一次 False 拒绝，健康连接仍可使用；已接纳 provider 的帧超限、控制帧或 Close 预算不足则关闭。额度在结算时先归还再通知，在途内存仍保留到物理完成；配置只允许空闲且未关闭时修改。边界及实际矩阵见 [WS 容量专项](Tests/FPC/WebSocketCapacityTests/README.md)。

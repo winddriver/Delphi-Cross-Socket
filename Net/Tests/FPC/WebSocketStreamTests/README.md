@@ -46,3 +46,16 @@ python -B build_tests.py delphi-win64 delphi-win32 fpc-win64 delphi-linux64 fpc-
 ```
 
 本轮没有宣称真实 TCP/TLS、连接重建或长期并发压力覆盖；物理关闭由真实 Sender 调用测试连接的关闭实现来验证次数与状态。先前 Sender 的控制帧/并发/回环验证也不作为本专项重新运行的成绩。没有修改公开接口、流所有权、Sender 状态机或引入重构；后续 S03 收敛适配时可复用本组用例。
+
+## O03 容量集成回归
+
+2026-10-20 基于最终 WS 容量实现重新运行上述五目标：默认不限与启用限额两种构建均为每目标 24/24，合计 240 项。启用 `WS_STREAM_QUEUE_LIMITS` 后，在真实握手结束后通过两端具体连接配置消息数量 4 / 编码后帧字节 256，控制数量 2 / 编码后帧字节 256；断言及借用流所有权保持。这里是容量与既有流语义的集成回归，不改变前述 EOF 修复的历史红绿计数。
+
+```powershell
+python -B build_tests.py delphi-win64 delphi-win32 fpc-win64 delphi-linux64 fpc-linux64 --label o03-final-default
+python -B build_tests.py delphi-win64 delphi-win32 fpc-win64 delphi-linux64 fpc-linux64 --label o03-final-capacity --queue-limits
+python -B run_tests.py bin/o03-final-capacity-delphi-win64/WebSocketStreamTests.exe --report bin/o03-final-capacity-delphi-win64.json
+wsl.exe -d Ubuntu-22.04 --cd /mnt/d/GitHub/Delphi-Cross-Socket/Net/Tests/FPC/WebSocketStreamTests -- python3 -B run_tests.py bin/o03-final-capacity-fpc-linux64/WebSocketStreamTests --report bin/o03-final-capacity-fpc-linux64.json
+```
+
+其他目标或默认模式替换标签即可。最终 `source.json` 包含 Session 拆分后的实际依赖与本轮 Client/Base 稳定版本；历史 `bin/final-source.json` 保留 EOF 修复证据，本次容量版本由[容量专项](../WebSocketCapacityTests/README.md)的汇总清单记录。
