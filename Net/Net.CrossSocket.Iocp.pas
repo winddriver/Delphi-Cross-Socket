@@ -35,7 +35,6 @@ type
     SHUTDOWN_FLAG = ULONG_PTR(-1);
     SO_UPDATE_CONNECT_CONTEXT = $7010;
     IPV6_V6ONLY = 27;
-    ERROR_ABANDONED_WAIT_0 = $02DF;
   private type
     TAddrUnion = record
       case Integer of
@@ -388,8 +387,20 @@ procedure TIocpCrossSocket.StopLoop;
         Continue;
       end;
 
+      // 线程提前退出时可能留下停止标记，它不持有 PerIoData 或 socket。
+      if (ULONG_PTR(LPerIoData) = SHUTDOWN_FLAG) then Continue;
+
       try
-        TSocketAPI.CloseSocket(LPerIoData.Socket);
+        // AcceptEx 的待接入 socket 尚未移交给连接；其他 socket 由 CrossData
+        // 负责关闭，不能再次关闭完成包中保存的旧值（该值可能已被复用）。
+        if (LPerIoData.Action = ioAccept) or (LPerIoData.CrossData = nil) then
+        begin
+          if (LPerIoData.Socket <> INVALID_SOCKET) then
+          begin
+            TSocketAPI.CloseSocket(LPerIoData.Socket);
+            LPerIoData.Socket := INVALID_SOCKET;
+          end;
+        end;
 
         if Assigned(LPerIoData.Callback) then
         begin
@@ -758,23 +769,24 @@ begin
 end;
 
 function TIocpCrossSocket.ProcessIoEvent: Boolean;
-  procedure _ReleasePerIoData(const APerIoData: PPerIoData; const AShutdown: Boolean);
+  procedure _ReleasePerIoData(const APerIoData: PPerIoData);
   var
     LConnection: ICrossConnection;
   begin
     try
       if (APerIoData.CrossData <> nil) then
       begin
-        // AcceptEx虽然成功, 但是Socket句柄耗尽了, 再次投递AcceptEx
         if (APerIoData.Action = ioAccept) then
         begin
-          // 照理说能执行到这里, 说明Socket分配失败了
-          // 但是为了以防万一, 这里还是判断一下并释放掉无效的Socket句柄
-          if (APerIoData.Socket <> 0) then
+          // 失败的 AcceptEx 尚未移交连接，释放该操作独占的 socket。
+          if (APerIoData.Socket <> INVALID_SOCKET) then
+          begin
             TSocketAPI.CloseSocket(APerIoData.Socket);
+            APerIoData.Socket := INVALID_SOCKET;
+          end;
 
-          // 关闭监听后会触发该错误, 这种情况不应该继续投递
-          if not AShutdown then
+          // CancelIoEx 也会产生 995，但不关闭监听；仍打开时需要补投。
+          if not APerIoData.CrossData.IsClosed then
           begin
             _Log('[%s]thread%d, _NewAccept', [Self.ClassName, TThread.Current.ThreadID]);
             _NewAccept(APerIoData.CrossData as ICrossListen);
@@ -810,8 +822,11 @@ function TIocpCrossSocket.ProcessIoEvent: Boolean;
         if Assigned(APerIoData.Callback) then
           APerIoData.Callback(nil, False);
 
-        if (APerIoData.Socket <> 0) then
+        if (APerIoData.Socket <> INVALID_SOCKET) then
+        begin
           TSocketAPI.CloseSocket(APerIoData.Socket);
+          APerIoData.Socket := INVALID_SOCKET;
+        end;
       end;
     finally
       _FreeIoData(APerIoData);
@@ -821,40 +836,33 @@ var
   LBytes: Cardinal;
   LSocket: TSocket;
   LPerIoData: PPerIoData;
+  {$IFDEF DEBUG}
   LErrNo: Cardinal;
-  LIocpClosed: Boolean;
+  {$ENDIF}
 begin
   if not GetQueuedCompletionStatus(FIocpHandle, LBytes, ULONG_PTR(LSocket), POverlapped(LPerIoData), INFINITE) then
   begin
     // ERROR_INVALID_HANDLE, 6, IOCP句柄被关闭
     // ERROR_ABANDONED_WAIT_0, $02DF, IOCP句柄被关闭
-    // WSA_OPERATION_ABORTED, 995, 监听端口被关闭, 由于线程退出或应用程序请求，已中止 I/O 操作。
+    // WSA_OPERATION_ABORTED, 995, 单个 I/O 被取消，不表示完成端口已关闭。
     // WSAENOTSOCK, 10038, 在一个非套接字上尝试了一个操作。
     // WSAESHUTDOWN, 10058, 套接字已关闭
     // ERROR_NETNAME_DELETED, 64, 指定的网络名不再可用
     // ERROR_CONNECTION_REFUSED, 1225, 远程计算机拒绝网络连接。
-    LErrNo := GetLastError;
-
-    // 完成端口被关闭时可能会触发 ERROR_INVALID_HANDLE 和 ERROR_ABANDONED_WAIT_0
-    // 监听端口被关闭时会触发 WSA_OPERATION_ABORTED
-    LIocpClosed := (LErrNo = ERROR_INVALID_HANDLE)
-      or (LErrNo = ERROR_ABANDONED_WAIT_0)
-      or (LErrNo = WSA_OPERATION_ABORTED);
     {$IFDEF DEBUG}
+    LErrNo := GetLastError;
     _Log('[%s]thread%d, GetQueuedCompletionStatus:%d, %s', [
       Self.ClassName, TThread.Current.ThreadID, LErrNo, SysErrorMessage(LErrNo)
     ]);
     {$ENDIF}
 
-    // 出错了, 并且完成数据也都是空的,
-    // 这种情况即便重试, 应该也会继续出错, 最好立即终止IO线程
+    // 未取得完成包说明等待本身失败（例如完成端口已关闭）。
     if (LPerIoData = nil) then Exit(False);
 
-    // 出错了, 回收资源
-    _ReleasePerIoData(LPerIoData, LIocpClosed);
+    // 非空完成包属于一次失败的 I/O，回收它后继续服务其他连接。
+    _ReleasePerIoData(LPerIoData);
 
-    // 出错了, 但是完成数据不是空的, 需要重试
-    Exit(not LIocpClosed);
+    Exit(True);
   end;
 
   // 主动调用了 StopLoop
