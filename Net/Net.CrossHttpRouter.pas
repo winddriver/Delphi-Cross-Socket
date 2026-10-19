@@ -42,7 +42,12 @@ type
     /// <param name="ALocalDir">
     ///   本地目录
     /// </param>
-    class function Dir(const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc; static;
+    class function Dir(const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc; overload; static;
+    /// <summary>
+    ///   限制目录列表条目数，0 表示完整列表；负数拒绝。只排序枚举前 N 项，直接下载不受限制。
+    /// </summary>
+    class function Dir(const APath, ALocalDir, ADirParamName: string;
+      const AMaxEntries: Integer): TCrossHttpRouterProc; overload; static;
 
     /// <summary>
     ///   含有默认首页文件的静态文件路由
@@ -148,6 +153,15 @@ end;
 class function TNetCrossRouter.Dir(
   const APath, ALocalDir, ADirParamName: string): TCrossHttpRouterProc;
 begin
+  Result := Dir(APath, ALocalDir, ADirParamName, 0);
+end;
+
+class function TNetCrossRouter.Dir(
+  const APath, ALocalDir, ADirParamName: string;
+  const AMaxEntries: Integer): TCrossHttpRouterProc;
+begin
+  if AMaxEntries < 0 then
+    raise EArgumentOutOfRangeException.Create('目录条目上限不能为负数');
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
@@ -175,7 +189,7 @@ begin
         LRelativePath := LRelativePath.Replace('\', '/');
         {$ENDIF}
         LRequestPath := TPathUtils.Combine(APath, LRelativePath, '/');
-        AResponse.Send(BuildDirList(LResolvedPath, LRequestPath, APath));
+        AResponse.Send(BuildDirList(LResolvedPath, LRequestPath, APath, AMaxEntries));
       end else
       if TFileUtils.Exists(LResolvedPath) then
         AResponse.SendFile(LResolvedPath)

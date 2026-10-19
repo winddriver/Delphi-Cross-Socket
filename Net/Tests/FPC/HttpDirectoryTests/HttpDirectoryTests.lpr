@@ -94,12 +94,19 @@ var
   LConnection: ICrossHttpConnection;
   LObject: TMemoryConnection;
   LMount: string;
+  LMaxEntries: Integer;
 begin
-  if ParamCount <> 3 then raise Exception.Create('用法: HttpDirectoryTests <目录> <请求目标> <挂载路径>');
+  if not (ParamCount in [3, 4]) then raise Exception.Create('用法: HttpDirectoryTests <目录> <请求目标> <挂载路径> [条目上限]');
+  LMaxEntries := 0;
+  if ParamCount = 4 then LMaxEntries := StrToInt(ParamStr(4));
   LMount := TCrossHttpUtils.UrlDecode(ParamStr(3));
   LServer := TCrossHttpServer.Create(1, False);
   LServer.Compressible := False;
+  {$IFDEF DIRECTORY_LIMIT_API}
+  LServer.Get(LMount + '/*', TNetCrossRouter.Dir(LMount, ParamStr(1), '*', LMaxEntries));
+  {$ELSE}
   LServer.Get(LMount + '/*', TNetCrossRouter.Dir(LMount, ParamStr(1), '*'));
+  {$ENDIF}
   LObject := TMemoryConnection.Create(LServer as TCrossHttpServer);
   LConnection := LObject;
   try
