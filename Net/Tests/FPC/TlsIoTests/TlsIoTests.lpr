@@ -35,6 +35,7 @@ type
     FirstEntered, ReleaseFirst: IEvent;
     BlockFirst, DelayWrites, FailWrites: Boolean;
     RaiseConnected, RaiseReceived, RaiseDisconnected: Boolean;
+    ReceivedAction: TCrossConnectionCallback;
     SendCalls, ConnectedCalls, ReceivedCalls, DisconnectedCalls: Integer;
     SendDepth, MaxSendDepth: Integer;
     DestroyedConnections: Integer;
@@ -188,6 +189,7 @@ begin
   Inc(ReceivedCalls);
   SetString(LPart, PAnsiChar(ABuf), ALen);
   Plaintext := Plaintext + LPart;
+  if Assigned(ReceivedAction) then ReceivedAction(AConnection, True);
   if RaiseReceived then raise Exception.Create('received test exception');
   inherited;
 end;
@@ -804,6 +806,8 @@ begin
   end;
 end;
 
+{$I TlsTerminalTests.inc}
+
 begin
   try
     Check(ParamCount = 5, 'mode ssl crypto cert key required');
@@ -826,6 +830,25 @@ begin
       else if ParamStr(1) = 'release-last' then TestReleaseLast
       else if ParamStr(1) = 'write-callback-error' then TestWriteCallbackError
       else if ParamStr(1) = 'read-order' then TestReadOrder
+      else if ParamStr(1) = 'bad-tag12' then TestTerminal(TLS1_2_VERSION, False, False)
+      else if ParamStr(1) = 'bad-tag13' then TestTerminal(TLS1_3_VERSION, False, False)
+      else if ParamStr(1) = 'eof12' then TestTerminal(TLS1_2_VERSION, True, False)
+      else if ParamStr(1) = 'eof13' then TestTerminal(TLS1_3_VERSION, True, False)
+      else if ParamStr(1) = 'bad-tag-active' then TestTerminal(TLS1_3_VERSION, False, True)
+      else if ParamStr(1) = 'eof-active' then TestTerminal(TLS1_3_VERSION, True, True)
+      else if ParamStr(1) = 'bad-tag-sync' then TestTerminal(TLS1_3_VERSION, False, False, 1)
+      else if ParamStr(1) = 'eof-sync' then TestTerminal(TLS1_3_VERSION, True, False, 1)
+      else if ParamStr(1) = 'bad-tag-send-fail' then TestTerminal(TLS1_3_VERSION, False, False, 2)
+      else if ParamStr(1) = 'eof-send-fail' then TestTerminal(TLS1_3_VERSION, True, False, 2)
+      else if ParamStr(1) = 'terminal-disconnect-error' then TestTerminal(TLS1_3_VERSION, False, False, 0, True)
+      else if ParamStr(1) = 'handshake-tag12' then TestHandshakeTerminal
+      else if ParamStr(1) = 'terminal-close-race' then TestTerminalCloseRace
+      else if ParamStr(1) = 'terminal-release-last' then TestTerminalReleaseLast
+      else if ParamStr(1) = 'terminal-prefix-race' then TestTerminalPrefixRace(True)
+      else if ParamStr(1) = 'terminal-prefix-io-fail' then TestTerminalPrefixRace(False)
+      else if ParamStr(1) = 'terminal-log-reentry' then TestTerminalLogReentry
+      else if ParamStr(1) = 'terminal-log-throw' then TestTerminalLogBoundary(True)
+      else if ParamStr(1) = 'terminal-log-thread' then TestTerminalLogBoundary(False)
       else raise Exception.Create('unknown mode');
     finally
       TSSLTools.UnloadSSL;

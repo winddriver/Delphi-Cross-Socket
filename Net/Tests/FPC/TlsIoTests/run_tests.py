@@ -13,7 +13,11 @@ FPC = Path(r"D:\Design\FreePascal\fpc\bin\x86_64-win64\ppcx64.exe")
 LAZ = Path(r"D:\Design\FreePascal\lazarus\components\lazutils\lib\x86_64-win64")
 CN = Path(r"D:\Design\Delphi\VclFmxRtl\cncrypto\Source")
 MODES = ["order12", "order13", "want12", "capacity", "disconnected-error", "connected-error", "received-error",
-         "active-close", "sync-reentry", "partial", "read-protocol", "keyupdate-order", "release-last", "write-callback-error", "read-order"]
+         "active-close", "sync-reentry", "partial", "read-protocol", "keyupdate-order", "release-last", "write-callback-error", "read-order",
+         "bad-tag12", "bad-tag13", "eof12", "eof13", "bad-tag-active", "eof-active",
+         "bad-tag-sync", "eof-sync", "bad-tag-send-fail", "eof-send-fail", "terminal-disconnect-error", "handshake-tag12",
+         "terminal-close-race", "terminal-release-last", "terminal-prefix-race", "terminal-prefix-io-fail", "terminal-log-reentry",
+         "terminal-log-throw", "terminal-log-thread"]
 
 
 def execute(args, timeout=90):
@@ -21,7 +25,7 @@ def execute(args, timeout=90):
                           timeout=timeout, creationflags=subprocess.CREATE_NO_WINDOW)
 
 
-def build(target, output, source_root):
+def build(target, output, source_root, selftest=True):
     units = HERE / "lib" / output.parent.name / target
     units.mkdir(parents=True, exist_ok=True)
     if target == "fpc64":
@@ -37,14 +41,18 @@ def build(target, output, source_root):
                                             DELPHI / "lib" / arch / "release"])),
                 "-I" + str(REPO), "-E" + str(output), "-N0" + str(units),
                 HERE / "TlsIoTests.dpr"]
+    if selftest:
+        args.insert(1, "-dCROSS_OPENSSL_SELFTEST" if target == "fpc64" else "-DCROSS_OPENSSL_SELFTEST")
     result = execute(args)
     (output / "build.log").write_bytes(result.stdout + result.stderr)
     if result.returncode:
         print((result.stdout + result.stderr).decode(errors="replace"))
         raise RuntimeError("build failed " + target)
     (output / "source.json").write_text(json.dumps({
+        "selftest": selftest,
         "tls_io_sha256": hashlib.sha256((source_root / "Net.CrossSslSocket.OpenSSL.pas").read_bytes()).hexdigest(),
         "test_sha256": hashlib.sha256((HERE / "TlsIoTests.lpr").read_bytes()).hexdigest(),
+        "terminal_test_sha256": hashlib.sha256((HERE / "TlsTerminalTests.inc").read_bytes()).hexdigest(),
     }, indent=2), encoding="utf-8")
 
 
@@ -57,8 +65,11 @@ def main():
     parser.add_argument("--ssl", type=Path)
     parser.add_argument("--crypto", type=Path)
     parser.add_argument("--no-build", action="store_true")
+    parser.add_argument("--no-selftest", action="store_true", help="关闭调度钩子，运行其余正式构建场景")
     parser.add_argument("--source-root", type=Path, default=REPO / "Net")
     options = parser.parse_args()
+    if options.no_selftest:
+        options.modes = [mode for mode in options.modes if not mode.startswith("terminal-prefix-")]
     if not options.label.replace("-", "").replace("_", "").isalnum():
         parser.error("label 只允许字母数字及横线")
     if bool(options.ssl) != bool(options.crypto):
@@ -68,7 +79,7 @@ def main():
         output = HERE / "bin" / options.label / target
         output.mkdir(parents=True, exist_ok=True)
         if not options.no_build:
-            build(target, output, options.source_root.resolve(strict=True))
+            build(target, output, options.source_root.resolve(strict=True), not options.no_selftest)
         libdir = REPO / "Net/Tools/OpenSSL"
         if target == "win32":
             libdir = Path(r"D:\Design\Delphi\VclFmxRtl\zLib\Net\OpenSSL.Libs\OpenSSL3\Windows\x86")
@@ -105,6 +116,7 @@ def main():
             results.append({"mode": mode, "passed": passed, "exit_code": code})
             print(target, mode, "PASS" if passed else "FAIL", data.decode(errors="replace").strip(), flush=True)
         (output / "results.json").write_text(json.dumps({
+            "executable_sha256": hashlib.sha256((output / "TlsIoTests.exe").read_bytes()).hexdigest(),
             "ssl": str(ssl), "crypto": str(crypto), "results": results,
         }, indent=2), encoding="utf-8")
     return int(failed)
