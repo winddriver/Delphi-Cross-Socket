@@ -32,7 +32,7 @@ def check_resets():
     source = (REPO / "Net/Net.OpenSSL.pas").read_text(encoding="utf-8-sig")
     declared = source.split("{$IFNDEF __SSL_STATIC__}", 1)[1].split("{$ELSE __SSL_STATIC__}", 1)[0]
     names = set(re.findall(r"^\s{2}(\w+)\s*:\s*(?:function|procedure)\b", declared, re.M))
-    loader = source.split("class procedure TSSLTools.LoadSslLibs;", 1)[1].split("class function TSSLTools._GetLibCRYPTO", 1)[0]
+    loader = source.split("class procedure TSSLTools.LoadSslLibs;", 1)[1].split("class function TSSLTools.GetLibCRYPTO", 1)[0]
     names.update(re.findall(r"@(\w+)\s*:=", loader))
     clear = source.split("class procedure TSSLTools._ClearSslProcs;", 1)[1].split("\nend;", 1)[0]
     resets = set(re.findall(r"@(\w+)\s*:=\s*nil", clear))
@@ -73,6 +73,9 @@ def build(target):
 
 
 def main():
+    # 编译器输出可能采用本地代码页，诊断中的替换字符也必须能正常输出。
+    sys.stdout.reconfigure(errors="replace")
+    sys.stderr.reconfigure(errors="replace")
     parser = argparse.ArgumentParser()
     parser.add_argument("targets", nargs="*", default=["delphi-win64", "delphi-win32", "fpc-win64"])
     parser.add_argument("--ssl", type=Path)
@@ -85,6 +88,9 @@ def main():
     check_resets()
     for target in options.targets:
         out = build(target)
+        broken = out / ("libIncompleteCrypto.so" if target.endswith("linux64") else "IncompleteCrypto.dll")
+        if not broken.is_file():
+            raise FileNotFoundError("没有生成不完整符号测试库: " + str(broken))
         if options.build_only:
             print("PASS build " + target, flush=True)
             continue
@@ -100,7 +106,7 @@ def main():
         results = []
         for mode in MODES:
             result = run([out / "OpenSslLoadTests.exe", mode, ssl, crypto,
-                          out / "IncompleteCrypto.dll"], logs / (mode + ".log"))
+                          broken], logs / (mode + ".log"))
             results.append(dict(mode=mode, output=result.strip()))
             print(target, result.strip(), flush=True)
         (logs / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")

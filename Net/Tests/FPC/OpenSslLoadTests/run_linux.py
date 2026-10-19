@@ -7,7 +7,7 @@ from run_tests import MODES
 
 binary = Path(sys.argv[1]).resolve()
 directory = binary.parent
-broken = directory / ("libIncompleteCrypto.so" if directory.name.startswith("fpc") else "libIncompleteCrypto")
+broken = directory / "libIncompleteCrypto.so"
 logs = directory / "openssl3"
 logs.mkdir(parents=True, exist_ok=True)
 results = []

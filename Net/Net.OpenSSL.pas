@@ -1687,17 +1687,16 @@ type
     class procedure SslInit; static;
     class procedure SslUninit; static;
   private
-    class function _GetLibCRYPTO: string; static;
-    class function _GetLibPath: string; static;
-    class function _GetLibSSL: string; static;
+    class function GetLibCRYPTO: string; static;
+    class function GetLibPath: string; static;
+    class function GetLibSSL: string; static;
     class procedure SetLibCRYPTO(const AValue: string); static;
     class procedure SetLibPath(const AValue: string); static;
     class procedure SetLibSSL(const AValue: string); static;
   public
-    // 成功取得一份引用返回 True；预期失败回滚后返回 False。
-    // 非预期异常继续抛出。返回 False 时不得调用 UnloadSSL。
-    class function LoadSSL: Boolean; overload; static;
-    class function LoadSSL(out AError: string): Boolean; overload; static;
+    // 正常返回时取得一份引用；加载失败回滚后抛出原异常。
+    // 加载抛异常时不得调用 UnloadSSL。
+    class procedure LoadSSL; static;
 
     {$IFDEF CROSS_OPENSSL_SELFTEST}
     // 仅供测试：在动态绑定完成后控制初始化时序或注入故障。
@@ -1881,13 +1880,13 @@ type
     class function GetSslInfo(ASsl: PSSL; var ASslInfo: TSslInfo): Boolean; static;
 
     // 手动指定 ssl 库路径；加载期间修改配置只影响下一次完整加载。
-    class property LibPath: string read _GetLibPath write SetLibPath;
+    class property LibPath: string read GetLibPath write SetLibPath;
 
     // 手动指定 libssl 库名称
-    class property LibSSL: string read _GetLibSSL write SetLibSSL;
+    class property LibSSL: string read GetLibSSL write SetLibSSL;
 
     // 手动指定 libcrypto 库名称
-    class property LibCRYPTO: string read _GetLibCRYPTO write SetLibCRYPTO;
+    class property LibCRYPTO: string read GetLibCRYPTO write SetLibCRYPTO;
   end;
   {$ENDREGION}
 
@@ -2325,18 +2324,10 @@ begin
   AContext := nil;
 end;
 
-class function TSSLTools.LoadSSL: Boolean;
-var
-  LError: string;
-begin
-  Result := LoadSSL(LError);
-end;
-
-class function TSSLTools.LoadSSL(out AError: string): Boolean;
+class procedure TSSLTools.LoadSSL;
 var
   LLibSSL, LLibCRYPTO: string;
 begin
-  AError := '';
   FLoadLock.Enter;
   try
     if FRef = 0 then
@@ -2358,17 +2349,11 @@ begin
         UnloadSslLibs;
         FLibSSL := LLibSSL;
         FLibCRYPTO := LLibCRYPTO;
-        if ExceptObject is ESsl then
-        begin
-          AError := ESsl(ExceptObject).Message;
-          Exit(False);
-        end;
         raise;
       end;
     end;
 
     Inc(FRef);
-    Result := True;
   finally
     FLoadLock.Leave;
   end;
@@ -3979,7 +3964,7 @@ begin
   {$ENDIF}
 end;
 
-class function TSSLTools._GetLibCRYPTO: string;
+class function TSSLTools.GetLibCRYPTO: string;
 begin
   FLoadLock.Enter;
   try
@@ -3989,7 +3974,7 @@ begin
   end;
 end;
 
-class function TSSLTools._GetLibPath: string;
+class function TSSLTools.GetLibPath: string;
 begin
   FLoadLock.Enter;
   try
@@ -3999,7 +3984,7 @@ begin
   end;
 end;
 
-class function TSSLTools._GetLibSSL: string;
+class function TSSLTools.GetLibSSL: string;
 begin
   FLoadLock.Enter;
   try

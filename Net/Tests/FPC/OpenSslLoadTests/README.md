@@ -2,12 +2,13 @@
 
 ## 接口与兼容边界
 
-- `TSSLTools.LoadSSL: Boolean` 成功时取得一份引用；预期的库加载、符号绑定或初始化失败返回 `False`，不取得引用。`LoadSSL(out AError: string)` 同时返回本次失败的错误文本，不依赖共享的最后错误状态。
-- 非预期异常在回滚后继续抛出。直接调用者必须检查返回值，只对成功的加载调用一次 `UnloadSSL`。忽略返回值的旧调用可能仍能编译，但失败路径的行为已经改变。需要全量重编译，不能混用旧 DCU/BPL。
-- socket 构造仍在加载失败时抛 `ESsl`，携带错误文本；`FSslLoaded` 区分 SSL 配置开关和实际取得的引用。
+- `TSSLTools.LoadSSL` 保持无参 procedure；正常返回时取得一份引用，加载、符号绑定或初始化失败均在回滚后原样抛出异常，不取得引用。缺库保留 `ESslInvalidLib`，缺符号保留 `ESslInvalidProc`，初始化失败抛 `ESsl`。
+- 直接调用者只对正常返回的加载调用一次 `UnloadSSL`，加载抛异常时不能卸载。移除上一版 Boolean/out 重载，需要全量重编译，不能混用旧 DCU/BPL。
+- socket 构造直接传播加载异常，只在 `LoadSSL` 正常返回后设置 `FSslLoaded`，区分 SSL 配置开关和实际取得的引用。
 - 加载、卸载、计数及库配置读写使用 `Utils.SyncObjs.ILock` / `TLock`。锁接口自动释放，引用数仅使用锁内 `Inc/Dec`。没有给 `SSL_read/SSL_write` 增加此锁。
 - 所有动态函数入口（含兼容回退入口）、句柄和版本在失败或最后卸载时清理；失败时恢复加载前的库名。配置在已有引用时可修改，仅影响下一次完整加载。
 - 包装层不主动调用 `OPENSSL_cleanup`，不设置 `NO_ATEXIT`。保留其公开声明。静态链接不清空外部函数地址，不执行动态库卸载。
+- 新增配置 getter 使用 `GetLibCRYPTO/GetLibPath/GetLibSSL` 命名。
 - 释放最后引用前，调用者须释放 SSL 对象并结束相关线程的使用。外部存活线程的 OpenSSL 线程局部资源仍须遵守 OpenSSL 清理约定。没有改为进程驻留策略，也不保证 OpenSSL 内部已记录的初始化失败一定能在同一模块中恢复。
 
 ## 构建与运行
@@ -56,3 +57,10 @@ python3 -B run_linux.py bin/fpc-linux64/OpenSslLoadTests
 - `WebSocketServer.dproj` Release/Win64 正式工程构建通过。
 - Delphi Android32/64、iOS ARM64、macOS x64/ARM64，以及 Delphi/FPC Linux64 静态链接条件分支的生产单元编译通过。未在移动设备或 macOS 运行，未链接并运行静态 OpenSSL 可执行程序。
 - 编译与运行日志见 `bin/<target>/`，场景 JSON 在 `bin/<target>/<label>/results.json`。真实握手日志仍由相邻 TLS 测试保存。项目及依赖仍有既有警告，不宣称零警告；未进行吞吐基准和长期压力测试。
+
+## procedure 接口修订验证（2026-10-19）
+
+- 恢复 `LoadSSL` 的 procedure/异常语义，移除 Boolean/out 重载；三个 getter 去掉下划线。重新运行上表七组专项，各 13/13 通过，增加了缺库、缺符号、初始化失败及失败构造的异常类型断言。
+- 更严格的断言检出旧 Delphi Windows 测试库输出名与传入路径不一致，原“缺符号”场景实际走成“缺库”。已将 `.dpr` 改为显式 library 源码，校验生成文件存在，并统一 Linux 的 `.so` 路径；当前缺符号用例确实抛出 `ESslInvalidProc`。
+- Delphi/FPC Win64 × OpenSSL 3.1.2/1.1.1o 四组现有 TLS 配置测试通过，WebSocketServer Release/Win64 正式构建通过。上列平台与静态条件分支单元重新编译通过。
+- 本次小范围修订未重跑上一轮 152 项真实 TLS 握手和 WebSocket 回环；这些历史结果不作为本次重新执行的测试数。

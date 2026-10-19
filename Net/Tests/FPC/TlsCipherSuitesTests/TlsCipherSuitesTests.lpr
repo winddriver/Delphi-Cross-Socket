@@ -671,8 +671,7 @@ begin
       TSSLTools.LibSSL := GetEnvironmentVariable('CROSS_SOCKET_TEST_LIBSSL');
     if GetEnvironmentVariable('CROSS_SOCKET_TEST_LIBCRYPTO') <> '' then
       TSSLTools.LibCRYPTO := GetEnvironmentVariable('CROSS_SOCKET_TEST_LIBCRYPTO');
-    if not TSSLTools.LoadSSL then
-      raise ESsl.Create('Failed to load OpenSSL for TLS tests.');
+    TSSLTools.LoadSSL;
     try
       Writeln('OPENSSL ', IntToHex(OpenSSL_version_num(), 8));
       if (ParamStr(1) = '--client') or (ParamStr(1) = '--server') then

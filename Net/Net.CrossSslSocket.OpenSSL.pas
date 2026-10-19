@@ -1128,16 +1128,13 @@ end;
 { TCrossOpenSslSocket }
 
 constructor TCrossOpenSslSocket.Create(const AIoThreads: Integer; const ASsl: Boolean);
-var
-  LError: string;
 begin
   inherited Create(AIoThreads, ASsl);
 
   if Ssl then
   begin
-    FSslLoaded := TSSLTools.LoadSSL(LError);
-    if not FSslLoaded then
-      raise ESsl.CreateFmt('Failed to load OpenSSL: %s', [LError]);
+    TSSLTools.LoadSSL;
+    FSslLoaded := True;
     _InitSslCtx;
   end;
 end;

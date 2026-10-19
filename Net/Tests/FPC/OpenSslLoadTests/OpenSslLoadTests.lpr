@@ -17,20 +17,22 @@ begin
   if not AValue then raise Exception.Create(AMessage);
 end;
 
-function TryLoad(out AError: string): Boolean;
+function TryLoad(out AError: string; AExpected: ExceptClass = nil): Boolean;
 begin
-  {$IFDEF NEW_SSL_LOAD}
-  Result := TSSLTools.LoadSSL(AError);
-  {$ELSE}
-  // 只供同一测试对照修改前的 procedure 接口。
+  // 测试辅助函数：生产 API 始终使用 procedure/异常语义。
   AError := '';
   try
     TSSLTools.LoadSSL;
     Result := True;
   except
-    on E: ESsl do begin AError := E.Message; Result := False; end;
+    on E: ESsl do
+    begin
+      if AExpected <> nil then
+        Check(E.ClassType = AExpected, '加载异常类型被替换: ' + E.ClassName);
+      AError := E.Message;
+      Result := False;
+    end;
   end;
-  {$ENDIF}
 end;
 
 procedure Configure;
@@ -59,7 +61,7 @@ begin
 end;
 
 procedure TestFailure;
-var LError: string;
+var LError: string; LExpected: ExceptClass;
 begin
   if Mode = 'missing-crypto' then TSSLTools.LibCRYPTO := CryptoFile + '.missing'
   else if Mode = 'missing-proc' then TSSLTools.LibCRYPTO := BrokenFile
@@ -70,7 +72,9 @@ begin
     TSSLTools.LibSSL := 'missing-ssl-library';
   end else
     TSSLTools.LibSSL := SslFile + '.missing';
-  Check(not TryLoad(LError), '错误库配置被当作加载成功');
+  if Mode = 'missing-proc' then LExpected := ESslInvalidProc
+  else LExpected := ESslInvalidLib;
+  Check(not TryLoad(LError, LExpected), '错误库配置被当作加载成功');
   Check(LError <> '', '加载失败没有诊断信息');
   CheckEmpty;
   if Mode = 'auto-name' then Check(TSSLTools.LibCRYPTO = '', '失败后自动库名未恢复');
@@ -149,7 +153,7 @@ begin
       Check(LRaised, '上下文创建失败未报告');
     end else
     begin
-      Check(not TryLoad(LError), '初始化返回零却报告成功');
+      Check(not TryLoad(LError, ESsl), '初始化返回零却报告成功');
       Check(Pos('OPENSSL_init_', LError) > 0, '未保留初始化失败位置');
     end;
     CheckEmpty;
@@ -291,7 +295,7 @@ begin
     LSocket.Free;
     ErrorText := '错误配置构造成功';
   except
-    on E: ESsl do ErrorText := '';
+    on E: ESslInvalidLib do ErrorText := '';
     on E: Exception do ErrorText := E.Message;
   end;
 end;
