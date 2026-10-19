@@ -639,10 +639,11 @@ begin
       AData^ := @LBuffer[0];
       ACount^ := LBody.Read(LBuffer[0], Min(LCount, SND_BUF_SIZE));
 
-      Result := (ACount^ > 0);
-
-      if Result then
-        Dec(LCount, ACount^);
+      // 已声明的剩余长度尚未读完，不能把提前 EOF 当成成功终帧。
+      if ACount^ <= 0 then
+        raise EReadError.Create('WebSocket 数据流在预期长度前结束');
+      Dec(LCount, ACount^);
+      Result := True;
     end,
     // CALLBACK
     procedure(const ASuccess: Boolean)
