@@ -143,6 +143,8 @@ type
 
     procedure _HandleAccept(const AListen: ICrossListen);
     procedure _HandleConnect(const AConnection: ICrossConnection);
+    procedure _ConnectNextAddr(const AOp: TCrossConnectOp);
+    procedure _ConnectAttemptFailed(const AConnection: ICrossConnection);
     procedure _HandleRead(const AConnection: ICrossConnection);
     procedure _HandleWrite(const AConnection: ICrossConnection);
   protected
@@ -448,7 +450,7 @@ begin
   begin
     LConnection.LastNetError := LSockErr;
     _LogLastOsError(Self.ClassName + '._HandleConnect.GetError');
-    LConnection.Close;
+    _ConnectAttemptFailed(LConnection);
     Exit;
   end;
 
@@ -673,118 +675,139 @@ begin
   _CloseStopHandle;
 end;
 
-procedure TEpollCrossSocket.Connect(const AHost: string;
-	const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
+procedure TEpollCrossSocket._ConnectAttemptFailed(const AConnection: ICrossConnection);
+var
+  LOp: TCrossConnectOp;
+begin
+  // The operation's result is published only when no address is left.
+  if (AConnection as TEpollConnection)._CloseRetryingConnect(LOp)
+    and (LOp <> nil) then
+    _ConnectNextAddr(LOp);
+end;
 
-  procedure _Failed1;
+procedure TEpollCrossSocket._ConnectNextAddr(const AOp: TCrossConnectOp);
+var
+  LOp: TCrossConnectOp;
+  LAddr: PCrossConnectAddr;
+  LSocket: TSocket;
+  LSockAddr: TRawSockAddrIn;
+  LConnection: ICrossConnection;
+  LEpConnection: TEpollConnection;
+  LArmed: Boolean;
+begin
+  LOp := AOp;
+  while (LOp.NextIndex < Length(LOp.Addrs)) do
   begin
-    if Assigned(ACallback) then
-      ACallback(nil, False);
-  end;
+    LAddr := @LOp.Addrs[LOp.NextIndex];
+    Inc(LOp.NextIndex);
 
-  function _Connect(ASocket: TSocket; AAddr: PRawAddrInfo): Boolean;
-    procedure _Failed2;
+    LSocket := TSocketAPI.NewSocket(LAddr.Family, LAddr.SockType, LAddr.Protocol);
+    if (LSocket = INVALID_SOCKET) then
     begin
-      if Assigned(ACallback) then
-        ACallback(nil, False);
-      TSocketAPI.CloseSocket(ASocket);
+      _LogLastOsError('NewSocket');
+      // Not an address-specific failure: give up.
+      Break;
     end;
-  var
-    LSockAddr: TRawSockAddrIn;
-    LConnection: ICrossConnection;
-    LEpConnection: TEpollConnection;
-  begin
+
+    TSocketAPI.SetNonBlock(LSocket, True);
+    SetKeepAlive(LSocket);
+
     FillChar(LSockAddr, SizeOf(TRawSockAddrIn), 0);
-    LSockAddr.AddrLen := AAddr.ai_addrlen;
-    if (AAddr.ai_family = AF_INET6) then
+    LSockAddr.AddrLen := LAddr.Addr.AddrLen;
+    if (LAddr.Family = AF_INET6) then
     begin
-      LSockAddr.Addr6.sin6_family := AAddr.ai_family;
-      LSockAddr.Addr6.sin6_port := htons(ALocalPort);
+      LSockAddr.Addr6.sin6_family := LAddr.Family;
+      LSockAddr.Addr6.sin6_port := htons(LOp.LocalPort);
     end else
     begin
-      LSockAddr.Addr.sin_family := AAddr.ai_family;
-      LSockAddr.Addr.sin_port := htons(ALocalPort);
+      LSockAddr.Addr.sin_family := LAddr.Family;
+      LSockAddr.Addr.sin_port := htons(LOp.LocalPort);
     end;
-    if (TSocketAPI.Bind(ASocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
+    if (TSocketAPI.Bind(LSocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
     begin
       {$IFDEF DEBUG}
       _LogLastOsError('TEpollCrossSocket._Connect.Bind');
       {$ENDIF}
-      _Failed2;
-      Exit(False);
+      TSocketAPI.CloseSocket(LSocket);
+      Continue;
     end;
 
-    if (TSocketAPI.Connect(ASocket, AAddr.ai_addr, AAddr.ai_addrlen) = 0)
+    if (TSocketAPI.Connect(LSocket, PSockAddr(@LAddr.Addr.Addr), LAddr.Addr.AddrLen) = 0)
       or (GetLastError = EINPROGRESS) then
     begin
-      LConnection := CreateConnection(Self, ASocket, ctConnect, AHost, ACallback);
-      TriggerConnecting(LConnection);
+      // From here on the handle belongs to the connection (no raw
+      // CloseSocket). The remaining addresses move into it before it is
+      // published.
+      LConnection := CreateConnection(Self, LSocket, ctConnect, LOp.Host, LOp.Callback);
       LEpConnection := LConnection as TEpollConnection;
+      LEpConnection._SetConnectOp(LOp);
+      TriggerConnecting(LConnection);
 
       LEpConnection._EpLock;
       try
         LEpConnection.ConnectStatus := csConnecting;
-        if not LEpConnection._UpdateIoEvent([ieWrite]) then
-        begin
-          LConnection.Close;
-          Exit(False);
-        end;
+        LArmed := LEpConnection._UpdateIoEvent([ieWrite]);
       finally
         LEpConnection._EpUnlock;
+      end;
+
+      if not LArmed then
+      begin
+        if LEpConnection._CloseRetryingConnect(LOp) and (LOp <> nil) then
+          Continue;
+        // The result is already published (by this close or a concurrent one).
+        Exit;
       end;
     end else
     begin
       _LogLastOsError('Connect');
 
-      _Failed2;
-      Exit(False);
+      TSocketAPI.CloseSocket(LSocket);
+      Continue;
     end;
 
-    Result := True;
-  end;
-
-var
-  LHints: TRawAddrInfo;
-  P, LAddrInfo: PRawAddrInfo;
-  LSocket: TSocket;
-begin
-  FillChar(LHints, SizeOf(TRawAddrInfo), 0);
-  LHints.ai_family := AF_UNSPEC;
-  LHints.ai_socktype := SOCK_STREAM;
-  LHints.ai_protocol := IPPROTO_TCP;
-  LAddrInfo := TSocketAPI.GetAddrInfo(AHost, APort, LHints);
-  if (LAddrInfo = nil) then
-  begin
-    _Failed1;
+    // The attempt is in flight; its event continues the operation.
     Exit;
   end;
 
-  P := LAddrInfo;
+  // No address left: exactly one failure.
   try
-    while (LAddrInfo <> nil) do
-    begin
-      LSocket := TSocketAPI.NewSocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
-        LAddrInfo.ai_protocol);
-      if (LSocket = INVALID_SOCKET) then
-      begin
-        _LogLastOsError('NewSocket');
-
-        _Failed1;
-        Exit;
-      end;
-
-      TSocketAPI.SetNonBlock(LSocket, True);
-      SetKeepAlive(LSocket);
-
-      if _Connect(LSocket, LAddrInfo) then Exit;
-
-      LAddrInfo := PRawAddrInfo(LAddrInfo.ai_next);
-    end;
+    LOp.Callback(nil, False);
   finally
-    TSocketAPI.FreeAddrInfo(P);
+    LOp.Free;
+  end;
+end;
+
+procedure TEpollCrossSocket.Connect(const AHost: string;
+	const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
+var
+  LFired: Integer;
+  LCallback: TCrossConnectionCallback;
+  LAddrs: TArray<TCrossConnectAddr>;
+  LOp: TCrossConnectOp;
+begin
+  // Exactly one result per operation, whichever attempt or path reports it.
+  LFired := 0;
+  LCallback :=
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+    begin
+      if (AtomicExchange(LFired, 1) = 0) and Assigned(ACallback) then
+        ACallback(AConnection, ASuccess);
+    end;
+
+  LAddrs := ResolveConnectAddrs(AHost, APort);
+  if (LAddrs = nil) then
+  begin
+    LCallback(nil, False);
+    Exit;
   end;
 
-  _Failed1;
+  LOp := TCrossConnectOp.Create;
+  LOp.Host := AHost;
+  LOp.LocalPort := ALocalPort;
+  LOp.Callback := LCallback;
+  LOp.Addrs := LAddrs;
+  _ConnectNextAddr(LOp);
 end;
 
 function TEpollCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;
@@ -1026,6 +1049,15 @@ begin
     end else
     if (LConnection <> nil) then
     begin
+      // A refused connect reports EPOLLERR/EPOLLHUP: let _HandleConnect see
+      // it, so the operation goes on with its next address.
+      if (LConnection.ConnectStatus = csConnecting)
+        and ((LEvent.Events and (EPOLLERR or EPOLLHUP)) <> 0) then
+      begin
+        _HandleConnect(LConnection);
+        if LConnection.IsClosed then Continue;
+      end;
+
       // 连接被断开
       if (LEvent.Events and EPOLLERR <> 0)
         or (LEvent.Events and EPOLLHUP <> 0) then

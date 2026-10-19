@@ -81,6 +81,8 @@ type
 
     procedure _HandleAccept(const APerIoData: PPerIoData);
     procedure _HandleConnect(const APerIoData: PPerIoData);
+    procedure _ConnectNextAddr(const AOp: TCrossConnectOp);
+    procedure _ConnectAttemptFailed(const AConnection: ICrossConnection);
     procedure _HandleRead(const APerIoData: PPerIoData);
     procedure _HandleWrite(const APerIoData: PPerIoData);
   protected
@@ -249,7 +251,7 @@ begin
     if (LConnection <> nil) then
       LConnection.LastNetError := LSockErr;
     _LogLastOsError(Self.ClassName + '._HandleConnect.GetError');
-    LConnection.Close;
+    _ConnectAttemptFailed(LConnection);
     Exit;
   end;
 
@@ -260,7 +262,7 @@ begin
     if (LConnection <> nil) then
       LConnection.LastNetError := WSAGetLastError;
     _LogLastOsError(Self.ClassName + '._HandleConnect.SetSockOpt');
-    LConnection.Close;
+    _ConnectAttemptFailed(LConnection);
     Exit;
   end;
 
@@ -466,123 +468,146 @@ begin
   CloseHandle(FIocpHandle);
 end;
 
-procedure TIocpCrossSocket.Connect(const AHost: string;
-  const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
+procedure TIocpCrossSocket._ConnectAttemptFailed(const AConnection: ICrossConnection);
 var
-  LHints: TRawAddrInfo;
-  P, LAddrInfo: PRawAddrInfo;
+  LOp: TCrossConnectOp;
+begin
+  if (AConnection = nil) then Exit;
+
+  // The operation's result is published only when no address is left.
+  if (AConnection as TIocpConnection)._CloseRetryingConnect(LOp)
+    and (LOp <> nil) then
+    _ConnectNextAddr(LOp);
+end;
+
+procedure TIocpCrossSocket._ConnectNextAddr(const AOp: TCrossConnectOp);
+var
+  LOp: TCrossConnectOp;
+  LAddr: PCrossConnectAddr;
   LSocket: TSocket;
-
-  procedure _Failed1;
+  LSockAddr: TRawSockAddrIn;
+  LPerIoData: PPerIoData;
+  LBytes: Cardinal;
+  LConnection: ICrossConnection;
+  LConnObj: TIocpConnection;
+begin
+  LOp := AOp;
+  while (LOp.NextIndex < Length(LOp.Addrs)) do
   begin
-    if Assigned(ACallback) then
-      ACallback(nil, False);
-  end;
+    LAddr := @LOp.Addrs[LOp.NextIndex];
+    Inc(LOp.NextIndex);
 
-  function _Connect(ASocket: TSocket; AAddr: PRawAddrInfo): Boolean;
-    procedure _Failed2;
+    LSocket := WSASocket(LAddr.Family, LAddr.SockType, LAddr.Protocol,
+      nil, 0, WSA_FLAG_OVERLAPPED);
+    if (LSocket = INVALID_SOCKET) then
     begin
-      if Assigned(ACallback) then
-        ACallback(nil, False);
-      TSocketAPI.CloseSocket(ASocket);
+      _LogLastOsError(Self.ClassName + '.Connect.WSASocket');
+      // Not an address-specific failure: give up.
+      Break;
     end;
-  var
-    LSockAddr: TRawSockAddrIn;
-    LPerIoData: PPerIoData;
-    LBytes: Cardinal;
-    LConnection: ICrossConnection;
-  begin
+
+    TSocketAPI.SetNonBlock(LSocket, True);
+    SetKeepAlive(LSocket);
+
+    {$IFDEF DEBUG}
+    _Log('TIocpCrossSocket.Connect.WSASocket=%d', [LSocket]);
+    {$ENDIF}
+
     FillChar(LSockAddr, SizeOf(TRawSockAddrIn), 0);
-    LSockAddr.AddrLen := AAddr.ai_addrlen;
-    if (AAddr.ai_family = AF_INET6) then
+    LSockAddr.AddrLen := LAddr.Addr.AddrLen;
+    if (LAddr.Family = AF_INET6) then
     begin
-      LSockAddr.Addr6.sin6_family := AAddr.ai_family;
-      LSockAddr.Addr6.sin6_port := htons(ALocalPort);
+      LSockAddr.Addr6.sin6_family := LAddr.Family;
+      LSockAddr.Addr6.sin6_port := htons(LOp.LocalPort);
     end else
     begin
-      LSockAddr.Addr.sin_family := AAddr.ai_family;
-      LSockAddr.Addr.sin_port := htons(ALocalPort);
+      LSockAddr.Addr.sin_family := LAddr.Family;
+      LSockAddr.Addr.sin_port := htons(LOp.LocalPort);
     end;
-    if (TSocketAPI.Bind(ASocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
+    if (TSocketAPI.Bind(LSocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
     begin
       _LogLastOsError(Self.ClassName + '._Connect.Bind');
-      _Failed2;
-      Exit(False);
+      TSocketAPI.CloseSocket(LSocket);
+      Continue;
     end;
 
-    if (CreateIoCompletionPort(ASocket, FIocpHandle, ULONG_PTR(ASocket), 0) = 0) then
+    if (CreateIoCompletionPort(LSocket, FIocpHandle, ULONG_PTR(LSocket), 0) = 0) then
     begin
       _LogLastOsError(Self.ClassName + '._Connect.CreateIoCompletionPort');
-      _Failed2;
-      Exit(False);
+      TSocketAPI.CloseSocket(LSocket);
+      Continue;
     end;
 
-    LConnection := CreateConnection(Self, ASocket, ctConnect, AHost, ACallback);
+    // From here on the handle belongs to the connection (no raw CloseSocket).
+    // The remaining addresses move into it before it is published.
+    LConnection := CreateConnection(Self, LSocket, ctConnect, LOp.Host, LOp.Callback);
+    LConnObj := LConnection as TIocpConnection;
+    LConnObj._SetConnectOp(LOp);
     TriggerConnecting(LConnection);
 
     LPerIoData := _NewIoData;
     LPerIoData.Action := ioConnect;
     LPerIoData.CrossData := LConnection;
-    LPerIoData.Socket := ASocket;
+    LPerIoData.Socket := LSocket;
     LPerIoData.Callback := nil;
-    if not ConnectEx(ASocket, AAddr.ai_addr, AAddr.ai_addrlen, nil, 0, LBytes, PWSAOverlapped(LPerIoData)) and
+    if not ConnectEx(LSocket, PSockAddr(@LAddr.Addr.Addr), LAddr.Addr.AddrLen,
+      nil, 0, LBytes, PWSAOverlapped(LPerIoData)) and
       (WSAGetLastError <> WSA_IO_PENDING) then
     begin
       // 先保存 WSAGetLastError 再记录日志, 避免后续 API 调用改写 lastError
-      if (LConnection <> nil) then
-        LConnection.LastNetError := WSAGetLastError;
+      LConnection.LastNetError := WSAGetLastError;
       _LogLastOsError(Self.ClassName + '._Connect.ConnectEx');
       _FreeIoData(LPerIoData);
-      LConnection.Close;
-      Exit(False);
+      if LConnObj._CloseRetryingConnect(LOp) and (LOp <> nil) then
+        Continue;
+      // The result is already published (by this close or a concurrent one).
+      Exit;
     end;
 
-    Result := True;
-  end;
-
-begin
-  FillChar(LHints, SizeOf(TRawAddrInfo), 0);
-  LHints.ai_family := AF_UNSPEC;
-  LHints.ai_socktype := SOCK_STREAM;
-  LHints.ai_protocol := IPPROTO_TCP;
-  LAddrInfo := TSocketAPI.GetAddrInfo(AHost, APort, LHints);
-  if (LAddrInfo = nil) then
-  begin
-    _LogLastOsError(Self.ClassName + '.Connect.GetAddrInfo');
-    _Failed1;
+    // The attempt is in flight; its completion continues the operation.
     Exit;
   end;
 
-  P := LAddrInfo;
+  // No address left: exactly one failure.
+  _LogLastOsError(Self.ClassName + '.Connect.Unknown');
   try
-    while (LAddrInfo <> nil) do
-    begin
-      LSocket := WSASocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
-        LAddrInfo.ai_protocol, nil, 0, WSA_FLAG_OVERLAPPED);
-      if (LSocket = INVALID_SOCKET) then
-      begin
-        _LogLastOsError(Self.ClassName + '.Connect.WSASocket');
-        _Failed1;
-        Exit;
-      end;
-
-      TSocketAPI.SetNonBlock(LSocket, True);
-      SetKeepAlive(LSocket);
-
-      {$IFDEF DEBUG}
-      _Log('TIocpCrossSocket.Connect.WSASocket=%d', [LSocket]);
-      {$ENDIF}
-
-      if _Connect(LSocket, LAddrInfo) then Exit;
-
-      LAddrInfo := PRawAddrInfo(LAddrInfo.ai_next);
-    end;
+    LOp.Callback(nil, False);
   finally
-    TSocketAPI.FreeAddrInfo(P);
+    LOp.Free;
+  end;
+end;
+
+procedure TIocpCrossSocket.Connect(const AHost: string;
+  const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
+var
+  LFired: Integer;
+  LCallback: TCrossConnectionCallback;
+  LAddrs: TArray<TCrossConnectAddr>;
+  LOp: TCrossConnectOp;
+begin
+  // Exactly one result per operation, whichever attempt or path reports it.
+  LFired := 0;
+  LCallback :=
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+    begin
+      if (AtomicExchange(LFired, 1) = 0) and Assigned(ACallback) then
+        ACallback(AConnection, ASuccess);
+    end;
+
+  LAddrs := ResolveConnectAddrs(AHost, APort);
+  if (LAddrs = nil) then
+  begin
+    _LogLastOsError(Self.ClassName + '.Connect.GetAddrInfo');
+    LCallback(nil, False);
+    Exit;
   end;
 
-  _LogLastOsError(Self.ClassName + '.Connect.Unknown');
-  _Failed1;
+  LOp := TCrossConnectOp.Create;
+  LOp.Host := AHost;
+  LOp.LocalPort := ALocalPort;
+  LOp.Callback := LCallback;
+  LOp.Addrs := LAddrs;
+  _ConnectNextAddr(LOp);
 end;
 
 function TIocpCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;
@@ -797,7 +822,12 @@ function TIocpCrossSocket.ProcessIoEvent: Boolean;
             APerIoData.Callback(LConnection, False);
           end;
 
-          APerIoData.CrossData.Close;
+          // A refused ConnectEx completes here: go on with the next address.
+          if (APerIoData.Action = ioConnect)
+            and (APerIoData.CrossData is TIocpConnection) then
+            _ConnectAttemptFailed(APerIoData.CrossData as ICrossConnection)
+          else
+            APerIoData.CrossData.Close;
         end;
       end else
       begin

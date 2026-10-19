@@ -171,6 +171,8 @@ type
 
     procedure _HandleAccept(const AListen: ICrossListen);
     procedure _HandleConnect(const AConnection: ICrossConnection);
+    procedure _ConnectNextAddr(const AOp: TCrossConnectOp);
+    procedure _ConnectAttemptFailed(const AConnection: ICrossConnection);
     procedure _HandleRead(const AConnection: ICrossConnection);
     procedure _HandleWrite(const AConnection: ICrossConnection);
   protected
@@ -521,7 +523,7 @@ begin
   begin
     LConnection.LastNetError := LSockErr;
     _LogLastOsError(Self.ClassName + '._HandleConnect.GetError');
-    LConnection.Close;
+    _ConnectAttemptFailed(LConnection);
     Exit;
   end;
 
@@ -775,115 +777,129 @@ begin
   _CloseStopHandle;
 end;
 
-procedure TKqueueCrossSocket.Connect(const AHost: string;
-  const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
+procedure TKqueueCrossSocket._ConnectAttemptFailed(const AConnection: ICrossConnection);
+var
+  LOp: TCrossConnectOp;
+begin
+  // The operation's result is published only when no address is left.
+  if (AConnection as TKqueueConnection)._CloseRetryingConnect(LOp)
+    and (LOp <> nil) then
+    _ConnectNextAddr(LOp);
+end;
 
-  procedure _Failed1;
+procedure TKqueueCrossSocket._ConnectNextAddr(const AOp: TCrossConnectOp);
+var
+  LOp: TCrossConnectOp;
+  LAddr: PCrossConnectAddr;
+  LSocket: TSocket;
+  LSockAddr: TRawSockAddrIn;
+  LConnection: ICrossConnection;
+  LKqConnection: TKqueueConnection;
+  LArmed: Boolean;
+begin
+  LOp := AOp;
+  while (LOp.NextIndex < Length(LOp.Addrs)) do
   begin
-    if Assigned(ACallback) then
-      ACallback(nil, False);
-  end;
+    LAddr := @LOp.Addrs[LOp.NextIndex];
+    Inc(LOp.NextIndex);
 
-  function _Connect(const ASocket: TSocket; const AAddr: PRawAddrInfo): Boolean;
-    procedure _Failed2;
-    begin
-      if Assigned(ACallback) then
-        ACallback(nil, False);
-      TSocketAPI.CloseSocket(ASocket);
-    end;
-  var
-    LSockAddr: TRawSockAddrIn;
-    LConnection: ICrossConnection;
-    LKqConnection: TKqueueConnection;
-  begin
+    LSocket := TSocketAPI.NewSocket(LAddr.Family, LAddr.SockType, LAddr.Protocol);
+    if (LSocket = INVALID_SOCKET) then
+      // Not an address-specific failure: give up.
+      Break;
+
+    TSocketAPI.SetNonBlock(LSocket, True);
+    SetKeepAlive(LSocket);
+    _SetNoSigPipe(LSocket);
+
     FillChar(LSockAddr, SizeOf(TRawSockAddrIn), 0);
-    LSockAddr.AddrLen := AAddr.ai_addrlen;
-    if (AAddr.ai_family = AF_INET6) then
+    LSockAddr.AddrLen := LAddr.Addr.AddrLen;
+    if (LAddr.Family = AF_INET6) then
     begin
-      LSockAddr.Addr6.sin6_family := AAddr.ai_family;
-      LSockAddr.Addr6.sin6_port := htons(ALocalPort);
+      LSockAddr.Addr6.sin6_family := LAddr.Family;
+      LSockAddr.Addr6.sin6_port := htons(LOp.LocalPort);
     end else
     begin
-      LSockAddr.Addr.sin_family := AAddr.ai_family;
-      LSockAddr.Addr.sin_port := htons(ALocalPort);
+      LSockAddr.Addr.sin_family := LAddr.Family;
+      LSockAddr.Addr.sin_port := htons(LOp.LocalPort);
     end;
-    if (TSocketAPI.Bind(ASocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
+    if (TSocketAPI.Bind(LSocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
     begin
       {$IFDEF DEBUG}
       _LogLastOsError('TKqueueCrossSocket._Connect.Bind');
       {$ENDIF}
-      _Failed2;
-      Exit(False);
+      TSocketAPI.CloseSocket(LSocket);
+      Continue;
     end;
 
-    if (TSocketAPI.Connect(ASocket, AAddr.ai_addr, AAddr.ai_addrlen) = 0)
+    if (TSocketAPI.Connect(LSocket, PSockAddr(@LAddr.Addr.Addr), LAddr.Addr.AddrLen) = 0)
       or (GetLastError = EINPROGRESS) then
     begin
-      LConnection := CreateConnection(Self, ASocket, ctConnect, AHost, ACallback);
-      TriggerConnecting(LConnection);
+      // From here on the handle belongs to the connection (no raw
+      // CloseSocket). The remaining addresses move into it before it is
+      // published.
+      LConnection := CreateConnection(Self, LSocket, ctConnect, LOp.Host, LOp.Callback);
       LKqConnection := LConnection as TKqueueConnection;
+      LKqConnection._SetConnectOp(LOp);
+      TriggerConnecting(LConnection);
 
       LKqConnection._KqLock;
       try
         LKqConnection.ConnectStatus := csConnecting;
-        if not LKqConnection._UpdateIoEvent([ieWrite]) then
-        begin
-          LConnection.Close;
-          Exit(False);
-        end;
+        // A failed arm closes the connection, which publishes the result.
+        LArmed := LKqConnection._UpdateIoEvent([ieWrite]);
       finally
         LKqConnection._KqUnlock;
       end;
+      if not LArmed then Exit;
     end else
     begin
-      _Failed2;
-      Exit(False);
+      TSocketAPI.CloseSocket(LSocket);
+      Continue;
     end;
 
-    Result := True;
-  end;
-
-var
-  LHints: TRawAddrInfo;
-  P, LAddrInfo: PRawAddrInfo;
-  LSocket: TSocket;
-begin
-  FillChar(LHints, SizeOf(TRawAddrInfo), 0);
-  LHints.ai_family := AF_UNSPEC;
-  LHints.ai_socktype := SOCK_STREAM;
-  LHints.ai_protocol := IPPROTO_TCP;
-  LAddrInfo := TSocketAPI.GetAddrInfo(AHost, APort, LHints);
-  if (LAddrInfo = nil) then
-  begin
-    _Failed1;
+    // The attempt is in flight; its event continues the operation.
     Exit;
   end;
 
-  P := LAddrInfo;
+  // No address left: exactly one failure.
   try
-    while (LAddrInfo <> nil) do
-    begin
-      LSocket := TSocketAPI.NewSocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
-        LAddrInfo.ai_protocol);
-      if (LSocket = INVALID_SOCKET) then
-      begin
-        _Failed1;
-        Exit;
-      end;
-
-      TSocketAPI.SetNonBlock(LSocket, True);
-      SetKeepAlive(LSocket);
-      _SetNoSigPipe(LSocket);
-
-      if _Connect(LSocket, LAddrInfo) then Exit;
-
-      LAddrInfo := PRawAddrInfo(LAddrInfo.ai_next);
-    end;
+    LOp.Callback(nil, False);
   finally
-    TSocketAPI.FreeAddrInfo(P);
+    LOp.Free;
+  end;
+end;
+
+procedure TKqueueCrossSocket.Connect(const AHost: string;
+  const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
+var
+  LFired: Integer;
+  LCallback: TCrossConnectionCallback;
+  LAddrs: TArray<TCrossConnectAddr>;
+  LOp: TCrossConnectOp;
+begin
+  // Exactly one result per operation, whichever attempt or path reports it.
+  LFired := 0;
+  LCallback :=
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+    begin
+      if (AtomicExchange(LFired, 1) = 0) and Assigned(ACallback) then
+        ACallback(AConnection, ASuccess);
+    end;
+
+  LAddrs := ResolveConnectAddrs(AHost, APort);
+  if (LAddrs = nil) then
+  begin
+    LCallback(nil, False);
+    Exit;
   end;
 
-  _Failed1;
+  LOp := TCrossConnectOp.Create;
+  LOp.Host := AHost;
+  LOp.LocalPort := ALocalPort;
+  LOp.Callback := LCallback;
+  LOp.Addrs := LAddrs;
+  _ConnectNextAddr(LOp);
 end;
 
 function TKqueueCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;

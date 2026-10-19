@@ -704,6 +704,32 @@ type
     function DebugInfo: string; override;
   end;
 
+  /// <summary>
+  ///   One address of a Connect operation: a copy of an addrinfo entry that
+  ///   outlives FreeAddrInfo.
+  /// </summary>
+  TCrossConnectAddr = record
+    Family: Integer;
+    SockType: Integer;
+    Protocol: Integer;
+    Addr: TRawSockAddrIn;
+  end;
+  PCrossConnectAddr = ^TCrossConnectAddr;
+
+  /// <summary>
+  ///   A Connect operation still in progress: the addresses not tried yet.
+  ///   Callback publishes the operation's result exactly once. The object is
+  ///   owned by the attempt in flight (see _SetConnectOp/_TakeConnectOp).
+  /// </summary>
+  TCrossConnectOp = class
+  public
+    Host: string;
+    LocalPort: Word;
+    Callback: TCrossConnectionCallback;
+    Addrs: TArray<TCrossConnectAddr>;
+    NextIndex: Integer;
+  end;
+
   TCrossConnectionBase = class(TCrossData, ICrossConnection)
   public const
     SND_BUF_SIZE = 32768;
@@ -716,6 +742,7 @@ type
     FLastNetError: Integer;
     FRecvLock, FSentLock: ILock;
     FConnectCb: TCrossConnectionCallback;
+    FConnectOp: TCrossConnectOp;
   protected
     procedure _LockRecv; inline;
     procedure _UnlockRecv; inline;
@@ -748,6 +775,17 @@ type
     procedure UpdateAddr; override;
     procedure Close; override;
     procedure Disconnect; virtual;
+
+    // The remaining addresses of the Connect operation. _SetConnectOp hands
+    // them to this attempt (before it is published in the owner's list),
+    // _TakeConnectOp takes them back atomically.
+    procedure _SetConnectOp(const AOp: TCrossConnectOp);
+    function _TakeConnectOp: TCrossConnectOp;
+    // Closes a failed connect attempt. When the remaining addresses could be
+    // taken (AOp <> nil) the attempt does not publish the connect callback:
+    // the caller goes on with the next address. False: another thread has
+    // already closed the attempt and published the callback.
+    function _CloseRetryingConnect(out AOp: TCrossConnectOp): Boolean;
 
     procedure SendBuf(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); overload;
@@ -861,6 +899,10 @@ type
     function CreateListen(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer): ICrossListen; virtual; abstract;
 
+    // Addresses a Connect operation tries, in order.
+    function ResolveConnectAddrs(const AHost: string;
+      const APort: Word): TArray<TCrossConnectAddr>; virtual;
+
     {$region '物理事件'}
     procedure TriggerListened(const AListen: ICrossListen); virtual;
     procedure TriggerListenEnd(const AListen: ICrossListen); virtual;
@@ -953,6 +995,14 @@ var
 implementation
 
 uses
+  {$IF defined(MSWINDOWS)}
+  Net.Winsock2,
+  {$ELSEIF defined(DELPHI)}
+  Posix.SysSocket,
+  Posix.NetinetIn,
+  {$ELSE}
+  sockets,
+  {$ENDIF}
   Utils.Logger;
 
 var
@@ -1223,6 +1273,45 @@ begin
   Result := FConnections;
 end;
 
+function TCrossSocketBase.ResolveConnectAddrs(const AHost: string;
+  const APort: Word): TArray<TCrossConnectAddr>;
+var
+  LHints: TRawAddrInfo;
+  P, LInfo: PRawAddrInfo;
+  LAddr: TCrossConnectAddr;
+begin
+  Result := [];
+
+  FillChar(LHints, SizeOf(TRawAddrInfo), 0);
+  LHints.ai_family := AF_UNSPEC;
+  LHints.ai_socktype := SOCK_STREAM;
+  LHints.ai_protocol := IPPROTO_TCP;
+  LInfo := TSocketAPI.GetAddrInfo(AHost, APort, LHints);
+  if (LInfo = nil) then Exit;
+
+  P := LInfo;
+  try
+    while (LInfo <> nil) do
+    begin
+      // Entries whose address does not fit (not INET/INET6) are skipped.
+      if (LInfo.ai_addrlen > 0)
+        and (Integer(LInfo.ai_addrlen) <= SizeOf(LAddr.Addr.Addr6)) then
+      begin
+        LAddr := Default(TCrossConnectAddr);
+        LAddr.Family := LInfo.ai_family;
+        LAddr.SockType := LInfo.ai_socktype;
+        LAddr.Protocol := LInfo.ai_protocol;
+        LAddr.Addr.AddrLen := LInfo.ai_addrlen;
+        Move(LInfo.ai_addr^, LAddr.Addr.Addr, LInfo.ai_addrlen);
+        Result := Result + [LAddr];
+      end;
+      LInfo := PRawAddrInfo(LInfo.ai_next);
+    end;
+  finally
+    TSocketAPI.FreeAddrInfo(P);
+  end;
+end;
+
 function TCrossSocketBase.LockListens: TCrossListens;
 begin
   _LockListens;
@@ -1234,6 +1323,9 @@ var
   LConnObj: TCrossConnectionBase;
 begin
   LConnObj := AConnection as TCrossConnectionBase;
+
+  // Connected: the addresses not tried are no longer needed.
+  LConnObj._TakeConnectOp.Free;
 
   if Assigned(LConnObj.FConnectCb) then
   begin
@@ -1750,6 +1842,63 @@ begin
   end;
 end;
 
+procedure TCrossConnectionBase._SetConnectOp(const AOp: TCrossConnectOp);
+begin
+  FConnectOp := AOp;
+end;
+
+function TCrossConnectionBase._TakeConnectOp: TCrossConnectOp;
+begin
+  Result := TCrossConnectOp(AtomicExchange(Pointer(FConnectOp), Pointer(nil)));
+end;
+
+function TCrossConnectionBase._CloseRetryingConnect(out AOp: TCrossConnectOp): Boolean;
+var
+  LSelf: ICrossConnection;
+begin
+  AOp := nil;
+  if (_SetConnectStatus(csClosed) = csClosed) then Exit(False);
+
+  // With the remaining addresses taken, the continuation of the operation
+  // publishes the callback, not this attempt.
+  AOp := _TakeConnectOp;
+  if (AOp <> nil) then
+    FConnectCb := nil;
+
+  if (FSocket <> INVALID_SOCKET) then
+  begin
+    // See Close.
+    LSelf := Self;
+    try
+      try
+        FOwner.TriggerDisconnected(LSelf);
+      finally
+        try
+          InternalClose;
+        finally
+          if FSocket <> INVALID_SOCKET then
+          begin
+            TSocketAPI.CloseSocket(FSocket);
+            FSocket := INVALID_SOCKET;
+          end;
+        end;
+      end;
+    except
+      // A raising OnDisconnected must not leave the operation without its
+      // result: publish the failure here (the callback runs at most once).
+      if (AOp <> nil) then
+      try
+        AOp.Callback(nil, False);
+      finally
+        FreeAndNil(AOp);
+      end;
+      raise;
+    end;
+  end;
+
+  Result := True;
+end;
+
 function TCrossConnectionBase.DebugInfo: string;
 begin
   Result := TStrUtils.Format('socket=%d, type=%s, local=(%s:%d), remote=(%s:%d)', [
@@ -1762,6 +1911,10 @@ end;
 
 destructor TCrossConnectionBase.Destroy;
 begin
+  // Addresses not taken by a retry (the attempt was closed from outside)
+  // die with the attempt.
+  _TakeConnectOp.Free;
+
   // 连接释放时, 调用连接回调, 告知连接失败
   // 连接成功后 FConnectCb 会被置为 nil,
   // 所以如果这里 FConnectCb 不等于 nil, 则表示连接释放时仍未连接成功
