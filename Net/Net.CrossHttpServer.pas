@@ -2907,8 +2907,8 @@ begin
         // 二次校验: Parser 层可能未限制时由 Server 层兜底
         if (FServer.FMaxPostDataSize > 0) and (FRequestObj.FContentLength > FServer.FMaxPostDataSize) then
         begin
-          _OnParseFailed(413, 'Request body too large.');
-          Exit;  // FBody 保持 nil, _OnBodyData/_OnBodyEnd 有 nil guard 安全跳过
+          (FHttpParser as TCrossHttpParser).Fail(413, 'Request body too large.');
+          Exit;
         end;
         if (FRequestObj.FBody = FRequestObj.FRawBody) then
           FRequestObj.FBody := nil
@@ -3007,8 +3007,7 @@ begin
 
   if not LParsed then
   begin
-    _OnParseFailed(400, 'Invalid request header.');
-    Abort;
+    (FHttpParser as TCrossHttpParser).Fail(400, 'Invalid request header.');
   end;
 
   // RFC 7231 §5.1.1: Expect: 100-continue 支持
@@ -3066,11 +3065,31 @@ end;
 
 procedure TCrossHttpConnection._OnParseFailed(const ACode: Integer;
   const AError: string);
+var
+  LRequest: ICrossHttpRequest;
+  LResponse: ICrossHttpResponse;
 begin
-  if (FResponse <> nil) then
-    FResponse.SendStatus(ACode, AError)
-  else
+  FLastRequestLock.Enter;
+  try
+    if FRequestClosed then Exit;
+    LRequest := FRequest;
+    LResponse := FResponse;
+  finally
+    FLastRequestLock.Leave;
+  end;
+
+  if (LResponse = nil) or LResponse.Sent then
+  begin
     Close;
+    Exit;
+  end;
+
+  // 队列必须和响应头使用同一个关闭决定，错误响应仍按原请求顺序发送。
+  if (LRequest <> nil) then
+    (LRequest as TCrossHttpRequest).FKeepAlive := False;
+  LResponse.Header[HEADER_CONNECTION] := 'close';
+  // 发送可能同步完成并清空连接字段，之后只依靠局部强引用保活。
+  LResponse.SendStatus(ACode, AError);
 end;
 
 procedure TCrossHttpConnection._OnParseSuccess;

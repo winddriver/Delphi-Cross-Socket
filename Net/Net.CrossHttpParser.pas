@@ -37,7 +37,7 @@ const
 
 type
   TCrossHttpParseMode = (pmServer, pmClient);
-  TCrossHttpParseState = (psIdle, psHeader, psBodyData, psChunkSize, psChunkData, psChunkEnd, psDone);
+  TCrossHttpParseState = (psIdle, psHeader, psBodyData, psChunkSize, psChunkData, psChunkEnd, psDone, psFailed);
 
   /// <summary>
   ///   psHeader 阶段严格 CRLF 状态机 (RFC 7230 §3): 拒绝 bare-CR / bare-LF / 错乱
@@ -179,6 +179,7 @@ type
     destructor Destroy; override;
 
     procedure Decode(var ABuf: Pointer; var ALen: Integer);
+    procedure Fail(const ACode: Integer; const AError: string);
     procedure Finish;
     procedure SetNoBody(const AValue: Boolean);
 
@@ -348,6 +349,14 @@ begin
   \r\n
   }
 
+  // 失败后连接必须终止，后续字节不能再次发布为成功请求。
+  if (FParseState = psFailed) then
+  begin
+    ABuf := Pointer(PByte(ABuf) + ALen);
+    ALen := 0;
+    Exit;
+  end;
+
   try
     if (FParseState = psIdle) then
     begin
@@ -361,7 +370,7 @@ begin
     LPtrHeader := LPtr;
 
     // 使用循环处理粘包, 比递归调用节省资源
-    while (LPtr < LPtrEnd) and (FParseState <> psDone) do
+    while (LPtr < LPtrEnd) and not (FParseState in [psDone, psFailed]) do
     begin
       case FParseState of
         psHeader:
@@ -537,6 +546,8 @@ begin
       end;
     end;
 
+    if (FParseState = psFailed) then Abort;
+
     // 循环中途退出 (psBodyData 在循环内 Break, psDone 自然结束),
     // psHeader 仍有未提交数据则批量写入
     if (FParseState = psHeader) then
@@ -558,10 +569,17 @@ begin
       ABuf := Pointer(PByte(ABuf) + ALen);
       ALen := 0;
 
-      if not (e is EAbort) then
+      // 失败通知自身抛异常时，不重复通知或改判为成功。
+      if (FParseState <> psFailed) and not (e is EAbort) then
         _OnParseFailed(500, e.Message);
     end;
   end;
+end;
+
+procedure TCrossHttpParser.Fail(const ACode: Integer; const AError: string);
+begin
+  // 允许拥有此具体解析器的服务器在头部/正文回调中明确终止解析。
+  _OnParseFailed(ACode, AError);
 end;
 
 procedure TCrossHttpParser.Finish;
@@ -571,6 +589,7 @@ begin
   begin
     FParseState := psDone;
     _OnBodyEnd;
+    if (FParseState = psFailed) then Exit;
     _Reset;
     _OnParseSuccess;
   end;
@@ -624,6 +643,7 @@ begin
 
   if Assigned(FOnBodyBegin) then
     FOnBodyBegin();
+  if (FParseState = psFailed) then Abort;
 end;
 
 procedure TCrossHttpParser._OnBodyData(const ADataPtr: Pointer;
@@ -690,10 +710,12 @@ begin
       // 保存已解压的数据
       if (FZOutSize > 0) and Assigned(FOnBodyData) then
         FOnBodyData(@FZBuffer[0], FZOutSize);
+      if (FParseState = psFailed) then Abort;
     until ((FZResult = Z_STREAM_END) or (FZStream.avail_in = 0));
   end else
   if Assigned(FOnBodyData) then
     FOnBodyData(ADataPtr, ADataSize);
+  if (FParseState = psFailed) then Abort;
 end;
 
 procedure TCrossHttpParser._OnBodyEnd;
@@ -718,6 +740,7 @@ begin
     SetLength(AHeaderValues, 0);
     Result := False;
   end;
+  if (FParseState = psFailed) then Abort;
 end;
 
 function TCrossHttpParser._OnGetHeaderValue(const AHeaderName: string;
@@ -738,18 +761,22 @@ procedure TCrossHttpParser._OnHeaderData(const ADataPtr: Pointer;
 begin
   if Assigned(FOnHeaderData) then
     FOnHeaderData(ADataPtr, ADataSize);
+  // 回调可能捕获 Fail 的 EAbort，或重入 Decode 后返回；失败态仍不可恢复。
+  if (FParseState = psFailed) then Abort;
 end;
 
 procedure TCrossHttpParser._OnParseBegin;
 begin
   if Assigned(FOnParseBegin) then
     FOnParseBegin();
+  if (FParseState = psFailed) then Abort;
 end;
 
 procedure TCrossHttpParser._OnParseFailed(const ACode: Integer;
   const AError: string);
 begin
-  FParseState := psDone;
+  if (FParseState = psFailed) then Abort;
+  FParseState := psFailed;
 
   if FZCompressed then
   begin
