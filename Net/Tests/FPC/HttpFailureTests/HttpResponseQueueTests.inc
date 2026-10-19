@@ -38,7 +38,7 @@
   public
     Responses: TList<ICrossHttpResponse>;
     RaiseFirstEnd, CloseFirstEnd: Boolean;
-    Ends: Integer;
+    Ends, FailedEnds: Integer;
     constructor Create;
     destructor Destroy; override;
   end;
@@ -135,6 +135,7 @@ procedure TQueueServer.DoOnRequestEnd(const AConnection: ICrossHttpConnection;
   const ASuccess: Boolean);
 begin
   Inc(Ends);
+  if not ASuccess then Inc(FailedEnds);
   if RaiseFirstEnd and (ARequest.Path = '/first') then
     raise Exception.Create('request-end test exception');
   if CloseFirstEnd and (ARequest.Path = '/first') then

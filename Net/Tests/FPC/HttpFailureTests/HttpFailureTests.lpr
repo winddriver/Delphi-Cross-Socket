@@ -363,7 +363,20 @@ var
   LBody: TBytes;
 begin
   Requests.Add(ARequest.Path);
-  if ARequest.Path = '/trailer' then
+  if ARequest.Path.StartsWith('/policy-') then
+  begin
+    if ARequest.Path = '/policy-404' then AResponse.StatusCode := 404;
+    if ARequest.Path = '/policy-500' then AResponse.StatusCode := 500;
+    if ARequest.Path = '/policy-close' then AResponse.Header['Connection'] := 'keep-alive, close';
+    AResponse.SendNoCompress('policy',
+      procedure(const C: ICrossConnection; const OK: Boolean)
+      begin
+        Check(OK, '完整错误响应被报告为发送失败');
+        Writeln('POLICY_SEND_OK');
+        Flush(Output);
+      end);
+  end
+  else if ARequest.Path = '/trailer' then
   begin
     Check(ARequest.Header['Authorization'] = 'original', 'trailer 改写了认证头');
     Check(ARequest.Header['Cookie'] = 'original=1', 'trailer 改写了 Cookie');
@@ -489,6 +502,7 @@ end;
 
 {$I HttpResponseQueueTests.inc}
 {$I HttpBodyPolicyTests.inc}
+{$I HttpSendPolicyTests.inc}
 
 begin
   try
@@ -504,6 +518,10 @@ begin
         TestResponseQueue(ParamStr(2))
       else if ParamStr(1) = 'body' then
         TestBodyPolicy(ParamStr(2))
+      else if ParamStr(1) = 'policy' then
+        TestSendPolicy(ParamStr(2))
+      else if ParamStr(1) = 'source' then
+        TestSendSourceFailure(ParamStr(2))
       else
         Check(False, 'unknown mode');
       Writeln('PASS ', ParamStr(1), ' ', ParamStr(2));

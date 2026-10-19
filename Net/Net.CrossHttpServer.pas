@@ -1987,6 +1987,7 @@ type
     FHeader: THttpHeader;
     FCookies: TResponseCookies;
     FSendStatus: Integer;
+    FKeepAlive: Boolean;
     FQueueItem: IHttpResponseQueueItem;
 
     procedure Reset;
@@ -2770,7 +2771,8 @@ begin
     begin
       AItem.Source := ASource;
       AItem.Callback := ACallback;
-      AItem.KeepAlive := AItem.Request.KeepAlive;
+      // 响应头在接纳前已生成；关闭只消费同一份发送策略。
+      AItem.KeepAlive := (AItem.Response as TCrossHttpResponse).FKeepAlive;
       AItem.StatusCode := AItem.Response.StatusCode;
       AItem.Ready := True;
 
@@ -2851,7 +2853,7 @@ begin
       if not LHasData then
       begin
         try
-          _FinishQueueItem(AItem, AItem.StatusCode < 500);
+          _FinishQueueItem(AItem, True);
         finally
           LSender := nil;
           LConnection := nil;
@@ -2914,7 +2916,7 @@ begin
     if AItem.Completed then Exit;
     LSuccess := ASuccess and not FResponseQueueClosed
       and not (ConnectStatus in [csDisconnected, csClosed]);
-    LNeedDisconnect := not LSuccess or not AItem.KeepAlive or (AItem.StatusCode >= 500);
+    LNeedDisconnect := not LSuccess or not AItem.KeepAlive;
     LRequest := AItem.Request;
     LResponse := AItem.Response;
     LCallback := AItem.Callback;
@@ -4887,12 +4889,9 @@ begin
       FHostPort := GetConnection.Server.Port;
 
     FRequestConnection := FHeader[HEADER_CONNECTION];
-    // HTTP/1.0 默认KeepAlive=False，只有显示指定了Connection: keep-alive才认为KeepAlive=True
-    // HTTP/1.1 默认KeepAlive=True，只有显示指定了Connection: close才认为KeepAlive=False
-    if FHttpVerNum = 10 then
-      FKeepAlive := TStrUtils.SameText(FRequestConnection, 'keep-alive')
-    else if TStrUtils.SameText(FRequestConnection, 'close') then
-      FKeepAlive := False;
+    // 合并所有同名字段的 token；close 优先于 keep-alive，包括 HTTP/1.0。
+    FKeepAlive := not FHeader.ContainsToken(HEADER_CONNECTION, 'close')
+      and ((FHttpVerNum = 11) or FHeader.ContainsToken(HEADER_CONNECTION, 'keep-alive'));
 
     FTransferEncoding := FHeader[HEADER_TRANSFER_ENCODING];
     FIsChunked := CalcIsChunked;
@@ -5159,6 +5158,7 @@ var
   LChunkState: TChunkState;
   LChunkData: Pointer;
   LChunkSize: NativeInt;
+  LSourceError: string;
 begin
   if not _HasBody then
   begin
@@ -5170,9 +5170,25 @@ begin
   // 如果有数据才需要使用 chunked 方式发送数据
   if Assigned(AChunkSource) then
   begin
-    LChunked := AChunkSource(@LChunkData, @LChunkSize)
-      and (LChunkData <> nil)
-      and (LChunkSize > 0);
+    LSourceError := '';
+    try
+      LChunked := AChunkSource(@LChunkData, @LChunkSize)
+        and (LChunkData <> nil)
+        and (LChunkSize > 0);
+    except
+      on E: Exception do
+        LSourceError := E.ClassName + ': ' + E.Message;
+    end;
+    if LSourceError <> '' then
+    begin
+      // 首次取正文也遵守队列失败路径，确保压缩/流包装器的完成清理执行一次。
+      _Send(
+        function(const P: PPointer; const N: PNativeInt): Boolean
+        begin
+          raise EReadError.Create(LSourceError);
+        end, ACallback);
+      Exit;
+    end;
   end else
     LChunked := False;
 
@@ -5520,13 +5536,16 @@ var
 begin
   if (GetContentType = '') then
     SetContentType(TMediaType.APPLICATION_OCTET_STREAM);
-  if (FHeader[HEADER_CONNECTION] = '') then
+  FKeepAlive := FRequest.KeepAlive and (FStatusCode < 400)
+    and not FHeader.ContainsToken(HEADER_CONNECTION, 'close');
+  if not FKeepAlive then
   begin
-    if (FStatusCode >= 400) or (not FRequest.KeepAlive) then
-      FHeader[HEADER_CONNECTION] := 'close'
-    else
-      FHeader[HEADER_CONNECTION] := 'keep-alive';
-  end;
+    // 删除所有冲突副本，不能让手动 keep-alive 覆盖请求或错误响应的关闭决定。
+    FHeader.Remove(HEADER_CONNECTION);
+    FHeader[HEADER_CONNECTION] := 'close';
+  end
+  else if FHeader[HEADER_CONNECTION] = '' then
+    FHeader[HEADER_CONNECTION] := 'keep-alive';
 
   if not _HasBody then
   begin
@@ -5630,6 +5649,10 @@ procedure TCrossHttpResponse._Send(const ASource: TCrossHttpChunkDataFunc;
   const ACallback: TCrossConnectionCallback);
 var
   LConnection: ICrossHttpConnection;
+  LFirstData: Pointer;
+  LFirstSize: NativeInt;
+  LFirst, LHasFirst: Boolean;
+  LSourceError: string;
 begin
   LConnection := GetConnection;
   if AtomicCmpExchange(FSendStatus, 1, 0) <> 0 then
@@ -5642,8 +5665,33 @@ begin
     if Assigned(ACallback) then ACallback(LConnection, False);
     Exit;
   end;
+  // 先生成一次响应头并冻结正文/关闭策略，排队期间的外部修改不能改变已接纳响应。
+  // ASource 保活原 header 闭包及其字节，无需复制整个响应头或预取下一块正文。
+  LFirstData := nil;
+  LFirstSize := 0;
+  LHasFirst := False;
+  LSourceError := '';
+  try
+    LHasFirst := Assigned(ASource) and ASource(@LFirstData, @LFirstSize);
+  except
+    on E: Exception do LSourceError := E.ClassName + ': ' + E.Message;
+  end;
+  LFirst := True;
   // 强引用保证关闭与 ready 竞争时连接仍存活；接纳检查由队列锁完成。
-  (LConnection as TCrossHttpConnection)._QueueResponseReady(FQueueItem, ASource, ACallback);
+  (LConnection as TCrossHttpConnection)._QueueResponseReady(FQueueItem,
+    function(const AData: PPointer; const ACount: PNativeInt): Boolean
+    begin
+      if LFirst then
+      begin
+        LFirst := False;
+        if LSourceError <> '' then raise EReadError.Create(LSourceError);
+        AData^ := LFirstData;
+        ACount^ := LFirstSize;
+        Result := LHasFirst;
+      end
+      else
+        Result := Assigned(ASource) and ASource(AData, ACount);
+    end, ACallback);
 end;
 
 procedure TCrossHttpResponse._Send(const AHeaderSource,
@@ -5818,6 +5866,8 @@ begin
 
       AData^ := @LBuffer[0];
       ACount^ := LBody.Read(LBuffer[0], Min(LCount, SND_BUF_SIZE));
+      if (ACount^ <= 0) or (ACount^ > Min(LCount, SND_BUF_SIZE)) then
+        raise EReadError.Create('HTTP 正文流未返回声明长度的数据');
 
       Result := (ACount^ > 0);
 
@@ -5881,7 +5931,6 @@ var
   LZResult: Integer;
   LOutSize: Integer;
   LBuffer: TBytes;
-  LZError: Boolean;
 begin
   if (ACompressType = ctNone) then
   begin
@@ -5919,15 +5968,14 @@ begin
     Z_DEFLATED, ZLIB_WINDOW_BITS[ACompressType], 8, Z_DEFAULT_STRATEGY) <> Z_OK) then
   begin
     SetStatusCode(500);
-    if (FQueueItem <> nil) then
-      FQueueItem.StatusCode := 500;
-    // 走正常队列流程: _Send → _QueueResponseReady → _SendQueueItem
-    // → body 为空立即返回 False → _FinishQueueItem (配合 StatusCode>=500 触发 Disconnect) → ACallback 在锁外异步通知
-    SendNoCompress(nil, 0, ACallback);
+    // 编码失败是发送失败，不能用 HTTP 状态码伪装传输结果。
+    _Send(
+      function(const P: PPointer; const N: PNativeInt): Boolean
+      begin
+        raise EWriteError.Create('HTTP 压缩初始化失败');
+      end, ACallback);
     Exit;
   end;
-
-  LZError := False;
 
   SendNoCompress(
     // CHUNK
@@ -5981,13 +6029,7 @@ begin
         // 所以要到下次 CHUNK 函数被调用的时候再结束
         if (LZResult < 0) then
         begin
-          LZError := True;  // 标记压缩错误，回调中将向调用方传递 False
-          // 标记 500 以触发 _FinishQueueItem 中 LNeedDisconnect 断开连接
-          if (FQueueItem <> nil) then
-            FQueueItem.StatusCode := 500;
-          AData^ := nil;
-          ACount^ := 0;
-          Exit(False);
+          raise EWriteError.CreateFmt('HTTP 压缩失败: %d', [LZResult]);
         end;
 
         // 已压缩完成的数据大小
@@ -6007,7 +6049,7 @@ begin
       deflateEnd(LZStream);
 
       if Assigned(ACallback) then
-        ACallback(AConnection, ASuccess and not LZError);
+        ACallback(AConnection, ASuccess);
     end);
 end;
 
@@ -6130,6 +6172,8 @@ begin
 
       ACount^ := LBody.Read(LBuffer[0], Min(LCount, SND_BUF_SIZE));
       AData^ := @LBuffer[0];
+      if (ACount^ <= 0) or (ACount^ > Min(LCount, SND_BUF_SIZE)) then
+        raise EReadError.Create('HTTP 压缩正文流提前结束');
 
       Result := (ACount^ > 0);
 

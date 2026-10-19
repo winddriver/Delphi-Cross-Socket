@@ -150,3 +150,26 @@ Linux 启动最初在沙箱内得到 WSL `E_ACCESSDENIED`，经允许的沙箱�
 新增 `tcp-trailer`、`tcp-trailer-gzip` 和 `tcp-trailer-bad`。前两项在真实 TCP 上发送带 trailer 的明文/压缩分块请求，再在同一连接发送下一请求：业务端验证完整正文 `abc`，认证、Cookie、长度和传输编码等原始头不被 trailer 覆盖，随后响应没有残留字节。非法折行 trailer 必须得到完整 400 后关闭，同包尾部请求不进入业务。
 
 最终五目标完整重编并实际运行，各 **88/88，共 440/440**；Windows 日志为 `bin/f20-integration/<target>/`，Linux 为各目标目录。Parser 组件的严格 CRLF、大小/字段上限、全部拆包位置及原生解压资源验证详见相邻 HttpChunkTests；没有把其拆包次数当作额外 TCP 场景。
+
+## S02 服务端发送策略与状态归属
+
+| 决定 | 唯一归属及使用者 |
+| --- | --- |
+| 入站消息定界、成功/失败 | Parser；Header 的原始值只是输入，失败状态不能被业务回调恢复为成功 |
+| 请求是否允许复用 | 请求解析时读取所有 Connection 字段的 token；close 优先，HTTP/1.0 需要显式 keep-alive |
+| 状态行、正文规则与输出头 | Send 接纳前生成头部，正文规则在组合 source 创建时固定；排队后不再读取可变的响应状态/头部生成另一版报文 |
+| 正常响应发送后是否关闭 | 头部生成时确定 KeepAlive，队列保存该值；响应头和完成路径消费同一决定 |
+| 发送结果 | 物理写、正文读取或编码是否成功；完整发送的 HTTP 500 同样是发送成功，状态码不再充当内部错误标记 |
+| 关闭与迟到通知 | 响应队列的 Completed/Closed/active item；未开始项取消，在途缓冲保留到物理完成，结果至多通知一次 |
+
+连接规则依据 [RFC 9112 §9.3](https://www.rfc-editor.org/rfc/rfc9112.html#section-9.3) 和 [RFC 9110 §7.6.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-7.6.1)。保持本库原有错误响应默认声明 close 的策略，并使 4xx 也真正关闭；请求 close、响应 close 或重复字段中的 close 都不能被手工 keep-alive 覆盖。正常 Upgrade 字段保留，不以重写整个 Connection 字段破坏 101 握手。
+
+响应状态、Header 和 Cookie 应在 Send 前配置；发送接纳后对这些对象的修改不改变已经固定的报文。首次 header 字节由原 source 闭包保活，没有复制整份头部，也没有因冻结而提前读取下一块正文。流和 provider 仍按现有所有权契约存活到完成通知，不能并发修改借用的缓冲。
+
+首次 provider 取数、后续 source、普通流和 gzip 流共用失败收尾。已声明还有数据的流若返回 0/负数会失败并关闭；合法正数短读继续推进。压缩失败通过 source 异常传递，不再把队列状态码改成 500。失败不越过队首响应，回调与 RequestEnd 结果一致，不能继续发送下一响应。
+
+红色证据：`bin/s02-red-final/` 以 `bin/s02-before/production/` 的原 Server 快照重编，两个 Windows 目标均复现响应头/实际关闭不一致、Connection 列表/重复字段、排队后状态变化、500 结果和首次 provider 异常；正常控制用例未算作缺陷。后补流 EOF 的 `bin/s02-eof-before/` 在双目标各 2 失败、2 个合法短读通过，单独保留该阶段边界。
+
+最终新增 15 个策略组件、8 个 source/流组件和 6 个真实 TCP 场景，完整套件 **117 项**。Windows Delphi64/32/FPC64 和 Linux Delphi/FPC 各 **117/117，共 585/585**。Windows 为 `bin/s02-stream-final/`，Linux 为各目标目录。TCP 独立读取完整 404/500/显式 close 响应后等待真实 EOF，同时验证 HTTP/1.0 keep-alive 和列表 close；组件通过延迟完成覆盖队列取消及排队后修改。此处只完成 S02 服务端阶段，客户端头部解析结果传播另批核查。
+
+重新构建红基线可传 `run_tests.py --source-root bin/s02-before/production --label <新标签>`，脚本优先搜索该目录并记录实际选用的 Server 源码；不切换或覆盖工作区生产文件。

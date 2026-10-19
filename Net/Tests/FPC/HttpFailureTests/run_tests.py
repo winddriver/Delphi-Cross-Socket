@@ -29,23 +29,35 @@ CASES = (["parser-" + kind for kind in ("length", "conflict", "chunk", "crlf", "
                                       "cancel-callback", "active-close", "source-error", "reentry-send", "reentry-close",
                                       "request-end-close", "duplicate-physical", "ready-close-race", "logger")] +
          ["tcp-" + kind for kind in ("length", "conflict", "chunk", "crlf", "same", "split", "normal", "body",
-                                    "trailer", "trailer-gzip", "trailer-bad")]
-         + BODY_CASES)
+                                    "trailer", "trailer-gzip", "trailer-bad", "policy404", "policy500", "policyclose",
+                                    "requestclose", "http10close", "http10keep")]
+         + BODY_CASES + ['policy-' + kind for kind in (
+             '404', '500', 'header-close', 'header-list', 'header-duplicates', 'header-nontoken',
+             'request-list', 'request-duplicates', 'http10-default', 'http10-list', 'http10-close',
+             'snapshot-200', 'snapshot-204', 'snapshot-connection', 'snapshot-close')]
+         + ['source-' + kind for kind in ('plain-first', 'plain-later', 'gzip-first', 'gzip-later',
+                                         'plain-stream-eof', 'gzip-stream-eof', 'plain-stream-short', 'gzip-stream-short')])
 SOURCES = ["Net.CrossHttpParser.pas", "Net.CrossHttpServer.pas", "Net.CrossSocket.Base.pas",
            "Net.CrossSocket.Iocp.pas", "Net.CrossSocket.Epoll.pas", "Net.CrossSocket.Kqueue.pas"]
 
 
-def build(target, output, label):
+def build(target, output, label, source_root=None):
     output.mkdir(parents=True, exist_ok=True)
     units = HERE / "lib" / label / target
     units.mkdir(parents=True, exist_ok=True)
     if target == "fpc64":
-        args = [LAZBUILD, "--build-all", "--skip-dependencies", HERE / "HttpFailureTests.lpi"]
+        if source_root:
+            args = [Path(r'D:\Design\FreePascal\fpc\bin\x86_64-win64\ppcx64.exe'), '-B',
+                    '-Fu' + str(source_root), '-Fu' + str(REPO / 'Net'), '-Fu' + str(REPO / 'Utils'),
+                    '-Fu' + str(REPO / 'DelphiToFPC'), r'-FuD:\Design\FreePascal\lazarus\components\lazutils',
+                    '-Fi' + str(REPO), '-FE' + str(output), '-FU' + str(units), HERE / 'HttpFailureTests.lpr']
+        else:
+            args = [LAZBUILD, "--build-all", "--skip-dependencies", HERE / "HttpFailureTests.lpi"]
     else:
         arch = "win64" if target == "win64" else "win32"
         compiler = "dcc64.exe" if arch == "win64" else "dcc32.exe"
         args = [DELPHI / "bin" / compiler, "-Q", "-B", "-$O+", "-NSSystem;System.Win;Winapi",
-                "-U" + ";".join(map(str, [REPO / "Net", REPO / "Utils", CN,
+                "-U" + ";".join(map(str, ([source_root] if source_root else []) + [REPO / "Net", REPO / "Utils", CN,
                                            DELPHI / "lib" / arch / "release"])),
                 "-I" + str(REPO) + ";" + str(CN), "-E" + str(output), "-N0" + str(units),
                 HERE / "HttpFailureTests.dpr"]
@@ -55,13 +67,15 @@ def build(target, output, label):
     if result.returncode:
         print((result.stdout + result.stderr).decode(errors="replace"))
         raise RuntimeError("build failed: " + target)
-    if target == "fpc64":
+    if target == "fpc64" and not source_root:
         shutil.copy2(HERE / "bin/fpc64/HttpFailureTests.exe", output / "HttpFailureTests.exe")
-    metadata = {name: hashlib.sha256((REPO / "Net" / name).read_bytes()).hexdigest()
+    metadata = {name: hashlib.sha256(((source_root / name) if source_root and (source_root / name).exists()
+                                     else REPO / "Net" / name).read_bytes()).hexdigest()
                 for name in SOURCES}
     metadata["test_sha256"] = hashlib.sha256((HERE / "HttpFailureTests.lpr").read_bytes()).hexdigest()
     metadata["queue_test_sha256"] = hashlib.sha256((HERE / "HttpResponseQueueTests.inc").read_bytes()).hexdigest()
     metadata["body_test_sha256"] = hashlib.sha256((HERE / "HttpBodyPolicyTests.inc").read_bytes()).hexdigest()
+    metadata["policy_test_sha256"] = hashlib.sha256((HERE / "HttpSendPolicyTests.inc").read_bytes()).hexdigest()
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print("BUILD PASS", target, flush=True)
 
@@ -75,6 +89,7 @@ def main():
     parser.add_argument("--label", default="current")
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--build-only", action="store_true")
+    parser.add_argument("--source-root", type=Path)
     options = parser.parse_args()
     if not options.label.replace("-", "").replace("_", "").isalnum():
         parser.error("invalid label")
@@ -82,7 +97,7 @@ def main():
     for target in options.targets:
         output = HERE / "bin" / options.label / target
         if not options.no_build:
-            build(target, output, options.label)
+            build(target, output, options.label, options.source_root.resolve() if options.source_root else None)
         if options.build_only:
             continue
         results = []

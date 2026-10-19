@@ -78,7 +78,29 @@ def run(executable, case):
         with socket.create_connection(("127.0.0.1", int(ready.split()[1])), timeout=3) as connection:
             connection.settimeout(2)
             responses = Responses(connection)
-            if case in ('trailer', 'trailer-gzip'):
+            if case in ('policy404', 'policy500', 'policyclose', 'requestclose', 'http10close', 'http10keep'):
+                if case.startswith('policy'):
+                    suffix = {'policy404': '404', 'policy500': '500', 'policyclose': 'close'}[case]
+                    payload = good('/policy-' + suffix)
+                else:
+                    version = '1.0' if case.startswith('http10') else '1.1'
+                    token = 'example, keep-alive' if case == 'http10keep' else 'keep-alive, close'
+                    payload = f'GET /echo HTTP/{version}\r\nHost: localhost\r\nConnection: {token}\r\n\r\n'.encode()
+                connection.sendall(payload)
+                status, headers, body = responses.response()
+                expected_status = {'policy404': 404, 'policy500': 500}.get(case, 200)
+                assert status == expected_status, status
+                assert body == (b'policy' if case.startswith('policy') else b'/echo'), body
+                expected = 1
+                if case == 'http10keep':
+                    assert headers[b'connection'].lower() == b'keep-alive', headers
+                    connection.sendall(good('/after', close=True))
+                    status, headers, body = responses.response()
+                    assert status == 200 and body == b'/after', (status, body)
+                    expected = 2
+                assert headers[b'connection'].lower() == b'close', headers
+                responses.closed()
+            elif case in ('trailer', 'trailer-gzip'):
                 body = gzip.compress(b'abc', mtime=0) if case == 'trailer-gzip' else b'abc'
                 encoding = b'Content-Encoding: gzip\r\n' if case == 'trailer-gzip' else b''
                 payload = (b'POST /trailer HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n'
@@ -152,6 +174,8 @@ def run(executable, case):
         error += f"; business total={total}, expected={expected}"
     if process.returncode:
         error += f"; server exit={process.returncode}"
+    if case.startswith('policy') and lines.count('POLICY_SEND_OK') != 1:
+        error += '; missing or duplicate successful send notification'
     return not error, "\n".join(lines + ([error] if error else ["PASS tcp-" + case]))
 
 
@@ -162,8 +186,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable")
     parser.add_argument("--cases", nargs="+",
-                        choices=["length", "conflict", "chunk", "crlf", "same", "split", "normal", "body", "trailer", "trailer-gzip", "trailer-bad"],
-                        default=["length", "conflict", "chunk", "crlf", "same", "split", "normal", "body", "trailer", "trailer-gzip", "trailer-bad"])
+                        choices=["length", "conflict", "chunk", "crlf", "same", "split", "normal", "body", "trailer", "trailer-gzip", "trailer-bad",
+                                 "policy404", "policy500", "policyclose", "requestclose", "http10close", "http10keep"],
+                        default=["length", "conflict", "chunk", "crlf", "same", "split", "normal", "body", "trailer", "trailer-gzip", "trailer-bad",
+                                 "policy404", "policy500", "policyclose", "requestclose", "http10close", "http10keep"])
     options = parser.parse_args()
     failed = False
     for case in options.cases:
