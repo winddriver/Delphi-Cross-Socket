@@ -1733,9 +1733,20 @@ begin
     // the user callback; either can drop our last reference. Keep one here so
     // the object survives until InternalClose is done.
     LSelf := Self;
-    FOwner.TriggerDisconnected(LSelf);
-    InternalClose;
-    FSocket := INVALID_SOCKET;
+    try
+      FOwner.TriggerDisconnected(LSelf);
+    finally
+      try
+        InternalClose;
+      finally
+        // 派生类的清理或用户回调异常也不能泄漏句柄。
+        if FSocket <> INVALID_SOCKET then
+        begin
+          TSocketAPI.CloseSocket(FSocket);
+          FSocket := INVALID_SOCKET;
+        end;
+      end;
+    end;
   end;
 end;
 
@@ -1845,6 +1856,8 @@ var
   LConnectCb: TCrossConnectionCallback;
 begin
   TSocketAPI.CloseSocket(FSocket);
+  FSocket := INVALID_SOCKET;
+
 
   if Assigned(FConnectCb) then
   begin
@@ -1873,7 +1886,7 @@ begin
   LSize := ACount;
 
   LSender :=
-    procedure(AConnection: ICrossConnection; ASuccess: Boolean)
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     var
       LData: Pointer;
       LCount: Integer;

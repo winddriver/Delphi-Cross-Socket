@@ -120,6 +120,7 @@ type
     procedure _Send(const ABytes: TBytes;
       const ACallback: TCrossConnectionCallback = nil); overload;
   protected
+    procedure InternalClose; override;
     procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); override;
   public
@@ -184,6 +185,7 @@ procedure CrossOpenSslSelfTest_GetProtocolVersions(
   const ASocket: TCrossOpenSslSocket; out AMinVersion, AMaxVersion: Integer);
 function CrossOpenSslSelfTest_GetNegotiatedCipher(
   const AConnection: ICrossConnection; out AVersion, ACipher: string): Boolean;
+function CrossOpenSslSelfTest_CloseDrainsPendingWrites(out AErrMsg: string): Boolean;
 function CrossOpenSslSelfTest_PendingCallbackExceptionDoesNotStall(
   out AErrMsg: string): Boolean;
 function CrossOpenSslSelfTest_HandshakeSendFailureDoesNotPromote(
@@ -266,6 +268,100 @@ begin
   // 只观测本次测试所需的协商结果，不解析证书或临时密钥。
   AVersion := UTF8ToString(SSL_get_version(LConnection.FSslData));
   ACipher := UTF8ToString(SSL_get_cipher_name(LConnection.FSslData));
+end;
+
+type
+  TPendingCloseObserver = class
+    procedure Disconnected(const ASender: TObject; const AConnection: ICrossConnection);
+  end;
+
+procedure TPendingCloseObserver.Disconnected(const ASender: TObject;
+  const AConnection: ICrossConnection);
+begin
+  raise Exception.Create('测试断连通知异常');
+end;
+
+function CrossOpenSslSelfTest_CloseDrainsPendingWrites(out AErrMsg: string): Boolean;
+var
+  LSocket: TCrossOpenSslSocket;
+  LConnection: TCrossOpenSslConnection;
+  LConnectionIntf: ICrossConnection;
+  LObserver: TPendingCloseObserver;
+  LCallbackCount: Integer;
+  LUnexpectedSuccess, LRaised: Boolean;
+  LByte: Byte;
+  procedure EnqueueCallback(const AIndex: Integer);
+  var
+    LKeepAlive: ICrossConnection;
+    LCallback: TCrossConnectionCallback;
+  begin
+    // 独立过程使编译器的匿名函数临时引用在入队后立即释放。
+    LKeepAlive := LConnectionIntf;
+    LCallback := procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+      begin
+        Inc(LCallbackCount);
+        if ASuccess or (LKeepAlive = nil) then LUnexpectedSuccess := True;
+        if AIndex = 0 then raise Exception.Create('测试挂起写完成异常');
+      end;
+    LConnection._SslLock;
+    try
+      if not LConnection._TryEnqueuePendingWrite(@LByte, 1, LCallback) then
+        raise Exception.Create('挂起写未入队');
+    finally
+      LConnection._SslUnlock;
+    end;
+  end;
+begin
+  Result := False;
+  AErrMsg := '';
+  LSocket := TCrossOpenSslSocket.Create(0, False);
+  LObserver := TPendingCloseObserver.Create;
+  try
+    LSocket.OnDisconnected := LObserver.Disconnected;
+    LConnection := TCrossOpenSslConnection.Create(LSocket,
+      TSocketAPI.NewTcp, ctConnect, '', nil);
+    LConnectionIntf := LConnection;
+    LConnection.FLock := TLock.Create;
+    LConnection.FPendingWrites := TQueue<TCrossOpenSslConnection.TPendingWrite>.Create;
+    try
+      try
+        if LConnection.Socket = INVALID_SOCKET then raise Exception.Create('测试套接字创建失败');
+        LConnection.ConnectStatus := csConnected;
+        LCallbackCount := 0;
+        LUnexpectedSuccess := False;
+        LByte := 0;
+        EnqueueCallback(0);
+        EnqueueCallback(1);
+        if LConnection.RefCount < 3 then raise Exception.Create('未建立挂起回调保活引用');
+        LRaised := False;
+        try LConnection.Close; except
+          on E: Exception do LRaised := E.Message = '测试断连通知异常';
+        end;
+        if not LRaised then raise Exception.Create('断连通知异常未按原契约传播');
+        if (LCallbackCount <> 2) or LUnexpectedSuccess then
+          raise Exception.Create('挂起回调未全部结算为失败');
+        if (LConnection.FPendingWrites.Count <> 0) or (LConnection.FPendingBytes <> 0)
+          or (LConnection.Socket <> INVALID_SOCKET) then
+          raise Exception.Create('关闭后仍残留队列或句柄');
+        LConnection._SslLock;
+        try
+          if LConnection._TryEnqueuePendingWrite(@LByte, 1, nil) then
+            raise Exception.Create('关闭后仍允许挂起入队');
+        finally LConnection._SslUnlock; end;
+        if LConnection.RefCount <> 1 then raise Exception.CreateFmt('close refcount=%d', [LConnection.RefCount]);
+        Result := True;
+      except
+        on E: Exception do AErrMsg := E.ClassName + ': ' + E.Message;
+      end;
+    finally
+      LConnection.FPendingWrites.Free;
+      LConnection.FPendingWrites := nil;
+      LConnectionIntf := nil;
+    end;
+  finally
+    LSocket.Free;
+    LObserver.Free;
+  end;
 end;
 
 function CrossOpenSslSelfTest_PendingCallbackExceptionDoesNotStall(
@@ -453,6 +549,17 @@ begin
   end;
 
   inherited Destroy;
+end;
+
+procedure TCrossOpenSslConnection.InternalClose;
+begin
+  try
+    // Close 已持有连接引用，先结算挂起写，解除回调对连接的保活引用。
+    if FPendingWrites <> nil then
+      _DrainPendingWritesAsFailed(Self as ICrossConnection);
+  finally
+    inherited InternalClose;
+  end;
 end;
 
 procedure TCrossOpenSslConnection.DirectSend(const ABuffer: Pointer;
@@ -689,6 +796,9 @@ function TCrossOpenSslConnection._TryEnqueuePendingWrite(const ABuf: PByte;
 var
   LItem: TPendingWrite;
 begin
+  // 与队列操作共用 SSL 锁，关闭后不得因在途 pump 再次入队。
+  if (FPendingWrites = nil) or (ConnectStatus in [csDisconnected, csClosed]) then
+    Exit(False);
   // 背压: 超限则不入队, 由调用方 fail callback (上层闭包持有的 TBytes 可释放)
   if (FMaxPendingBytes > 0)
     and (FPendingBytes + ALen > FMaxPendingBytes) then
@@ -1005,7 +1115,13 @@ begin
 
   for I := 0 to High(LDrained) do
     if Assigned(LDrained[I].Callback) then
-      LDrained[I].Callback(AConnection, False);
+      try
+        LDrained[I].Callback(AConnection, False);
+      except
+        // 单个完成通知异常不能阻止后续条目释放保活引用。
+        on E: Exception do
+          _Log('SSL pending callback failed: %s', [E.ClassName]);
+      end;
 end;
 
 { TCrossOpenSslSocket }

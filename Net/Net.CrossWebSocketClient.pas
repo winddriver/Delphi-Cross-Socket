@@ -24,6 +24,7 @@ uses
   Net.CrossHttpClient,
   Net.CrossHttpUtils,
   Net.CrossWebSocketParser,
+  Net.CrossWebSocketSender,
 
   Utils.StrUtils,
   Utils.SyncObjs,
@@ -307,12 +308,13 @@ type
     FWebSocket: TCrossWebSocket;
 
     FWsParser: TCrossWebSocketParser;
-    FWsSendClose: Integer;
+    FWsSender: TCrossWebSocketSender;
 
     procedure _WebSocketRecv(var ABuf: Pointer; var ALen: Integer);
 
     procedure _RespondPong(const AData: TBytes);
-    procedure _RespondClose;
+    procedure _RespondClose(const AData: TBytes);
+    procedure _StopParserIfDisconnected;
 
     {$region '内部发送方法'}
     procedure _WsSend(AOpCode: Byte; AFin: Boolean; AData: Pointer; ACount: NativeInt;
@@ -331,6 +333,12 @@ type
       const AConnectType: TConnectType; const AHost: string;
       const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
+
+    // 开始接收前配置。接口不变，具体连接类增加可选资源策略。
+    procedure SetWebSocketLimits(const AMaxMessageSize: UInt64;
+      const AMessageTimeoutMs, ACloseTimeoutMs: Cardinal);
+    // 由调用方定期调用；内部与接收解析互斥，不创建后台线程。
+    procedure CheckWebSocketTimeouts;
 
     procedure WsClose;
     procedure WsPing;
@@ -470,54 +478,46 @@ implementation
 
 { TCrossWebSocketClientConnection }
 
-constructor TCrossWebSocketClientConnection.Create(
-  const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
-  const AConnectType: TConnectType; const AHost: string;
-  const AConnectCb: TCrossConnectionCallback);
+constructor TCrossWebSocketClientConnection.Create(const AOwner: TCrossSocketBase;
+  const AClientSocket: TSocket; const AConnectType: TConnectType;
+  const AHost: string; const AConnectCb: TCrossConnectionCallback);
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AHost, AConnectCb);
-
+  FWsSender := TCrossWebSocketSender.Create(Self, False);
   FWsParser := TCrossWebSocketParser.Create(
     procedure(const AOpCode: Byte; const AData: TBytes)
     begin
-      if (FWebSocket = nil) then Exit;
-
-      case AOpCode of
-        WS_OP_CLOSE:
-          begin
-            // 关闭帧
-            // 收到关闭帧, 如果已经发送关闭帧, 直接关闭连接
-            // 否则, 需要发送关闭帧, 发送完成之后关闭连接
-            _RespondClose;
-          end;
-
-        WS_OP_PING:
-          begin
-            FWebSocket._OnPing();
-
-            // 收到 ping 帧后立即发回 pong 帧
-            // pong 帧必须将 ping 帧发来的数据原封不动地返回
-            _RespondPong(AData);
-          end;
-
-        WS_OP_PONG:
-          begin
-            FWebSocket._OnPong();
-          end;
+      try
+        case AOpCode of
+          WS_OP_CLOSE: _RespondClose(AData);
+          WS_OP_PING:
+            begin
+              if FWebSocket <> nil then FWebSocket._OnPing;
+              if not (ConnectStatus in [csDisconnected, csClosed]) then
+                _RespondPong(AData);
+            end;
+          WS_OP_PONG:
+            if FWebSocket <> nil then FWebSocket._OnPong;
+        end;
+      finally
+        _StopParserIfDisconnected;
       end;
     end,
-
     procedure(const AType: TWsMessageType; const AData: TBytes)
     begin
-      if (FWebSocket <> nil) then
-        FWebSocket._OnMessage(AType, AData);
+      try
+        if FWebSocket <> nil then FWebSocket._OnMessage(AType, AData);
+      finally
+        _StopParserIfDisconnected;
+      end;
     end,
-
     procedure
     begin
-      _Log('websocket_client recved invalid data, %s', [Self.DebugInfo]);
-      Self.Close;
+      FWsSender.FailProtocol(FWsParser.ErrorCode);
     end);
+  FWsParser.Role := wprClient;
+  FWsParser.AllowedRsvBits := 0;
+  FWsParser.CheckTextUtf8 := True;
 end;
 
 destructor TCrossWebSocketClientConnection.Destroy;
@@ -530,6 +530,7 @@ begin
   end;
 
   FreeAndNil(FWsParser);
+  FreeAndNil(FWsSender);
 
   inherited;
 end;
@@ -549,9 +550,7 @@ end;
 
 procedure TCrossWebSocketClientConnection.WsClose;
 begin
-  if (AtomicExchange(FWsSendClose, 1) = 1) then Exit;
-
-  _WsSend(WS_OP_CLOSE, True, nil, 0);
+  FWsSender.RequestClose;
 end;
 
 procedure TCrossWebSocketClientConnection.WsPing;
@@ -583,61 +582,24 @@ begin
   WsSend(AData, 0, Length(AData), ACallback);
 end;
 
-procedure TCrossWebSocketClientConnection.WsSend(
-  const AData: TWsClientChunkDataFunc; const ACallback: TWsClientCallback);
-var
-  LOpCode: Byte;
-  LSender: TWsClientCallback;
+procedure TCrossWebSocketClientConnection.WsSend(const AData: TWsClientChunkDataFunc;
+  const ACallback: TWsClientCallback);
 begin
-  LOpCode := WS_OP_BINARY;
-
-  LSender :=
-    procedure(const ASuccess: Boolean)
-    var
-      LData: Pointer;
-      LCount: NativeInt;
+  if (FWebSocket = nil) or (ConnectStatus in [csDisconnected, csClosed]) then
+  begin
+    if Assigned(ACallback) then ACallback(False);
+    Exit;
+  end;
+  FWsSender.SendChunks(
+    function(const ABuffer: PPointer; const ACount: PNativeInt): Boolean
     begin
-      if not ASuccess then
-      begin
-        if Assigned(ACallback) then
-          ACallback(False);
-
-        Close;
-
-        LSender := nil;
-
-        Exit;
-      end;
-
-      LData := nil;
-      LCount := 0;
-      if not Assigned(AData)
-        or not AData(@LData, @LCount)
-        or (LData = nil)
-        or (LCount <= 0) then
-      begin
-        LSender := nil;
-
-        // 结束帧
-        // opcode 为 WS_OP_CONTINUATION
-        // FIN 为 1
-        // 结束帧只有一个头, 因为结束帧是流无数据可读时才生成的
-        _WsSend(LOpCode,
-          True, nil, 0, ACallback);
-
-        Exit;
-      end;
-
-      // 第一帧及中间帧
-      // 第一帧 opcode 为 WS_OP_BINARY, FIN 为 0
-      // 中间帧 opcode 为 WS_OP_CONTINUATION, FIN 为 0
-      _WsSend(LOpCode,
-        False, LData, LCount, LSender);
-
-      LOpCode := WS_OP_CONTINUATION;
-    end;
-
-  LSender(True);
+      Result := False;
+      if Assigned(AData) then Result := AData(ABuffer, ACount);
+    end,
+    procedure(const ASuccess: Boolean)
+    begin
+      if Assigned(ACallback) then ACallback(ASuccess);
+    end);
 end;
 
 procedure TCrossWebSocketClientConnection.WsSend(const AData: string;
@@ -698,18 +660,9 @@ begin
   WsSend(AData, 0, 0, ACallback);
 end;
 
-procedure TCrossWebSocketClientConnection._RespondClose;
+procedure TCrossWebSocketClientConnection._RespondClose(const AData: TBytes);
 begin
-  if (AtomicExchange(FWsSendClose, 1) = 1) then
-    Disconnect
-  else
-  begin
-    _WsSend(WS_OP_CLOSE, True, nil, 0,
-      procedure(const ASuccess: Boolean)
-      begin
-        Disconnect;
-      end);
-  end;
+  FWsSender.ReceiveClose(AData);
 end;
 
 procedure TCrossWebSocketClientConnection._RespondPong(const AData: TBytes);
@@ -717,39 +670,62 @@ begin
   _WsSend(WS_OP_PONG, True, AData);
 end;
 
-procedure TCrossWebSocketClientConnection._WebSocketRecv(var ABuf: Pointer;
-  var ALen: Integer);
+procedure TCrossWebSocketClientConnection._StopParserIfDisconnected;
 begin
+  if (FWsParser <> nil) and (ConnectStatus in [csDisconnected, csClosed]) then
+    FWsParser.Stop;
+end;
+
+procedure TCrossWebSocketClientConnection.SetWebSocketLimits(const AMaxMessageSize: UInt64;
+  const AMessageTimeoutMs, ACloseTimeoutMs: Cardinal);
+begin
+  _LockRecv;
+  try
+    FWsParser.MaxMessageSize := AMaxMessageSize;
+    FWsParser.MessageTimeoutMs := AMessageTimeoutMs;
+    FWsSender.CloseTimeoutMs := ACloseTimeoutMs;
+  finally
+    _UnlockRecv;
+  end;
+end;
+
+procedure TCrossWebSocketClientConnection.CheckWebSocketTimeouts;
+var
+  LConnection: ICrossConnection;
+begin
+  LConnection := Self;
+  _LockRecv;
+  try
+    _StopParserIfDisconnected;
+    try
+      FWsParser.CheckTimeout;
+    finally
+      FWsSender.CheckTimeout;
+      _StopParserIfDisconnected;
+    end;
+  finally
+    _UnlockRecv;
+  end;
+end;
+
+procedure TCrossWebSocketClientConnection._WebSocketRecv(var ABuf: Pointer; var ALen: Integer);
+begin
+  _StopParserIfDisconnected;
   FWsParser.Decode(ABuf, ALen);
 end;
 
 procedure TCrossWebSocketClientConnection._WsSend(AOpCode: Byte; AFin: Boolean;
   AData: Pointer; ACount: NativeInt; ACallback: TWsClientCallback);
-var
-  LWsFrameData: TBytes;
 begin
-  if IsClosed or (FWebSocket = nil) then
+  if (FWebSocket = nil) or (ConnectStatus in [csDisconnected, csClosed]) then
   begin
-    if Assigned(ACallback) then
-      ACallback(False);
+    if Assigned(ACallback) then ACallback(False);
     Exit;
   end;
-
-  // 将数据和头打包到一起发送
-  // 这是因为如果分开发送, 在多线程环境多个不同的线程数据可能会出现交叉
-  // 会引起数据与头部混乱
-  LWsFrameData := TCrossWebSocketParser.MakeFrameData(
-    AOpCode,
-    AFin,
-    False,
-    AData,
-    ACount);
-
-  SendBytes(LWsFrameData,
-    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+  FWsSender.Send(AOpCode, AFin, AData, ACount,
+    procedure(const ASuccess: Boolean)
     begin
-      if Assigned(ACallback) then
-        ACallback(ASuccess);
+      if Assigned(ACallback) then ACallback(ASuccess);
     end);
 end;
 

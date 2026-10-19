@@ -50,6 +50,7 @@
       <LinkSmart Value="True"/>
     </Linking>
     <Other>
+      <CustomOptions Value="-dCROSS_OPENSSL_SELFTEST"/>
       <ConfigFile>
         <WriteConfigFilePath Value=""/>
       </ConfigFile>
