@@ -6,7 +6,7 @@
 
 覆盖 14 组：按名称删除重复参数；HEAD 的字节正文、内存流、chunk provider、空正文、调用方与初始化回调的重复 CL/TE、gzip 非空及空正文、deflate 空正文；空 POST/PUT/PATCH、POST 普通及分块正文。每组网络用例同时检查后续 GET 复用同一连接。
 
-测试不覆盖 HTTPS、非 Windows 平台、断网或压力场景。
+原 HEAD 专项不覆盖 HTTPS、断网或压力场景；后续 Linux 和临时响应验证见文末。
 
 ## 构建与运行
 
@@ -34,3 +34,18 @@ python run_tests.py bin/x86_64-win64/HttpHeadTests.exe
 - 两套编译器的既有 `HttpRequestLifetimeTests` 各 6/6 通过；Delphi `HttpClient.dproj` Release/Win64 构建成功。
 - FPC 存在字符串转换和已有依赖/配置警告，未修改全局工具链配置；不声称零警告。
 - 构建和运行日志保存在 `bin/delphi-*.log`、`bin/fpc-*.log`；修改前日志为 `bin/delphi-red-*.log`。
+
+## F08 临时响应回归（2026-10-19）
+
+`run_interim_tests.py` 复用同一个客户端程序，以本地真实 TCP 服务发送 100、102、103 和最终 200。覆盖单个/多个临时响应、逐字节写出、HEAD、发送 POST 正文期间收到 100、最终 gzip 正文以及调用方提供的响应流。每组检查只收到最终响应、临时头不残留、两个请求共两次回调，且后续 GET 仍复用同一条连接。借用流额外检查内容及未被客户端析构。
+
+```powershell
+python -B run_interim_tests.py bin/delphi-win64/HttpHeadTests.exe --report bin/f08-delphi-result.json
+python -B run_interim_tests.py bin/x86_64-win64/HttpHeadTests.exe --report bin/f08-fpc-result.json
+```
+
+原客户端代码使用 Delphi Win64 重新构建，首批 **0/7** 通过，表现为把 100/103 发布为最终响应；基线源码、可执行文件、日志和哈希保存在 `bin/f08-baseline/`。借用流是后续第 8 项，未冒称包含于这 7 项红基线。
+
+修复后 Delphi/FPC Win64、Delphi/FPC Linux64 各 **8/8，共 32/32**。同四目标原有 HEAD 套件各 **14/14**。Linux 使用已有 Ubuntu 22.04 WSL，运行 `python3 -B run_interim_tests.py bin/<target>/HttpHeadTests --report bin/<target>/interim-results.json`；产物目录为 `bin/{delphi-linux64,fpc-linux64}/`。交叉构建使用已有 `dcclinux64`/`ppcrossx64` 和 Ubuntu SDK，搜索路径与相邻 `HttpFailureTests/build_linux.py` 一致，仅替换工程名及本工程输出目录；FPC/POSIX 入口加入 `cthreads`。
+
+生产修复只在解析完成时丢弃非 101 的临时响应对象，保留请求、回调和连接占用。101 继续走原有协议升级路径；现有 WebSocket 套件重新构建后，Delphi/FPC Win64 的组件、11,056 合法帧组合和各 11 个真实回环场景全部通过，包含客户端协议升级。逐字节发送不能保证操作系统按相同粒度交付，因此不称为穷举所有拆包；临时响应专项未运行 HTTPS、macOS 或压力测试。

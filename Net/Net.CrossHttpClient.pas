@@ -2263,6 +2263,20 @@ end;
 
 procedure TCrossHttpClientConnection._OnParseSuccess;
 begin
+  _ReqLock;
+  try
+    if (FResponseObj <> nil)
+      and (FResponseObj.FStatusCode >= 100) and (FResponseObj.FStatusCode < 200)
+      and (FResponseObj.FStatusCode <> 101) then
+    begin
+      // 临时响应只结束当前头部，保留请求、回调和连接占用，继续等最终响应。
+      FResponseObj := nil;
+      FResponse := nil;
+      Exit;
+    end;
+  finally
+    _ReqUnlock;
+  end;
   TriggerResponseSuccess;
 end;
 

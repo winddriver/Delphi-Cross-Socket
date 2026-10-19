@@ -3,6 +3,7 @@
 {$I ..\..\..\..\zLib.inc}
 
 uses
+  {$IF DEFINED(FPC) AND DEFINED(POSIX)}cthreads,{$ENDIF}
   SysUtils, Classes
   {$IFDEF FPC}
   ,DTF.RTL in '..\..\..\..\DelphiToFPC\DTF.RTL.pas'
@@ -14,6 +15,11 @@ uses
   ;
 
 type
+  TResponseStream = class(TMemoryStream)
+  public
+    destructor Destroy; override;
+  end;
+
   TResponseWaiter = class
   private
     FEvent: IEvent;
@@ -29,6 +35,15 @@ type
     procedure Reset;
     property ConnectionId: string read FConnectionId;
   end;
+
+var
+  ResponseStreamDestroyed: Integer;
+
+destructor TResponseStream.Destroy;
+begin
+  Inc(ResponseStreamDestroyed);
+  inherited;
+end;
 
 procedure Check(const AValue: Boolean; const AMessage: string);
 begin
@@ -47,6 +62,7 @@ begin
     AtomicIncrement(CallbackCount);
     FStatus := AResponse.StatusCode;
     FConnectionId := AResponse.Header['X-Connection-Id'];
+    Check(AResponse.Header['X-Interim'] = '', '临时响应头污染了最终响应');
     if (AResponse.Content <> nil) then
       FBodySize := AResponse.Content.Size
     else
@@ -117,12 +133,15 @@ var
   LHeaders: THttpHeader;
   LBody: TBytes;
   LStream: TMemoryStream;
+  LResponseStream: TResponseStream;
+  LResponseBytes: TBytes;
   LProviderCalls: Integer;
   LConnectionId, LMethod: string;
   LCompressType: TCompressType;
 begin
   LProviderCalls := 0;
   LStream := nil;
+  LResponseStream := nil;
   LCompressType := ctNone;
   if (AMode = 'head-gzip') or (AMode = 'head-gzip-empty') then
     LCompressType := ctGZip;
@@ -157,11 +176,18 @@ begin
         end;
     end;
     if (AMode = 'post-empty') or (AMode = 'post-body')
-      or (AMode = 'post-chunk') then LMethod := THttpMethod.POST;
+      or (AMode = 'post-chunk') or (AMode = 'post-response-stream') then
+      LMethod := THttpMethod.POST;
     if (AMode = 'put-empty') then LMethod := THttpMethod.PUT;
     if (AMode = 'patch-empty') then LMethod := THttpMethod.PATCH;
     if (AMode = 'post-empty') or (AMode = 'put-empty')
-      or (AMode = 'patch-empty') then LBody := nil;
+      or (AMode = 'patch-empty') or (AMode = 'post-response-stream') then LBody := nil;
+    if AMode = 'post-response-stream' then
+    begin
+      LResponseStream := TResponseStream.Create;
+      LResponseBytes := TEncoding.ASCII.GetBytes('old');
+      LResponseStream.WriteBuffer(LResponseBytes[0], Length(LResponseBytes));
+    end;
 
     if (AMode = 'head-chunk') or (AMode = 'post-chunk') then
     begin
@@ -188,12 +214,21 @@ begin
       LStream.WriteBuffer(LBody[0], Length(LBody));
       LClient.DoRequest(LMethod, AUrl, LHeaders, TStream(LStream), nil, LInit, LCallback);
     end else
-      LClient.DoRequest(LMethod, AUrl, LHeaders, LBody, nil, LInit, LCallback);
+      LClient.DoRequest(LMethod, AUrl, LHeaders, LBody, LResponseStream, LInit, LCallback);
 
     if (LMethod = THttpMethod.HEAD) then
       LWaiter.Wait(0)
     else
       LWaiter.Wait(2);
+    if LResponseStream <> nil then
+    begin
+      Check(ResponseStreamDestroyed = 0, '临时响应释放了调用方的响应流');
+      Check(LResponseStream.Size = 2, '最终响应未写入调用方的流');
+      SetLength(LResponseBytes, 2);
+      LResponseStream.Position := 0;
+      LResponseStream.ReadBuffer(LResponseBytes[0], 2);
+      Check(TEncoding.ASCII.GetString(LResponseBytes) = 'ok', '调用方响应流内容错误');
+    end;
     if (AMode = 'head-chunk') then
       Check(LProviderCalls = 0, 'HEAD 调用了正文 provider');
     if (AMode = 'post-chunk') then
@@ -216,6 +251,7 @@ begin
     LInit := nil;
     LHeaders.Free;
     LStream.Free;
+    if ResponseStreamDestroyed = 0 then LResponseStream.Free;
     LWaiter.Free;
   end;
 end;
