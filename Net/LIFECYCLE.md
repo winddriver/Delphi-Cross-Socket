@@ -22,7 +22,7 @@
 
 HTTP Parser 的失败是终态：回调吞掉 `EAbort`、再次 Decode / Finish 或重入解析，都不能把失败改成成功。HTTP 正文发送策略与连接复用规则另见 [HTTP 状态归属及发送策略](Tests/FPC/HttpFailureTests/README.md)。
 
-实现入口：[Socket 通知隔离](Net.CrossSocket.Base.pas#L951)、[OpenSSL 逻辑写完成](Net.CrossSslSocket.OpenSSL.pas#L1169)、[HTTP 完成通知](Net.CrossHttpServer.pas#L2907)、[WS 完成与发送泵](Net.CrossWebSocketSender.pas#L324)。这些入口集中各自职责，不要求把它们迁移到一个通用框架。
+实现入口：[Socket 通知隔离](Net.CrossSocket.Base.pas#L951)、[OpenSSL 逻辑写完成](Net.CrossSslSocket.OpenSSL.pas#L1169)、[HTTP 完成通知](Net.CrossHttpServer.pas#L2907)、[WS 完成与发送泵](Net.CrossWebSocketSender.pas#L330)。这些入口集中各自职责，不要求把它们迁移到一个通用框架。
 
 ## 锁边界：队列锁外不等于没有锁
 

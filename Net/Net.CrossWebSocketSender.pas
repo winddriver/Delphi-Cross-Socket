@@ -88,6 +88,9 @@ type
       const AData: Pointer; const ACount: NativeInt; const ACallback: TWsSendDone = nil);
     procedure SendChunks(const AChunkSource: TWsChunkDataFunc;
       const ACallback: TWsSendDone = nil);
+    // 流为借用；调用方先完成范围调整和首次定位，本方法只读取指定长度。
+    procedure SendStream(const AData: TStream; const ACount: Int64;
+      const ACallback: TWsSendDone = nil);
     procedure RequestClose;
     procedure ReceiveClose(const APayload: TBytes);
     procedure FailProtocol(const ACode: Word);
@@ -113,6 +116,9 @@ var
 {$ENDIF}
 
 implementation
+
+uses
+  Math;
 
 {$IFDEF CROSS_WS_SENDER_SELFTEST}
 destructor TWsSendItem.Destroy;
@@ -716,6 +722,35 @@ begin
   LItem.Source := AChunkSource;
   LItem.Callback := ACallback;
   _Enqueue(LRef, False);
+end;
+
+procedure TCrossWebSocketSender.SendStream(const AData: TStream;
+  const ACount: Int64; const ACallback: TWsSendDone);
+var
+  LCount: Int64;
+  LBody: TStream;
+  LBuffer: TBytes;
+begin
+  LCount := ACount;
+  LBody := AData;
+  SetLength(LBuffer, TCrossConnectionBase.SND_BUF_SIZE);
+  SendChunks(
+    function(const AData: PPointer; const ACount: PNativeInt): Boolean
+    begin
+      if LCount <= 0 then Exit(False);
+      AData^ := @LBuffer[0];
+      ACount^ := LBody.Read(LBuffer[0], Min(LCount, TCrossConnectionBase.SND_BUF_SIZE));
+      // 已声明的剩余长度尚未读完，不能把提前 EOF 当成成功终帧。
+      if ACount^ <= 0 then
+        raise EReadError.Create('WebSocket 数据流在预期长度前结束');
+      Dec(LCount, ACount^);
+      Result := True;
+    end,
+    procedure(const ASuccess: Boolean)
+    begin
+      LBuffer := nil;
+      if Assigned(ACallback) then ACallback(ASuccess);
+    end);
 end;
 
 procedure TCrossWebSocketSender._RequestClose(const APayload: TBytes;

@@ -59,3 +59,22 @@ wsl.exe -d Ubuntu-22.04 --cd /mnt/d/GitHub/Delphi-Cross-Socket/Net/Tests/FPC/Web
 ```
 
 其他目标或默认模式替换标签即可。最终 `source.json` 包含 Session 拆分后的实际依赖与本轮 Client/Base 稳定版本；历史 `bin/final-source.json` 保留 EOF 修复证据，本次容量版本由[容量专项](../WebSocketCapacityTests/README.md)的汇总清单记录。
+
+## S03 共用普通流读取适配
+
+2026-10-20 将两端重复的普通流缓冲、Read/短读、剩余长度、提前 EOF 和完成释放闭包搬到既有 `TCrossWebSocketSender.SendStream`。该具体类方法从流的当前位置读取指定长度，不取得流所有权，也不自行调用 Size 或 Seek；不新增接口或通用流框架。
+
+两端 `WsSend(TStream, Offset, Count, Callback)` 继续先读取 Size、调整范围；内存流继续原直接发送路径，普通流继续同步执行首次 Position。客户端随后保留原连接接纳检查，服务端继续通过接口强引用保活回调连接；两端仍负责各自通知类型转换。普通流轮到后才调用 Read；剩余长度大于 0 而 Read 返回 0/负数时仍抛 `EReadError`，合法正数短读继续推进。Sender 只集中已有读取职责，没有引入 HTTP Utils 依赖，没有改变 Parser。
+
+同一组既有断言在五目标、默认不限/启用限额两种模式均为 24/24，共 240 项；原 Sender 队列和生命周期回归五目标各 23/23，共 115 项。所有 Linux 目标实际在 WSL 运行，Windows 32 位 Sender 回归保留 `__LITTLE_PIECE__`。本次是搬移前已通过、搬移后继续通过的兼容回归，不新计为缺陷红绿修复，也没有重跑或累加未改 Parser 的全帧矩阵。
+
+```powershell
+python -B build_tests.py delphi-win64 delphi-win32 fpc-win64 delphi-linux64 fpc-linux64 --label s03-helper-default
+python -B build_tests.py delphi-win64 delphi-win32 fpc-win64 delphi-linux64 fpc-linux64 --label s03-helper-capacity --queue-limits
+python -B run_tests.py bin/s03-helper-capacity-delphi-win64/WebSocketStreamTests.exe --report bin/s03-helper-capacity-delphi-win64.json
+wsl.exe -d Ubuntu-22.04 --cd /mnt/d/GitHub/Delphi-Cross-Socket/Net/Tests/FPC/WebSocketStreamTests -- python3 -B run_tests.py bin/s03-helper-capacity-fpc-linux64/WebSocketStreamTests --report bin/s03-helper-capacity-fpc-linux64.json
+```
+
+其余目标和默认模式替换标签即可；原 Sender 工程使用 `run_sender_tests.py` 的 `s03-helper` 标签，目标及构建/运行方式与 O03 相同。本次 15 个二进制及其实际源码、运行报告哈希汇总在 `bin/s03-helper-source.json`；旧 EOF/O03 清单未覆盖。构建使用 7123233 后稳定的 Client/Base/后端，未包含随后另行实施的底层 Socket 额度；共享依赖以各 `source.json` 为准。正式示例组合结果见下段；后续底层额度仍独立验收。
+
+正式组合构建补充：共用 helper 冻结后，`HttpClient.dproj` 和 `WebSocketServer.dproj` 的 Release/Win64 均经 MSBuild 实际构建通过。产物、日志和编译前后核对的依赖哈希位于 `bin/s03-formal-win64/{HttpClient,WebSocketServer}/`。两工程使用本批 helper、Session 独立单元及 `7123233` 的 Client/Base 稳定版本；没有运行 HttpClient 的图形界面。生成的示例资源已还原，构建未留下额外 `.res` 改动。

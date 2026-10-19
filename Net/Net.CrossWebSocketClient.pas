@@ -17,7 +17,6 @@ uses
   SysUtils,
   Classes,
   Generics.Collections,
-  Math,
 
   Net.SocketAPI,
   Net.CrossSocket.Base,
@@ -620,8 +619,6 @@ procedure TCrossWebSocketClientConnection.WsSend(const AData: TStream;
   const AOffset, ACount: Int64; const ACallback: TWsClientCallback);
 var
   LOffset, LCount: Int64;
-  LBody: TStream;
-  LBuffer: TBytes;
 begin
   LOffset := AOffset;
   LCount := ACount;
@@ -633,33 +630,16 @@ begin
     Exit;
   end;
 
-  LBody := AData;
-  LBody.Position := LOffset;
-
-  SetLength(LBuffer, SND_BUF_SIZE);
-
-  WsSend(
-    // BODY
-    function(const AData: PPointer; const ACount: PNativeInt): Boolean
-    begin
-      if (LCount <= 0) then Exit(False);
-
-      AData^ := @LBuffer[0];
-      ACount^ := LBody.Read(LBuffer[0], Min(LCount, SND_BUF_SIZE));
-
-      // 已声明的剩余长度尚未读完，不能把提前 EOF 当成成功终帧。
-      if ACount^ <= 0 then
-        raise EReadError.Create('WebSocket 数据流在预期长度前结束');
-      Dec(LCount, ACount^);
-      Result := True;
-    end,
-    // CALLBACK
+  AData.Position := LOffset;
+  if (FWebSocket = nil) or (ConnectStatus in [csDisconnected, csClosed]) then
+  begin
+    if Assigned(ACallback) then ACallback(False);
+    Exit;
+  end;
+  FWsSender.SendStream(AData, LCount,
     procedure(const ASuccess: Boolean)
     begin
-      LBuffer := nil;
-
-      if Assigned(ACallback) then
-        ACallback(ASuccess);
+      if Assigned(ACallback) then ACallback(ASuccess);
     end);
 end;
 
