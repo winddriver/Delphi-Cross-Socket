@@ -929,6 +929,19 @@ procedure TCrossWebSocketServer.DoOnRequest(
 var
   LConnection: ICrossWebSocketConnection;
   LConnectionObj: TCrossWebSocketConnection;
+  LKeys, LVersions, LHosts: TArray<string>;
+  LValid, LWrongVersion: Boolean;
+
+  procedure RejectHandshake(const ACode: Integer);
+  begin
+    AResponse.Header[HEADER_CONNECTION] := 'close';
+    AResponse.SendStatus(ACode,
+      procedure(const C: ICrossConnection; const OK: Boolean)
+      begin
+        // 先让已写出的 HTTP 错误响应正常结束，避免立即 Close 丢弃内核发送数据。
+        if C <> nil then C.Disconnect;
+      end);
+  end;
 begin
   LConnection := AConnection as ICrossWebSocketConnection;
   LConnectionObj := LConnection as TCrossWebSocketConnection;
@@ -944,15 +957,43 @@ begin
     Sec-WebSocket-Version: 13
   }
   // 判断是否收到 websocket 握手请求, 直接使用入参 request 避免读取连接字段
-  if ContainsText(ARequest.Header[HEADER_UPGRADE], WEBSOCKET)
-    and ContainsText(ARequest.Header[HEADER_CONNECTION], HEADER_UPGRADE) then
+  if ARequest.Header.ContainsToken(HEADER_UPGRADE, WEBSOCKET)
+    or ARequest.Header.ExistsParam(HEADER_SEC_WEBSOCKET_KEY)
+    or ARequest.Header.ExistsParam(HEADER_SEC_WEBSOCKET_VERSION) then
   begin
+    LValid := (ARequest.Method = THttpMethod.GET)
+      and TCrossWebSocketParser.IsValidHttpVersion(ARequest.Version)
+      and ARequest.Header.ContainsToken(HEADER_UPGRADE, WEBSOCKET)
+      and ARequest.Header.ContainsToken(HEADER_CONNECTION, HEADER_UPGRADE);
+    LValid := ARequest.Header.GetHeaderValues(HEADER_HOST, LHosts) and LValid;
+    LValid := LValid and (Length(LHosts) = 1);
+    if Length(LHosts) = 1 then LValid := LValid and (LHosts[0].Trim <> '');
+    LValid := ARequest.Header.GetHeaderValues(HEADER_SEC_WEBSOCKET_KEY, LKeys) and LValid;
+    LValid := LValid and (Length(LKeys) = 1);
+    if Length(LKeys) = 1 then
+      LValid := LValid and TCrossWebSocketParser.IsValidSecWebSocketKey(LKeys[0]);
+    LValid := ARequest.Header.GetHeaderValues(HEADER_SEC_WEBSOCKET_VERSION, LVersions) and LValid;
+    LValid := LValid and (Length(LVersions) = 1);
+    if not LValid then
+    begin
+      RejectHandshake(400);
+      Exit;
+    end;
+    LWrongVersion := LVersions[0] <> WEBSOCKET_VERSION;
+    if LWrongVersion then
+    begin
+      AResponse.Header[HEADER_SEC_WEBSOCKET_VERSION] := WEBSOCKET_VERSION;
+      RejectHandshake(426);
+      Exit;
+    end;
     LConnectionObj.FIsWebSocket := True;
     _WebSocketHandshake(LConnection, ARequest, AResponse,
       procedure(const AConnection: ICrossWebSocketConnection; const ASuccess: Boolean)
       begin
         if ASuccess then
-          _OnOpen(AConnection);
+          _OnOpen(AConnection)
+        else
+          _CloseCrossData(AConnection);
       end);
   end else
     inherited DoOnRequest(LConnection, ARequest, AResponse);

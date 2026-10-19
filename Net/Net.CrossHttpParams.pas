@@ -273,6 +273,8 @@ type
   /// </summary>
   THttpHeader = class(TBaseParams)
   public
+    // 在所有同名头中匹配完整的逗号分隔 token，不接受子串。
+    function ContainsToken(const AName, AToken: string): Boolean;
     /// <summary>
     ///   从已编码的字符串中解码
     /// </summary>
@@ -1496,6 +1498,23 @@ begin
     Result := True;
   end;
   SetLength(AValues, LCount);
+end;
+
+function THttpHeader.ContainsToken(const AName, AToken: string): Boolean;
+var
+  LHeader: TNameValue;
+  LToken, LValue: string;
+begin
+  if not _IsHttpToken(AToken) then Exit(False);
+  for LHeader in Self do
+    if TStrUtils.SameText(LHeader.Name, AName) then
+      for LToken in LHeader.Value.Split([',']) do
+      begin
+        LValue := LToken.Trim;
+        // HTTP token 只有 ASCII；不能让 Unicode 大小写折叠把其他字符当成协议名。
+        if _IsHttpToken(LValue) and TStrUtils.SameText(LValue, AToken) then Exit(True);
+      end;
+  Result := False;
 end;
 
 procedure TBaseParams.Remove(const AName: string);

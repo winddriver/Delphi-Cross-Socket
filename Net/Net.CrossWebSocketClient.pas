@@ -962,6 +962,7 @@ function TCrossWebSocket.Open: ICrossWebSocket;
 var
   LWebSocket: ICrossWebSocket;
   LSecWebSocketKey, LSecWebSocketAccept: string;
+  LProtocols: TArray<string>;
 begin
   LWebSocket := Self;
   Result := LWebSocket;
@@ -994,8 +995,17 @@ begin
       ARequest.Header[HEADER_SEC_WEBSOCKET_KEY] := LSecWebSocketKey;
       ARequest.Header[HEADER_SEC_WEBSOCKET_VERSION] := WEBSOCKET_VERSION;
       _OnOpenRequest(ARequest);
+      // 按扩展回调之后实际发送的 key 和子协议验证响应。
+      LSecWebSocketAccept := TCrossWebSocketParser.MakeSecWebSocketAccept(
+        ARequest.Header[HEADER_SEC_WEBSOCKET_KEY].Trim);
+      ARequest.Header.GetHeaderValues('Sec-WebSocket-Protocol', LProtocols);
     end,
     procedure(const AResponse: ICrossHttpClientResponse)
+    var
+      LAccept, LSelected, LUpgrade: TArray<string>;
+      LOffer, LToken: string;
+      LValid, LProtocolFound: Boolean;
+      C: Char;
     begin
       {
         HTTP/1.1 101 Switching Protocols
@@ -1004,7 +1014,13 @@ begin
         Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
       }
       try
-        _OnOpenResponse(AResponse);
+        try
+          _OnOpenResponse(AResponse);
+        except
+          if AResponse <> nil then _CloseCrossData(AResponse.Connection);
+          _OnClose;
+          raise;
+        end;
         // 连接失败
         if (AResponse = nil) then
         begin
@@ -1013,8 +1029,37 @@ begin
         end;
 
         // 验证失败
-        if (LSecWebSocketAccept <> AResponse.Header[HEADER_SEC_WEBSOCKET_ACCEPT]) then
+        LValid := (AResponse.StatusCode = 101) and (AResponse.Connection <> nil)
+          and TCrossWebSocketParser.IsValidHttpVersion((AResponse as TCrossHttpClientResponse).Version)
+          and AResponse.Header.ContainsToken(HEADER_UPGRADE, WEBSOCKET)
+          and AResponse.Header.ContainsToken(HEADER_CONNECTION, HEADER_UPGRADE);
+        LValid := AResponse.Header.GetHeaderValues(HEADER_UPGRADE, LUpgrade) and LValid;
+        LValid := LValid and (Length(LUpgrade) = 1);
+        if Length(LUpgrade) = 1 then LValid := LValid and SameText(LUpgrade[0], WEBSOCKET);
+        LValid := AResponse.Header.GetHeaderValues(HEADER_SEC_WEBSOCKET_ACCEPT, LAccept) and LValid;
+        LValid := LValid and (Length(LAccept) = 1);
+        if Length(LAccept) = 1 then LValid := LValid and (LAccept[0].Trim = LSecWebSocketAccept);
+        // 当前没有实现协议扩展，不能仅因用户写入请求头就接受压缩等扩展。
+        LValid := LValid and not AResponse.Header.ExistsParam('Sec-WebSocket-Extensions');
+        if AResponse.Header.GetHeaderValues('Sec-WebSocket-Protocol', LSelected) then
         begin
+          LProtocolFound := False;
+          if (Length(LSelected) = 1) and (LSelected[0] <> '') then
+          begin
+            for LOffer in LProtocols do
+              // Encode 会过滤非法头值，这些值不能被视为已经发出的提议。
+              if TCrossHttpUtils.IsValidHeaderValue(LOffer) then
+                for LToken in LOffer.Split([',']) do
+                  if LToken.Trim = LSelected[0] then LProtocolFound := True;
+            for C in LSelected[0] do
+              if not TCrossHttpUtils.IsTokenChar(C) then LProtocolFound := False;
+          end;
+          LValid := LValid and LProtocolFound;
+        end;
+        if not LValid then
+        begin
+          // 101 已从 HTTP 池移出；握手拒绝必须真正关闭，不能只改变 WS 状态。
+          _CloseCrossData(AResponse.Connection);
           _OnClose;
           Exit;
         end;

@@ -139,6 +139,8 @@ type
     class function MakeFrameData(AOpCode: Byte; AFin, AIsServer: Boolean;
       AData: Pointer; ADataSize: UInt64): TBytes; static;
     class function NewSecWebSocketKey: string; static;
+    class function IsValidSecWebSocketKey(const AKey: string): Boolean; static;
+    class function IsValidHttpVersion(const AVersion: string): Boolean; static;
     class function MakeSecWebSocketAccept(const ASecWebSocketKey: string): string; static;
 
     // 开始接收前配置。独立解析器默认保留原有掩码、扩展及文本策略；
@@ -702,6 +704,36 @@ begin
   Result := TBase64Utils.Encode(
     THashSHA1.GetHashBytes(ASecWebSocketKey + WS_MAGIC_STR)
   );
+end;
+
+class function TCrossWebSocketParser.IsValidSecWebSocketKey(const AKey: string): Boolean;
+var
+  LBytes: TBytes;
+begin
+  Result := False;
+  if (Length(AKey) <> 24) or (Copy(AKey, 23, 2) <> '==') then Exit;
+  try
+    LBytes := TBase64Utils.Decode(AKey);
+    Result := (Length(LBytes) = 16) and (TBase64Utils.Encode(LBytes) = AKey);
+  except
+    on E: Exception do Result := False;
+  end;
+end;
+
+class function TCrossWebSocketParser.IsValidHttpVersion(const AVersion: string): Boolean;
+var
+  LParts: TArray<string>;
+  LMajor, LMinor: Integer;
+  C: Char;
+begin
+  Result := False;
+  if Copy(AVersion, 1, 5) <> 'HTTP/' then Exit;
+  LParts := Copy(AVersion, 6, MaxInt).Split(['.']);
+  if (Length(LParts) <> 2) or (LParts[0] = '') or (LParts[1] = '') then Exit;
+  for C in LParts[0] + LParts[1] do
+    if (C < '0') or (C > '9') then Exit;
+  if not TryStrToInt(LParts[0], LMajor) or not TryStrToInt(LParts[1], LMinor) then Exit;
+  Result := (LMajor > 1) or ((LMajor = 1) and (LMinor >= 1));
 end;
 
 class function TCrossWebSocketParser.NewSecWebSocketKey: string;

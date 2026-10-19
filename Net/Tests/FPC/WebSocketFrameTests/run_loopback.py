@@ -5,7 +5,7 @@ EXE=Path(sys.argv[1]).resolve()
 MAGIC='258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 def launch(*args):
-    return subprocess.Popen([str(EXE),*args],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,creationflags=subprocess.CREATE_NO_WINDOW)
+    return subprocess.Popen([str(EXE),*args],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
 
 def read_ready(p):
     q=queue.Queue()

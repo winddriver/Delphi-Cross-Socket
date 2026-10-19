@@ -93,3 +93,24 @@ Linux 构建后在实际 Linux 环境运行同一脚本并加 `--run-only`；产
 这些专项只控制底层完成时刻，运行真实 Sender/编码器，不等于 TCP 测试。主代理另以最终 Sender 和本轮握手修复重编原四个 Windows 目标，组件、每目标 11,056 合法帧组合及 11 个 TCP 回环均通过；Linux 两目标的既有 11 个真实回环也通过。没有新增吞吐或长期压力结论；前文性能数字属于更早批次。
 
 低层 `Send(fin=False)` 是手动帧接口，仍由调用方管理分片顺序；项目现有高层数据入口均为完整帧或统一 `SendChunks`，由本批消息队列保证顺序。关闭/取消行为已在上述回归分别验证，不将其泛化为任意底层手工帧序列的自动重组。
+
+## A08 / F15 双向握手校验
+
+按 [RFC 6455 §4.1](https://www.rfc-editor.org/rfc/rfc6455.html#section-4.1) 和 [§4.2.1](https://www.rfc-editor.org/rfc/rfc6455.html#section-4.2.1) 校验。服务端要求 GET、HTTP 版本不低于 1.1、完整 Upgrade/Connection token、单个 Host/key/version、可解码为 16 字节的规范 Base64 key及支持的 WS 版本；不支持版本回复 426 并声明 13。HTTP 版本检查不代表新增 HTTP/2 协议支持。
+
+客户端要求 101、正确版本/Upgrade/Connection、唯一且匹配的 Accept；子协议必须是实际提议过的合法 token且区分大小写。当前不实现协议扩展，即使调用方自行写入提议，也拒绝服务器宣告使用它。错误握手实际关闭 TCP，服务端先正常发完错误响应再断开；请求回调改变 key 后按实际值验证，响应观察回调抛异常也完成关闭。
+
+`THttpHeader.ContainsToken` 检查所有同名头，按完整逗号分隔的 ASCII token 匹配；具体响应类新增只读 Version 属性，不改变既有接口布局。原重复头读取、普通 HTTP 和标准端点仍由回归覆盖。
+
+```powershell
+python -B build_handshake_tests.py win64 win32 fpc64 delphi-linux64 fpc-linux64 --label f15-final-ascii
+python -B run_handshake_tests.py bin/f15-final-ascii/win64/WebSocketLoopback.exe --report bin/f15-final-ascii/win64/results.json
+```
+
+其他 Windows 目标替换路径；Linux 在实际环境用 python3 运行同一脚本与无 `.exe` 的产物。独立脚本不会安装依赖，服务端使用本机临时端口，父进程在允许子进程析构之前先核验拒绝后的 TCP 关闭，避免把析构关闭当作验证通过。
+
+原版 Delphi/FPC Win64 各 **9/40**，在 `bin/f15-baseline-{win64,fpc64}/` 保存源码、二进制与结果。POST/HEAD、伪 token、缺失/非法/重复 key/version、错误响应状态和协商字段被原版接受；正确 Accept 的缺失校验与坏 Accept 后不真正关闭均有运行证据。
+
+首轮后补充自定义 key、非法子协议、观察回调异常。独立复核再以两目标 **43/45** 复现合法 key 首尾空白被误拒绝、被 Encode 丢弃的非法协议头仍被当成已提议；修复前快照在 `bin/f15-before-request-boundaries/`。另在 FPC Linux 实测 `webſocket` 被 Unicode 大小写折叠误识别为 websocket，保存为 `bin/f15-final-boundaries/fpc-linux64/unicode-baseline.json`；ASCII token校验修复后拒绝。
+
+最终 Delphi Win64/Win32、FPC Win64、Delphi/FPC Linux64 各 **47/47，共 235/235**；最终结果和源码/二进制哈希在 `bin/f15-final-ascii/<target>/`。前述四 Windows 目标的完整组件/合法帧矩阵/11 个回环，以及两 Linux 目标的原 11 个真实回环，均在本轮 F14/F15 组合下通过。未验证浏览器、HTTPS 握手矩阵、macOS 或生产长压，不从这些结果推导吞吐收益。

@@ -1142,6 +1142,8 @@ type
     class function Create(const AStatusCode: Integer; const AStatusText: string = ''): ICrossHttpClientResponse; overload; static;
     procedure _SetStatus(const AStatusCode: Integer; const AStatusText: string = '');
 
+    // 具体类提供已解析的协议版本，保持既有接口布局不变。
+    property Version: string read FHttpVer;
     property Connection: ICrossHttpClientConnection read GetConnection;
     property Header: THttpHeader read GetHeader;
     property Cookies: TResponseCookies read GetCookies;
