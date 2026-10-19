@@ -2984,7 +2984,7 @@ var
   n, e, d: PBIGNUM;
 begin
   Result := False;
-  FillChar(ACertInfo, SizeOf(TCertInfo), 0);
+  ACertInfo := Default(TCertInfo);
 
   if (ACert = nil) then Exit;
 
@@ -3406,7 +3406,7 @@ var
   LCert: PX509;
 begin
   Result := False;
-  FillChar(ASslInfo, SizeOf(TSslInfo), 0);
+  ASslInfo := Default(TSslInfo);
 
   if (ASsl = nil) then Exit;
 
@@ -3421,18 +3421,23 @@ begin
   // 当前加密位数
   ASslInfo.CurrentCipherBits := SSL_get_cipher_bits(ASsl);
 
-  // 临时密钥
-  SSL_get_peer_tmp_key(ASsl, @LTempKey);
-  // 临时密钥ID(1034=NID_X25519)
-  ASslInfo.TmpKeyID := EVP_PKEY_get_id(LTempKey);
-  // 临时密钥类型(X25519)
-  ASslInfo.TmpKeyType := UTF8ToString(EVP_PKEY_get0_type_name(LTempKey));
-  // 临时密钥密码位数(253)
-  ASslInfo.TmpKeyBits := EVP_PKEY_get_bits(LTempKey);
-  // 临时密钥安全位数(128)
-  ASslInfo.TmpKeySecurityBits := EVP_PKEY_get_security_bits(LTempKey);
-  // 临时密钥输出缓冲区字节数(32)
-  ASslInfo.TmpKeyOutSize := EVP_PKEY_get_size(LTempKey);
+  // 未握手或未使用临时密钥时可能取不到；成功取得的引用由调用方释放。
+  LTempKey := nil;
+  if (SSL_get_peer_tmp_key(ASsl, @LTempKey) = 1) and (LTempKey <> nil) then
+  try
+    // 临时密钥ID(1034=NID_X25519)
+    ASslInfo.TmpKeyID := EVP_PKEY_get_id(LTempKey);
+    // 临时密钥类型(X25519)
+    ASslInfo.TmpKeyType := UTF8ToString(EVP_PKEY_get0_type_name(LTempKey));
+    // 临时密钥密码位数(253)
+    ASslInfo.TmpKeyBits := EVP_PKEY_get_bits(LTempKey);
+    // 临时密钥安全位数(128)
+    ASslInfo.TmpKeySecurityBits := EVP_PKEY_get_security_bits(LTempKey);
+    // 临时密钥输出缓冲区字节数(32)
+    ASslInfo.TmpKeyOutSize := EVP_PKEY_get_size(LTempKey);
+  finally
+    EVP_PKEY_free(LTempKey);
+  end;
 
   // 证书信息
   LCert := SSL_get0_peer_certificate(ASsl);
