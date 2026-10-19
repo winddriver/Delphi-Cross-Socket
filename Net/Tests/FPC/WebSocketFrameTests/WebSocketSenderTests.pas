@@ -2,10 +2,12 @@
 {$I zLib.inc}
 interface
 procedure RunWebSocketSenderTests;
+procedure RunWebSocketMessageQueueTest(const AName:string);
 implementation
 uses SysUtils, Classes, SyncObjs, Generics.Collections, Net.SocketAPI, Net.CrossSocket.Base,
-  Net.CrossWebSocketParser, Net.CrossWebSocketSender, Net.CrossWebSocketClient,
-  Net.CrossWebSocketServer, Net.CrossSslSocket.OpenSSL;
+  Net.CrossWebSocketParser, Net.CrossWebSocketSender
+  {$IFNDEF WS_SENDER_ONLY}, Net.CrossWebSocketClient,
+  Net.CrossWebSocketServer, Net.CrossSslSocket.OpenSSL{$ENDIF};
 type
   TTestConnection = class(TCrossConnectionBase)
   protected
@@ -15,23 +17,38 @@ type
     WriteLock:TCriticalSection;
     Frames:TList<TBytes>;
     Pending:TList<TCrossConnectionCallback>;
+    PendingBuffers:TList<Pointer>;
+    PendingBytes:TList<TBytes>;
     AutoComplete, RaiseBefore, RaiseAfter:Boolean;
-    CloseCount, DisconnectCount:Integer;
+    CloseCount, DisconnectCount, SendDepth, MaxSendDepth, BufferChecks:Integer;
     constructor Create; reintroduce;
     destructor Destroy; override;
     procedure Close; override;
     procedure Disconnect; override;
     procedure Complete(const ASuccess:Boolean);
   end;
+  TOwnedSenderConnection = class(TTestConnection)
+  public
+    Sender:TCrossWebSocketSender;
+    Destroyed:PInteger;
+    destructor Destroy; override;
+  end;
+destructor TOwnedSenderConnection.Destroy;
+begin
+  Sender.Free;
+  if Destroyed<>nil then Inc(Destroyed^);
+  inherited;
+end;
 constructor TTestConnection.Create;
 begin
   inherited Create(nil,INVALID_SOCKET,ctConnect,'',nil);
   ConnectStatus:=csConnected;AutoComplete:=True;
   WriteLock:=TCriticalSection.Create;
   Frames:=TList<TBytes>.Create;Pending:=TList<TCrossConnectionCallback>.Create;
+  PendingBuffers:=TList<Pointer>.Create;PendingBytes:=TList<TBytes>.Create;
 end;
 destructor TTestConnection.Destroy;
-begin Pending.Free;Frames.Free;WriteLock.Free;inherited;end;
+begin PendingBytes.Free;PendingBuffers.Free;Pending.Free;Frames.Free;WriteLock.Free;inherited;end;
 procedure TTestConnection.Close;
 begin if IsClosed then Exit;Inc(CloseCount);ConnectStatus:=csClosed;end;
 procedure TTestConnection.Disconnect;
@@ -40,22 +57,30 @@ procedure TTestConnection.DirectSend(const ABuffer:Pointer;const ACount:Integer;
   const ACallback:TCrossConnectionCallback);
 var LData:TBytes;
 begin
+  Inc(SendDepth);if SendDepth>MaxSendDepth then MaxSendDepth:=SendDepth;
+  try
   if RaiseBefore then raise Exception.Create('发送前异常');
   SetLength(LData,ACount);if ACount>0 then Move(ABuffer^,LData[0],ACount);
   WriteLock.Enter;try Frames.Add(LData);finally WriteLock.Leave;end;
   if AutoComplete then begin if Assigned(ACallback) then ACallback(Self,True);end
-  else Pending.Add(ACallback);
+  else begin Pending.Add(ACallback);PendingBuffers.Add(ABuffer);PendingBytes.Add(LData);end;
   if RaiseAfter then raise Exception.Create('完成后异常');
+  finally Dec(SendDepth);end;
 end;
 procedure TTestConnection.Complete(const ASuccess:Boolean);
-var LCallback:TCrossConnectionCallback;
+var LCallback:TCrossConnectionCallback;LBytes:TBytes;LBuffer:Pointer;
 begin
   if Pending.Count=0 then raise Exception.Create('没有待完成发送');
+  LBuffer:=PendingBuffers[0];LBytes:=PendingBytes[0];
+  if (Length(LBytes)>0) and not CompareMem(LBuffer,@LBytes[0],Length(LBytes)) then
+    raise Exception.Create('物理完成前发送缓冲区被释放或改写');
+  Inc(BufferChecks);PendingBuffers.Delete(0);PendingBytes.Delete(0);
   LCallback:=Pending[0];Pending.Delete(0);
   if Assigned(LCallback) then LCallback(Self,ASuccess);
 end;
 procedure Check(const AValue:Boolean;const AMessage:string);
 begin if not AValue then raise Exception.Create(AMessage);end;
+{$I WebSocketMessageQueueTests.inc}
 procedure RunWebSocketSenderTests;
 var C:TTestConnection; Keep:ICrossConnection; S:TCrossWebSocketSender;
     Calls,ReadCount,I,N:Integer; LastSuccess,Raised:Boolean; Data:Byte; Err:string;
@@ -185,7 +210,7 @@ begin
     for I:=0 to High(Threads) do Threads[I].Free;
     Start.Free;Cleanup;
   end;
-  {$IFDEF CROSS_OPENSSL_SELFTEST}
+  {$IF Defined(CROSS_OPENSSL_SELFTEST) and not Defined(WS_SENDER_ONLY)}
   Check(CrossOpenSslSelfTest_CloseDrainsPendingWrites(Err),Err);
   Check(CrossOpenSslSelfTest_PendingCallbackExceptionDoesNotStall(Err),Err);
   {$ENDIF}

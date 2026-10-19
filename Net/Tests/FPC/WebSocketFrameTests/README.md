@@ -72,3 +72,24 @@ python run_loopback_bench.py
 
 - 真实回环端到端：32 字节回声/空 Ping 在约 ±2% 的运行波动范围内；64 KiB 回声耗时下降约 62%–69%。没有把纯解析提升直接等同于服务器吞吐提升。
 - 初版的逐字节输入退化已通过正文续收入口、减少重复异常帧和单字节掩码提交顺序调整消除。
+
+## A08 / F14 完整消息发送顺序（后续修复）
+
+`SendChunks` 从起始帧到最终 continuation 保持完整消息的发送顺序；其后的字符串或其他流按 FIFO 等待。控制帧在完整物理帧之间发送，包含 Win32 分段发送。排队的普通载荷在调用返回前复制，未轮到的 provider 不预读，在途帧保留至物理完成。公开方法签名不变，需完整重编译。
+
+Close 取消尚未开始的数据消息，活动流在当前帧完成后停止续读并失败通知一次；已在途的整条消息或最终帧按物理结果结算。关闭前已接纳的控制帧可在 Close 前发送。同步完成使用循环推进；异常先结算其他项目，再传播首个同步异常，不把已经成功通知的消息改报为第二次失败。
+
+```powershell
+python -B run_sender_tests.py win64 win32 win32-pieces fpc64 --label current
+python -B run_sender_tests.py delphi-linux64 fpc-linux64 --label current --build-only
+```
+
+Linux 构建后在实际 Linux 环境运行同一脚本并加 `--run-only`；产物位于 `bin/sender-current/<target>/`。仅测试构建启用 `WS_SENDER_TESTS`，在 Close 构帧之前注入异常及超时，用以固定稀有收尾路径；没有声称操作系统随机源真实发生故障。
+
+六个目标各 **21/21，共 126/126**：Delphi Win64/Win32/Win32 分段发送、FPC Win64、Delphi/FPC Linux64。包括原 legacy 集合、FIFO/控制帧/同步深度、源错误、关闭和超时、取消回调异常、准备期间跨线程 Close、最后外部引用释放、排队后原缓冲改写及 Close 构帧故障。
+
+首批四项在 Delphi/FPC Win64 均红，legacy 原本通过，记录为 `bin/sender-baseline/`。复核新增的 Close 构帧失败在 `bin/sender-close-baseline/` 再次红：默认无超时会留在 closing；修复后构帧在锁外进行，失败实际关闭连接，构帧期间超时也不再提交 Close。
+
+这些专项只控制底层完成时刻，运行真实 Sender/编码器，不等于 TCP 测试。主代理另以最终 Sender 和本轮握手修复重编原四个 Windows 目标，组件、每目标 11,056 合法帧组合及 11 个 TCP 回环均通过；Linux 两目标的既有 11 个真实回环也通过。没有新增吞吐或长期压力结论；前文性能数字属于更早批次。
+
+低层 `Send(fin=False)` 是手动帧接口，仍由调用方管理分片顺序；项目现有高层数据入口均为完整帧或统一 `SendChunks`，由本批消息队列保证顺序。关闭/取消行为已在上述回归分别验证，不将其泛化为任意底层手工帧序列的自动重组。
