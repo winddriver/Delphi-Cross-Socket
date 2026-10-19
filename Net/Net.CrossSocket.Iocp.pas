@@ -633,13 +633,18 @@ var
 
   procedure _Failed;
   begin
-    if not LListenSuccess and Assigned(ACallback) then
-      ACallback(LListen, False);
-
-    if (LListen <> nil) then
-      LListen.Close
-    else if (LListenSocket <> INVALID_SOCKET) then
-      TSocketAPI.CloseSocket(LListenSocket);
+    try
+      if not LListenSuccess and Assigned(ACallback) then
+        ACallback(LListen, False);
+    finally
+      if (LListen <> nil) then
+        LListen.Close
+      else if (LListenSocket <> INVALID_SOCKET) then
+      begin
+        TSocketAPI.CloseSocket(LListenSocket);
+        LListenSocket := INVALID_SOCKET;
+      end;
+    end;
   end;
 
   procedure _Success;
@@ -650,6 +655,7 @@ var
       ACallback(LListen, True);
   end;
 begin
+  LListenSocket := INVALID_SOCKET;
   LListenSuccess := False;
   FillChar(LHints, SizeOf(TRawAddrInfo), 0);
 

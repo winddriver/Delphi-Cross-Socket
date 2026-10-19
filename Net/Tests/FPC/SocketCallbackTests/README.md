@@ -72,8 +72,38 @@ Linux 注册失败场景只操作测试进程拥有的描述符：先 dup 保留
 - `before-closed-fix`：Windows/Linux 均复现 Closed 被 Disconnect 降级；Linux 还复现关闭后底层发送及发送/关闭竞争的通知悬挂。Windows 的后两项原本通过，作为相邻回归保留。
 - `before-early-fix`：失败回调抛异常使早期连接失败路径跳过 raw socket 关闭。20 次测量操作使 Windows 句柄数从 150 增至 170，FPC Linux fd 数从 7 增至 27；修复后三个 Windows 目标及两个 Linux 目标计数均保持不变。
 
-最终实际运行：Delphi Win64、Delphi Win32、FPC Win64 **各 14/14**；WSL Ubuntu 的 Delphi Linux64、FPC Linux64 **各 15/15**，合计 **72/72**。Linux BAD/GOOD 的 ProcessIoEvent 轮次一致，确认同批事件隔离。每个目标的两类竞争均各执行 100 轮。
+A04 提交前实际运行：Delphi Win64、Delphi Win32、FPC Win64 **各 14/14**；WSL Ubuntu 的 Delphi Linux64、FPC Linux64 **各 15/15**，合计 **72/72**。Linux BAD/GOOD 的 ProcessIoEvent 轮次一致，确认同批事件隔离。每个目标的两类竞争均各执行 100 轮。
 
 F01 `IocpLifecycleTests` 另按最终生产源码重新构建，三个 Windows 目标 **18/18 通过**，结果保存在该工程的 `bin/a04-regression/`。
 
 Kqueue 的 macOS x64 / ARM64 单元均编译通过。当前没有 macOS/FreeBSD 实机环境，因此 **没有 Kqueue 运行验证**；F05 注册引用问题仍属后续独立任务。本批未执行长期压力或吞吐性能测试，项目既有编译警告不计作本批消除目标。
+
+## F16：监听失败清理
+
+后续 F16 / A10.2 复用本工程，只修改三个后端的 Listen：入口先设置 `LListenSocket := INVALID_SOCKET`；失败通知使用 try/finally 清理当前拥有的 raw socket 或监听对象。未修改 Base、Kqueue 注册引用或发送容器。
+
+新增七项可单独运行：
+
+```powershell
+python build.py win64 win32 fpc64 fpc-linux64 delphi-linux64 --label f16-final
+python run_tests.py bin/f16-final/win64/SocketCallbackTests.exe --cases listen-dns listen-socket listen-bind listen-listen listen-register listen-callback listen-register-callback --output bin/f16-final/win64/results.json
+```
+
+其他目标替换产物路径；Linux 使用 python3。七项分别覆盖地址解析失败、socket 创建失败、绑定冲突、listen 调用失败、事件注册失败、raw socket 失败回调抛异常，以及回调保留失败监听对象后抛异常。
+
+每项执行 20 次失败尝试，验证通知次数及资源计数；过程中保留一个正常监听、一条已连接 TCP 和一个只读文件，失败后既有连接继续收发，原监听还能接入新连接，文件仍可读取。
+
+注入边界：
+
+- Windows 用 Net.Winsock2 已有函数变量观测 close，并注入 socket/listen 的错误返回；DNS 失败路径必须没有项目发出的 close 调用。
+- Linux socket/listen 错误由四条 seccomp 指令在测试主线程中返回指定 errno；不修改全局配置，已有 I/O 线程不受该过滤器影响。该注入仅适用于 Linux x86_64。
+- 注册失败使用另一个已经 StopLoop 的测试实例，其事件句柄失效，从而触发真实注册错误；不停止主实例的正常监听。
+- 所有注入都只在对应测试子进程中生效。不制造栈值来控制未初始化变量。
+
+红基线位于 `bin/f16-baseline/`：Windows 地址解析失败 20 次错误调用了 close 20 次；监听失败回调抛异常使 Windows 句柄从 156 增至 176、FPC Linux fd 从 10 增至 30。Linux 本机的未初始化值没有碰巧误关存活资源，DNS 原版用例通过，此项不冒称 Linux 动态复现。其他阶段的正常失败清理原版通过，作为相邻回归保留。
+
+Windows 首次无效地址查询会初始化系统缓存句柄，例中计数为 155→164；它不是本项目 socket 泄漏。DNS 采用零 close 观测和既有资源存活断言；已预热的其他失败分支才使用句柄数保持不变的断言。
+
+修复后重新构建，Delphi Win64、Win32、FPC Win64、Delphi Linux64、FPC Linux64 的七项均通过，共 **35/35**，记录在 `bin/f16-final/<target>/`。三个 Windows DNS 用例的项目 close 次数均为 0；失败回调不再增加句柄。保留监听对象后抛异常的补充项也验证对象已经关闭，不能依赖接口最终释放才清理。
+
+Kqueue x64/ARM64 再次仅编译通过，无 macOS/FreeBSD 运行验证。F16 的 35 项与上面的历史 A04 72 项分开记录，不把未重跑的历史场景计作本轮全套运行。

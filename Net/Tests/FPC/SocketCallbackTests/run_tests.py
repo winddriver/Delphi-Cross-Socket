@@ -8,6 +8,7 @@ import threading
 from pathlib import Path
 
 CASES = ["batch", "accept", "sent-event", "send-callback", "pending-send", "cancel-sends", "cancel-error", "stop", "connect-callback", "connect-race", "send-close-race", "closed-state", "closed-send", "early-failure"]
+CASES += ["listen-dns", "listen-socket", "listen-bind", "listen-listen", "listen-register", "listen-callback", "listen-register-callback"]
 if sys.platform.startswith("linux"):
     CASES.append("register-failure")
 
@@ -27,14 +28,15 @@ def receive_closed(connection):
 def run(executable, case):
     listener = None
     args = [str(executable), case]
-    if case in ("connect-callback", "early-failure"):
+    if case in ("connect-callback", "early-failure", "listen-bind", "listen-callback"):
         listener = socket.socket()
-        if case == "early-failure" and sys.platform == "win32":
+        if case != "connect-callback" and sys.platform == "win32":
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         listener.bind(("0.0.0.0", 0))
         listener.listen()
         listener.settimeout(5)
-        args.append(str(listener.getsockname()[1]))
+        if case in ("connect-callback", "early-failure"):
+            args.append(str(listener.getsockname()[1]))
     process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -77,7 +79,7 @@ def run(executable, case):
     try:
         if case in ("connect-race", "send-close-race", "closed-state", "closed-send", "early-failure"):
             process.wait(timeout=15)
-        elif listener:
+        elif case == "connect-callback":
             peer, _ = listener.accept()
             peers.append(peer)
             process.wait(timeout=8)
@@ -136,6 +138,17 @@ def run(executable, case):
             elif case == "stop":
                 for _ in range(3):
                     connect(port)
+            elif case.startswith("listen-"):
+                peer = connect(port)
+                ping(peer)
+                if case not in ("listen-bind", "listen-callback"):
+                    command(case)
+                else:
+                    command(("listen-bind " if case == "listen-bind" else "listen-throw ") +
+                            str(listener.getsockname()[1]))
+                wait("LISTEN_CHECKED")
+                ping(peer)
+                ping(connect(port))
             command("stop")
             process.wait(timeout=8)
     except Exception as failure:
