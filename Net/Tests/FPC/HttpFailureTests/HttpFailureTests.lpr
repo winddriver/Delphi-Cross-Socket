@@ -483,6 +483,13 @@ begin
   LPort := 0;
   LServer.Addr := '127.0.0.1';
   LServer.BodyPolicy := ParamStr(2) = 'body';
+  if ParamStr(2) = 'capacity' then
+  begin
+    LServer.HoldFirst := True;
+    {$IFDEF HTTP_QUEUE_LIMIT}
+    LServer.MaxPendingRequests := 2;
+    {$ENDIF}
+  end;
   LServer.Port := 0;
   LServer.Start(
     procedure(const AListen: ICrossListen; const ASuccess: Boolean)
@@ -505,6 +512,7 @@ end;
 {$I HttpSendPolicyTests.inc}
 {$I HttpBodyStorageTests.inc}
 {$I HttpBodyFlushTests.inc}
+{$I HttpQueueLimitTests.inc}
 
 begin
   try
@@ -528,6 +536,8 @@ begin
         TestBodyStorage(ParamStr(2))
       else if ParamStr(1) = 'flush' then
         TestBodyFlush(ParamStr(2))
+      else if ParamStr(1) = 'capacity' then
+        TestQueueLimit(ParamStr(2))
       else
         Check(False, 'unknown mode');
       Writeln('PASS ', ParamStr(1), ' ', ParamStr(2));

@@ -1765,6 +1765,7 @@ type
     FLastRequestLock: ILock;
     // 与 FLastRequest 共用锁，关闭后禁止再次发布请求。
     FRequestClosed: Boolean;
+    FMaxPendingRequests: Integer;
     FResponseObj: TCrossHttpResponse;
     FResponse: ICrossHttpResponse;
     FHttpParser: ICrossHttpParser;
@@ -2266,6 +2267,7 @@ type
     FMaxPostDataSize: Int64;
     FBodyMemoryThreshold: Int64;
     FBodyTempPath: string;
+    FMaxPendingRequests: Integer;
     FMaxHeaderSize: Int64;
     FMaxCompressRatio: Integer;
     FMinCompressSize: Int64;
@@ -2303,6 +2305,7 @@ type
     procedure SetMaxPostDataSize(const Value: Int64);
     procedure SetBodyMemoryThreshold(const Value: Int64);
     procedure SetBodyTempPath(const Value: string);
+    procedure SetMaxPendingRequests(const Value: Integer);
     procedure SetMaxCompressRatio(const Value: Integer);
     procedure SetCompressible(const Value: Boolean);
     procedure SetMinCompressSize(const Value: Int64);
@@ -2383,6 +2386,8 @@ type
     property BodyMemoryThreshold: Int64 read GetBodyMemoryThreshold write SetBodyMemoryThreshold;
     // 临时正文目录；空值使用程序目录下temp，不与上传文件StoragePath共用配置。
     property BodyTempPath: string read GetBodyTempPath write SetBodyTempPath;
+    // 单连接解析中、排队及在途请求总数；0不限，新连接创建时取值。
+    property MaxPendingRequests: Integer read FMaxPendingRequests write SetMaxPendingRequests;
     property MaxCompressRatio: Integer read GetMaxCompressRatio write SetMaxCompressRatio;
     property Compressible: Boolean read GetCompressible write SetCompressible;
     property MinCompressSize: Int64 read GetMinCompressSize write SetMinCompressSize;
@@ -2529,6 +2534,7 @@ begin
   FRequestClosed := False;
 
   FServer := AOwner as TCrossHttpServer;
+  FMaxPendingRequests := FServer.MaxPendingRequests;
 
   FResponseQueue := THttpResponseQueue.Create;
   FResponseQueueLock := TLock.Create;
@@ -3166,34 +3172,57 @@ end;
 procedure TCrossHttpConnection._OnParseBegin;
 var
   LItem: IHttpResponseQueueItem;
+  LPreviousRequest: ICrossHttpRequest;
+  LPreviousResponse: ICrossHttpResponse;
+  LRejected: Boolean;
 begin
   // 本函数以及其它 HttpParser 回调均由 FHttpParser.Decode -> ParseRecvData ->
   // FServer.LogicReceived -> TCrossSocketBase.TriggerReceived 同步触发,
   // 调用链起点已由 TriggerReceived 加上 TCrossConnectionBase._LockRecv,
   // 所以这里不需要也不应该重复加锁
 
-  // 为本次请求创建独立的 queue item, 队列顺序由解析顺序决定
-  LItem := THttpResponseQueueItem.Create;
-
-  FRequestObj := TCrossHttpRequest.Create(Self);
-  FRequest := FRequestObj;
-
-  // 创建响应对象, 显式绑定到 request 和 queue item, 确保异步发送时
-  // 不依赖连接级 FRequest/FResponse 字段
-  FResponseObj := TCrossHttpResponse.Create(Self, FRequest, LItem);
-  FResponse := FResponseObj;
-
-  LItem.Request := FRequest;
-  LItem.Response := FResponse;
-
-  FResponseQueueLock.Enter;
+  // 与关闭互斥，先拒绝超限请求，避免创建正文或误用前一请求的响应。
+  LRejected := False;
+  FLastRequestLock.Enter;
   try
-    FResponseQueue.Enqueue(LItem);
+    FResponseQueueLock.Enter;
+    try
+      LRejected := FRequestClosed or FResponseQueueClosed
+        or ((FMaxPendingRequests > 0) and (GetPending >= FMaxPendingRequests));
+      if LRejected then
+        FRequestClosed := True
+      else
+      begin
+        // 旧请求可能拥有文件；保留引用，使它的析构发生在状态锁外。
+        LPreviousRequest := FRequest;
+        LPreviousResponse := FResponse;
+        LItem := THttpResponseQueueItem.Create;
+        FRequestObj := TCrossHttpRequest.Create(Self);
+        FRequest := FRequestObj;
+        FResponseObj := TCrossHttpResponse.Create(Self, FRequest, LItem);
+        FResponse := FResponseObj;
+        LItem.Request := FRequest;
+        LItem.Response := FResponse;
+        FResponseQueue.Enqueue(LItem);
+        AtomicIncrement(FPending);
+      end;
+    finally
+      FResponseQueueLock.Leave;
+    end;
   finally
-    FResponseQueueLock.Leave;
+    FLastRequestLock.Leave;
   end;
-
-  AtomicIncrement(FPending);
+  LPreviousResponse := nil;
+  LPreviousRequest := nil;
+  if LRejected then
+  begin
+    // 不能插队发送503，也不能覆盖前一响应；终止解析后统一关闭和取消。
+    try
+      (FHttpParser as TCrossHttpParser).Fail(503, 'Too many pending requests.');
+    finally
+      Close;
+    end;
+  end;
 end;
 
 procedure TCrossHttpConnection._OnParseFailed(const ACode: Integer;
@@ -4296,6 +4325,13 @@ end;
 procedure TCrossHttpServer.SetBodyTempPath(const Value: string);
 begin
   FBodyTempPath := Value;
+end;
+
+procedure TCrossHttpServer.SetMaxPendingRequests(const Value: Integer);
+begin
+  if Value < 0 then
+    raise EArgumentOutOfRangeException.Create('MaxPendingRequests must not be negative');
+  FMaxPendingRequests := Value;
 end;
 
 function TCrossHttpServer.GetBodyMemoryThreshold: Int64;

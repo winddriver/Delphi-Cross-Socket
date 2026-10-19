@@ -56,7 +56,7 @@ class Responses:
 
 
 def run(executable, case):
-    process = subprocess.Popen([str(executable), "server"] + (["body"] if case == "body" else []), stdin=subprocess.PIPE,
+    process = subprocess.Popen([str(executable), "server"] + ([case] if case in ("body", "capacity") else []), stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     messages = queue.Queue()
@@ -78,7 +78,11 @@ def run(executable, case):
         with socket.create_connection(("127.0.0.1", int(ready.split()[1])), timeout=3) as connection:
             connection.settimeout(2)
             responses = Responses(connection)
-            if case in ('policy404', 'policy500', 'policyclose', 'requestclose', 'http10close', 'http10keep'):
+            if case == 'capacity':
+                expected = 2
+                connection.sendall(good('/first') + good('/second') + good('/third') + good('/tail'))
+                responses.closed()
+            elif case in ('policy404', 'policy500', 'policyclose', 'requestclose', 'http10close', 'http10keep'):
                 if case.startswith('policy'):
                     suffix = {'policy404': '404', 'policy500': '500', 'policyclose': 'close'}[case]
                     payload = good('/policy-' + suffix)

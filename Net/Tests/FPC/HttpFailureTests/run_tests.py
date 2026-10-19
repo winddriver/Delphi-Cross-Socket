@@ -28,7 +28,7 @@ CASES = (["parser-" + kind for kind in ("length", "conflict", "chunk", "crlf", "
                                       "request-end-close", "duplicate-physical", "ready-close-race", "logger")] +
          ["tcp-" + kind for kind in ("length", "conflict", "chunk", "crlf", "same", "split", "normal", "body",
                                     "trailer", "trailer-gzip", "trailer-bad", "policy404", "policy500", "policyclose",
-                                    "requestclose", "http10close", "http10keep")]
+                                    "requestclose", "http10close", "http10keep", "capacity")]
          + BODY_CASES + ['policy-' + kind for kind in (
              '404', '500', 'header-close', 'header-list', 'header-duplicates', 'header-nontoken',
              'request-list', 'request-duplicates', 'http10-default', 'http10-list', 'http10-close',
@@ -37,7 +37,8 @@ CASES = (["parser-" + kind for kind in ("length", "conflict", "chunk", "crlf", "
                                          'plain-stream-eof', 'gzip-stream-eof', 'plain-stream-short', 'gzip-stream-short')]
          + ['storage-' + kind for kind in ('default', 'below', 'equal', 'above', 'chunked', 'gzip', 'form',
                                           'disconnect', 'disk-error', 'separate-path', 'limit-plain', 'limit-gzip', 'large-limit', 'large-header-limit')]
-         + ['flush-' + kind for kind in ('plain', 'chunked', 'gzip')])
+         + ['flush-' + kind for kind in ('plain', 'chunked', 'gzip')]
+         + ['capacity-' + kind for kind in ('default', 'boundary', 'overflow', 'active', 'release', 'parsing', 'closed')])
 SOURCES = ["Net.CrossHttpParser.pas", "Net.CrossHttpServer.pas", "Net.CrossSocket.Base.pas",
            "Net.CrossSocket.Iocp.pas", "Net.CrossSocket.Epoll.pas", "Net.CrossSocket.Kqueue.pas"]
 
@@ -65,6 +66,8 @@ def build(target, output, label, source_root=None):
         args.insert(1, '-dHTTP_BODY_STORAGE' if target == 'fpc64' else '-DHTTP_BODY_STORAGE')
     if 'property BodyTempPath:' in server_source.read_text(encoding='utf-8-sig'):
         args.insert(1, '-dHTTP_BODY_TEMP_PATH' if target == 'fpc64' else '-DHTTP_BODY_TEMP_PATH')
+    if 'property MaxPendingRequests:' in server_source.read_text(encoding='utf-8-sig'):
+        args.insert(1, '-dHTTP_QUEUE_LIMIT' if target == 'fpc64' else '-DHTTP_QUEUE_LIMIT')
     result = subprocess.run(list(map(str, args)), cwd=HERE, capture_output=True,
                             timeout=120, creationflags=subprocess.CREATE_NO_WINDOW)
     (output / "build.log").write_bytes(result.stdout + result.stderr)
@@ -80,6 +83,7 @@ def build(target, output, label, source_root=None):
     metadata["policy_test_sha256"] = hashlib.sha256((HERE / "HttpSendPolicyTests.inc").read_bytes()).hexdigest()
     metadata["storage_test_sha256"] = hashlib.sha256((HERE / "HttpBodyStorageTests.inc").read_bytes()).hexdigest()
     metadata["flush_test_sha256"] = hashlib.sha256((HERE / "HttpBodyFlushTests.inc").read_bytes()).hexdigest()
+    metadata["capacity_test_sha256"] = hashlib.sha256((HERE / "HttpQueueLimitTests.inc").read_bytes()).hexdigest()
     metadata["Utils.IOUtils.pas"] = hashlib.sha256((REPO / 'Utils/Utils.IOUtils.pas').read_bytes()).hexdigest()
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print("BUILD PASS", target, flush=True)

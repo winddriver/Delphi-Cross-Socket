@@ -212,3 +212,13 @@ python -B run_storage_memory.py bin/o03-body-compatible/win64/HttpFailureTests.e
 ```
 
 Linux 运行仍使用 `run_linux.py`，传入带标签的两个目标路径；内存测量在 Linux 内使用相同 Python 入口。
+
+## O03a HTTP 请求排队容量
+
+启动监听前设置具体类 `ServerObject.MaxPendingRequests := 128`，每个新连接保存独立快照；默认 0 保持不限量，负数会同步拒绝。既有接口声明/GUID 不变。计数包含已经开始解析的请求、等待业务响应的请求、ready 响应和在途响应，不只看排队容器长度。
+
+在创建新请求和正文前检查容量，达到上限仍可完成已接纳的请求；再来一个请求则把 Parser 终结并关闭连接。不会用前一个请求的 Response 发送 503，也不会越过未完成响应插队发错误报文。未开始响应取消并归还计数；在途缓冲保留到物理完成，迟到成功按取消失败结算一次。正常完成后可再次利用空出的名额。此限额约束单连接请求数量，不是所有未知 provider 的字节预算，需与正文上限/落盘和各发送层的容量组合使用。
+
+新增 7 个组件场景：默认行为、恰好上限、超限、正在发送时超限、完成后复用、解析中正文计数，以及关闭后再输入。TCP 场景保持首响应未 ready，连续发送四个请求，验证第三个到来就关闭、前两个进入业务，后两个没有发布，且没有响应插队。
+
+红基线 `bin/o03-capacity-before/` 的 Delphi/FPC Win64 各 3/8 通过、5/8 失败，其中也复现了关闭后的 Decode 仍增加 Pending。修复后 `bin/o03-http-capacity/` 五目标完整套件各 142/142，共 710/710；Windows/Linux 使用真实 IOCP/Epoll 运行 TCP 场景，组件只控制物理完成时机。`HttpQueueLimitTests.inc` 的哈希纳入构建记录。期间其他模块的容量改动仍独立验证，不将这组 HTTP 结果当成 TLS/Socket 新限额的验证。

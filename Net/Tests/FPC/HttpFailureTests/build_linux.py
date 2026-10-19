@@ -39,6 +39,8 @@ def build(target, label=None):
         args.insert(1, '-dHTTP_BODY_STORAGE' if target == 'fpc-linux64' else '-DHTTP_BODY_STORAGE')
     if 'property BodyTempPath:' in (REPO / 'Net/Net.CrossHttpServer.pas').read_text(encoding='utf-8-sig'):
         args.insert(1, '-dHTTP_BODY_TEMP_PATH' if target == 'fpc-linux64' else '-DHTTP_BODY_TEMP_PATH')
+    if 'property MaxPendingRequests:' in (REPO / 'Net/Net.CrossHttpServer.pas').read_text(encoding='utf-8-sig'):
+        args.insert(1, '-dHTTP_QUEUE_LIMIT' if target == 'fpc-linux64' else '-DHTTP_QUEUE_LIMIT')
     result = subprocess.run(list(map(str, args)), cwd=HERE, capture_output=True,
                             timeout=120, creationflags=subprocess.CREATE_NO_WINDOW)
     (output / "build.log").write_bytes(result.stdout + result.stderr)
@@ -48,7 +50,7 @@ def build(target, label=None):
     sources = [REPO / "Net/Net.CrossHttpParser.pas", REPO / "Net/Net.CrossHttpServer.pas",
                REPO / "Net/Net.CrossSocket.Base.pas", REPO / "Net/Net.CrossSocket.Epoll.pas",
                HERE / "HttpFailureTests.lpr", HERE / "HttpResponseQueueTests.inc", HERE / "HttpBodyPolicyTests.inc",
-               HERE / "HttpSendPolicyTests.inc", HERE / "HttpBodyStorageTests.inc", HERE / "HttpBodyFlushTests.inc",
+               HERE / "HttpSendPolicyTests.inc", HERE / "HttpBodyStorageTests.inc", HERE / "HttpBodyFlushTests.inc", HERE / "HttpQueueLimitTests.inc",
                REPO / 'Utils/Utils.IOUtils.pas']
     metadata = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
