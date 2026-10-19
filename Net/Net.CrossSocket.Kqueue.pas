@@ -1068,47 +1068,53 @@ end;
 procedure TKqueueCrossSocket.Send(const AConnection: ICrossConnection;
   const ABuf: Pointer; const ALen: Integer; const ACallback: TCrossConnectionCallback);
 var
-  LKqConnection: TKqueueConnection;
+  LConnection: TKqueueConnection;
   LSendItem: PSendItem;
-  LCloseRequired: Boolean;
-  LQueued: Boolean;
+  LPrepared: TCrossConnectionCallback;
+  LCloseRequired, LQueued: Boolean;
 begin
-  // 测试过先发送, 然后将剩余部分放入发送队列的做法
-  // 发现会引起内存访问异常, 放到队列里到IO线程中发送则不会有问题
-  {$region '放入发送队列'}
-  System.New(LSendItem);
-  FillChar(LSendItem^, SizeOf(TSendItem), 0);
-  LSendItem.Data := ABuf;
-  LSendItem.Size := ALen;
-  LSendItem.Callback := ACallback;
-
-  LKqConnection := AConnection as TKqueueConnection;
-
+  if not _PrepareSend(AConnection, ABuf, ALen, ACallback, LPrepared) then Exit;
+  LSendItem := nil;
   LQueued := False;
   LCloseRequired := False;
   try
-    LKqConnection._KqLock;
     try
-      // 与关闭清空队列使用同一把锁，不能在清空后重新留下待完成项。
-      if not (LKqConnection.ConnectStatus in [csDisconnected, csClosed]) then
-      begin
-        LKqConnection.FSendQueue.Enqueue(LSendItem);
-        LQueued := True;
-
-        // kqueue 的读写注册独立，发送只更新写事件。
-        LKqConnection._UpdateIoEvent([ieWrite], LCloseRequired);
+      System.New(LSendItem);
+      FillChar(LSendItem^, SizeOf(TSendItem), 0);
+      LSendItem.Data := ABuf;
+      LSendItem.Size := ALen;
+      if Assigned(LPrepared) then LSendItem.Callback := LPrepared
+      else LSendItem.Callback := ACallback;
+      LConnection := AConnection as TKqueueConnection;
+      LConnection._KqLock;
+      try
+        // 与关闭清空队列共用锁，拒绝已关闭连接的迟到入队。
+        if not (LConnection.ConnectStatus in [csDisconnected, csClosed]) then
+        begin
+          LConnection.FSendQueue.Enqueue(LSendItem);
+          LQueued := True;
+          LConnection._UpdateIoEvent([ieWrite], LCloseRequired);
+        end;
+      finally
+        LConnection._KqUnlock;
       end;
-    finally
-      LKqConnection._KqUnlock;
+    except
+      on E: Exception do
+      begin
+        LCloseRequired := True;
+        _LogException('Kqueue send submission failed', E);
+      end;
     end;
   finally
-    if not LQueued then System.Dispose(LSendItem);
+    if not LQueued and (LSendItem <> nil) then System.Dispose(LSendItem);
   end;
   if not LQueued then
-    _CallConnectionCallback(ACallback, AConnection, False)
-  else if LCloseRequired then
-    _CloseCrossData(AConnection);
-  {$endregion}
+  begin
+    if Assigned(LPrepared) then _CallConnectionCallback(LPrepared, AConnection, False)
+    else _CallConnectionCallback(ACallback, AConnection, False);
+  end;
+  // 已入队项由关闭清理逐项通知；未入队项已在上面锁外结算。
+  if LCloseRequired then _CloseCrossData(AConnection);
 end;
 
 function TKqueueCrossSocket.ProcessIoEvent: Boolean;

@@ -1,6 +1,6 @@
-# 客户端容量与关闭接纳回归
+# 客户端与基础 Socket 容量回归
 
-对应 O03a 的 HTTP Client 部分。当前生产范围为 `Net.CrossHttpClient.pas` 和 IOCP/Epoll/Kqueue 的 Connect 关闭/失败结算边界；Base 只增加条件测试门控，正常构建不含该入口。基础 Socket 的发送数量/字节限额是后续独立步骤，本目录当前结果不代表那部分已完成。
+对应 O03a。Client 容量及 Connect 关闭/失败边界已作为 `7123233` 独立提交，下面保留该阶段证据；基础 Socket 发送数量/字节限额为后续独立步骤，仅修改 Base 与三个后端，新增结果见末尾 Socket 章节。两阶段均保持既有接口 GUID/方法布局，不修改 Kqueue 的 F05 引用算法。
 
 ## 配置与计数
 
@@ -59,7 +59,7 @@ LClientObject.MaxPendingRequestsPerServer := 64;
 
 构建日志、实际源码 SHA-256、二进制与结果保存在各 `bin/<label>/<target>/`；编译单元仅写 lib。三个阶段的 Client 原始快照各保留在对应标签的 production 目录，旧阶段后端源码以 source.json 哈希为准，不用当前修改后的源码覆盖红色二进制。
 
-最终 Client SHA-256：`9032c29100453e197ce133df0c869bac2444e6709bd39cb37cf14b1e0b91bc64`。IOCP/Epoll/Kqueue 分别为：
+Client 阶段最终 Client SHA-256：`9032c29100453e197ce133df0c869bac2444e6709bd39cb37cf14b1e0b91bc64`。IOCP/Epoll/Kqueue 分别为：
 
 ```
 c8b70b3edf565cac2a7eb4586ee544d934f6efe297ef462eb14b1168f53d2717
@@ -85,3 +85,92 @@ python3 run_client_network.py bin/client-complete/fpc-linux64/CapacityTests --ou
 ```
 
 基线可用 `--source <snapshot-directory>` 指定单元覆盖，构建脚本自动识别具体类配置属性与门控入口是否存在。正常生产构建不定义测试宏。
+
+## 基础 Socket 配置与所有权
+
+仅具体类 `TCrossSocketBase` 增加两个配置，子类可直接使用，不改 `ICrossSocket`/`ICrossConnection` 布局：
+
+```pascal
+LSocketObject := TCrossSocket.Create(2);
+LSocket := LSocketObject;
+LSocketObject.MaxPendingSendCount := 128;
+LSocketObject.MaxPendingSendBytes := 4 * Int64(1024 * 1024);
+// 在 Listen/Connect 前配置；新连接构造时复制这些值。
+```
+
+两项默认 0，<=0 分别表示不限条数/字节。已有连接保持创建时快照，后续修改 owner 属性只作用于之后创建的连接。测试同时验证“原限额连接在 owner 改0后仍有限额”和“原无限制连接在后来创建限额连接、owner标记改变后仍不限额”。
+
+计数对象只在至少一项限额为正时创建，持锁保存两个 Int64 余额。计费对象是底层每次接纳的正长度 `ALen`，包括队列项和已交给系统但尚未结算的项；不是整个高层 Stream/provider 的预先总长度。TLS、WS 的逻辑队列另有自己的限制，各层数字也不能简单相加当成新分配的内存。
+
+三个后端的公开 `Owner.Send` 都进入同一个检查入口，`DirectSend`/`SendBuf` 也通过这里；没有只约束高层入口而留底层绕过。超额项在锁外 False 一次，基础层不关闭健康 socket；成功、失败、取消完成包装先用原始 `ALen` 归还额度，再调用原回调。部分写只更新发送游标，不提前归还已写出的那一部分；重复完成不能重复归还。nil 用户回调也保存内部完成包装，所以仍正确释放额度。关闭连接不能直接清零 IOCP 在途余额，必须等完成包或停止 drain 结算。
+
+完成包装只持计数状态、原长度和原用户回调，不反向持有连接。创建包装失败会撤回预占并通知 False；底层记录分配或提交失败同样收尾，已入队项交由关闭清队列逐项结算，避免二次通知。裸指针发送仍要求调用方保持数据有效到完成，不因启用限额自动复制缓冲；启用额度时应提供回调以观察拒绝。
+
+无效参数规则明确：负长度、nil连接、nil缓冲且正长度均 False，不记账、不关闭健康连接；零长度在有效且未关闭/断开的连接上同步 True，不占容量。已关闭/断开的零发送 False。Int64 字节上限不转换为 Integer，比较采用减法并检查累计值溢出。
+
+默认双0时不创建额度对象、额度锁或每包包装。入口没有 managed 局部变量；有效正长度在检查基本参数后直接交回原后端处理连接状态。owner 曾创建过限额连接时保留一个只增不减的标记，原无限制连接可能多一次 nil 状态查找，但仍不会创建包装或取得额度锁。类配置及 nil 状态字段会增加少量实例大小，因此不把“无额外额度对象”写成总体零内存开销。
+
+TLS/WS 在底层拒绝后可按原协议错误规则关闭：已生成 TLS 记录序号或已经发出 WS 消息首片时不能丢弃中间字节后继续下一条消息。基础 Socket 自身的超额拒绝不会关闭连接，协议层选择关闭不与此约定冲突。
+
+## Socket 回归与组合边界
+
+首轮真实 Windows 基线在 `bin/socket-before/{win64,fpc64}/socket.json`，各 **7 失败、1 默认不限额对照通过**；Linux 同标签保存 count/partial 红例及默认对照。基础 fixture 使用真实监听、TCP、IOCP/Epoll，不覆盖底层 Send。唯一工作线程停在接收事件屏障，应用侧直接排队，使额度判断和在途时序可重复。
+
+最终 `bin/socket-final`：Delphi Win64/Win32、FPC Win64 各 **18/18**；Delphi/FPC Linux64 各 **20/20**，共 **94/94**。
+
+- 精确条数/字节边界，单项过大，4GiB以上字节配置；拒绝后原连接继续发送。
+- 直接 Owner.Send 与高层 SendBytes 两条入口；nil回调也退额。
+- 成功回调重入、成功回调抛异常、拒绝回调抛异常；每项最多通知一次，捕获对象最终全部释放。
+- 8个生产线程并发提交64项，只接纳8项；核对实际收到的ID集合，下一批容量完整恢复。
+- 已接纳后 Close/Stop：Windows 工作线程仍阻塞时余额保持2项/20字节，放行完成包后才归零；Linux未开始项在清队列时取消。
+- 实际 RTL 分配失败：仅发送线程的首次分配注入 EOutOfMemory，触发限额包装分配失败，余额归零、False一次、连接仍健康且后续批次成功。MM在finally恢复；这不是磁盘/内核内存耗尽测试。
+- 实际系统发送失败：对测试自己拥有的 socket 做写半关闭，再发送；IOCP同步失败、Epoll写事件失败均结算并关闭。
+- Linux真实EAGAIN：两个1MiB原始项，小发送/接收缓冲，对端停止读；实际写事件返回后两项仍未完成，余额必须仍是2项/2MiB。之后分别完整排空或中途关闭，检查原字节归还、内容/结果及释放次数。
+
+新测试宏仅提供 `GetPendingSendForTest` 和 `CrossSendRejectedForTest`。前者在启用限额时读取受锁保护的计数；默认不限额返回0并不代表没有在途IO。后者只在真正的 Base Reserve 拒绝后锁外触发，可由组合测试准确定位拒绝层，不改变结果或发送路径。正常生产不包含这些入口。
+
+最终底层源码同时重跑已有 Client 组件/真实TCP/关闭竞态 **90/90**，Linux直接Connect关闭窗口 **2/2**。相邻 SocketCallbackTests 覆盖发送事件/完成异常、pending、关闭取消、100轮Send/Close竞争及注册失败；最终 Windows两个目标各10项、Linux两个目标各11项，共 **42/42**。Kqueue OSX64/OSXARM64仅编译，没有运行结论。
+
+原生TLS与TLS+WS的实际底层额度组合由独立专项执行，保留正常与4KiB限额对照，不用 Send/DirectSend 替身；最终记录分别见 `TlsIoTests` 与 `WebSocketTlsCapacityTests`。限额在建连接前设置，观察真实Base拒绝、上层大写及尾项各一次失败、关闭与余额0；这些独立组合结果不混入本目录的94项。
+
+## 默认路径开销
+
+基准直接调用真实 Owner.Send，每项1字节、nil回调；工作线程被接收屏障暂停，计时只覆盖应用侧连续提交，之后放行并校验对端收到完整字节。Windows窗口包含实际WSASend投递，Epoll窗口包含队列操作和epoll_ctl；不能跨平台直接比较，也不是纯函数开销、吞吐或网络P99。
+
+时间与RTL申请分开进程测量，时间窗口没有MM hook；申请窗口只统计发送线程的GetMem/AllocMem/ReallocMem请求，不统计内核缓冲或进程峰值。Windows线程固定CPU掩码4，Linux为WSL Ubuntu 22.04，未设置亲和性。首个前后样本对剔除，最终9对交替顺序；保存全部原始输出、中位数和IQR。
+
+首版有效默认路径重复读取状态，Linux每10000次提交：FPC 7060.621→7544.841us（+48.4ns/次），Delphi7608.512→8185.061us（+57.7ns/次）。提前默认快路后仍有managed局部初始化/清理成本，分别残留约38.1/30.4ns；将限额对象处理移入私有方法后停止继续微调。三个阶段结果保留在 `socket-bench-first`、`socket-bench-fast`、`socket-bench-final`，原版在 `socket-bench-before`。
+
+最终对照（微秒，括号为IQR）：
+
+| 目标 | 每批条数 | 原版中位数（IQR） | 最终中位数（IQR） | 变化 |
+| --- | --- | --- | --- | --- |
+| Delphi Win64 | 1000 | 14515.700（620.600） | 14410.200（442.200） | -0.73%，差异在波动内 |
+| FPC Win64 | 1000 | 14095.300（111.300） | 14025.601（482.800） | -0.49%，差异在波动内 |
+| Delphi Linux64 | 10000 | 7540.609（163.713） | 7778.270（28.613） | +3.15%，+23.8ns/次 |
+| FPC Linux64 | 10000 | 7095.326（221.100） | 7286.500（108.991） | +2.69%，+19.1ns/次 |
+
+首轮Windows10000条样本呈明显双峰和大IQR，未把数十毫秒差异归因给几次状态读取；最终改用1000条、9对相同前后二进制，结果只说明此负载下相近，不宣称Windows提速。Linux仍保留小固定成本，接受参数检查、共享调用和提交失败保障的取舍；没有逐指令剖析，也不将剩余回退隐去或重写派发层来追求零纳秒。
+
+RTL申请次数与累计请求字节前后完全一致：Windows每1000条均1000次/152000字节；FPC Linux每10000条均10021次/531664字节；Delphi Linux均10013次/502320字节。这支持默认发送没有新增每包额度锁/闭包分配，不包括连接实例字段增量或OS分配。
+
+这些基准产物在补最后的分配失败/部分写取消用例前建立，前后基准使用相同Pascal测试源；最终生产源码相同，后续只扩充测试。每组source.json保留实际源码，未覆盖旧数据。
+
+最终基础 Socket SHA-256：
+
+```
+Base   1dea20133be770f6cc998a08973fa8fa35884f27b35553b9f349474b138e7af8
+Iocp   27d4ca2e03cf326d234895b4b3325380271f1eb58539fa768c12486fef7a470e
+Epoll  449bb2e36542868a62d7dd2bffd6dd481670540238b6214304e45af1876b1604
+Kqueue a4ea5a547ba5fab764430e5a2330716c3a2d9e9ed55fe46f509debe055bcc3c8
+```
+
+Socket复现入口：
+
+```powershell
+python build.py win64 win32 fpc64 fpc-linux64 linux64 --label socket-final
+python run_socket.py bin/socket-final/win64/CapacityTests.exe --output bin/socket-final/win64/socket.json
+python run_send_bench.py win64 fpc64 --before socket-bench-before --after socket-bench-final --count 1000 --samples 9
+```
+
+Linux运行同名脚本，并额外运行 `--cases socket-partial socket-partial-close`；默认基准用 `--count 10000 --samples 9`。基准会向after目录写send-bench.json，重现历史时应使用新标签，避免覆盖保留的原始结果。

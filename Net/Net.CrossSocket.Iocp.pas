@@ -747,37 +747,42 @@ procedure TIocpCrossSocket.Send(const AConnection: ICrossConnection;
 var
   LPerIoData: PPerIoData;
   LBytes, LFlags: Cardinal;
+  LPrepared: TCrossConnectionCallback;
+  LSubmitted: Boolean;
 begin
-  LPerIoData := _NewIoData;
-  LPerIoData.Buffer.DataBuf.buf := ABuf;
-  LPerIoData.Buffer.DataBuf.len := ALen;
-  LPerIoData.Action := ioWrite;
-  LPerIoData.Socket := AConnection.Socket;
-  LPerIoData.CrossData := AConnection;
-  LPerIoData.Callback := ACallback;
+  if not _PrepareSend(AConnection, ABuf, ALen, ACallback, LPrepared) then Exit;
+  LPerIoData := nil;
+  LSubmitted := False;
+  try
+    LPerIoData := _NewIoData;
+    LPerIoData.Buffer.DataBuf.buf := ABuf;
+    LPerIoData.Buffer.DataBuf.len := ALen;
+    LPerIoData.Action := ioWrite;
+    LPerIoData.Socket := AConnection.Socket;
+    LPerIoData.CrossData := AConnection;
+    if Assigned(LPrepared) then LPerIoData.Callback := LPrepared
+    else LPerIoData.Callback := ACallback;
 
-  LFlags := 0;
-  LBytes := 0;
-  // WSASend 不会出现部分发送的情况, 要么全部失败, 要么全部成功
-  // 所以不需要像 kqueue 或 epoll 中调用 send 那样调用完之后还得检查实际发送了多少
-  // 唯一需要注意的是: WSASend 会将待发送的数据锁定到非页面内存, 非页面内存资源
-  // 是非常紧张的, 所以不要无节制的调用 WSASend, 最好通过回调发送完一批数据再继
-  // 续发送下一批
-  if (WSASend(AConnection.Socket, @LPerIoData.Buffer.DataBuf, 1, LBytes, LFlags, PWSAOverlapped(LPerIoData), nil) < 0)
-    and (WSAGetLastError <> WSA_IO_PENDING) then
-  begin
+    LFlags := 0;
+    LBytes := 0;
+    // 已投递项由完成包/停止drain结算，关闭连接本身不能提前释放额度或缓冲。
+    LSubmitted := (WSASend(AConnection.Socket, @LPerIoData.Buffer.DataBuf, 1,
+      LBytes, LFlags, PWSAOverlapped(LPerIoData), nil) = 0)
+      or (WSAGetLastError = WSA_IO_PENDING);
     {$IFDEF DEBUG}
-    _LogLastOsError(Self.ClassName + '.WSASend, %s', [AConnection.DebugInfo]);
+    if not LSubmitted then
+      _LogLastOsError(Self.ClassName + '.WSASend, %s', [AConnection.DebugInfo]);
     {$ENDIF}
+  except
+    on E: Exception do _LogException('IOCP send submission failed', E);
+  end;
+  if LSubmitted then Exit;
 
-    // 出错多半是 WSAENOBUFS, 也就是投递的 WSASend 过多, 来不及发送
-    // 导致非页面内存资源全部被锁定, 要避免这种情况必须上层发送逻辑
-    // 保证不能无节制的调用Send发送大量数据, 最好发送完一个再继续下
-    // 一个, 本函数提供了发送结果的回调函数, 在回调函数报告发送成功
-    // 之后就可以继续下一块数据发送了
-    _FreeIoData(LPerIoData);
-
-    _CallConnectionCallback(ACallback, AConnection, False);
+  try
+    if LPerIoData <> nil then _FreeIoData(LPerIoData);
+  finally
+    if Assigned(LPrepared) then _CallConnectionCallback(LPrepared, AConnection, False)
+    else _CallConnectionCallback(ACallback, AConnection, False);
     _CloseCrossData(AConnection);
   end;
 end;

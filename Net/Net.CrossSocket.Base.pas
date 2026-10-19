@@ -716,6 +716,7 @@ type
     FLastNetError: Integer;
     FRecvLock, FSentLock: ILock;
     FConnectCb: TCrossConnectionCallback;
+    FSendLimits: IInterface;
     function _TakeConnectCallback: TCrossConnectionCallback;
   protected
     procedure _LockRecv; inline;
@@ -792,6 +793,9 @@ type
     // 设置套接字心跳参数, 用于处理异常断线(拔网线, 主机异常掉电等造成的网络异常)
     function SetKeepAlive(const ASocket: TSocket): Integer; virtual;
   private
+    FMaxPendingSendCount: Integer;
+    FMaxPendingSendBytes: Int64;
+    FHasSendLimits: Integer;
     FKeepAliveIdle: Integer;
     FKeepAliveInterval: Integer;
     FKeepAliveCount: Integer;
@@ -811,6 +815,8 @@ type
     FOnReceived: TCrossDataEvent;
     FOnSent: TCrossDataEvent;
 
+    function _PrepareLimitedSend(const AConnection: ICrossConnection; const ALen: Integer;
+      const ACallback: TCrossConnectionCallback; out APrepared: TCrossConnectionCallback): Boolean;
     procedure _LockConnections; inline;
     procedure _UnlockConnections; inline;
 
@@ -848,6 +854,10 @@ type
     FConnectionsCount: Integer;
     FListensCount: Integer;
 
+    // 返回False表示已在锁外通知拒绝/空发送；无限制路径不创建完成包装。
+    function _PrepareSend(const AConnection: ICrossConnection; const ABuf: Pointer;
+      const ALen: Integer; const ACallback: TCrossConnectionCallback;
+      out APrepared: TCrossConnectionCallback): Boolean;
     function ProcessIoEvent: Boolean; virtual; abstract;
     function GetIoThreads: Integer; virtual;
 
@@ -924,6 +934,9 @@ type
     property ConnectionsCount: Integer read GetConnectionsCount;
     property ListensCount: Integer read GetListensCount;
 
+    // 新连接创建时快照；<=0不限，已有连接不追溯修改。
+    property MaxPendingSendCount: Integer read FMaxPendingSendCount write FMaxPendingSendCount;
+    property MaxPendingSendBytes: Int64 read FMaxPendingSendBytes write FMaxPendingSendBytes;
     property KeepAliveIdle: Integer read GetKeepAliveIdle write SetKeepAliveIdle;
     property KeepAliveInterval: Integer read GetKeepAliveInterval write SetKeepAliveInterval;
     property KeepAliveCount: Integer read GetKeepAliveCount write SetKeepAliveCount;
@@ -941,6 +954,7 @@ type
   TCrossLogger = reference to procedure(const S: string);
   {$IFDEF CROSS_CAPACITY_TESTS}
   TCrossConnectTestHook = reference to procedure(const AConnection: ICrossConnection);
+  TCrossSendRejectedTestHook = reference to procedure(const AConnection: ICrossConnection; const ABytes: Integer);
   {$ENDIF}
 
   function GetTagByUID(const AUID: UInt64): Byte;
@@ -954,9 +968,15 @@ type
   function _CallConnectionCallback(const ACallback: TCrossConnectionCallback;
     const AConnection: ICrossConnection; const ASuccess: Boolean): Boolean;
   procedure _CloseCrossData(const AData: ICrossData);
+  {$IFDEF CROSS_CAPACITY_TESTS}
+  procedure GetPendingSendForTest(const AConnection: ICrossConnection; out ACount, ABytes: Int64);
+  {$ENDIF}
 
 var
-  {$IFDEF CROSS_CAPACITY_TESTS}CrossConnectBeforeRegisterForTest: TCrossConnectTestHook;{$ENDIF}
+  {$IFDEF CROSS_CAPACITY_TESTS}
+  CrossConnectBeforeRegisterForTest: TCrossConnectTestHook;
+  CrossSendRejectedForTest: TCrossSendRejectedTestHook;
+  {$ENDIF}
   CrossSocketLogEnabled: Boolean = {$IFDEF DEBUG}True{$ELSE}False{$ENDIF};
 
 implementation
@@ -966,6 +986,146 @@ uses
 
 var
   _CrossLogger: TCrossLogger = nil;
+
+type
+  TCrossSendLimits = class(TInterfacedObject)
+  private
+    FLock: ILock;
+    FMaxCount: Integer;
+    FMaxBytes, FCount, FBytes: Int64;
+  public
+    constructor Create(const AMaxCount: Integer; const AMaxBytes: Int64);
+    function Reserve(const ABytes: Integer): Boolean;
+    procedure Release(const ABytes: Integer);
+    function WrapCallback(const ABytes: Integer;
+      const ACallback: TCrossConnectionCallback): TCrossConnectionCallback;
+  end;
+
+constructor TCrossSendLimits.Create(const AMaxCount: Integer; const AMaxBytes: Int64);
+begin
+  inherited Create;
+  FMaxCount := AMaxCount;
+  FMaxBytes := AMaxBytes;
+  FLock := TLock.Create;
+end;
+
+function TCrossSendLimits.Reserve(const ABytes: Integer): Boolean;
+begin
+  FLock.Enter;
+  try
+    Result := (FCount < High(Int64)) and (Int64(ABytes) <= High(Int64) - FBytes)
+      and ((FMaxCount <= 0) or (FCount < FMaxCount))
+      and ((FMaxBytes <= 0) or (Int64(ABytes) <= FMaxBytes - FBytes));
+    if Result then begin Inc(FCount); Inc(FBytes, ABytes); end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TCrossSendLimits.Release(const ABytes: Integer);
+begin
+  FLock.Enter;
+  try Dec(FCount); Dec(FBytes, ABytes);
+  finally FLock.Leave; end;
+end;
+
+function TCrossSendLimits.WrapCallback(const ABytes: Integer;
+  const ACallback: TCrossConnectionCallback): TCrossConnectionCallback;
+var
+  LKeep: IInterface;
+  LCompleted: Integer;
+begin
+  LKeep := Self;
+  LCompleted := 0;
+  Result := procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+    begin
+      if AtomicExchange(LCompleted, 1) <> 0 then Exit;
+      // 保留最初提交长度；部分写不退额，真正完成/取消后先退额再通知。
+      (LKeep as TCrossSendLimits).Release(ABytes);
+      if Assigned(ACallback) then ACallback(AConnection, ASuccess);
+    end;
+end;
+
+{$IFDEF CROSS_CAPACITY_TESTS}
+procedure GetPendingSendForTest(const AConnection: ICrossConnection; out ACount, ABytes: Int64);
+var
+  LKeep: IInterface;
+  LLimits: TCrossSendLimits;
+begin
+  ACount := 0;
+  ABytes := 0;
+  if AConnection = nil then Exit;
+  LKeep := (AConnection as TCrossConnectionBase).FSendLimits;
+  if LKeep = nil then Exit;
+  LLimits := LKeep as TCrossSendLimits;
+  LLimits.FLock.Enter;
+  try ACount := LLimits.FCount; ABytes := LLimits.FBytes;
+  finally LLimits.FLock.Leave; end;
+end;
+{$ENDIF}
+
+function TCrossSocketBase._PrepareSend(const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer; const ACallback: TCrossConnectionCallback;
+  out APrepared: TCrossConnectionCallback): Boolean;
+begin
+  APrepared := nil;
+  Result := False;
+  if (AConnection = nil) or (ALen < 0) or ((ABuf = nil) and (ALen > 0)) then
+  begin
+    _CallConnectionCallback(ACallback, AConnection, False);
+    Exit;
+  end;
+  // 默认双0的有效正长度发送仍由原后端判断状态，不增加额度锁/闭包或状态读取。
+  // 此标记只在限额连接发布前从0变1；无效参数仍在上面拒绝。
+  if (ALen > 0) and (FHasSendLimits = 0) then Exit(True);
+  if AConnection.IsClosed or (AConnection.ConnectStatus = csDisconnected)
+    or (AConnection.Socket = INVALID_SOCKET) then
+  begin
+    _CallConnectionCallback(ACallback, AConnection, False);
+    Exit;
+  end;
+  if ALen = 0 then
+  begin
+    _CallConnectionCallback(ACallback, AConnection, True);
+    Exit;
+  end;
+  Result := _PrepareLimitedSend(AConnection, ALen, ACallback, APrepared);
+end;
+
+function TCrossSocketBase._PrepareLimitedSend(const AConnection: ICrossConnection;
+  const ALen: Integer; const ACallback: TCrossConnectionCallback;
+  out APrepared: TCrossConnectionCallback): Boolean;
+var
+  LKeep: IInterface;
+  LLimits: TCrossSendLimits;
+begin
+  Result := False;
+  LKeep := (AConnection as TCrossConnectionBase).FSendLimits;
+  if LKeep = nil then Exit(True);
+  LLimits := LKeep as TCrossSendLimits;
+  if not LLimits.Reserve(ALen) then
+  begin
+    try
+      {$IFDEF CROSS_CAPACITY_TESTS}
+      if Assigned(CrossSendRejectedForTest) then CrossSendRejectedForTest(AConnection, ALen);
+      {$ENDIF}
+    finally
+      _CallConnectionCallback(ACallback, AConnection, False);
+    end;
+    Exit;
+  end;
+  try
+    APrepared := LLimits.WrapCallback(ALen, ACallback);
+    Result := True;
+  except
+    on E: Exception do
+    begin
+      LLimits.Release(ALen);
+      _LogException('Send completion allocation failed', E);
+      _CallConnectionCallback(ACallback, AConnection, False);
+    end;
+  end;
+end;
 
 function GetTagByUID(const AUID: UInt64): Byte;
 begin
@@ -1772,6 +1932,11 @@ begin
 
   FRecvLock := TLock.Create;
   FSentLock := TLock.Create;
+  if (AOwner.FMaxPendingSendCount > 0) or (AOwner.FMaxPendingSendBytes > 0) then
+  begin
+    FSendLimits := TCrossSendLimits.Create(AOwner.FMaxPendingSendCount, AOwner.FMaxPendingSendBytes);
+    AtomicExchange(AOwner.FHasSendLimits, 1);
+  end;
 end;
 
 procedure TCrossConnectionBase.SetConnectStatus(const AValue: TConnectStatus);

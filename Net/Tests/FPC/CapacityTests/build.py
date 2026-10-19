@@ -23,11 +23,14 @@ def build(target,label,override):
     client_source=(override/'Net.CrossHttpClient.pas' if override and (override/'Net.CrossHttpClient.pas').is_file() else REPO/'Net/Net.CrossHttpClient.pas')
     api='MaxPendingRequestsPerServer' in client_source.read_text(encoding='utf-8-sig')
     race_hook='SetClientAdmissionTestHook' in client_source.read_text(encoding='utf-8-sig')
+    base_source=(override/'Net.CrossSocket.Base.pas' if override and (override/'Net.CrossSocket.Base.pas').is_file() else REPO/'Net/Net.CrossSocket.Base.pas')
+    socket_api='MaxPendingSendCount' in base_source.read_text(encoding='utf-8-sig')
     linux='linux' in target;search=([override] if override else [])+[REPO/'Net',REPO/'Utils',REPO/'DelphiToFPC']
     if target.startswith('fpc'):
         args=[FPC/('ppcrossx64.exe' if linux else 'fpc.exe'),'-B','-O2','-dCROSS_CAPACITY_TESTS']
         if api:args+=['-dCAPACITY_API']
         if race_hook:args+=['-dCLIENT_RACE_HOOK']
+        if socket_api:args+=['-dSOCKET_CAPACITY_API']
         args+=['-Fu'+str(p) for p in search]
         args+=['-Fu'+str(LAZ/('components/lazutils' if linux else 'components/lazutils/lib/x86_64-win64')),
                '-Fi'+str(REPO),'-FE'+str(out),'-FU'+str(units)]
@@ -36,7 +39,7 @@ def build(target,label,override):
     else:
         arch='linux64' if linux else ('win32' if target=='win32' else 'win64')
         args=[D/'bin'/('dcclinux64.exe' if linux else ('dcc32.exe' if arch=='win32' else 'dcc64.exe')),
-              '-Q','-B','-$O+','-DCROSS_CAPACITY_TESTS'+(';CAPACITY_API' if api else '')+(';CLIENT_RACE_HOOK' if race_hook else ''),'-NSSystem;'+('Posix' if linux else 'System.Win;Winapi'),
+              '-Q','-B','-$O+','-DCROSS_CAPACITY_TESTS'+(';CAPACITY_API' if api else '')+(';CLIENT_RACE_HOOK' if race_hook else '')+(';SOCKET_CAPACITY_API' if socket_api else ''),'-NSSystem;'+('Posix' if linux else 'System.Win;Winapi'),
               '-U'+';'.join(map(str,search+[CN,D/'lib'/arch/'release'])),'-I'+str(REPO)+';'+str(CN),
               '-E'+str(out),'-N0'+str(units)]
         if linux:

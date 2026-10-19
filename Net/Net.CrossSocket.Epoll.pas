@@ -957,47 +957,53 @@ end;
 procedure TEpollCrossSocket.Send(const AConnection: ICrossConnection;
   const ABuf: Pointer; const ALen: Integer; const ACallback: TCrossConnectionCallback);
 var
-  LEpConnection: TEpollConnection;
+  LConnection: TEpollConnection;
   LSendItem: PSendItem;
-  LCloseRequired: Boolean;
-  LQueued: Boolean;
+  LPrepared: TCrossConnectionCallback;
+  LCloseRequired, LQueued: Boolean;
 begin
-  // 测试过先发送, 然后将剩余部分放入发送队列的做法
-  // 发现会引起内存访问异常, 放到队列里到IO线程中发送则不会有问题
-  {$region '放入发送队列'}
-  System.New(LSendItem);
-  FillChar(LSendItem^, SizeOf(TSendItem), 0);
-  LSendItem.Data := ABuf;
-  LSendItem.Size := ALen;
-  LSendItem.Callback := ACallback;
-
-  LEpConnection := AConnection as TEpollConnection;
-
+  if not _PrepareSend(AConnection, ABuf, ALen, ACallback, LPrepared) then Exit;
+  LSendItem := nil;
   LQueued := False;
   LCloseRequired := False;
   try
-    LEpConnection._EpLock;
     try
-      // 与关闭清空队列使用同一把锁，不能在清空后重新留下待完成项。
-      if not (LEpConnection.ConnectStatus in [csDisconnected, csClosed]) then
-      begin
-        LEpConnection.FSendQueue.Enqueue(LSendItem);
-        LQueued := True;
-
-        // epoll 每个 socket 只有一条记录，需要同时保留读通知。
-        LEpConnection._UpdateIoEvent([ieRead, ieWrite], LCloseRequired);
+      System.New(LSendItem);
+      FillChar(LSendItem^, SizeOf(TSendItem), 0);
+      LSendItem.Data := ABuf;
+      LSendItem.Size := ALen;
+      if Assigned(LPrepared) then LSendItem.Callback := LPrepared
+      else LSendItem.Callback := ACallback;
+      LConnection := AConnection as TEpollConnection;
+      LConnection._EpLock;
+      try
+        // 与关闭清空队列共用锁，拒绝已关闭连接的迟到入队。
+        if not (LConnection.ConnectStatus in [csDisconnected, csClosed]) then
+        begin
+          LConnection.FSendQueue.Enqueue(LSendItem);
+          LQueued := True;
+          LConnection._UpdateIoEvent([ieRead, ieWrite], LCloseRequired);
+        end;
+      finally
+        LConnection._EpUnlock;
       end;
-    finally
-      LEpConnection._EpUnlock;
+    except
+      on E: Exception do
+      begin
+        LCloseRequired := True;
+        _LogException('Epoll send submission failed', E);
+      end;
     end;
   finally
-    if not LQueued then System.Dispose(LSendItem);
+    if not LQueued and (LSendItem <> nil) then System.Dispose(LSendItem);
   end;
   if not LQueued then
-    _CallConnectionCallback(ACallback, AConnection, False)
-  else if LCloseRequired then
-    _CloseCrossData(AConnection);
-  {$endregion}
+  begin
+    if Assigned(LPrepared) then _CallConnectionCallback(LPrepared, AConnection, False)
+    else _CallConnectionCallback(ACallback, AConnection, False);
+  end;
+  // 已入队项由关闭清理逐项通知；未入队项已在上面锁外结算。
+  if LCloseRequired then _CloseCrossData(AConnection);
 end;
 
 function TEpollCrossSocket.ProcessIoEvent: Boolean;
