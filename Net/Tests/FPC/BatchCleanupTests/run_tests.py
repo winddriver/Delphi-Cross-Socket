@@ -13,7 +13,7 @@ D=Path(r'D:\Design\Delphi\D13.1');FPC=Path(r'D:\Design\FreePascal\fpc\bin\x86_64
 LAZ=Path(r'D:\Design\FreePascal\lazarus');CN=Path(r'D:\Design\Delphi\VclFmxRtl\cncrypto\Source')
 SDK=Path.home()/'Documents/Embarcadero/Studio/SDKs/ubuntu22.04.sdk'
 CASES=['session-release','session-exception','session-renew','session-replace','session-concurrent-touch']
-SOURCES=[REPO/'Net'/n for n in ('Net.CrossHttpParams.pas','Net.CrossHttpClient.pas','Net.CrossHttpParser.pas','Net.CrossSslSocket.OpenSSL.pas','Net.CrossSocket.Base.pas','Net.CrossSocket.Epoll.pas','Net.CrossSocket.Kqueue.pas')]
+SOURCES=[REPO/'Net'/n for n in ('Net.CrossHttpParams.pas','Net.CrossHttpSessions.pas','Net.CrossHttpClient.pas','Net.CrossHttpParser.pas','Net.CrossSslSocket.OpenSSL.pas','Net.CrossSocket.Base.pas','Net.CrossSocket.Epoll.pas','Net.CrossSocket.Kqueue.pas')]
 SOURCES += [REPO/'DelphiToFPC/DTF.Generics.pas',REPO/'Utils/Utils.ArrayUtils.pas',REPO/'Utils/Utils.SyncObjs.pas']
 
 def hashes(override,session_only=False):

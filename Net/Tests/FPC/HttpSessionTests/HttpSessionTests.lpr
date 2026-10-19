@@ -6,7 +6,7 @@
 uses
   {$IF DEFINED(FPC) AND DEFINED(POSIX)}cthreads, cwstring,{$ENDIF}
   SysUtils, Classes, DateUtils, Utils.SyncObjs,
-  Net.SocketAPI, Net.CrossSocket.Base, Net.CrossHttpParams, Net.CrossHttpServer;
+  Net.SocketAPI, Net.CrossSocket.Base, Net.CrossHttpSessions, Net.CrossHttpParams, Net.CrossHttpServer;
 
 type
   TObservedSessions = class(TSessions)
@@ -486,12 +486,41 @@ begin
   end;
 end;
 
+procedure TestUnitCompatibility;
+var
+  LOld: Net.CrossHttpParams.ISessions;
+  LNew: Net.CrossHttpSessions.ISessions;
+  LItem: Net.CrossHttpParams.ISession;
+  LClass: Net.CrossHttpParams.TSessionClass;
+begin
+  Check(TypeInfo(Net.CrossHttpParams.ISession) = TypeInfo(Net.CrossHttpSessions.ISession),
+    '旧新Session接口不是同一个类型');
+  Check(TypeInfo(Net.CrossHttpParams.ISessions) = TypeInfo(Net.CrossHttpSessions.ISessions),
+    '旧新容器接口不是同一个类型');
+  LNew := Net.CrossHttpSessions.TSessions.Create;
+  LOld := LNew;
+  LClass := Net.CrossHttpParams.TSession;
+  LOld.SessionClass := LClass;
+  LOld.BeginWrite;
+  try
+    LItem := LOld.AddSession('compatibility');
+    LItem['key'] := 'value';
+  finally
+    LOld.EndWrite;
+  end;
+  Check(LNew['compatibility']['key'] = 'value', '新旧路径未共享同一会话实例');
+  LItem := nil;
+  LOld := nil;
+  LNew := nil;
+end;
+
 begin
   SetTextCodePage(Output, 65001);
   Mode := ParamStr(1);
   Check(ParamCount = 1, '用法: HttpSessionTests <case>');
   InitEvents;
-  if Mode.StartsWith('lifecycle-') or (Mode = 'constructor-failure') then TestLifecycle
+  if Mode = 'unit-compatibility' then TestUnitCompatibility
+  else if Mode.StartsWith('lifecycle-') or (Mode = 'constructor-failure') then TestLifecycle
   else
   if Mode.StartsWith('http-') then TestHttpCookie
   else

@@ -15,10 +15,10 @@ CN = Path(r"D:\Design\Delphi\VclFmxRtl\cncrypto\Source")
 SDK = Path.home() / "Documents/Embarcadero/Studio/SDKs/ubuntu22.04.sdk"
 
 
-def build(target, production=False):
+def build(target, production=False, label=None):
     flavor = ("production-" if production else "") + target
-    output = HERE / "bin" / flavor
-    units = HERE / "lib" / flavor
+    output = HERE / "bin" / label / flavor if label else HERE / "bin" / flavor
+    units = HERE / "lib" / label / flavor if label else HERE / "lib" / flavor
     output.mkdir(parents=True, exist_ok=True)
     units.mkdir(parents=True, exist_ok=True)
     if target == "fpc-linux64":
@@ -46,7 +46,7 @@ def build(target, production=False):
     if result.returncode:
         print((result.stdout + result.stderr).decode(errors="replace")[-6000:])
         raise SystemExit(result.returncode)
-    sources = [REPO / "Net/Net.CrossHttpParams.pas", REPO / "Utils/Utils.AnonymousThread.pas",
+    sources = [REPO / "Net/Net.CrossHttpParams.pas", REPO / "Net/Net.CrossHttpSessions.pas", REPO / "Utils/Utils.AnonymousThread.pas",
                HERE / "HttpSessionTests.lpr"]
     metadata = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
@@ -58,6 +58,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("targets", nargs="+", choices=["fpc-linux64", "delphi-linux64"])
     parser.add_argument("--production", action="store_true", help="不启用测试时序入口")
+    parser.add_argument("--label")
     options = parser.parse_args()
     for selected in options.targets:
-        build(selected, options.production)
+        build(selected, options.production, options.label)

@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--report", type=Path)
     parser.add_argument("--semantics-only", action="store_true")
     parser.add_argument("--baseline", action="store_true", help="仅运行旧可执行文件已有的 19 项")
+    parser.add_argument("--unit-compatibility", action="store_true", help="增加新旧单元类型同一性验证")
     args = parser.parse_args()
     binary = args.executable.resolve(strict=True)
     cases = SEMANTICS if args.semantics_only else SEMANTICS + LIFECYCLE
@@ -27,6 +28,8 @@ def main():
         cases = cases + ["bad-id-generator"]
         if not args.semantics_only:
             cases = cases + ["constructor-failure"]
+    if args.unit_compatibility:
+        cases = cases + ["unit-compatibility"]
     results = []
     for case in cases:
         try:

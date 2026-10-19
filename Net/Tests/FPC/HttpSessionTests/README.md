@@ -53,3 +53,22 @@ Delphi/FPC Windows Win64、Delphi/FPC Linux64（Ubuntu 22.04 WSL 实际运行）
 - 最终：**21/21 通过**，其中 F17 为 15/15，F18 为 6/6；关闭测试入口的生产构建 **15/15 通过**。
 - 构造失败是在 TThread 已创建、尚未 Start 时注入异常，验证 `FExpiredThreadStarted=False` 收尾分支；未注入操作系统真实拒绝创建线程或 Resume 失败。未覆盖清理回调直接释放自身、Session.Values 任意并发修改、实际 TCP/TLS 或长期压力。
 - 基线在 `bin/baseline-*/`，重跑时加 `--baseline`（只运行旧文件包含的 19 项）；结果 JSON 与构建日志也在 `bin/`。`baseline-source.json` 标明仅加入时序钩子的旧算法，`final-source.json` 记录本次源码与测试哈希。共享工作区有其他分工修改，不将所有可执行文件描述为纯 HEAD 构建。
+
+## S03 Session 单元拆分
+
+会话声明与实现迁至 `Net.CrossHttpSessions`，不依赖 HTTP 参数或服务器单元。`Net.CrossHttpParams` 保留 `ISession`、`ISessions`、`TSessionBase`、`TSession`、`TSessionClass`、`TSessionsBase`、`TSessions` 七个类型别名，测试配置类型和入口也只转发至同一实现。普通调用方继续使用原 uses 路径；新代码可直接引用新单元。
+
+搬移后声明与方法实现逐字比对 O02 提交 `0e0615b`，GUID、虚方法顺序、保护字段和清理算法均未修改。声明所属单元和限定 RTTI 名称会变化，使用包/预编译单元的项目需要完整重编译；依赖单元限定类型名做反射或注册的代码应同步调整。类型别名保持类型同一性，不是再建一套包装类或独立容器。
+
+新增 `unit-compatibility` 验证新旧两种接口的 TypeInfo 相同，以及从旧单元提供 SessionClass、通过旧接口写入后经新接口读取同一个实例。原继承测试继续从旧路径编译，覆盖保护字段和虚方法。五目标 Delphi Win64/Win32、FPC Win64、Delphi/FPC Linux64 各 **22/22，共 110/110**；关闭测试宏的两个 Windows64 和两个 Linux64 目标各 **16/16，共 64/64**。相邻 BatchCleanupTests 的 Session 五项在同五目标共 **25/25**，包括锁外释放和钩子异常，未重新测量纯搬移前后性能。
+
+证据保存在两套件各自的 `bin/s03-sessions/`，构建记录均包含 Params 与新 Sessions 单元哈希。正式示例构建随本轮后续容量与 WS 整理做组合验收，不把这里的组件结果等同于正式示例已通过。
+
+```powershell
+python -B build_tests.py delphi-win64 delphi-win32 fpc-win64 delphi-linux64 fpc-linux64 --label s03-sessions
+python -B run_tests.py bin/s03-sessions/delphi-win64/HttpSessionTests.exe --unit-compatibility --report bin/s03-sessions/delphi-win64/results.json
+python -B build_tests.py delphi-win64 fpc-win64 delphi-linux64 fpc-linux64 --label s03-sessions --production
+python -B run_tests.py bin/s03-sessions/production-delphi-win64/HttpSessionTests.exe --semantics-only --unit-compatibility
+```
+
+Linux 在真实 Linux 环境使用同一 `run_tests.py`，替换为对应无 `.exe` 的程序路径。`build_linux.py` 原有入口保留，新增可选 `--label` 隔离产物。
