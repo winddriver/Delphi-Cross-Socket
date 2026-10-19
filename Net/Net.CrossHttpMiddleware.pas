@@ -1,4 +1,4 @@
-{******************************************************************************}
+ï»¿{******************************************************************************}
 {                                                                              }
 {       Delphi cross platform socket library                                   }
 {                                                                              }
@@ -23,109 +23,577 @@ uses
   Utils.Base64,
   Utils.Hash,
 
-  Net.CrossHttpParams,
   Net.CrossHttpServer;
 
 type
   /// <summary>
-  ///   HTTPÈÏÖ¤»ñÈ¡ÓÃ»§ÃÜÂë
+  ///   HTTPè®¤è¯è·å–ç”¨æˆ·å¯†ç 
   /// </summary>
   TAuthGetPasswordProc = reference to procedure(const ARequest: ICrossHttpRequest; const AUserName: string; var ACorrectPassword: string);
 
   /// <summary>
-  ///   ÖĞ¼ä¼ş
+  ///   ä¸­é—´ä»¶
   /// </summary>
   /// <remarks>
-  ///   ÓÃÓÚ TCrossHttpServer.Use()
+  ///   ç”¨äº TCrossHttpServer.Use()
   /// </remarks>
   TNetCrossMiddleware = class
   public
     /// <summary>
-    ///   HTTP»ù±¾ÈÏÖ¤
+    ///   HTTPåŸºæœ¬è®¤è¯
     /// </summary>
     /// <param name="AAuthFunc">
-    ///   ÓÃ»§Éí·İÈÏÖ¤º¯Êı
+    ///   ç”¨æˆ·èº«ä»½è®¤è¯å‡½æ•°
     /// </param>
     /// <remarks>
     ///   <see cref="https://zh.wikipedia.org/wiki/HTTP%E5%9F%BA%E6%9C%AC%E8%AE%A4%E8%AF%81">
-    ///   Î¬»ù°Ù¿Æ: HTTP»ù±¾ÈÏÖ¤</see>
+    ///   ç»´åŸºç™¾ç§‘: HTTPåŸºæœ¬è®¤è¯</see>
     /// </remarks>
     class function AuthenticateBasic(AAuthGetPasswordProc: TAuthGetPasswordProc; const ARealm: string = ''): TCrossHttpRouterProc; static;
 
     /// <summary>
-    ///   HTTPÕªÒªÈÏÖ¤
+    ///   HTTPæ‘˜è¦è®¤è¯
     /// </summary>
     /// <param name="AAuthFunc">
-    ///   ÓÃ»§Éí·İÈÏÖ¤º¯Êı
+    ///   ç”¨æˆ·èº«ä»½è®¤è¯å‡½æ•°
     /// </param>
     /// <remarks>
     ///   <see cref="https://zh.wikipedia.org/wiki/HTTP%E6%91%98%E8%A6%81%E8%AE%A4%E8%AF%81">
-    ///   Î¬»ù°Ù¿Æ: HTTPÕªÒªÈÏÖ¤</see>
+    ///   ç»´åŸºç™¾ç§‘: HTTPæ‘˜è¦è®¤è¯</see>
     /// </remarks>
     class function AuthenticateDigest(AAuthGetPasswordProc: TAuthGetPasswordProc; const ARealm: string = ''): TCrossHttpRouterProc; static;
 
     /// <summary>
-    ///   ¿çÀ´Ô´×ÊÔ´¹²Ïí
+    ///   è·¨æ¥æºèµ„æºå…±äº«
     /// </summary>
     /// <remarks>
     ///   <see href="https://zh.wikipedia.org/wiki/%E8%B7%A8%E4%BE%86%E6%BA%90%E8%B3%87%E6%BA%90%E5%85%B1%E4%BA%AB">
-    ///   Î¬»ù°Ù¿Æ: ¿çÀ´Ô´×ÊÔ´¹²Ïí</see>
+    ///   ç»´åŸºç™¾ç§‘: è·¨æ¥æºèµ„æºå…±äº«</see>
     /// </remarks>
     class function CORS: TCrossHttpRouterProc; static;
 
     /// <summary>
-    ///   HTTPÑÏ¸ñ´«Êä°²È«
+    ///   HTTPä¸¥æ ¼ä¼ è¾“å®‰å…¨
     /// </summary>
     /// <remarks>
     ///   <see href="https://zh.wikipedia.org/wiki/HTTP%E4%B8%A5%E6%A0%BC%E4%BC%A0%E8%BE%93%E5%AE%89%E5%85%A8">
-    ///   Î¬»ù°Ù¿Æ: HTTPÑÏ¸ñ´«Êä°²È«</see>
+    ///   ç»´åŸºç™¾ç§‘: HTTPä¸¥æ ¼ä¼ è¾“å®‰å…¨</see>
     /// </remarks>
     class function HSTS: TCrossHttpRouterProc; static;
 
     class function NoCache: TCrossHttpRouterProc; static;
   end;
 
+{$IFDEF CROSS_HTTP_AUTH_TESTS}
+type
+  THttpAuthTestClock = reference to function: UInt64;
+  THttpAuthTestRandom = reference to function: TBytes;
+  THttpAuthTestNotify = reference to procedure;
+  THttpAuthTestOptions = record
+    Clock: THttpAuthTestClock;
+    Random: THttpAuthTestRandom;
+    OnDestroy: THttpAuthTestNotify;
+    NonceLifetimeMs: UInt64;
+    MaxNonces, MaxUsesPerNonce, MaxTotalUses: Integer;
+  end;
+
+// ä»…æµ‹è¯•æ„å»ºå¯è§ï¼›å·¥å‚åˆ›å»ºæ—¶å¤åˆ¶é€‰é¡¹ï¼Œè¿è¡Œä¸­çš„çŠ¶æ€ä¸è¯»å–è¿™äº›å…¨å±€é…ç½®ã€‚
+procedure SetHttpAuthTestOptions(const AOptions: THttpAuthTestOptions);
+{$ENDIF}
+
 implementation
+
+uses
+  Generics.Collections,
+  Net.CrossHttpUtils,
+  Utils.CryptRandom,
+  Utils.SyncObjs;
+
+const
+  AUTH_HEADER_LIMIT = 16384;
+  DIGEST_NONCE_BYTES = 32;
+  DIGEST_NONCE_LIFETIME_MS = 300000;
+  DIGEST_MAX_NONCES = 1024;
+  DIGEST_MAX_USES_PER_NONCE = 1024;
+  DIGEST_MAX_TOTAL_USES = 8192;
+
+{$IFDEF CROSS_HTTP_AUTH_TESTS}
+var
+  GHttpAuthTestOptions: THttpAuthTestOptions;
+
+procedure SetHttpAuthTestOptions(const AOptions: THttpAuthTestOptions);
+begin
+  GHttpAuthTestOptions := AOptions;
+end;
+{$ENDIF}
+
+function _QuoteAuthValue(const AValue: string): string;
+var
+  C: Char;
+begin
+  Result := '';
+  for C in AValue do
+  begin
+    if (Ord(C) < 32) or (Ord(C) = 127) then
+      raise EArgumentException.Create('è®¤è¯åŸŸä¸èƒ½åŒ…å«æ§åˆ¶å­—ç¬¦');
+    if (C = '"') or (C = '\') then Result := Result + '\';
+    Result := Result + C;
+  end;
+end;
+
+function _GetAuthValue(const ARequest: ICrossHttpRequest;
+  const AScheme: string; out AValue: string): Boolean;
+var
+  LHeaders: TArray<string>;
+  LHeader: string;
+  I: Integer;
+begin
+  AValue := '';
+  Result := False;
+  if not ARequest.Header.GetHeaderValues('Authorization', LHeaders)
+    or (Length(LHeaders) <> 1) then Exit;
+  LHeader := LHeaders[0];
+  if Length(LHeader) > AUTH_HEADER_LIMIT then Exit;
+  I := Length(AScheme) + 1;
+  if (Length(LHeader) < I) or (LHeader[I] <> ' ')
+    or not SameText(Copy(LHeader, 1, I - 1), AScheme) then Exit;
+  while (I <= Length(LHeader)) and (LHeader[I] = ' ') do Inc(I);
+  AValue := Copy(LHeader, I, MaxInt);
+  Result := AValue <> '';
+end;
+
+function _SameSecret(const ALeft, ARight: string): Boolean;
+var
+  I, LDifference: Integer;
+begin
+  if Length(ALeft) <> Length(ARight) then Exit(False);
+  LDifference := 0;
+  for I := 1 to Length(ALeft) do
+    LDifference := LDifference or (Ord(ALeft[I]) xor Ord(ARight[I]));
+  Result := LDifference = 0;
+end;
+
+function _DecodeBasic(const AValue: string; out AUserName, APassword: string): Boolean;
+var
+  LBytes, LEncoded: TBytes;
+  LText: string;
+  I, LLength, LPadding, LColon: Integer;
+begin
+  Result := False;
+  AUserName := '';
+  APassword := '';
+  LLength := Length(AValue);
+  if (LLength = 0) or (LLength mod 4 <> 0) then Exit;
+  LPadding := 0;
+  if AValue[LLength] = '=' then Inc(LPadding);
+  if AValue[LLength - 1] = '=' then Inc(LPadding);
+  for I := 1 to LLength - LPadding do
+    if not CharInSet(AValue[I], ['A'..'Z', 'a'..'z', '0'..'9', '+', '/']) then Exit;
+  try
+    // ä¸¤å¥— RTL çš„é»˜è®¤è§£ç å™¨å‡å®¹å¿éæ³•è¾“å…¥ï¼Œä¸èƒ½åªä¾èµ–å¼‚å¸¸åˆ¤æ–­ã€‚
+    LBytes := TBase64Utils.Decode(AValue);
+    if TBase64Utils.Encode(LBytes) <> AValue then Exit;
+    for I := 0 to High(LBytes) do
+      if (LBytes[I] < 32) or (LBytes[I] = 127) then Exit;
+    LText := TEncoding.UTF8.GetString(LBytes);
+    LEncoded := TEncoding.UTF8.GetBytes(LText);
+    if Length(LEncoded) <> Length(LBytes) then Exit;
+    if (Length(LBytes) > 0) and not CompareMem(@LBytes[0], @LEncoded[0], Length(LBytes)) then Exit;
+  except
+    on E: Exception do Exit;
+  end;
+  LColon := Pos(':', LText);
+  if LColon = 0 then Exit;
+  AUserName := Copy(LText, 1, LColon - 1);
+  APassword := Copy(LText, LColon + 1, MaxInt);
+  Result := True;
+end;
+
+type
+  TDigestFields = record
+    UserName, Realm, Nonce, Uri, Response, Qop, Nc, Cnonce: string;
+  end;
+
+  TDigestNonce = class
+  public
+    Created: UInt64;
+    UsedRequests: TDictionary<string, Byte>;
+    constructor Create(const ANow: UInt64);
+    destructor Destroy; override;
+  end;
+
+  IDigestAuthState = interface
+    ['{18BEE312-720A-4AF0-9DA7-923D40324A8F}']
+    function HasNonce(const ANonce: string): Boolean;
+    function Consume(const AFields: TDigestFields): Boolean;
+    function NewNonce(out ANonce: string): Boolean;
+  end;
+
+  TDigestAuthState = class(TInterfacedObject, IDigestAuthState)
+  private
+    FLock: ILock;
+    FNonces: TObjectDictionary<string, TDigestNonce>;
+    FTotalUses, FMaxNonces, FMaxUsesPerNonce, FMaxTotalUses: Integer;
+    FNonceLifetimeMs: UInt64;
+    {$IFDEF CROSS_HTTP_AUTH_TESTS}
+    FTestOptions: THttpAuthTestOptions;
+    {$ENDIF}
+    function _Now: UInt64;
+    function _Expired(const ANonce: TDigestNonce; const ANow: UInt64): Boolean;
+    procedure _Remove(const ANonce: string);
+    procedure _Prune(const ANow: UInt64);
+    function _EvictOldest(const ANow: UInt64; const AWithUses: Boolean;
+      const AExclude: string): Boolean;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    function HasNonce(const ANonce: string): Boolean;
+    function Consume(const AFields: TDigestFields): Boolean;
+    function NewNonce(out ANonce: string): Boolean;
+  end;
+
+constructor TDigestNonce.Create(const ANow: UInt64);
+begin
+  inherited Create;
+  Created := ANow;
+  UsedRequests := TDictionary<string, Byte>.Create;
+end;
+
+destructor TDigestNonce.Destroy;
+begin
+  UsedRequests.Free;
+  inherited;
+end;
+
+constructor TDigestAuthState.Create;
+begin
+  inherited Create;
+  FLock := TLock.Create;
+  FNonces := TObjectDictionary<string, TDigestNonce>.Create([doOwnsValues]);
+  FNonceLifetimeMs := DIGEST_NONCE_LIFETIME_MS;
+  FMaxNonces := DIGEST_MAX_NONCES;
+  FMaxUsesPerNonce := DIGEST_MAX_USES_PER_NONCE;
+  FMaxTotalUses := DIGEST_MAX_TOTAL_USES;
+  {$IFDEF CROSS_HTTP_AUTH_TESTS}
+  FTestOptions := GHttpAuthTestOptions;
+  if FTestOptions.NonceLifetimeMs > 0 then FNonceLifetimeMs := FTestOptions.NonceLifetimeMs;
+  if FTestOptions.MaxNonces > 0 then FMaxNonces := FTestOptions.MaxNonces;
+  if FTestOptions.MaxUsesPerNonce > 0 then FMaxUsesPerNonce := FTestOptions.MaxUsesPerNonce;
+  if FTestOptions.MaxTotalUses > 0 then FMaxTotalUses := FTestOptions.MaxTotalUses;
+  {$ENDIF}
+end;
+
+destructor TDigestAuthState.Destroy;
+begin
+  FNonces.Free;
+  {$IFDEF CROSS_HTTP_AUTH_TESTS}
+  if Assigned(FTestOptions.OnDestroy) then FTestOptions.OnDestroy();
+  {$ENDIF}
+  inherited;
+end;
+
+function TDigestAuthState._Now: UInt64;
+begin
+  {$IFDEF CROSS_HTTP_AUTH_TESTS}
+  if Assigned(FTestOptions.Clock) then Exit(FTestOptions.Clock());
+  {$ENDIF}
+  Result := TThread.GetTickCount64;
+end;
+
+function TDigestAuthState._Expired(const ANonce: TDigestNonce;
+  const ANow: UInt64): Boolean;
+begin
+  Result := ANow - ANonce.Created >= FNonceLifetimeMs;
+end;
+
+procedure TDigestAuthState._Remove(const ANonce: string);
+var
+  LNonce: TDigestNonce;
+begin
+  if FNonces.TryGetValue(ANonce, LNonce) then
+  begin
+    Dec(FTotalUses, LNonce.UsedRequests.Count);
+    FNonces.Remove(ANonce);
+  end;
+end;
+
+procedure TDigestAuthState._Prune(const ANow: UInt64);
+var
+  LExpired: TArray<string>;
+  LPair: TPair<string, TDigestNonce>;
+  I, LCount: Integer;
+begin
+  SetLength(LExpired, FNonces.Count);
+  LCount := 0;
+  for LPair in FNonces do
+    if _Expired(LPair.Value, ANow) then
+    begin
+      LExpired[LCount] := LPair.Key;
+      Inc(LCount);
+    end;
+  for I := 0 to LCount - 1 do _Remove(LExpired[I]);
+end;
+
+function TDigestAuthState._EvictOldest(const ANow: UInt64;
+  const AWithUses: Boolean; const AExclude: string): Boolean;
+var
+  LPair: TPair<string, TDigestNonce>;
+  LOldest: string;
+  LAge, LOldestAge: UInt64;
+begin
+  LOldest := '';
+  LOldestAge := 0;
+  for LPair in FNonces do
+  begin
+    if (LPair.Key = AExclude) or (AWithUses and (LPair.Value.UsedRequests.Count = 0)) then Continue;
+    LAge := ANow - LPair.Value.Created;
+    if (LOldest = '') or (LAge > LOldestAge) then
+    begin
+      LOldest := LPair.Key;
+      LOldestAge := LAge;
+    end;
+  end;
+  Result := LOldest <> '';
+  if Result then _Remove(LOldest);
+end;
+
+function TDigestAuthState.HasNonce(const ANonce: string): Boolean;
+var
+  LNonce: TDigestNonce;
+begin
+  FLock.Enter;
+  try
+    Result := FNonces.TryGetValue(ANonce, LNonce);
+    if Result and _Expired(LNonce, _Now) then
+    begin
+      _Remove(ANonce);
+      Result := False;
+    end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TDigestAuthState.Consume(const AFields: TDigestFields): Boolean;
+var
+  LNonce: TDigestNonce;
+  LUseKey: string;
+  LNow: UInt64;
+begin
+  // å›ºå®šé•¿åº¦ç´¢å¼•é¿å…é•¿ç”¨æˆ·å/cnonce éšé‡æ”¾è®°å½•é•¿æœŸæ”¾å¤§å†…å­˜ã€‚
+  LUseKey := TUtils.BytesToHex(THashSHA256.GetHashBytes(
+    AFields.UserName + #0 + AFields.Cnonce + #0 + AFields.Nc.ToLower));
+  FLock.Enter;
+  try
+    Result := False;
+    if not FNonces.TryGetValue(AFields.Nonce, LNonce) then Exit;
+    LNow := _Now;
+    if _Expired(LNonce, LNow) then
+    begin
+      _Remove(AFields.Nonce);
+      Exit;
+    end;
+    if LNonce.UsedRequests.ContainsKey(LUseKey) then Exit;
+    if LNonce.UsedRequests.Count >= FMaxUsesPerNonce then
+    begin
+      // å®¹é‡æ»¡æ—¶ä½¿æ•´ä¸ª nonce å¤±æ•ˆï¼Œä¸èƒ½é—å¿˜æ—§ nc åé‡æ–°æ¥å—é‡æ”¾ã€‚
+      _Remove(AFields.Nonce);
+      Exit;
+    end;
+    if FTotalUses >= FMaxTotalUses then
+    begin
+      _Prune(LNow);
+      if (FTotalUses >= FMaxTotalUses)
+        and not _EvictOldest(LNow, True, AFields.Nonce) then
+      begin
+        _Remove(AFields.Nonce);
+        Exit;
+      end;
+    end;
+    LNonce.UsedRequests.Add(LUseKey, 0);
+    Inc(FTotalUses);
+    Result := True;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TDigestAuthState.NewNonce(out ANonce: string): Boolean;
+var
+  LBytes: TBytes;
+  LNonce: string;
+  LNewNonce: TDigestNonce;
+  LNow: UInt64;
+  I: Integer;
+begin
+  ANonce := '';
+  Result := False;
+  for I := 1 to 4 do
+  begin
+    // éšæœºæºå¯èƒ½å¤±è´¥ï¼Œä¸åœ¨æŒé”æ—¶è°ƒç”¨ï¼Œä¹Ÿä¸é™çº§åˆ°å¯é¢„æµ‹ nonceã€‚
+    {$IFDEF CROSS_HTTP_AUTH_TESTS}
+    if Assigned(FTestOptions.Random) then
+      LBytes := FTestOptions.Random()
+    else
+    {$ENDIF}
+    begin
+      SetLength(LBytes, DIGEST_NONCE_BYTES);
+      if not TryFillCryptRandomBytes(LBytes[0], Length(LBytes)) then Exit;
+    end;
+    if Length(LBytes) <> DIGEST_NONCE_BYTES then Exit;
+    LNonce := TUtils.BytesToHex(LBytes);
+    FLock.Enter;
+    try
+      LNow := _Now;
+      _Prune(LNow);
+      if FNonces.ContainsKey(LNonce) then Continue;
+      if (FNonces.Count >= FMaxNonces) and not _EvictOldest(LNow, False, '') then Exit;
+      LNewNonce := TDigestNonce.Create(LNow);
+      try
+        FNonces.Add(LNonce, LNewNonce);
+        LNewNonce := nil;
+      finally
+        LNewNonce.Free;
+      end;
+      ANonce := LNonce;
+      Exit(True);
+    finally
+      FLock.Leave;
+    end;
+  end;
+end;
+
+function _IsHex(const AValue: string; const ALength: Integer): Boolean;
+var
+  C: Char;
+begin
+  if Length(AValue) <> ALength then Exit(False);
+  for C in AValue do
+    if not CharInSet(C, ['0'..'9', 'a'..'f', 'A'..'F']) then Exit(False);
+  Result := True;
+end;
+
+function _ParseDigest(const AValue: string; out AFields: TDigestFields): Boolean;
+var
+  LParams: TDictionary<string, string>;
+  I, LBegin, LValueLength: Integer;
+  LName, LValue, LAlgorithm, LUserHash: string;
+  C: Char;
+  LClosed: Boolean;
+
+  procedure SkipSpace;
+  begin
+    while (I <= Length(AValue)) and CharInSet(AValue[I], [' ', #9]) do Inc(I);
+  end;
+begin
+  Result := False;
+  LParams := TDictionary<string, string>.Create;
+  try
+    I := 1;
+    while I <= Length(AValue) do
+    begin
+      SkipSpace;
+      LBegin := I;
+      while (I <= Length(AValue)) and TCrossHttpUtils.IsTokenChar(AValue[I]) do Inc(I);
+      if I = LBegin then Exit;
+      LName := Copy(AValue, LBegin, I - LBegin).ToLower;
+      if LParams.ContainsKey(LName) then Exit;
+      SkipSpace;
+      if (I > Length(AValue)) or (AValue[I] <> '=') then Exit;
+      Inc(I);
+      SkipSpace;
+      if I > Length(AValue) then Exit;
+      if AValue[I] = '"' then
+      begin
+        Inc(I);
+        SetLength(LValue, Length(AValue) - I + 1);
+        LValueLength := 0;
+        LClosed := False;
+        while I <= Length(AValue) do
+        begin
+          C := AValue[I];
+          Inc(I);
+          if C = '"' then
+          begin
+            LClosed := True;
+            Break;
+          end;
+          if C = '\' then
+          begin
+            if I > Length(AValue) then Exit;
+            C := AValue[I];
+            Inc(I);
+          end;
+          if (Ord(C) < 32) or (Ord(C) = 127) then Exit;
+          Inc(LValueLength);
+          LValue[LValueLength] := C;
+        end;
+        if not LClosed then Exit;
+        SetLength(LValue, LValueLength);
+      end else
+      begin
+        LBegin := I;
+        while (I <= Length(AValue)) and TCrossHttpUtils.IsTokenChar(AValue[I]) do Inc(I);
+        if I = LBegin then Exit;
+        LValue := Copy(AValue, LBegin, I - LBegin);
+      end;
+      LParams.Add(LName, LValue);
+      SkipSpace;
+      if I > Length(AValue) then Break;
+      if AValue[I] <> ',' then Exit;
+      Inc(I);
+      SkipSpace;
+      if I > Length(AValue) then Exit;
+    end;
+    if not (LParams.TryGetValue('username', AFields.UserName)
+      and LParams.TryGetValue('realm', AFields.Realm)
+      and LParams.TryGetValue('nonce', AFields.Nonce)
+      and LParams.TryGetValue('uri', AFields.Uri)
+      and LParams.TryGetValue('response', AFields.Response)
+      and LParams.TryGetValue('qop', AFields.Qop)
+      and LParams.TryGetValue('nc', AFields.Nc)
+      and LParams.TryGetValue('cnonce', AFields.Cnonce)) then Exit;
+    if LParams.TryGetValue('algorithm', LAlgorithm) and not SameText(LAlgorithm, 'MD5') then Exit;
+    if LParams.TryGetValue('userhash', LUserHash) and (LUserHash <> 'false') then Exit;
+    if LParams.ContainsKey('username*') or (Pos(':', AFields.UserName) > 0) then Exit;
+    Result := (AFields.Qop = 'auth') and (AFields.Cnonce <> '')
+      and _IsHex(AFields.Nonce, DIGEST_NONCE_BYTES * 2)
+      and _IsHex(AFields.Response, 32) and _IsHex(AFields.Nc, 8)
+      and (AFields.Nc <> '00000000');
+  finally
+    LParams.Free;
+  end;
+end;
 
 { TNetCrossMiddleware }
 
 class function TNetCrossMiddleware.AuthenticateBasic(AAuthGetPasswordProc: TAuthGetPasswordProc;
   const ARealm: string): TCrossHttpRouterProc;
+var
+  LRealm: string;
 begin
+  LRealm := _QuoteAuthValue(ARealm);
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
-      LAuthStr: string;
-      LStrArr: TArray<string>;
-      LCorrectPassword: string;
+      LAuthStr, LUserName, LPassword, LCorrectPassword, LChallengeRealm: string;
+      LPasswordProc: TAuthGetPasswordProc;
+      LValid: Boolean;
     begin
-      // Authorization: Basic cm9vdDpyb290
-      // base64²¿·Ö½âÂëºó¸ñÊ½Îª "ÓÃ»§Ãû:ÃÜÂë"
-      LAuthStr := ARequest.Header['Authorization'];
-      if (LAuthStr <> '') then
-      begin
-        if (LAuthStr.StartsWith('Basic', True)) then
-          LAuthStr := LAuthStr.Substring(6)
-        else
-          LAuthStr := '';
-      end;
-
+      AHandled := True;
+      LChallengeRealm := LRealm;
+      LPasswordProc := AAuthGetPasswordProc;
       LCorrectPassword := #0;
-      if (LAuthStr <> '') then
+      LValid := Assigned(LPasswordProc)
+        and _GetAuthValue(ARequest, 'Basic', LAuthStr)
+        and _DecodeBasic(LAuthStr, LUserName, LPassword);
+      // ä¸šåŠ¡æŸ¥è¯¢å¼‚å¸¸ç»§ç»­äº¤ç»™æœåŠ¡å™¨çš„æ—¢æœ‰å¼‚å¸¸å¤„ç†ï¼Œä¸ä¼ªè£…æˆé”™è¯¯å¯†ç ã€‚
+      if LValid then
+        LPasswordProc(ARequest, LUserName, LCorrectPassword);
+      if not LValid or (LCorrectPassword = #0)
+        or not _SameSecret(LPassword, LCorrectPassword) then
       begin
-        LAuthStr := TEncoding.UTF8.GetString(TBase64Utils.Decode(LAuthStr));
-        LStrArr := LAuthStr.Split([':']);
-
-        // »ñÈ¡ÓÃ»§Ãû¶ÔÓ¦µÄÕıÈ·ÃÜÂë
-        if Assigned(AAuthGetPasswordProc) and (Length(LStrArr) > 0) then
-          AAuthGetPasswordProc(ARequest, LStrArr[0], LCorrectPassword);
-      end;
-
-      // Æ¥ÅäÃÜÂë
-      if (LAuthStr = '') or (Length(LStrArr) < 2) or (LStrArr[1] <> LCorrectPassword) then
-      begin
-        AHandled := True;
-        AResponse.Header['WWW-authenticate'] := Format('Basic Realm="%s"', [ARealm]);
+        AResponse.Header['WWW-authenticate'] := Format('Basic Realm="%s"', [LChallengeRealm]);
         AResponse.SendStatus(401);
         Exit;
       end;
@@ -136,76 +604,64 @@ end;
 
 class function TNetCrossMiddleware.AuthenticateDigest(
   AAuthGetPasswordProc: TAuthGetPasswordProc; const ARealm: string): TCrossHttpRouterProc;
+var
+  LState: IDigestAuthState;
+  LRealm: string;
 begin
+  LRealm := _QuoteAuthValue(ARealm);
+  LState := TDigestAuthState.Create;
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
-      LUserName, LCorrectPassword: string;
-      LNonce, LUserResponse, LCorrectResponse: string;
-      LAuthStr: string;
-      A1, A2, HA1, HA2: string;
-      LAuthParams: TDelimitParams;
+      LKeepState: IDigestAuthState;
+      LPasswordProc: TAuthGetPasswordProc;
+      LFields: TDigestFields;
+      LAuthStr, LCorrectPassword, LCorrectResponse, LNonce, LHA1, LHA2: string;
+      LRequestRealm, LChallengeRealm: string;
+      LValid: Boolean;
     begin
-      // Authorization: Digest username="admin", realm="test realm", nonce="2468217498b46028705d401192459edd", uri="/login?key=value1", response="1d663058353e8f5831328728c29a6a1a", qop=auth, nc=00000006, cnonce="5d63a594e16feba2"
-      LAuthStr := ARequest.Header['Authorization'];
-      if (LAuthStr <> '') then
-      begin
-        if (LAuthStr.StartsWith('Digest', True)) then
-          LAuthStr := LAuthStr.Substring(7)
-        else
-          LAuthStr := '';
-      end;
-
+      AHandled := True;
+      LKeepState := LState;
+      LPasswordProc := AAuthGetPasswordProc;
+      LRequestRealm := ARealm;
+      LChallengeRealm := LRealm;
       LCorrectPassword := #0;
-      if (LAuthStr <> '') then
+      LValid := Assigned(LPasswordProc)
+        and _GetAuthValue(ARequest, 'Digest', LAuthStr)
+        and _ParseDigest(LAuthStr, LFields)
+        and (LFields.Realm = LRequestRealm)
+        and (LFields.Uri = ARequest.RawPathAndParams)
+        and LKeepState.HasNonce(LFields.Nonce);
+      if LValid then
       begin
-        LAuthParams := TDelimitParams.Create(',', False);
-        try
-          LAuthParams.Decode(LAuthStr);
-
-          LUserName := LAuthParams['username'].Replace('"', '');
-          // »ñÈ¡ÓÃ»§Ãû¶ÔÓ¦µÄÕıÈ·ÃÜÂë
-          if Assigned(AAuthGetPasswordProc) then
-            AAuthGetPasswordProc(ARequest, LUserName, LCorrectPassword);
-
-          {$region '¼ÆËãÕªÒª'}
-          A1 := Format('%s:%s:%s', [LUserName, ARealm, LCorrectPassword]);
-          A2 := Format('%s:%s', [ARequest.Method, LAuthParams['uri'].Replace('"', '')]);
-
-          HA1 := TUtils.BytesToHex(THashMD5.GetHashBytes(A1));
-          HA2 := TUtils.BytesToHex(THashMD5.GetHashBytes(A2));
-
-          LCorrectResponse := HA1 +
-            ':' + LAuthParams['nonce'].Replace('"', '') +
-            ':' + LAuthParams['nc'].Replace('"', '') +
-            ':' + LAuthParams['cnonce'].Replace('"', '') +
-            ':auth' +
-            ':' + HA2;
-          LCorrectResponse := TUtils.BytesToHex(THashMD5.GetHashBytes(LCorrectResponse));
-          {$endregion}
-
-          // ¿Í»§¶ËÒÑ¼ÆËãºÃµÄÕªÒª
-          LUserResponse := LAuthParams['response'].Replace('"', '');
-        finally
-          FreeAndNil(LAuthParams);
-        end;
+        // ç”¨æˆ·å›è°ƒä¸æ‘˜è¦è®¡ç®—éƒ½ä¸æŒæœ‰çŠ¶æ€é”ï¼Œå¼‚å¸¸æ²¿ç”¨æœåŠ¡å™¨å¤„ç†å¥‘çº¦ã€‚
+        LPasswordProc(ARequest, LFields.UserName, LCorrectPassword);
+        LValid := LCorrectPassword <> #0;
       end;
-
-      // ±È¶Ô¿Í»§¶ËÓë·şÎñ¶ËµÄÕªÒªÊÇ·ñÆ¥Åä
-      // µ±Ç°¶ËÃ»ÓĞ·¢ËÍÑéÖ¤ĞÅÏ¢»òÕßÑéÖ¤ĞÅÏ¢²»Æ¥ÅäÊ±
-      // ·µ»ØĞèÒªÈÏÖ¤µÄ±¨ÎÄ
-      if (LAuthStr = '') or (LUserResponse <> LCorrectResponse) then
+      if LValid then
       begin
-        AHandled := True;
-        LNonce := TUtils.BytesToHex(THashMD5.GetHashBytes(DateTimeToStr(Now)));
+        LHA1 := TUtils.BytesToHex(THashMD5.GetHashBytes(
+          LFields.UserName + ':' + LRequestRealm + ':' + LCorrectPassword));
+        LHA2 := TUtils.BytesToHex(THashMD5.GetHashBytes(ARequest.Method + ':' + LFields.Uri));
+        LCorrectResponse := TUtils.BytesToHex(THashMD5.GetHashBytes(LHA1 + ':' +
+          LFields.Nonce + ':' + LFields.Nc + ':' + LFields.Cnonce + ':auth:' + LHA2));
+        // åªåœ¨æ‘˜è¦æ­£ç¡®ååŸå­è®°å½• ncï¼›é‡æŸ¥æœ‰æ•ˆæœŸï¼Œé˜²æ­¢æ…¢æŸ¥è¯¢è¶Šè¿‡è¿‡æœŸè¾¹ç•Œã€‚
+        LValid := _SameSecret(LCorrectResponse, LFields.Response.ToLower)
+          and LKeepState.Consume(LFields);
+      end;
+      if not LValid then
+      begin
+        if not LKeepState.NewNonce(LNonce) then
+        begin
+          AResponse.SendStatus(503);
+          Exit;
+        end;
         AResponse.Header['WWW-authenticate'] := Format(
-          'Digest realm="%s", qop=auth, nonce="%s"',
-          [ARealm, LNonce]);
+          'Digest realm="%s", qop="auth", algorithm=MD5, nonce="%s"',
+          [LChallengeRealm, LNonce]);
         AResponse.SendStatus(401);
         Exit;
       end;
-
-      // Ç°¶ËµÄÑéÖ¤ĞÅÏ¢Óë·şÎñ¶ËÒ»ÖÂ, ÈÃÂ·ÓÉ¼ÌĞø´¦Àí
       AHandled := False;
     end;
 end;
