@@ -25,6 +25,8 @@ type
     FOutputLock: ILock;
     FOutput: TList<TBytes>;
     FPending: TQueue<TPhysicalWrite>;
+    procedure SendBenchCipher(const AConnection: ICrossConnection; const ABuf: Pointer;
+      const ALen: Integer; const ACallback: TCrossConnectionCallback);
   protected
     procedure Send(const AConnection: ICrossConnection; const ABuf: Pointer;
       const ALen: Integer; const ACallback: TCrossConnectionCallback = nil); override;
@@ -43,6 +45,10 @@ type
     Plaintext: AnsiString;
     BenchReceive: Boolean;
     BenchBytes: Int64;
+    BenchPeer: PSSL;
+    BenchPeerInput: PBIO;
+    BenchVerifyAll: Boolean;
+    BenchCipherBytes, BenchDecryptedBytes: Int64;
     constructor Create; reintroduce;
     destructor Destroy; override;
     function StartClient: ICrossConnection;
@@ -144,6 +150,11 @@ begin
   Inc(SendDepth);
   if SendDepth > MaxSendDepth then MaxSendDepth := SendDepth;
   try
+  if BenchPeer <> nil then
+  begin
+    SendBenchCipher(AConnection, ABuf, ALen, ACallback);
+    Exit;
+  end;
   if BlockFirst and (AtomicIncrement(SendCalls) = 1) then
   begin
     // 在 TLS 锁外、真正进入发送队列前卡住首个提交，固定并发交错。
@@ -175,6 +186,32 @@ begin
   finally
     Dec(SendDepth);
   end;
+end;
+
+procedure TMemoryTlsSocket.SendBenchCipher(const AConnection: ICrossConnection;
+  const ABuf: Pointer; const ALen: Integer; const ACallback: TCrossConnectionCallback);
+var
+  LBuffer: array[0..16383] of Byte;
+  N, I, LError: Integer;
+begin
+  // 模拟即时物理交付，真实对端BIO/SSL解密；不增加测试用密文数组复制。
+  Check(BIO_write(BenchPeerInput, ABuf, ALen) = ALen, 'output benchmark BIO input failed');
+  Inc(BenchCipherBytes, ALen);
+  repeat
+    ERR_clear_error();
+    N := SSL_read(BenchPeer, @LBuffer[0], SizeOf(LBuffer));
+    if N <= 0 then
+    begin
+      LError := SSL_get_error(BenchPeer, N);
+      Check(LError = SSL_ERROR_WANT_READ, 'output benchmark peer rejected ciphertext');
+      Break;
+    end;
+    Inc(BenchDecryptedBytes, N);
+    Check((LBuffer[0] = $41) and (LBuffer[N - 1] = $41), 'output benchmark plaintext differs');
+    if BenchVerifyAll then
+      for I := 0 to N - 1 do Check(LBuffer[I] = $41, 'output benchmark plaintext byte differs');
+  until False;
+  if Assigned(ACallback) then ACallback(AConnection, True);
 end;
 
 procedure TMemoryTlsSocket.LogicConnected(const AConnection: ICrossConnection);
@@ -868,6 +905,10 @@ begin
       else if ParamStr(1) = 'bench-tls12' then RunTlsBufferBench(TLS1_2_VERSION)
       else if ParamStr(1) = 'bench-tls13' then RunTlsBufferBench(TLS1_3_VERSION)
       else if ParamStr(1) = 'probe-bio' then ProbeTlsPending
+      else if ParamStr(1) = 'bench-tx12' then RunTlsOutputBench(TLS1_2_VERSION)
+      else if ParamStr(1) = 'bench-tx13' then RunTlsOutputBench(TLS1_3_VERSION)
+      else if ParamStr(1) = 'bench-control12' then RunTlsBufferBench(TLS1_2_VERSION, True)
+      else if ParamStr(1) = 'bench-control13' then RunTlsBufferBench(TLS1_3_VERSION, True)
       else raise Exception.Create('unknown mode');
     finally
       TSSLTools.UnloadSSL;

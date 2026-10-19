@@ -186,7 +186,7 @@ begin
   end;
 end;
 
-procedure RunTlsBufferBench(const Version: Integer);
+procedure RunTlsBufferBench(const Version: Integer; const AControlOnly: Boolean = False);
 const Sizes: array[0..2] of Integer = (32, 1024, 65536);
 var F: TTlsFixture; Records: TArray<TBytes>; Data: TBytes;
     Samples: array of Int64; Size, S, N, I, Count, Offset: Integer;
@@ -195,6 +195,7 @@ begin
   InitBufferBench;
   for S := 0 to High(Sizes) do
   begin
+    if AControlOnly and (S = 1) then Continue;
     F := TTlsFixture.Create(Version);
     try
       F.Handshake; F.Socket.BenchReceive := True;
@@ -227,5 +228,67 @@ begin
       Check(F.Socket.PendingCount = 0, 'application read generated pending output');
       ReportBufferBench('tls-' + IntToStr(Version) + '-' + IntToStr(Size), N, Elapsed, Samples);
     finally Records := nil; Samples := nil; Data := nil; F.Free; end;
+  end;
+end;
+
+procedure RunTlsOutputBench(const Version: Integer);
+var
+  F: TTlsFixture;
+  Sizes: array[0..5] of Integer;
+  Data: TBytes;
+  Samples: array of Int64;
+  S, Size, N, I, LCalls: Integer;
+  Started, Elapsed, T, LExpectedCalls: Int64;
+  LCallback: TCrossConnectionCallback;
+  LName: string;
+begin
+  InitBufferBench;
+  Sizes[0] := 1024;
+  if Version = TLS1_2_VERSION then Sizes[1] := 16384 - 29 else Sizes[1] := 16384 - 22;
+  Sizes[2] := Sizes[1] + 1; Sizes[3] := 16384; Sizes[4] := 65536; Sizes[5] := 1048576;
+  for S := 0 to High(Sizes) do
+  begin
+    F := TTlsFixture.Create(Version);
+    try
+      F.Handshake;
+      F.Socket.BenchPeer := F.Peer; F.Socket.BenchPeerInput := F.PeerIn;
+      Size := Sizes[S]; SetLength(Data, Size); FillChar(Data[0], Size, $41);
+      N := (16 * 1024 * 1024) div Size;
+      if N < 256 then N := 256;
+      if N > 20000 then N := 20000;
+      LCalls := 0;
+      LCallback := procedure(const C: ICrossConnection; const OK: Boolean)
+        begin Check(OK, 'output benchmark send failed'); Inc(LCalls); end;
+      F.Socket.BenchVerifyAll := True;
+      F.Connection.SendBytes(Data, LCallback);
+      F.Socket.BenchVerifyAll := False;
+      for I := 1 to 128 do F.Connection.SendBytes(Data, LCallback);
+      Started := BenchNow;
+      for I := 1 to N do F.Connection.SendBytes(Data, LCallback);
+      Elapsed := BenchNow - Started;
+      SetLength(Samples, N);
+      for I := 0 to N - 1 do
+      begin
+        T := BenchNow; F.Connection.SendBytes(Data, LCallback); Samples[I] := BenchNow - T;
+      end;
+      BenchPendingCalls := 0; BenchPendingNonempty := 0;
+      BenchOriginalBioCtrl := BIO_ctrl;
+      BIO_ctrl := ProbeBioCtrl;
+      BeginAllocationCount;
+      try
+        for I := 1 to N do F.Connection.SendBytes(Data, LCallback);
+      finally EndAllocationCount; BIO_ctrl := BenchOriginalBioCtrl; end;
+      LExpectedCalls := 129 + 3 * N;
+      Check((LCalls = LExpectedCalls) and (F.Socket.BenchDecryptedBytes = LExpectedCalls * Size),
+        'output benchmark lost completion or plaintext');
+      Check((BenchPendingCalls = 2 * N) and (BenchPendingNonempty = N), 'output benchmark pending query count differs');
+      LName := 'tx-' + IntToStr(Version) + '-' + IntToStr(Size);
+      Writeln('TXWIRE ', LName, ' bytes=', F.Socket.BenchCipherBytes div LExpectedCalls,
+        ' pending_calls=', BenchPendingCalls, ' nonempty=', BenchPendingNonempty);
+      ReportBufferBench(LName, N, Elapsed, Samples);
+    finally
+      LCallback := nil; Samples := nil; Data := nil;
+      F.Socket.BenchPeer := nil; F.Socket.BenchPeerInput := nil; F.Free;
+    end;
   end;
 end;

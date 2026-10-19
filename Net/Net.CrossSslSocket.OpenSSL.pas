@@ -742,7 +742,6 @@ end;
 function TCrossOpenSslConnection._BIO_read_all: TBytes;
 const
   INITIAL_BUF_SIZE = 16384; // 初始缓冲区大小 16KB
-  MAX_BUF_INCREMENT = 65536; // 最大增量 64KB
 var
   LReadedCount, LBlockSize, LRetCode: Integer;
   LFreeSpace, LNewSize: Integer;
@@ -764,12 +763,8 @@ begin
     // 动态扩展缓冲区(按需增长)
     if (LFreeSpace < LBlockSize) then
     begin
-      // 指数增长策略: 每次翻倍, 上限为 MAX_BUF_INCREMENT
-      LNewSize := Length(Result) * 2;
-      if (LNewSize - LReadedCount < LBlockSize) then
-        LNewSize := LReadedCount + LBlockSize + MAX_BUF_INCREMENT
-      else if (LNewSize > Length(Result) + MAX_BUF_INCREMENT) then
-        LNewSize := Length(Result) + MAX_BUF_INCREMENT;
+      // 内存 BIO 已报告当前全部待读字节，只扩到本轮实际需要的长度。
+      LNewSize := LReadedCount + LBlockSize;
       SetLength(Result, LNewSize);
     end;
 

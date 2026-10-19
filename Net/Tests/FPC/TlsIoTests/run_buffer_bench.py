@@ -11,13 +11,15 @@ sys.dont_write_bytecode = True
 import run_tests as c
 
 MODES = ['bench-ws', 'bench-tls12', 'bench-tls13']
+ALL_MODES = MODES + ['bench-tx12', 'bench-tx13', 'bench-control12', 'bench-control13']
 LABEL = 'o06-ws-final'
 PATTERN = re.compile(r'BENCH (\S+) n=(\d+) batch_ns=(\d+) alloc_calls=(\d+) requested_bytes=(\d+) p99_ns=(\d+)')
 BASE_REF = '65a5df2'
+BASE_LABEL = 'o06-before'
 
 
 def baseline_source():
-    source = c.HERE / 'bin/o06-before/production'
+    source = c.HERE / 'bin' / BASE_LABEL / 'production'
     source.mkdir(parents=True, exist_ok=True)
     for name in ['Net.CrossSslSocket.OpenSSL.pas', 'Net.CrossWebSocketParser.pas']:
         raw = subprocess.check_output(['git', 'show', BASE_REF + ':Net/' + name], cwd=c.REPO)
@@ -60,7 +62,11 @@ def run(target, variant, number, modes=MODES):
             records[name] = {'n': n, 'ns_per_op': int(elapsed) / n,
                              'alloc_calls_per_op': int(alloc) / n,
                              'requested_bytes_per_op': int(requested) / n, 'p99_ns': int(p99)}
-    assert len(records) == sum(16 if mode == 'bench-ws' else 3 for mode in modes)
+        for name, size, calls, nonempty in re.findall(r'TXWIRE (\S+) bytes=(\d+) pending_calls=(\d+) nonempty=(\d+)', data.decode(errors='replace')):
+            records[name].update(wire_bytes=int(size), pending_calls_per_op=int(calls) / records[name]['n'],
+                                 pending_nonempty_per_op=int(nonempty) / records[name]['n'])
+    assert len(records) == sum(16 if mode == 'bench-ws' else 6 if mode.startswith('bench-tx') else
+                              2 if mode.startswith('bench-control') else 3 for mode in modes)
     print('PASS run', target, variant, number, flush=True)
     return records
 
@@ -77,12 +83,17 @@ if __name__ == '__main__':
     p.add_argument('--smoke', choices=['before', 'after'])
     p.add_argument('--compare', action='store_true')
     p.add_argument('--rounds', type=int, default=5)
-    p.add_argument('--modes', nargs='+', choices=MODES, default=MODES)
+    p.add_argument('--modes', nargs='+', choices=ALL_MODES, default=MODES)
     p.add_argument('--run-label', default='')
     p.add_argument('--artifact-label', default=LABEL)
+    p.add_argument('--baseline-ref', default=BASE_REF)
+    p.add_argument('--baseline-label', default=BASE_LABEL)
     o = p.parse_args()
     LABEL = o.artifact_label
+    BASE_REF = o.baseline_ref
+    BASE_LABEL = o.baseline_label
     if not LABEL.replace('-', '').replace('_', '').isalnum(): p.error('invalid artifact label')
+    if not BASE_LABEL.replace('-', '').replace('_', '').isalnum(): p.error('invalid baseline label')
     if o.run_label and not o.run_label.replace('-', '').replace('_', '').isalnum(): p.error('invalid run label')
     if o.compare and o.rounds < 5: p.error('comparison requires at least five paired rounds')
     for target in o.targets:

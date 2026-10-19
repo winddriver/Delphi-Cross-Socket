@@ -126,3 +126,13 @@ F12 红绿证据和最终结果：
 相邻 WebSocketFrameTests 的 `bin/o06-ws-final/` 四目标通过完整组件、每目标 11,056 组合法帧/拆分矩阵与 11 个真实 TCP 回环。前三目标使用此前已冻结的 HTTP 依赖；FPC Linux 初次构建遇到另一任务修改 Server 的中间态，随后在明确稳定窗口重新构建并通过，使用后续 BodyStorage 修复后的 Server/Parser。每个目标的 source.json 记录实际依赖，不称为四目标的 HTTP 源完全相同。
 
 最终源码、二进制与结果汇总为 `bin/o06-final-manifest.json`。被撤回的 TLS 候选和初步采样保留为实验记录，不与最终采用的 WS 收益混合，也不把本地编码/接收微基准等同于网络吞吐或网络 P99。
+
+## O06 独立候选：非空 BIO 精确扩容
+
+在 WS 阶段提交 `ffb9407` 后，仅把 `_BIO_read_all` 的非空扩容目标改为本轮实际需要的 `LReadedCount + LBlockSize`。初始 16 KiB 分配、空 BIO 行为和查询次数保留，不重新引入已否决的提前返回。只测这一种候选，没有缓冲复用、开关或状态机重构；O06 整体仍是部分完成。
+
+完整方法、两编译器所有写出/接收控制负载的时间、IQR、P99 和累计申请量见 [TLS_OUTPUT_BENCHMARK.md](TLS_OUTPUT_BENCHMARK.md)。写出通过真实 OpenSSL 完成并由原生对端实际解密，覆盖 1 KiB、实际密文 16 KiB/16 KiB+1 边界、输入 16 KiB/64 KiB/1 MiB。分配接口调用次数保持不变；大块输出的累计请求量每次减少 64 KiB，不能等同于实际峰值内存下降。接收 32 B/64 KiB 控制未重现前一候选的明显回退。
+
+独立验证：`tls-output-final3` / `tls-output-final111` 七个库/编译器组合各 **38/38，共 266/266**；关闭自测宏的 `tls-output-release` Delphi/FPC Win64 各 **33/33**。同源重编 `TlsCipherSuitesTests`，双目标配置自测通过、真实 TCP 客户端/服务端握手各 **38/38**，记录在 `bin/tls-output-compat/`。所有测试进程均已退出。
+
+性能基线及原始配对样本位于 `bin/tls-output-baseline/`、`bin/tls-output-{before,after}/`、`bin/tls-output-results/`。最终源码与二进制哈希汇总为 `bin/tls-output-final-manifest.json`；容量限制仍只读设计，本批未改任何队列计费规则或旧 SslMaxPendingWriteBytes 语义。
