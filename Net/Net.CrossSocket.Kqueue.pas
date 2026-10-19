@@ -141,8 +141,12 @@ type
   //
   // 由于 KQUEUE 中每个套接字在队列中的 EV_WRITE 和 EV_READ 是分开的两条记录
   // 所以修改套接字的监听事件时不会互相覆盖, 也就是说每个事件都会对应到一次
-  // 触发, 这样就可以方便的使用接口的引用计数机制保持连接的有效性, 也不会出现
-  // 内存泄漏
+  // 触发
+  //
+  // The kevent udata carries the UID of the listen or connection (as epoll
+  // does); ProcessIoEvent looks the object up under the owner's lock, so an
+  // event harvested for an object that was closed and freed meanwhile is
+  // simply skipped. No reference is held by a pending event.
   TKqueueCrossSocket = class(TCrossSocketBase)
   private const
     MAX_EVENT_COUNT = 2048;
@@ -173,6 +177,8 @@ type
     procedure _HandleConnect(const AConnection: ICrossConnection);
     procedure _ConnectNextAddr(const AOp: TCrossConnectOp);
     procedure _ConnectAttemptFailed(const AConnection: ICrossConnection);
+    function _FindCrossData(const AData: NativeUInt;
+      out AListen: ICrossListen; out AConnection: ICrossConnection): Boolean;
     procedure _HandleRead(const AConnection: ICrossConnection);
     procedure _HandleWrite(const AConnection: ICrossConnection);
   protected
@@ -233,7 +239,7 @@ begin
 
   if (FIoEvents = []) or IsClosed then Exit(False);
 
-  LCrossData := Pointer(Self);
+  LCrossData := Pointer(NativeUInt(Self.UID));
   N := 0;
 
   if _ReadEnabled then
@@ -357,21 +363,13 @@ var
 begin
   if (AIoEvents = []) or IsClosed then Exit(False);
 
-  LCrossData := Pointer(Self);
+  // The UID, not the object: an event still queued for a closed connection
+  // must not keep it alive or point at freed memory (see ProcessIoEvent).
+  LCrossData := Pointer(NativeUInt(Self.UID));
   N := 0;
-
-  // kqueue中同一个套接字的EVFILT_READ和EVFILT_WRITE事件在队列中会有两条记录
-  // 并且可能会在不同的线程中同时被触发, 如果其中一个线程关闭了连接, 在没有
-  // 引用计数保护的情况下, 就会导致连接对象被释放, 另一个线程再访问连接对象
-  // 就会引起异常, 这里为了保证连接对象的有效性, 在添加事件时手动增加连接对象
-  // 的引用计数, 到事件触发时再减少引用计数
-  // 注意关闭连接一定要使用shutdown而不能直接close, 否则无法触发kqueue事件,
-  // 导致引用计数无法回收
 
   if (ieRead in AIoEvents) and (AtomicCmpExchange(FInPending, 0, 0) = 0) then
   begin
-    Self._AddRef;
-
     EV_SET(@LEvents[N], Socket, EVFILT_READ,
       EV_ADD or EV_ONESHOT or EV_CLEAR or EV_DISPATCH, 0, 0, Pointer(LCrossData));
 
@@ -380,8 +378,6 @@ begin
 
   if (ieWrite in AIoEvents) and (AtomicCmpExchange(FOutPending, 0, 0) = 0) then
   begin
-    Self._AddRef;
-
     EV_SET(@LEvents[N], Socket, EVFILT_WRITE,
       EV_ADD or EV_ONESHOT or EV_CLEAR or EV_DISPATCH, 0, 0, Pointer(LCrossData));
 
@@ -397,12 +393,6 @@ begin
     {$IFDEF DEBUG}
     _LogLastOsError('connection kevent, %s', [Self.DebugInfo]);
     {$ENDIF}
-
-    while (N > 0) do
-    begin
-      Self._Release;
-      Dec(N);
-    end;
 
     Self.Close;
   end;
@@ -777,6 +767,53 @@ begin
   _CloseStopHandle;
 end;
 
+function TKqueueCrossSocket._FindCrossData(const AData: NativeUInt;
+  out AListen: ICrossListen; out AConnection: ICrossConnection): Boolean;
+
+  function _Lookup(const AUID: UInt64): Boolean;
+  var
+    LListens: TCrossListens;
+    LConnections: TCrossConnections;
+  begin
+    case GetTagByUID(AUID) of
+      UID_LISTEN:
+        begin
+          LListens := LockListens;
+          try
+            Result := LListens.TryGetValue(AUID, AListen) and (AListen <> nil);
+          finally
+            UnlockListens;
+          end;
+        end;
+
+      UID_CONNECTION:
+        begin
+          LConnections := LockConnections;
+          try
+            Result := LConnections.TryGetValue(AUID, AConnection)
+              and (AConnection <> nil);
+          finally
+            UnlockConnections;
+          end;
+        end;
+    else
+      Result := False;
+    end;
+  end;
+
+begin
+  AListen := nil;
+  AConnection := nil;
+  {$IF defined(CPU64BITS) or defined(CPU64)}
+  Result := _Lookup(UInt64(AData));
+  {$ELSE}
+  // A 32-bit udata holds only the counter part of the UID; the counter is
+  // shared by listens and connections, so it is unique on its own.
+  Result := _Lookup((UInt64(UID_CONNECTION) shl 62) or AData)
+    or _Lookup((UInt64(UID_LISTEN) shl 62) or AData);
+  {$ENDIF}
+end;
+
 procedure TKqueueCrossSocket._ConnectAttemptFailed(const AConnection: ICrossConnection);
 var
   LOp: TCrossConnectOp;
@@ -1063,7 +1100,6 @@ function TKqueueCrossSocket.ProcessIoEvent: Boolean;
 var
   LRet, I: Integer;
   LEvent: TKEvent;
-  LCrossData: TCrossData;
   LListen: ICrossListen;
   LConnection: ICrossConnection;
 begin
@@ -1085,17 +1121,9 @@ begin
     if (LEvent.uData = nil) then Continue;
 
     {$region '获取连接或监听对象'}
-    LCrossData := TCrossData(LEvent.uData);
-
-    if (LCrossData is TKqueueListen) then
-      LListen := LCrossData as ICrossListen
-    else
-      LListen := nil;
-
-    if (LCrossData is TKqueueConnection) then
-      LConnection := LCrossData as ICrossConnection
-    else
-      LConnection := nil;
+    // Closed (and possibly freed) since the event was queued: skip it.
+    if not _FindCrossData(NativeUInt(LEvent.uData), LListen, LConnection) then
+      Continue;
     {$endregion}
 
     {$region 'IO事件处理'}
@@ -1106,8 +1134,6 @@ begin
     end else
     if (LConnection <> nil) then
     begin
-      LConnection._Release;
-
       // kqueue的读写事件同一时间只可能触发一个
       if (LEvent.Filter = EVFILT_READ) then
         _HandleRead(LConnection)
