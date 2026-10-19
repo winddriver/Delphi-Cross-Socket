@@ -716,6 +716,7 @@ type
     FLastNetError: Integer;
     FRecvLock, FSentLock: ILock;
     FConnectCb: TCrossConnectionCallback;
+    function _TakeConnectCallback: TCrossConnectionCallback;
   protected
     procedure _LockRecv; inline;
     procedure _UnlockRecv; inline;
@@ -946,6 +947,10 @@ type
   procedure _LogLastOsError(const ATagFmt: string; const ATagArgs: array of const); overload;
   procedure _Log(const S: string); overload;
   procedure _Log(const Fmt: string; const Args: array of const); overload;
+  procedure _LogException(const AContext: string; const AError: Exception);
+  function _CallConnectionCallback(const ACallback: TCrossConnectionCallback;
+    const AConnection: ICrossConnection; const ASuccess: Boolean): Boolean;
+  procedure _CloseCrossData(const AData: ICrossData);
 
 var
   CrossSocketLogEnabled: Boolean = {$IFDEF DEBUG}True{$ELSE}False{$ENDIF};
@@ -987,6 +992,41 @@ begin
     _Log(TStrUtils.Format(Fmt, Args));
 end;
 
+procedure _LogException(const AContext: string; const AError: Exception);
+begin
+  try
+    _Log('%s: %s, %s', [AContext, AError.ClassName, AError.Message]);
+  except
+    // 日志回调不能再次打断正在进行的异常收尾。
+  end;
+end;
+
+function _CallConnectionCallback(const ACallback: TCrossConnectionCallback;
+  const AConnection: ICrossConnection; const ASuccess: Boolean): Boolean;
+begin
+  Result := True;
+  if not Assigned(ACallback) then Exit;
+  try
+    ACallback(AConnection, ASuccess);
+  except
+    on E: Exception do
+    begin
+      Result := False;
+      _LogException('Connection callback', E);
+    end;
+  end;
+end;
+
+procedure _CloseCrossData(const AData: ICrossData);
+begin
+  if AData = nil then Exit;
+  try
+    AData.Close;
+  except
+    on E: Exception do _LogException('Close', E);
+  end;
+end;
+
 procedure _LogLastOsError(const ATag: string);
 var
   LError: Integer;
@@ -1022,7 +1062,11 @@ end;
 procedure TIoEventThread.Execute;
 begin
   try
-    FOwner.TriggerIoThreadBegin(Self);
+    try
+      FOwner.TriggerIoThreadBegin(Self);
+    except
+      on E: Exception do _LogException('IoThreadBegin', E);
+    end;
     while not Terminated do
     begin
       try
@@ -1045,7 +1089,11 @@ begin
       end;
     end;
   finally
-    FOwner.TriggerIoThreadEnd(Self);
+    try
+      FOwner.TriggerIoThreadEnd(Self);
+    except
+      on E: Exception do _LogException('IoThreadEnd', E);
+    end;
   end;
 end;
 
@@ -1072,7 +1120,7 @@ begin
   end;
 
   for LConnection in LLConnectionArr do
-    LConnection.Close;
+    _CloseCrossData(LConnection);
 end;
 
 procedure TCrossSocketBase.CloseAllListens;
@@ -1090,7 +1138,7 @@ begin
   end;
 
   for LListen in LListenArr do
-    LListen.Close;
+    _CloseCrossData(LListen);
 end;
 
 procedure TCrossSocketBase.Connect(const AHost: string; const APort: Word;
@@ -1232,14 +1280,14 @@ end;
 procedure TCrossSocketBase.LogicConnected(const AConnection: ICrossConnection);
 var
   LConnObj: TCrossConnectionBase;
+  LConnectCb: TCrossConnectionCallback;
 begin
   LConnObj := AConnection as TCrossConnectionBase;
 
-  if Assigned(LConnObj.FConnectCb) then
-  begin
-    LConnObj.FConnectCb(AConnection, True);
-    LConnObj.FConnectCb := nil;
-  end;
+  // 成功和关闭竞争时，由同一把锁决定唯一的通知持有者。
+  LConnectCb := LConnObj._TakeConnectCallback();
+  if Assigned(LConnectCb) then
+    LConnectCb(AConnection, True);
 
   if Assigned(FOnConnected) then
     FOnConnected(Self, AConnection);
@@ -1664,14 +1712,20 @@ begin
 end;
 
 procedure TCrossListenBase.Close;
+var
+  LSelf: ICrossListen;
 begin
   if (AtomicExchange(FClosed, 1) = 1) then Exit;
 
   if (FSocket <> INVALID_SOCKET) then
   begin
+    LSelf := Self;
     TSocketAPI.CloseSocket(FSocket);
-    FOwner.TriggerListenEnd(Self);
-    FSocket := INVALID_SOCKET;
+    try
+      FOwner.TriggerListenEnd(LSelf);
+    finally
+      FSocket := INVALID_SOCKET;
+    end;
   end;
 end;
 
@@ -1761,15 +1815,14 @@ begin
 end;
 
 destructor TCrossConnectionBase.Destroy;
+var
+  LConnectCb: TCrossConnectionCallback;
 begin
   // 连接释放时, 调用连接回调, 告知连接失败
   // 连接成功后 FConnectCb 会被置为 nil,
   // 所以如果这里 FConnectCb 不等于 nil, 则表示连接释放时仍未连接成功
-  if Assigned(FConnectCb) then
-  begin
-    FConnectCb(Self, False);
-    FConnectCb := nil;
-  end;
+  LConnectCb := _TakeConnectCallback();
+  _CallConnectionCallback(LConnectCb, Self, False);
 
   inherited;
 end;
@@ -1791,17 +1844,25 @@ begin
   FOwner.Send(Self, LBuffer, ACount,
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     begin
-      if ASuccess then
-        FOwner.TriggerSent(AConnection, LBuffer, ACount);
-
-      if Assigned(ACallback) then
-        ACallback(AConnection, ASuccess);
+      try
+        if ASuccess then
+          FOwner.TriggerSent(AConnection, LBuffer, ACount);
+      finally
+        // OnSent 抛异常也必须结算本次发送；保留原始成功/失败结果。
+        if Assigned(ACallback) then
+          ACallback(AConnection, ASuccess);
+      end;
     end);
 end;
 
 procedure TCrossConnectionBase.Disconnect;
+var
+  LStatus: Integer;
 begin
-  if (_SetConnectStatus(csDisconnected) in [csDisconnected, csClosed]) then Exit;
+  repeat
+    LStatus := AtomicCmpExchange(FConnectStatus, 0, 0);
+    if TConnectStatus(LStatus) in [csDisconnected, csClosed] then Exit;
+  until AtomicCmpExchange(FConnectStatus, Integer(csDisconnected), LStatus) = LStatus;
 
   TSocketAPI.Shutdown(FSocket, 2);
 end;
@@ -1859,12 +1920,21 @@ begin
   FSocket := INVALID_SOCKET;
 
 
-  if Assigned(FConnectCb) then
-  begin
-    LConnectCb := FConnectCb;
-    FConnectCb := nil;
+  LConnectCb := _TakeConnectCallback();
+  _CallConnectionCallback(LConnectCb, Self, False);
+end;
 
-    LConnectCb(Self, False);
+function TCrossConnectionBase._TakeConnectCallback: TCrossConnectionCallback;
+begin
+  Result := nil;
+  // 构造可能在父类创建锁前失败，此时回调尚未赋值。
+  if not Assigned(FConnectCb) then Exit;
+  _Lock;
+  try
+    Result := FConnectCb;
+    FConnectCb := nil;
+  finally
+    _Unlock;
   end;
 end;
 

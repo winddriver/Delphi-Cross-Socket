@@ -226,11 +226,19 @@ begin
   end;
 
   LConnection := CreateConnection(Self, LClientSocket, ctAccept, '');
-  TriggerConnecting(LConnection);
-  TriggerConnected(LConnection);
+  try
+    TriggerConnecting(LConnection);
+    TriggerConnected(LConnection);
 
-  if not _NewReadZero(LConnection) then
-    LConnection.Close;
+    if not _NewReadZero(LConnection) then
+      LConnection.Close;
+  except
+    on E: Exception do
+    begin
+      _LogException('_HandleAccept', E);
+      _CloseCrossData(LConnection);
+    end;
+  end;
 end;
 
 procedure TIocpCrossSocket._HandleConnect(const APerIoData: PPerIoData);
@@ -338,8 +346,9 @@ end;
 
 procedure TIocpCrossSocket._HandleWrite(const APerIoData: PPerIoData);
 begin
-  if Assigned(APerIoData.Callback) then
-    APerIoData.Callback(APerIoData.CrossData as ICrossConnection, True);
+  if not _CallConnectionCallback(APerIoData.Callback,
+    APerIoData.CrossData as ICrossConnection, True) then
+    _CloseCrossData(APerIoData.CrossData);
 end;
 
 procedure TIocpCrossSocket.StartLoop;
@@ -410,11 +419,11 @@ procedure TIocpCrossSocket.StopLoop;
           else
             LConnection := nil;
 
-          LPerIoData.Callback(LConnection, False);
+          _CallConnectionCallback(LPerIoData.Callback, LConnection, False);
         end;
 
         if (LPerIoData.CrossData <> nil) then
-          LPerIoData.CrossData.Close;
+          _CloseCrossData(LPerIoData.CrossData);
       finally
         _FreeIoData(LPerIoData);
       end;
@@ -493,9 +502,12 @@ var
   function _Connect(ASocket: TSocket; AAddr: PRawAddrInfo): Boolean;
     procedure _Failed2;
     begin
-      if Assigned(ACallback) then
-        ACallback(nil, False);
-      TSocketAPI.CloseSocket(ASocket);
+      try
+        if Assigned(ACallback) then
+          ACallback(nil, False);
+      finally
+        TSocketAPI.CloseSocket(ASocket);
+      end;
     end;
   var
     LSockAddr: TRawSockAddrIn;
@@ -760,11 +772,8 @@ begin
     // 之后就可以继续下一块数据发送了
     _FreeIoData(LPerIoData);
 
-    if Assigned(ACallback) then
-      ACallback(AConnection, False);
-
-    if Assigned(AConnection) then
-      AConnection.Close;
+    _CallConnectionCallback(ACallback, AConnection, False);
+    _CloseCrossData(AConnection);
   end;
 end;
 
@@ -806,10 +815,10 @@ function TIocpCrossSocket.ProcessIoEvent: Boolean;
             else
               LConnection := nil;
 
-            APerIoData.Callback(LConnection, False);
+            _CallConnectionCallback(APerIoData.Callback, LConnection, False);
           end;
 
-          APerIoData.CrossData.Close;
+          _CloseCrossData(APerIoData.CrossData);
         end;
       end else
       begin
@@ -819,8 +828,7 @@ function TIocpCrossSocket.ProcessIoEvent: Boolean;
             [APerIoData.Socket, Ord(APerIoData.Action)])
         );
         {$ENDIF}
-        if Assigned(APerIoData.Callback) then
-          APerIoData.Callback(nil, False);
+        _CallConnectionCallback(APerIoData.Callback, nil, False);
 
         if (APerIoData.Socket <> INVALID_SOCKET) then
         begin
@@ -878,11 +886,20 @@ begin
       Self.ClassName, TThread.Current.ThreadID, Pointer(LPerIoData), Ord(LPerIoData.Action), LBytes
     ]);
     {$ENDIF}
-    case LPerIoData.Action of
-      ioAccept  : _HandleAccept(LPerIoData);
-      ioConnect : _HandleConnect(LPerIoData);
-      ioRead    : _HandleRead(LPerIoData);
-      ioWrite   : _HandleWrite(LPerIoData);
+    try
+      case LPerIoData.Action of
+        ioAccept  : _HandleAccept(LPerIoData);
+        ioConnect : _HandleConnect(LPerIoData);
+        ioRead    : _HandleRead(LPerIoData);
+        ioWrite   : _HandleWrite(LPerIoData);
+      end;
+    except
+      on E: Exception do
+      begin
+        _LogException('ProcessIoEvent', E);
+        if LPerIoData.CrossData is TIocpConnection then
+          _CloseCrossData(LPerIoData.CrossData);
+      end;
     end;
     {$IFDEF DEBUG}
     _Log('[%s]thread%d, 处理IOCP事件完成 PerIoData=%p, Action=%d, Bytes=%d', [
