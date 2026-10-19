@@ -33,7 +33,7 @@ def execute(args, timeout=90):
                           timeout=timeout, creationflags=subprocess.CREATE_NO_WINDOW)
 
 
-def build(target, output, source_root, selftest=True, benchmark=False, limits_baseline=False):
+def build(target, output, source_root, selftest=True, benchmark=False, limits_baseline=False, capacity=False):
     units = HERE / "lib" / output.parent.name / target
     units.mkdir(parents=True, exist_ok=True)
     if target == "fpc64":
@@ -55,6 +55,8 @@ def build(target, output, source_root, selftest=True, benchmark=False, limits_ba
         args.insert(1, "-O2" if target == "fpc64" else "-$O+")
     if limits_baseline:
         args.insert(1, "-dTLS_LIMITS_BASELINE" if target == "fpc64" else "-DTLS_LIMITS_BASELINE")
+    if capacity:
+        args.insert(1, "-dCROSS_CAPACITY_TESTS" if target == "fpc64" else "-DCROSS_CAPACITY_TESTS")
     result = execute(args)
     (output / "build.log").write_bytes(result.stdout + result.stderr)
     if result.returncode:
@@ -63,6 +65,7 @@ def build(target, output, source_root, selftest=True, benchmark=False, limits_ba
     (output / "source.json").write_text(json.dumps({
         "selftest": selftest,
         "limits_baseline": limits_baseline,
+        "capacity_selftest": capacity,
         "benchmark_optimization": ("-O2" if target == "fpc64" else "-$O+") if benchmark else None,
         "tls_io_sha256": hashlib.sha256((source_root / "Net.CrossSslSocket.OpenSSL.pas").read_bytes()).hexdigest(),
         "test_sha256": hashlib.sha256((HERE / "TlsIoTests.lpr").read_bytes()).hexdigest(),

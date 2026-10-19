@@ -15,7 +15,7 @@ CN = Path(r"D:\Design\Delphi\VclFmxRtl\cncrypto\Source")
 SDK = Path.home() / "Documents/Embarcadero/Studio/SDKs/ubuntu22.04.sdk"
 
 
-def build(target, label, debug=False):
+def build(target, label, debug=False, capacity=False):
     output = HERE / "bin" / label / target
     units = HERE / "lib" / label / target
     output.mkdir(parents=True, exist_ok=True)
@@ -37,6 +37,8 @@ def build(target, label, debug=False):
                 "--libpath:" + ";".join(map(str, libraries)), HERE / "TlsIoTests.dpr"]
     if debug and target == "fpc-linux64":
         args.insert(1, "-gl")
+    if capacity:
+        args.insert(1, "-dCROSS_CAPACITY_TESTS" if target == "fpc-linux64" else "-DCROSS_CAPACITY_TESTS")
     result = subprocess.run(list(map(str, args)), cwd=HERE, capture_output=True,
                             timeout=120, creationflags=subprocess.CREATE_NO_WINDOW)
     (output / "build.log").write_bytes(result.stdout + result.stderr)
@@ -50,6 +52,7 @@ def build(target, label, debug=False):
     metadata = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     metadata["selftest"] = True
     metadata["debug_lines"] = debug
+    metadata["capacity_selftest"] = capacity
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print("PASS build", target, flush=True)
 
@@ -60,8 +63,9 @@ if __name__ == "__main__":
     parser.add_argument("targets", nargs="+", choices=["fpc-linux64", "delphi-linux64"])
     parser.add_argument("--label", default="", help="隔离每批构建和运行日志")
     parser.add_argument("--debug", action="store_true", help="FPC 诊断构建保留异常行号")
+    parser.add_argument("--capacity", action="store_true", help="启用真实Base限额拒绝的只读观察入口")
     options = parser.parse_args()
     if options.label and not options.label.replace("-", "").replace("_", "").isalnum():
         parser.error("label 只允许字母数字及横线")
     for selected in options.targets:
-        build(selected, options.label, options.debug)
+        build(selected, options.label, options.debug, options.capacity)

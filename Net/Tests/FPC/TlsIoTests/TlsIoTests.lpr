@@ -855,6 +855,7 @@ end;
 {$I TlsTerminalTests.inc}
 {$I TlsManagedQueueTests.inc}
 {$I TlsQueueLimitTests.inc}
+{$I TlsBaseLimitTests.inc}
 {$I BufferBench.inc}
 
 begin
@@ -928,6 +929,8 @@ begin
       else if ParamStr(1) = 'limits-received-failure' then TestLimitFailure(2)
       else if ParamStr(1) = 'limits-handshake-barrier' then TestLimitHandshakeBarrier
       else if ParamStr(1) = 'limits-terminal-active' then TestLimitTerminalActive
+      else if ParamStr(1) = 'base-tls-limited' then TestRealBaseTlsLimit(True)
+      else if ParamStr(1) = 'base-tls-unlimited' then TestRealBaseTlsLimit(False)
       else if ParamStr(1) = 'bench-ws' then RunWsBufferBench
       else if ParamStr(1) = 'bench-tls12' then RunTlsBufferBench(TLS1_2_VERSION)
       else if ParamStr(1) = 'bench-tls13' then RunTlsBufferBench(TLS1_3_VERSION)

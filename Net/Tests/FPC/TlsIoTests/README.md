@@ -181,6 +181,31 @@ end;
 - `bin/limits-compat/`：同源重编现有 `TlsCipherSuitesTests`，双目标配置自测通过、真实 TCP 客户端/服务端握手各 **38/38**；握手脚本记录独立运行目录并在 finally 回收进程。
 - 构建、结果、源码与二进制哈希、时间在 `bin/limits-final-manifest.json`；Windows 子进程检查无残留，Linux 每项由 runner 有界等待并回收。未覆盖平台不计入上述数量。
 
-底层 Socket 自身容量 API 的真实组合验证仍等待相应独立实现冻结；本目录的 `limits-physical-failure` 是物理发送返回 False 的受控路径，不能称为三后端真实容量拒绝测试。WS 容量由独立 Sender 回归验证。没有 macOS/Kqueue 运行、MbedTLS、长期压力或本批性能收益结论。
+该批提交时底层 Socket 自身容量 API 的真实组合验证尚待独立实现；`limits-physical-failure` 只是物理发送返回 False 的受控路径。后续真实组合结果单列在下节，不追溯修改前述旧证据。WS 容量由独立 Sender 回归验证。没有 macOS/Kqueue 运行、MbedTLS、长期压力或本批性能收益结论。
 
 容量默认关闭的窄范围开销检查见 [TLS_LIMITS_DEFAULT_BENCHMARK.md](TLS_LIMITS_DEFAULT_BENCHMARK.md)：Delphi/FPC Win64、TLS 1.2/1.3、64 KiB/1 MiB 收发均按五对交替测量。分配计数/累计请求量不变；两个首轮偏慢负载经过独占窗口定向复测后未出现稳定回退，全部原始样本保留，未因此调整生产代码。新增基准模式及其哈希单独记录在 `bin/limits-default-manifest.json`，不覆盖此前正确性证据。
+
+## O03：真实 Base 额度与 TLS 组合
+
+`TlsBaseLimitTests.inc` 在同一工程新增两个模式，由 `run_base_limits.py` 驱动真实 TCP 对端。测试的 Socket 直接继承 OpenSSL Socket，只观察连接/接收事件；**不覆盖 Send、DirectSend 或原生 TLS 函数**。`CROSS_CAPACITY_TESTS` 仅记录真实 Base 额度预留失败及只读余额，不替代实际拒绝路径。
+
+每个协议版本先完成正常握手和 PING/PONG 回环。服务端在 ARM 小写入的成功回调内排入 64 KiB 明文和 TAIL，断言回调返回前两项尚未完成；TLS 原有逻辑写占用保证尾项确已入队，避免用关闭后的新请求冒充排队取消。
+
+- 服务端在创建连接前配置 `MaxPendingSendBytes=4096`，新连接取得真实 Base 快照。原生 TLS 1.2 输出 65,652 字节、TLS 1.3 输出 65,624 字节，各触发一次 Base 拒绝；大写入一次 False，TAIL 取消一次 False，连接关闭一次，Base 最终余额 0/0。
+- 对端在 PING/PONG 之后只收到 ARM 三字节，再观察到真实 EOF；未收到被拒绝的大明文或 TAIL。关闭后 LATE 写一次 False，Base 拒绝计数不再增长。
+- 限额为 0 的同源对照收到完整 ARM + 65,536 个 A + TAIL，并回传 DONE；大写入和尾项均一次成功，连接直到测试主动清理仍可用。
+- Python 对端通过数字地址 127.0.0.1 建立 TCP，并显式以 `server_hostname='localhost'` 验证证书身份。使用现有握手测试中有 SAN/CA 约束的自签名证书，保持证书链和主机名验证；未声称证书包含 IP SAN。
+
+2026-10-20，Delphi/FPC Win64、Delphi/FPC Linux64（真实 Ubuntu 22.04 WSL）各运行 TLS 1.2/1.3 × 限额/无限制，**四目标 16/16**。Windows 使用 IOCP/OpenSSL 3.1.2，Linux 使用 Epoll/OpenSSL 3.0.2。所有子进程及回环监听已结束。本轮不重跑未改变的原 64 项或 WS 矩阵；真实 TLS+WS 上层传播由独立 `WebSocketTlsCapacityTests` 分工验收。
+
+产物在 `bin/base-combination/{win64,fpc64,delphi-linux64,fpc-linux64}/`，包括每协议日志、`base-results.json`、构建日志和完整依赖哈希 `base-source.json`。最终汇总为 `bin/base-combination-manifest.json`；该组合针对实际冻结的工作区 Base/三后端，与 TLS 容量旧提交的正确性证据分开。
+
+Base 默认快速路径拆分后，使用最终生产 SHA256 `1dea20133be770f6cc998a08973fa8fa35884f27b35553b9f349474b138e7af8` 再次独立重编四目标，最小组合仍 **16/16**。这一轮位于 `bin/base-combination-final/`，汇总为 `bin/base-combination-final-manifest.json`；保留首轮 Base `d1531540…` 的全部产物及 manifest，不覆盖或混称同一生产版本。最终测试主程序、include、运行器及所有生产依赖哈希均在新 manifest 中。
+
+```powershell
+# 证书和私钥参数替换为已有有效自签名测试pair。
+python -B run_base_limits.py --label base-combination --targets win64 fpc64 --cert <rsa-cert.pem> --key <rsa-key.pem>
+python -B run_base_limits.py --label base-combination --targets fpc-linux64 delphi-linux64 --cert <rsa-cert.pem> --key <rsa-key.pem>
+```
+
+Linux 在相同目录用 `python3 -B run_base_limits.py --label base-combination --run bin/base-combination/fpc-linux64/TlsIoTests bin/base-combination/delphi-linux64/TlsIoTests --cert <rsa-cert.pem> --key <rsa-key.pem>` 实际运行。没有验证 macOS/Kqueue、静态链接或其他 OpenSSL 版本；不将这些最小功能用例作为吞吐或全部关闭竞态的证明。
