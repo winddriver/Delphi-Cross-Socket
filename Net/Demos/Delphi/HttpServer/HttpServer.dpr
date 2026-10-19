@@ -1,4 +1,4 @@
-program HttpServer;
+ï»¿program HttpServer;
 
 {$APPTYPE CONSOLE}
 
@@ -68,8 +68,8 @@ begin
               LHashStr := LHashStr + sLineBreak;
 
             LHashStr := LHashStr + 'FileName: ' + LFormField.FileName + sLineBreak;
-            LHashStr := LHashStr + 'MD5: ' + THashMD5.GetHashString(LFormField.Value) + sLineBreak;
-            LHashStr := LHashStr + 'SHA1: ' + THashSHA1.GetHashString(LFormField.Value) + sLineBreak;
+            LHashStr := LHashStr + 'MD5: ' + THashMD5.GetHashStringFromStream(LFormField.Value) + sLineBreak;
+            LHashStr := LHashStr + 'SHA1: ' + THashSHA1.GetHashStringFromStream(LFormField.Value) + sLineBreak;
           end;
         end;
       end;
@@ -80,7 +80,7 @@ begin
 end;
 
 begin
-  // Èç¹û openssl ÔËĞĞ¿âÃû³ÆÓëÄ¬ÈÏÃû³Æ²»Ò»ÖÂ, Çë×ÔĞĞÓÃÒÔÏÂ´úÂëĞŞ¸Ä
+  // å¦‚æœ openssl è¿è¡Œåº“åç§°ä¸é»˜è®¤åç§°ä¸ä¸€è‡´, è¯·è‡ªè¡Œç”¨ä»¥ä¸‹ä»£ç ä¿®æ”¹
   // TSSLTools.LibSSL := 'libssl.so';
   // TSSLTools.LibCRYPTO := 'libcrypto.so';
 

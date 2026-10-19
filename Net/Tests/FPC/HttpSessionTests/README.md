@@ -62,7 +62,7 @@ Delphi/FPC Windows Win64、Delphi/FPC Linux64（Ubuntu 22.04 WSL 实际运行）
 
 新增 `unit-compatibility` 验证新旧两种接口的 TypeInfo 相同，以及从旧单元提供 SessionClass、通过旧接口写入后经新接口读取同一个实例。原继承测试继续从旧路径编译，覆盖保护字段和虚方法。五目标 Delphi Win64/Win32、FPC Win64、Delphi/FPC Linux64 各 **22/22，共 110/110**；关闭测试宏的两个 Windows64 和两个 Linux64 目标各 **16/16，共 64/64**。相邻 BatchCleanupTests 的 Session 五项在同五目标共 **25/25**，包括锁外释放和钩子异常，未重新测量纯搬移前后性能。
 
-证据保存在两套件各自的 `bin/s03-sessions/`，构建记录均包含 Params 与新 Sessions 单元哈希。正式示例构建随本轮后续容量与 WS 整理做组合验收，不把这里的组件结果等同于正式示例已通过。
+证据保存在两套件各自的 `bin/s03-sessions/`，构建记录均包含 Params 与新 Sessions 单元哈希。正式 HTTP 服务端示例验证见下节；HTTP 客户端与 WS 示例随其后续容量/整理做组合验收，不把本组组件结果扩大为全部正式示例已通过。
 
 ```powershell
 python -B build_tests.py delphi-win64 delphi-win32 fpc-win64 delphi-linux64 fpc-linux64 --label s03-sessions
@@ -72,3 +72,19 @@ python -B run_tests.py bin/s03-sessions/production-delphi-win64/HttpSessionTests
 ```
 
 Linux 在真实 Linux 环境使用同一 `run_tests.py`，替换为对应无 `.exe` 的程序路径。`build_linux.py` 原有入口保留，新增可选 `--label` 隔离产物。
+
+## 正式 HTTP 服务端示例的构建与上传验收
+
+`Net/Demos/Delphi/HttpServer/HttpServer.dpr` 的上传字段 `Value` 是 `TStream`，原先传给 `Utils.Hash` 的 `GetHashString`，与现有重载不匹配。正式 Release/Win64 构建在第 71/72 行得到 E2250，日志在 `bin/s03-formal-before/build.log`。两行改用已有 `GetHashStringFromStream` 后，同一 `.dproj` 经 MSBuild 构建通过，产物和日志在 `bin/s03-formal-server/`；原 GB18030 源同时统一为 UTF-8 BOM/CRLF，中文注释保持原文。未修改哈希实现。
+
+2026-10-20 本地实际运行该正式程序，TLS 1.2/1.3 各在同一连接上传两次，共 4 次请求、12 个文件、24 个摘要。内容包括 0 字节、45 字节中文 UTF-8/NUL、65,798 字节全字节值二进制，MD5/SHA1 均与 Python hashlib 相同，中文文件名一致。SHA1 在 MD5 之后仍计算非空文件的完整内容；两次调用的默认 `APos=0` 保证各自从开头读取。它们是示例已有的摘要展示，不是新增密码存储或认证方案。
+
+`run_demo_upload.py` 保持证书及主机名校验，使用已有握手套件的自签名测试证书，实际检查子进程加载的 OpenSSL DLL 路径及哈希。运行前确认固定端口 8080 空闲，只停止自己启动的进程；回车退出码为 0，最终没有该进程或监听残留。示例沿用 `AutoDeleteFiles=False`，所以测试先记录保留的 12 个上传文件，再清理测试独占目录，不能把这一清理说成示例自动删除。
+
+完整证据在 `bin/s03-formal-server/upload-tls-final4/results.json` 及响应、服务端日志中。报告区分构建日志、运行程序哈希和运行时源码快照，不把最后者单独当作编译来源证明。脚本复用已编译的程序：
+
+```powershell
+python -B run_demo_upload.py --exe bin/s03-formal-server/HttpServer.exe --cert <现有测试证书> --key <对应测试私钥>
+```
+
+证书必须具有正确 SAN 和约束；缺省输出使用新的独立目录，显式 `--output` 也必须尚不存在。其他平台或编译器的正式示例尚未据此获得运行验证。
