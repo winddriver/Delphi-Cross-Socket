@@ -5,7 +5,8 @@
 
 uses
   {$IF DEFINED(FPC) AND DEFINED(POSIX)}cthreads, cwstring,{$ENDIF}
-  SysUtils, Classes, Utils.SyncObjs, Utils.EasyThread;
+  SysUtils, Classes, {$IFDEF FPC}DTF.Types,{$ENDIF}
+  Utils.SyncObjs, Utils.EasyThread, Utils.EasyTimer;
 
 type
   TObservedThread = class(TEasyThread)
@@ -191,9 +192,12 @@ begin
   Check(TouchCount = 1, '任务未恰好执行一次');
 end;
 
+{$I EasyThreadJoinTests.inc}
+
 begin
   SetTextCodePage(Output, 65001);
   Check(ParamCount = 1, '用法: EasyThreadTests <case>');
-  Run(ParamStr(1));
+  if Pos('join-', ParamStr(1)) = 1 then RunJoinCase(ParamStr(1))
+  else Run(ParamStr(1));
   Writeln('PASS: ', ParamStr(1));
 end.

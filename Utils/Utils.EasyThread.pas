@@ -9,7 +9,8 @@ uses
   Classes,
   Types,
 
-  Utils.AnonymousThread;
+  Utils.AnonymousThread,
+  Utils.SyncObjs;
 
 type
   IEasyThread = interface;
@@ -33,7 +34,10 @@ type
     FThread: TThread;
     FTerminated: Integer;
     FThreadStarted: Boolean;
+    FJoined: Integer;
+    FWaitLock: ILock;
 
+    function _IsWorkerThread: Boolean;
     function GetTerminated: Boolean;
     function GetThreadID: TThreadID;
   public
@@ -68,6 +72,7 @@ end;
 
 constructor TEasyThread.Create(const AEasyThreadProc: TAnonymousProc);
 begin
+  FWaitLock := TLock.Create;
   FThread := TAnonymousThread.Create(
     procedure
     begin
@@ -106,7 +111,7 @@ begin
   Terminate;
   if FThread <> nil then
   begin
-    if FThread.ThreadID = TThread.CurrentThread.ThreadID then
+    if _IsWorkerThread then
     begin
       // Execute 尚未返回，不能等待或释放正在执行自身回调的 TThread。
       FThread.FreeOnTerminate := True;
@@ -126,6 +131,14 @@ begin
   Result := AtomicCmpExchange(FTerminated, 0, 0) <> 0;
 end;
 
+function TEasyThread._IsWorkerThread: Boolean;
+begin
+  // 已结束或已 join 的线程 ID 可能被新线程复用，不能据此转交自动释放。
+  Result := (FThread <> nil) and (AtomicCmpExchange(FJoined, 0, 0) = 0)
+    and not FThread.Finished
+    and (FThread.ThreadID = TThread.CurrentThread.ThreadID);
+end;
+
 function TEasyThread.GetThreadID: TThreadID;
 begin
   Result := FThread.ThreadID;
@@ -138,9 +151,20 @@ end;
 
 procedure TEasyThread.WaitFor;
 begin
-  if (FThread <> nil) and FThreadStarted
-    and (FThread.ThreadID <> TThread.CurrentThread.ThreadID) then
-    FThread.WaitFor;
+  if (FThread = nil) or not FThreadStarted then Exit;
+  // 必须先识别工作线程；外部 waiter 可能持有等待锁并等待当前回调结束。
+  if _IsWorkerThread then Exit;
+  FWaitLock.Enter;
+  try
+    if AtomicCmpExchange(FJoined, 0, 0) = 0 then
+    begin
+      // Finished 不代表原生线程已经回收，首次 join 仍不可省略。
+      FThread.WaitFor;
+      AtomicExchange(FJoined, 1);
+    end;
+  finally
+    FWaitLock.Leave;
+  end;
 end;
 
 end.

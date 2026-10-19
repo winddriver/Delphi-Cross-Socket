@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -16,13 +17,20 @@ def main():
     parser.add_argument("executable", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--baseline", action="store_true", help="只运行原始六项，无测试开关时也可用")
+    parser.add_argument("--production", action="store_true", help="运行除构造故障注入之外的现有全部回归")
     args = parser.parse_args()
     binary = args.executable.resolve(strict=True)
     results = []
     cases = CASES if args.baseline else CASES + ["constructor-failure-self", "constructor-failure-anonymous"]
+    if not args.baseline:
+        if args.production:
+            cases = CASES.copy()
+        cases += ["join-timers16", "join-timers64", "join-concurrent", "join-worker-self"]
+        if os.name != "nt":
+            cases += ["join-id-reuse"]
     for case in cases:
         try:
-            proc = subprocess.run([str(binary), case], capture_output=True, timeout=10)
+            proc = subprocess.run([str(binary), case], capture_output=True, timeout=15)
             output = (proc.stdout + proc.stderr).decode("utf-8", errors="replace").strip()
             passed = proc.returncode == 0 and output == f"PASS: {case}"
             results.append(dict(case=case, passed=passed, exit_code=proc.returncode, output=output))
