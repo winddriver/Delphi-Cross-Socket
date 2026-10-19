@@ -822,6 +822,8 @@ type
   /// </summary>
   /// <remarks>
   ///   动态从 MultiPartFormData 对象中读取数据, 而不是打包到内存中, 所以支持从磁盘加载超大文件
+  ///   视图存活期间不得修改字段集合、字段信息、底层流对象及所有权。
+  ///   字段流大小改变时，在访问该字段时抛出 EReadError；不支持并发修改底层流。
   /// </remarks>
   {$ENDREGION}
   THttpMultiPartFormStream = class(TStream)
@@ -829,13 +831,13 @@ type
     TFormFieldEx = record
       Header: TBytes;
       Field: TFormField;
-      Offset: Int64;
+      Stream: TStream;
+      Offset, EndOffset, DataSize: Int64;
 
       function HeaderSize: Integer;
-      function DataSize: Int64;
-      function TotalSize: Int64;
     end;
 
+    PFormFieldEx = ^TFormFieldEx;
     TFormFieldExArray = TArray<TFormFieldEx>;
   private
     FMultiPartFormData: THttpMultiPartFormData;
@@ -843,9 +845,13 @@ type
     FFormFieldExArray: TFormFieldExArray;
     FMultiPartEnd: TBytes;
     FSize, FPosition, FEndPos: Int64;
+    FFieldIndex: Integer;
 
     procedure _Init;
-    function _GetFiledIndexByOffset(const AOffset: Int64): Integer;
+    procedure _CheckField(const AIndex: Integer);
+    function _GetFieldIndexByOffset(const AOffset: Int64): Integer;
+  protected
+    function GetSize: Int64; override;
   public
     constructor Create(const AMultiPartFormData: THttpMultiPartFormData;
       const AOwned: Boolean = False); reintroduce;
@@ -2883,22 +2889,9 @@ end;
 
 { THttpMultiPartFormStream.TFormFieldEx }
 
-function THttpMultiPartFormStream.TFormFieldEx.DataSize: Int64;
-begin
-  if (Field <> nil) and (Field.Value <> nil) then
-    Result := Field.Value.Size
-  else
-    Result := 0;
-end;
-
 function THttpMultiPartFormStream.TFormFieldEx.HeaderSize: Integer;
 begin
   Result := Length(Header);
-end;
-
-function THttpMultiPartFormStream.TFormFieldEx.TotalSize: Int64;
-begin
-  Result := HeaderSize + DataSize;
 end;
 
 { THttpMultiPartFormStream }
@@ -2920,130 +2913,144 @@ begin
   inherited;
 end;
 
+function THttpMultiPartFormStream.GetSize: Int64;
+begin
+  Result := FSize;
+end;
+
+procedure THttpMultiPartFormStream._CheckField(const AIndex: Integer);
+var
+  LField: TFormField;
+  LSize: Int64;
+begin
+  if FMultiPartFormData.Count <> Length(FFormFieldExArray) then
+    raise EReadError.Create('Multipart 字段集合已改变');
+  LField := FMultiPartFormData.Items[AIndex];
+  if LField <> FFormFieldExArray[AIndex].Field then
+    raise EReadError.Create('Multipart 字段已改变');
+  if LField.Value <> FFormFieldExArray[AIndex].Stream then
+    raise EReadError.Create('Multipart 字段流已改变');
+  LSize := 0;
+  if LField.Value <> nil then LSize := LField.Value.Size;
+  if LSize <> FFormFieldExArray[AIndex].DataSize then
+    raise EReadError.Create('Multipart 字段流大小已改变');
+end;
+
 function THttpMultiPartFormStream.Read(var ABuffer; ACount: Longint): Longint;
 var
-  LReadCount, LPos, LHeaderPos, LDataPos, LCount, LHeaderCount, LDataCount, LEndPos, LEndCount: Int64;
-  LFieldIndex: Integer;
-  LFieldEx: TFormFieldEx;
+  LRemaining, LCount, LActual: Integer;
+  LOffset, LDataOffset: Int64;
+  LField: PFormFieldEx;
   P: PByte;
 begin
   Result := 0;
   if (FPosition < 0) or (FPosition >= FSize) or (ACount <= 0) then Exit;
 
-  // 计算实际还能读取多少字节数据
-  if (ACount + FPosition <= FSize) then
-    LReadCount := ACount
-  else
-    LReadCount := FSize - FPosition;
-
-  Result := LReadCount;
-
+  // 用剩余长度做减法，避免接近 Int64 上限时 ACount + FPosition 溢出。
+  LRemaining := Min(Int64(ACount), FSize - FPosition);
   P := @ABuffer;
-
-  {$region '从 Field 中读取数据'}
-  while (LReadCount > 0) do
+  while LRemaining > 0 do
   begin
-    LFieldIndex := _GetFiledIndexByOffset(FPosition);
-    if (LFieldIndex < 0) then Break;
-
-    LFieldEx := FFormFieldExArray[LFieldIndex];
-
-    // 计算要读取的数据位于这个 Field 的偏移
-    LPos := FPosition - LFieldEx.Offset;
-
-    // 计算需要从这个 Field 中读取多少字节
-    LCount := Min(LFieldEx.TotalSize - LPos, LReadCount);
-
-    // 计算分别需要从 Header 和 Data 中读取多少字节
-    if (LPos < LFieldEx.HeaderSize) then
+    if FPosition >= FEndPos then
     begin
-      LHeaderPos := LPos;
-      LDataPos := 0;
-
-      LHeaderCount := Min(LFieldEx.HeaderSize - LHeaderPos, LCount);
-      LDataCount := LCount - LHeaderCount;
-    end else
-    begin
-      LHeaderPos := -1;
-      LDataPos := LPos - LFieldEx.HeaderSize;
-
-      LHeaderCount := 0;
-      LDataCount := LCount - LHeaderCount;
+      LOffset := FPosition - FEndPos;
+      LCount := Min(Int64(LRemaining), Length(FMultiPartEnd) - LOffset);
+      Move(FMultiPartEnd[Integer(LOffset)], P^, LCount);
+      Inc(FPosition, LCount);
+      Inc(Result, LCount);
+      Break;
     end;
 
-    // 读取 Header
-    if (LHeaderCount > 0) then
+    if FFieldIndex < 0 then FFieldIndex := _GetFieldIndexByOffset(FPosition);
+    _CheckField(FFieldIndex);
+    LField := @FFormFieldExArray[FFieldIndex];
+    LOffset := FPosition - LField.Offset;
+    if LOffset < LField.HeaderSize then
     begin
-      Move(LFieldEx.Header[LHeaderPos], P^, LHeaderCount);
-      Inc(P, LHeaderCount);
-      Dec(LReadCount, LHeaderCount);
-
-      Seek(LHeaderCount, soCurrent);
+      LCount := Min(Int64(LRemaining), LField.HeaderSize - LOffset);
+      Move(LField.Header[Integer(LOffset)], P^, LCount);
+      Inc(P, LCount);
+      Inc(FPosition, LCount);
+      Inc(Result, LCount);
+      Dec(LRemaining, LCount);
     end;
 
-    // 读取 Data
-    if (LDataCount > 0) then
+    if (LRemaining > 0) and (FPosition < LField.EndOffset) then
     begin
-      LFieldEx.Field.Value.Position := LDataPos;
-      LFieldEx.Field.Value.Read(P^, LDataCount);
-      Inc(P, LDataCount);
-      Dec(LReadCount, LDataCount);
-
-      Seek(LDataCount, soCurrent);
+      LDataOffset := FPosition - LField.Offset - LField.HeaderSize;
+      if LField.Stream.Seek(LDataOffset, soBeginning) <> LDataOffset then
+        raise EReadError.Create('Multipart 字段流无法定位');
+      LCount := Min(Int64(LRemaining), LField.DataSize - LDataOffset);
+      while LCount > 0 do
+      begin
+        LActual := LField.Stream.Read(P^, LCount);
+        if (LActual <= 0) or (LActual > LCount) then
+          raise EReadError.Create('Multipart 字段流未返回预期数据');
+        // 合法短读继续补齐；只推进实际已填充的字节，不调用外部 Seek 重查字段。
+        Inc(P, LActual);
+        Inc(FPosition, LActual);
+        Inc(Result, LActual);
+        Dec(LRemaining, LActual);
+        Dec(LCount, LActual);
+      end;
     end;
-  end;
-  {$endregion}
 
-  // 从尾巴读取数据
-  if (LReadCount > 0) then
-  begin
-    LEndPos := FPosition - FEndPos;
-    LEndCount := Min(Length(FMultiPartEnd) - LEndPos, LReadCount);
-
-    if (LEndCount > 0) then
+    if FPosition = LField.EndOffset then
     begin
-      Move(FMultiPartEnd[LEndPos], P^, LEndCount);
-//      Inc(P, LEndCount);
-//      Dec(LReadCount, LEndCount);
-
-      Seek(LEndCount, soCurrent);
+      Inc(FFieldIndex);
+      if FFieldIndex = Length(FFormFieldExArray) then FFieldIndex := -1;
     end;
   end;
 end;
 
 function THttpMultiPartFormStream.Seek(const AOffset: Int64;
   AOrigin: TSeekOrigin): Int64;
+var
+  LBase: Int64;
 begin
   case AOrigin of
-    soBeginning: FPosition := AOffset;
-    soCurrent: Inc(FPosition, AOffset);
-    soEnd: FPosition := FSize + AOffset;
+    soBeginning: LBase := 0;
+    soCurrent: LBase := FPosition;
+    soEnd: LBase := FSize;
+  else
+    Exit(FPosition);
   end;
+  if AOffset > 0 then
+  begin
+    if LBase > High(Int64) - AOffset then FPosition := FSize
+    else FPosition := LBase + AOffset;
+  end
+  else if AOffset < 0 then
+  begin
+    if LBase < Low(Int64) - AOffset then FPosition := -1
+    else FPosition := LBase + AOffset;
+  end
+  else FPosition := LBase;
 
-  if (FPosition < 0) then
-    FPosition := -1;
-
-  if (FPosition > FSize) then
-    FPosition := FSize;
-
+  if FPosition < 0 then FPosition := -1;
+  if FPosition > FSize then FPosition := FSize;
+  FFieldIndex := _GetFieldIndexByOffset(FPosition);
   Result := FPosition;
 end;
 
-function THttpMultiPartFormStream._GetFiledIndexByOffset(
+function THttpMultiPartFormStream._GetFieldIndexByOffset(
   const AOffset: Int64): Integer;
 var
-  LOffset: Int64;
-  I: Integer;
+  LLow, LHigh, LMiddle: Integer;
 begin
   Result := -1;
-  if (AOffset < 0) or (AOffset >= FSize) then Exit;
-
-  LOffset := 0;
-
-  for I := 0 to High(FFormFieldExArray) do
+  if (AOffset < 0) or (AOffset >= FEndPos) then Exit;
+  LLow := 0;
+  LHigh := High(FFormFieldExArray);
+  while LLow <= LHigh do
   begin
-    Inc(LOffset, FFormFieldExArray[I].TotalSize);
-    if (AOffset < LOffset) then Exit(I);
+    LMiddle := LLow + (LHigh - LLow) div 2;
+    if AOffset < FFormFieldExArray[LMiddle].Offset then
+      LHigh := LMiddle - 1
+    else if AOffset >= FFormFieldExArray[LMiddle].EndOffset then
+      LLow := LMiddle + 1
+    else
+      Exit(LMiddle);
   end;
 end;
 
@@ -3053,7 +3060,7 @@ var
   LFormFieldEx: TFormFieldEx;
   LContentType, LPartHeaderStr: string;
   LPartHeaderBytes, LBoundary: TBytes;
-  LOffset: Int64;
+  LOffset, LPartSize: Int64;
 begin
   {
   --boundary_value
@@ -3081,6 +3088,9 @@ begin
 
   --boundary_value--
   }
+  if FMultiPartFormData = nil then
+    raise EStreamError.Create('Multipart 数据不能为空');
+
   // 检查 boundary, 如果没有则生成
   if (FMultiPartFormData.Boundary = '') then
   begin
@@ -3096,14 +3106,24 @@ begin
   LOffset := 0;
   FSize := 0;
   FPosition := 0;
+  FFieldIndex := -1;
 
   {$region '生成Field的头'}
   SetLength(FFormFieldExArray, FMultiPartFormData.Count);
+  if Length(FFormFieldExArray) > 0 then FFieldIndex := 0;
 
   for I := 0 to FMultiPartFormData.Count - 1 do
   begin
     LFormFieldEx.Offset := LOffset;
     LFormFieldEx.Field := FMultiPartFormData.Items[I];
+    if LFormFieldEx.Field = nil then
+      raise EStreamError.Create('Multipart 字段不能为空');
+    LFormFieldEx.Stream := LFormFieldEx.Field.Value;
+    LFormFieldEx.DataSize := 0;
+    if LFormFieldEx.Stream <> nil then
+      LFormFieldEx.DataSize := LFormFieldEx.Stream.Size;
+    if LFormFieldEx.DataSize < 0 then
+      raise EStreamError.Create('Multipart 字段流大小不能为负数');
 
     if (I = 0) then
       LBoundary := FMultiPartFormData.FFirstBoundaryBytes
@@ -3142,16 +3162,22 @@ begin
     LFormFieldEx.Header := TArrayUtils<Byte>.Concat([
       LBoundary, [13, 10], LPartHeaderBytes]);
 
-    Inc(FSize, LFormFieldEx.HeaderSize);
-    Inc(FSize, LFormFieldEx.DataSize);
-    Inc(LOffset, LFormFieldEx.TotalSize);
+    if LFormFieldEx.DataSize > High(Int64) - LFormFieldEx.HeaderSize then
+      raise EStreamError.Create('Multipart 字段长度溢出');
+    LPartSize := LFormFieldEx.HeaderSize + LFormFieldEx.DataSize;
+    if LOffset > High(Int64) - LPartSize then
+      raise EStreamError.Create('Multipart 总长度溢出');
+    Inc(LOffset, LPartSize);
+    LFormFieldEx.EndOffset := LOffset;
 
     FFormFieldExArray[I] := LFormFieldEx;
   end;
   {$endregion}
 
   FEndPos := LOffset;
-  Inc(FSize, Length(FMultiPartEnd));
+  if LOffset > High(Int64) - Length(FMultiPartEnd) then
+    raise EStreamError.Create('Multipart 结尾长度溢出');
+  FSize := LOffset + Length(FMultiPartEnd);
 end;
 
 { TResponseCookies }
