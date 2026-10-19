@@ -186,8 +186,9 @@ begin
   end;
 end;
 
-procedure RunTlsBufferBench(const Version: Integer; const AControlOnly: Boolean = False);
-const Sizes: array[0..2] of Integer = (32, 1024, 65536);
+procedure RunTlsBufferBench(const Version: Integer; const AControlOnly: Boolean = False;
+  const ALargeOnly: Boolean = False);
+const Sizes: array[0..3] of Integer = (32, 1024, 65536, 1048576);
 var F: TTlsFixture; Records: TArray<TBytes>; Data: TBytes;
     Samples: array of Int64; Size, S, N, I, Count, Offset: Integer;
     T, Started, Elapsed: Int64;
@@ -195,12 +196,19 @@ begin
   InitBufferBench;
   for S := 0 to High(Sizes) do
   begin
+    if ALargeOnly then
+    begin
+      if S < 2 then Continue;
+    end else
+    if S = 3 then Continue;
     if AControlOnly and (S = 1) then Continue;
     F := TTlsFixture.Create(Version);
     try
       F.Handshake; F.Socket.BenchReceive := True;
       Size := Sizes[S]; N := (16 * 1024 * 1024) div Size;
       if N < 512 then N := 512;
+      // 大接收控制仅预生成 512 MiB；保留 128 次预热及独立的三个测量 pass。
+      if ALargeOnly and (Size = 1048576) then N := 128;
       if N > 20000 then N := 20000;
       SetLength(Data, Size); FillChar(Data[0], Size, $41);
       SetLength(Records, 128 + 3 * N);
@@ -231,7 +239,7 @@ begin
   end;
 end;
 
-procedure RunTlsOutputBench(const Version: Integer);
+procedure RunTlsOutputBench(const Version: Integer; const ALargeOnly: Boolean = False);
 var
   F: TTlsFixture;
   Sizes: array[0..5] of Integer;
@@ -248,6 +256,7 @@ begin
   Sizes[2] := Sizes[1] + 1; Sizes[3] := 16384; Sizes[4] := 65536; Sizes[5] := 1048576;
   for S := 0 to High(Sizes) do
   begin
+    if ALargeOnly and (S < 4) then Continue;
     F := TTlsFixture.Create(Version);
     try
       F.Handshake;

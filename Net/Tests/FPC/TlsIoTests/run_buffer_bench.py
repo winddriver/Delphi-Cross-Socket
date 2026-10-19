@@ -11,7 +11,8 @@ sys.dont_write_bytecode = True
 import run_tests as c
 
 MODES = ['bench-ws', 'bench-tls12', 'bench-tls13']
-ALL_MODES = MODES + ['bench-tx12', 'bench-tx13', 'bench-control12', 'bench-control13']
+ALL_MODES = MODES + ['bench-tx12', 'bench-tx13', 'bench-control12', 'bench-control13',
+                     'bench-large-rx12', 'bench-large-rx13', 'bench-large-tx12', 'bench-large-tx13']
 LABEL = 'o06-ws-final'
 PATTERN = re.compile(r'BENCH (\S+) n=(\d+) batch_ns=(\d+) alloc_calls=(\d+) requested_bytes=(\d+) p99_ns=(\d+)')
 BASE_REF = '65a5df2'
@@ -36,7 +37,9 @@ def build(target, variant):
     source = baseline_source() if variant == 'before' else c.REPO / 'Net'
     out = c.HERE / 'bin' / (LABEL + '-' + variant) / target
     out.mkdir(parents=True, exist_ok=True)
-    c.build(target, out, source, False, True)
+    # 旧源不包含新容量API，兼容宏只影响容量测试辅助函数，基准路径仍保持限额默认0。
+    old_limits = 'TCrossSslQueueLimits' not in (source / 'Net.CrossSslSocket.OpenSSL.pas').read_text(encoding='utf-8-sig')
+    c.build(target, out, source, False, True, limits_baseline=old_limits)
     meta = json.loads((out / 'source.json').read_text())
     meta.update({p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in
                  [source / 'Net.CrossWebSocketParser.pas', c.HERE / 'BufferBench.inc',
@@ -65,7 +68,7 @@ def run(target, variant, number, modes=MODES):
         for name, size, calls, nonempty in re.findall(r'TXWIRE (\S+) bytes=(\d+) pending_calls=(\d+) nonempty=(\d+)', data.decode(errors='replace')):
             records[name].update(wire_bytes=int(size), pending_calls_per_op=int(calls) / records[name]['n'],
                                  pending_nonempty_per_op=int(nonempty) / records[name]['n'])
-    assert len(records) == sum(16 if mode == 'bench-ws' else 6 if mode.startswith('bench-tx') else
+    assert len(records) == sum(2 if mode.startswith('bench-large-') else 16 if mode == 'bench-ws' else 6 if mode.startswith('bench-tx') else
                               2 if mode.startswith('bench-control') else 3 for mode in modes)
     print('PASS run', target, variant, number, flush=True)
     return records

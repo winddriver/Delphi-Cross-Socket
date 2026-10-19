@@ -19,6 +19,13 @@ MODES = ["order12", "order13", "want12", "capacity", "disconnected-error", "conn
          "terminal-close-race", "terminal-release-last", "terminal-prefix-race", "terminal-prefix-io-fail", "terminal-log-reentry",
          "terminal-log-throw", "terminal-log-thread", "managed-wrap",
          "managed-clear-pending", "managed-clear-cipher", "managed-clear-plain"]
+LIMIT_MODES = ["limits-write12", "limits-write13", "limits-close", "limits-want", "limits-reentry",
+               "limits-cipher-bytes", "limits-cipher-count", "limits-receive12", "limits-receive13",
+               "limits-overflow12", "limits-overflow13", "limits-receive-count", "limits-receive-active",
+               "limits-receive-close", "limits-config", "limits-snapshot", "limits-wrap", "limits-concurrent", "limits-terminal",
+               "limits-write-count", "limits-write-bytes", "limits-physical-failure", "limits-callback-failure", "limits-received-failure",
+               "limits-handshake-barrier", "limits-terminal-active"]
+MODES += LIMIT_MODES
 
 
 def execute(args, timeout=90):
@@ -26,7 +33,7 @@ def execute(args, timeout=90):
                           timeout=timeout, creationflags=subprocess.CREATE_NO_WINDOW)
 
 
-def build(target, output, source_root, selftest=True, benchmark=False):
+def build(target, output, source_root, selftest=True, benchmark=False, limits_baseline=False):
     units = HERE / "lib" / output.parent.name / target
     units.mkdir(parents=True, exist_ok=True)
     if target == "fpc64":
@@ -46,6 +53,8 @@ def build(target, output, source_root, selftest=True, benchmark=False):
         args.insert(1, "-dCROSS_OPENSSL_SELFTEST" if target == "fpc64" else "-DCROSS_OPENSSL_SELFTEST")
     if benchmark:
         args.insert(1, "-O2" if target == "fpc64" else "-$O+")
+    if limits_baseline:
+        args.insert(1, "-dTLS_LIMITS_BASELINE" if target == "fpc64" else "-DTLS_LIMITS_BASELINE")
     result = execute(args)
     (output / "build.log").write_bytes(result.stdout + result.stderr)
     if result.returncode:
@@ -53,11 +62,13 @@ def build(target, output, source_root, selftest=True, benchmark=False):
         raise RuntimeError("build failed " + target)
     (output / "source.json").write_text(json.dumps({
         "selftest": selftest,
+        "limits_baseline": limits_baseline,
         "benchmark_optimization": ("-O2" if target == "fpc64" else "-$O+") if benchmark else None,
         "tls_io_sha256": hashlib.sha256((source_root / "Net.CrossSslSocket.OpenSSL.pas").read_bytes()).hexdigest(),
         "test_sha256": hashlib.sha256((HERE / "TlsIoTests.lpr").read_bytes()).hexdigest(),
         "terminal_test_sha256": hashlib.sha256((HERE / "TlsTerminalTests.inc").read_bytes()).hexdigest(),
         "managed_test_sha256": hashlib.sha256((HERE / "TlsManagedQueueTests.inc").read_bytes()).hexdigest(),
+        "limits_test_sha256": hashlib.sha256((HERE / "TlsQueueLimitTests.inc").read_bytes()).hexdigest(),
     }, indent=2), encoding="utf-8")
 
 
@@ -71,6 +82,7 @@ def main():
     parser.add_argument("--crypto", type=Path)
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--no-selftest", action="store_true", help="关闭调度钩子，运行其余正式构建场景")
+    parser.add_argument("--limits-baseline", action="store_true", help="旧版没有新API：只省略配置调用，仍运行真实TLS与相同断言")
     parser.add_argument("--source-root", type=Path, default=REPO / "Net")
     options = parser.parse_args()
     if options.no_selftest:
@@ -84,7 +96,8 @@ def main():
         output = HERE / "bin" / options.label / target
         output.mkdir(parents=True, exist_ok=True)
         if not options.no_build:
-            build(target, output, options.source_root.resolve(strict=True), not options.no_selftest)
+            build(target, output, options.source_root.resolve(strict=True), not options.no_selftest,
+                  limits_baseline=options.limits_baseline)
         libdir = REPO / "Net/Tools/OpenSSL"
         if target == "win32":
             libdir = Path(r"D:\Design\Delphi\VclFmxRtl\zLib\Net\OpenSSL.Libs\OpenSSL3\Windows\x86")

@@ -854,6 +854,7 @@ end;
 
 {$I TlsTerminalTests.inc}
 {$I TlsManagedQueueTests.inc}
+{$I TlsQueueLimitTests.inc}
 {$I BufferBench.inc}
 
 begin
@@ -901,6 +902,32 @@ begin
       else if ParamStr(1) = 'managed-clear-pending' then TestManagedTlsClear(0)
       else if ParamStr(1) = 'managed-clear-cipher' then TestManagedTlsClear(1)
       else if ParamStr(1) = 'managed-clear-plain' then TestManagedTlsClear(2)
+      else if ParamStr(1) = 'limits-write12' then TestWriteLimits(TLS1_2_VERSION, False)
+      else if ParamStr(1) = 'limits-write13' then TestWriteLimits(TLS1_3_VERSION, False)
+      else if ParamStr(1) = 'limits-close' then TestWriteLimits(TLS1_3_VERSION, True)
+      else if ParamStr(1) = 'limits-want' then TestWriteLimitWant
+      else if ParamStr(1) = 'limits-reentry' then TestWriteLimitReentry
+      else if ParamStr(1) = 'limits-cipher-bytes' then TestCipherByteLimit
+      else if ParamStr(1) = 'limits-cipher-count' then TestCipherCountLimit
+      else if ParamStr(1) = 'limits-receive12' then TestReceiveLimit(TLS1_2_VERSION, False)
+      else if ParamStr(1) = 'limits-receive13' then TestReceiveLimit(TLS1_3_VERSION, False)
+      else if ParamStr(1) = 'limits-overflow12' then TestReceiveLimit(TLS1_2_VERSION, True)
+      else if ParamStr(1) = 'limits-overflow13' then TestReceiveLimit(TLS1_3_VERSION, True)
+      else if ParamStr(1) = 'limits-receive-count' then TestReceiveActiveLimit(True, False)
+      else if ParamStr(1) = 'limits-receive-active' then TestReceiveActiveLimit(False, False)
+      else if ParamStr(1) = 'limits-receive-close' then TestReceiveActiveLimit(True, True)
+      else if ParamStr(1) = 'limits-config' then TestLimitConfiguration
+      else if ParamStr(1) = 'limits-snapshot' then TestLimitSnapshot
+      else if ParamStr(1) = 'limits-wrap' then TestLimitWrap
+      else if ParamStr(1) = 'limits-concurrent' then TestLimitConcurrent
+      else if ParamStr(1) = 'limits-terminal' then TestLimitTerminal
+      else if ParamStr(1) = 'limits-write-count' then TestIndependentWriteLimit(True)
+      else if ParamStr(1) = 'limits-write-bytes' then TestIndependentWriteLimit(False)
+      else if ParamStr(1) = 'limits-physical-failure' then TestLimitFailure(0)
+      else if ParamStr(1) = 'limits-callback-failure' then TestLimitFailure(1)
+      else if ParamStr(1) = 'limits-received-failure' then TestLimitFailure(2)
+      else if ParamStr(1) = 'limits-handshake-barrier' then TestLimitHandshakeBarrier
+      else if ParamStr(1) = 'limits-terminal-active' then TestLimitTerminalActive
       else if ParamStr(1) = 'bench-ws' then RunWsBufferBench
       else if ParamStr(1) = 'bench-tls12' then RunTlsBufferBench(TLS1_2_VERSION)
       else if ParamStr(1) = 'bench-tls13' then RunTlsBufferBench(TLS1_3_VERSION)
@@ -909,12 +936,21 @@ begin
       else if ParamStr(1) = 'bench-tx13' then RunTlsOutputBench(TLS1_3_VERSION)
       else if ParamStr(1) = 'bench-control12' then RunTlsBufferBench(TLS1_2_VERSION, True)
       else if ParamStr(1) = 'bench-control13' then RunTlsBufferBench(TLS1_3_VERSION, True)
+      else if ParamStr(1) = 'bench-large-rx12' then RunTlsBufferBench(TLS1_2_VERSION, False, True)
+      else if ParamStr(1) = 'bench-large-rx13' then RunTlsBufferBench(TLS1_3_VERSION, False, True)
+      else if ParamStr(1) = 'bench-large-tx12' then RunTlsOutputBench(TLS1_2_VERSION, True)
+      else if ParamStr(1) = 'bench-large-tx13' then RunTlsOutputBench(TLS1_3_VERSION, True)
       else raise Exception.Create('unknown mode');
     finally
       TSSLTools.UnloadSSL;
     end;
     Writeln('PASS ', ParamStr(1));
   except
-    on E: Exception do begin Writeln('FAIL ', E.ClassName, ': ', E.Message); Halt(1); end;
+    on E: Exception do
+    begin
+      Writeln('FAIL ', E.ClassName, ': ', E.Message);
+      {$IFDEF FPC}DumpExceptionBackTrace(Output);{$ENDIF}
+      Halt(1);
+    end;
   end;
 end.

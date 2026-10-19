@@ -41,6 +41,16 @@ uses
 
 type
 
+  // 只统计本层持有的未完成项及有效字节；0 不限制，不包含 OpenSSL 内部堆。
+  TCrossSslQueueLimits = record
+    MaxWriteCount: Integer;
+    MaxWriteBytes: Int64;
+    MaxCipherCount: Integer;
+    MaxCipherBytes: Int64;
+    MaxReceivedCount: Integer;
+    MaxReceivedBytes: Int64;
+  end;
+
   { TCrossOpenSslConnection }
 
   TCrossOpenSslConnection = class(TCrossSslConnectionBase)
@@ -88,6 +98,15 @@ type
     FTlsEnded: Boolean;
     FTerminalData: TBytes;
     FFatalLog: string;
+    FQueueLimits: TCrossSslQueueLimits;
+    FWriteCount, FCipherCount, FReceivedCount: Integer;
+    FWriteBytes, FCipherBytes, FReceivedBytes: Int64;
+    FTerminalCounted: Boolean;
+
+    function _LimitWriteCallback(const ASize: Integer;
+      const ACallback: TCrossConnectionCallback): TCrossConnectionCallback;
+    function _HasCipherCapacity(const ASize: Integer): Boolean;
+    procedure _CapacityFailedLocked(const AName: string);
 
     // 注意: _SslLock/_SslUnlock 是 SSL 层独立锁, 非基类 _Lock/_Unlock.
     // 基类通过 _LockRecv/_LockSent 保护 IO 路径, 不经过这里.
@@ -160,6 +179,8 @@ type
     destructor Destroy; override;
 
     function GetSslInfo(var ASslInfo: TSslInfo): Boolean; override;
+    // 仅可在没有未完成收发的空闲连接上调整；不会追补已有缓冲。
+    procedure SetSslQueueLimits(const AValue: TCrossSslQueueLimits);
   end;
 
   /// <remarks>
@@ -172,6 +193,8 @@ type
   private
     FSslCtx: PSSL_CTX;
     FSslLoaded: Boolean;
+    FQueueLimits: TCrossSslQueueLimits;
+    procedure SetSslQueueLimits(const AValue: TCrossSslQueueLimits);
 
     procedure _InitSslCtx;
     procedure _FreeSslCtx;
@@ -205,6 +228,8 @@ type
     procedure SetTls12CipherSuites(const ACipherRules: string); override;
     procedure SetTls13CipherSuites(const ACipherSuites: string); override;
     procedure SetMinTlsVersion(const AVersion: TCrossTlsMinVersion); override;
+    // 在建立第一个 TLS 连接前配置；每个连接取得独立快照。
+    property SslQueueLimits: TCrossSslQueueLimits read FQueueLimits write SetSslQueueLimits;
   end;
 
 {$IFDEF CROSS_OPENSSL_SELFTEST}
@@ -223,12 +248,28 @@ function CrossOpenSslSelfTest_HandshakeSendFailureDoesNotPromote(
   out AErrMsg: string): Boolean;
 function CrossOpenSslSelfTest_QueueClear(const AConnection: ICrossConnection;
   const AKind: Integer): Boolean;
+function CrossOpenSslSelfTest_QueueUsage(const AConnection: ICrossConnection): TArray<Int64>;
 var
   // 只固定解密登记后、明文发布前的调度时序，不替换原生 TLS 或发送完成。
   CrossOpenSslSelfTest_BeforeReceived: TCrossConnectionCallback;
 {$ENDIF}
 
 implementation
+
+{$IFDEF CROSS_OPENSSL_SELFTEST}
+function CrossOpenSslSelfTest_QueueUsage(const AConnection: ICrossConnection): TArray<Int64>;
+var C: TCrossOpenSslConnection;
+begin
+  C := AConnection as TCrossOpenSslConnection;
+  C._SslLock;
+  try
+    SetLength(Result, 6);
+    Result[0] := C.FWriteCount; Result[1] := C.FWriteBytes;
+    Result[2] := C.FCipherCount; Result[3] := C.FCipherBytes;
+    Result[4] := C.FReceivedCount; Result[5] := C.FReceivedBytes;
+  finally C._SslUnlock; end;
+end;
+{$ENDIF}
 
 const
   /// <summary>
@@ -592,6 +633,68 @@ end;
 
 { TCrossOpenSslConnection }
 
+procedure ValidateSslQueueLimits(const AValue: TCrossSslQueueLimits);
+begin
+  if (AValue.MaxWriteCount < 0) or (AValue.MaxWriteBytes < 0)
+    or (AValue.MaxCipherCount < 0) or (AValue.MaxCipherBytes < 0)
+    or (AValue.MaxReceivedCount < 0) or (AValue.MaxReceivedBytes < 0) then
+    raise EArgumentException.Create('TLS queue limits must not be negative');
+end;
+
+procedure TCrossOpenSslConnection.SetSslQueueLimits(const AValue: TCrossSslQueueLimits);
+begin
+  ValidateSslQueueLimits(AValue);
+  if not Ssl then raise EInvalidOpException.Create('TLS is disabled');
+  _SslLock;
+  try
+    if FPumping or FStartingWrites or FHasRetryWrite or FCipherSending
+      or FCipherPumping or FDeliveringData or (FPendingWrites.Count <> 0)
+      or (FCipherWrites.Count <> 0) or (FReceivedData.Count <> 0)
+      or (FWriteCount <> 0) or (FCipherCount <> 0) or (FReceivedCount <> 0)
+      or (Length(FTerminalData) <> 0) or FTlsEnded or FCipherClosed then
+      raise EInvalidOpException.Create('TLS queue limits require an idle connection');
+    FQueueLimits := AValue;
+  finally
+    _SslUnlock;
+  end;
+end;
+
+function TCrossOpenSslConnection._LimitWriteCallback(const ASize: Integer;
+  const ACallback: TCrossConnectionCallback): TCrossConnectionCallback;
+var
+  LCompleted: Integer;
+begin
+  LCompleted := 0;
+  Result :=
+    procedure(const C: ICrossConnection; const OK: Boolean)
+    begin
+      if AtomicExchange(LCompleted, 1) <> 0 then Exit;
+      _SslLock;
+      try
+        Dec(FWriteCount);
+        Dec(FWriteBytes, ASize);
+      finally
+        _SslUnlock;
+      end;
+      if Assigned(ACallback) then ACallback(C, OK);
+    end;
+end;
+
+function TCrossOpenSslConnection._HasCipherCapacity(const ASize: Integer): Boolean;
+begin
+  Result := ((FQueueLimits.MaxCipherCount = 0)
+      or (FCipherCount < FQueueLimits.MaxCipherCount))
+    and ((FQueueLimits.MaxCipherBytes = 0)
+      or (ASize <= FQueueLimits.MaxCipherBytes - FCipherBytes));
+end;
+
+procedure TCrossOpenSslConnection._CapacityFailedLocked(const AName: string);
+begin
+  // 原生 TLS 状态已经推进，不能丢弃本条记录后继续使用同一序列。
+  FTlsEnded := True;
+  if FFatalLog = '' then FFatalLog := 'TLS ' + AName + ' queue capacity exceeded';
+end;
+
 constructor TCrossOpenSslConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AHost: string; const AConnectedCb: TCrossConnectionCallback);
@@ -626,6 +729,7 @@ begin
     FCipherWrites := TCipherWriteQueue.Create;
     FReceivedData := TReceivedQueue.Create;
     FMaxPendingBytes := TCrossOpenSslSocket(AOwner).SslMaxPendingWriteBytes;
+    FQueueLimits := TCrossOpenSslSocket(AOwner).FQueueLimits;
 
     if (ConnectType = ctAccept) then
       SSL_set_accept_state(FSslData)   // 服务端连接
@@ -679,6 +783,8 @@ begin
 end;
 
 procedure TCrossOpenSslConnection.InternalClose;
+var
+  LData: TBytes;
 begin
   try
     if FLock <> nil then
@@ -687,8 +793,24 @@ begin
       try
         FCipherClosed := True;
         FTlsEnded := True;
+        if FTerminalCounted then
+        begin
+          Dec(FCipherCount);
+          Dec(FCipherBytes, Length(FTerminalData));
+          FTerminalCounted := False;
+        end;
         FTerminalData := nil;
-        if FReceivedData <> nil then FReceivedData.Clear;
+        if FReceivedData <> nil then
+        begin
+          if (FQueueLimits.MaxReceivedCount > 0) or (FQueueLimits.MaxReceivedBytes > 0) then
+            while FReceivedData.Count > 0 do
+            begin
+              LData := FReceivedData.Dequeue;
+              Dec(FReceivedCount);
+              Dec(FReceivedBytes, Length(LData));
+            end
+          else FReceivedData.Clear;
+        end;
       finally
         _SslUnlock;
       end;
@@ -748,8 +870,18 @@ var
   P: PByte;
 begin
   LReadedCount := 0;
-  // 初始分配合理大小的缓冲区
-  SetLength(Result, INITIAL_BUF_SIZE);
+  if (FQueueLimits.MaxCipherCount > 0) or (FQueueLimits.MaxCipherBytes > 0) then
+  begin
+    LBlockSize := _BIO_pending;
+    if LBlockSize <= 0 then Exit(nil);
+    if not _HasCipherCapacity(LBlockSize) then
+    begin
+      _CapacityFailedLocked('ciphertext');
+      Exit(nil);
+    end;
+    SetLength(Result, LBlockSize);
+  end else
+    SetLength(Result, INITIAL_BUF_SIZE);
 
   while True do
   begin
@@ -807,12 +939,22 @@ const
 var
   LReadedCount, LRetCode, LError: Integer;
   LFreeSpace, LNewSize: Integer;
+  LAvailable: Int64;
+  LProbe: Byte;
+  LProbing: Boolean;
   P: PByte;
 begin
   LReadedCount := 0;
   AReadResult := srWant;
-  // 预分配初始缓冲区
-  SetLength(Result, INITIAL_BUF_SIZE);
+  LAvailable := High(Integer);
+  if FQueueLimits.MaxReceivedBytes > 0 then
+    LAvailable := FQueueLimits.MaxReceivedBytes - FReceivedBytes;
+  if LAvailable > High(Integer) then LAvailable := High(Integer);
+  if (FQueueLimits.MaxReceivedCount > 0)
+    and (FReceivedCount >= FQueueLimits.MaxReceivedCount) then LAvailable := 0;
+  if LAvailable > INITIAL_BUF_SIZE then LNewSize := INITIAL_BUF_SIZE
+  else LNewSize := Integer(LAvailable);
+  SetLength(Result, LNewSize);
 
   while True do
   begin
@@ -820,18 +962,26 @@ begin
     LFreeSpace := Length(Result) - LReadedCount;
 
     // 动态扩展缓冲区(按需增长)
-    if (LFreeSpace < 1024) then  // 预留安全空间
+    if (LFreeSpace < 1024) and (Length(Result) < LAvailable) then
     begin
       // 指数增长策略: 每次翻倍, 上限为 MAX_BUF_INCREMENT
-      LNewSize := Length(Result) * 2;
-      if (LNewSize > Length(Result) + MAX_BUF_INCREMENT) then
-        LNewSize := Length(Result) + MAX_BUF_INCREMENT;
+      if Length(Result) > MAX_BUF_INCREMENT then LNewSize := MAX_BUF_INCREMENT
+      else LNewSize := Length(Result);
+      if LNewSize > LAvailable - Length(Result) then
+        LNewSize := Integer(LAvailable - Length(Result));
+      Inc(LNewSize, Length(Result));
       SetLength(Result, LNewSize);
       LFreeSpace := Length(Result) - LReadedCount;
     end;
 
     // 指向缓冲区当前写入位置
-    P := PByte(@Result[0]) + LReadedCount;
+    LProbing := LFreeSpace = 0;
+    if LProbing then
+    begin
+      // 满额仍允许处理 WANT、KeyUpdate 和 close_notify；只探测一个栈字节。
+      P := @LProbe;
+      LFreeSpace := 1;
+    end else P := PByte(@Result[0]) + LReadedCount;
 
     // 读取数据
     LRetCode := _SSL_read(P, LFreeSpace);
@@ -847,6 +997,12 @@ begin
       Break;
     end;
 
+    if LProbing then
+    begin
+      _CapacityFailedLocked('received plaintext');
+      AReadResult := srFatal;
+      Break;
+    end;
     // 更新已读取计数
     Inc(LReadedCount, LRetCode);
   end;
@@ -964,17 +1120,33 @@ var
   LConnection: ICrossConnection;
   LItem: TPendingWrite;
   LQueued, LRejected: Boolean;
+  LCallback: TCrossConnectionCallback;
 begin
   LConnection := Self;
   LQueued := False;
+  LCallback := ACallback;
   _SslLock;
   try
     LRejected := FTlsEnded or FCipherClosed or (ConnectStatus in [csDisconnected, csClosed]);
     if not LRejected and (ALen > 0) then
     begin
+      if (FQueueLimits.MaxWriteCount > 0) or (FQueueLimits.MaxWriteBytes > 0) then
+      begin
+        LRejected := ((FQueueLimits.MaxWriteCount > 0)
+            and (FWriteCount >= FQueueLimits.MaxWriteCount))
+          or ((FQueueLimits.MaxWriteBytes > 0)
+            and (ALen > FQueueLimits.MaxWriteBytes - FWriteBytes));
+        if not LRejected then
+        begin
+          LCallback := _LimitWriteCallback(ALen, ACallback);
+          Inc(FWriteCount);
+          Inc(FWriteBytes, ALen);
+        end;
+      end;
+      if not LRejected then
       if FPumping or FHasRetryWrite or (FPendingWrites.Count > 0) then
       begin
-        LQueued := _TryEnqueuePendingWrite(ABuf, ALen, ACallback);
+        LQueued := _TryEnqueuePendingWrite(ABuf, ALen, LCallback);
         LRejected := not LQueued;
       end else
         FPumping := True;
@@ -984,13 +1156,13 @@ begin
   end;
   if LRejected or (ALen <= 0) then
   begin
-    _CallConnectionCallback(ACallback, LConnection, not LRejected);
+    _CallConnectionCallback(LCallback, LConnection, not LRejected);
     Exit;
   end;
   if LQueued then Exit;
   LItem.Buf := ABuf;
   LItem.Len := ALen;
-  LItem.Callback := ACallback;
+  LItem.Callback := LCallback;
   _StartPendingWrite(LItem);
 end;
 
@@ -1097,6 +1269,7 @@ begin
         if not LFatal then
         begin
           LData := _BIO_read_all;
+          if FTlsEnded then LFatal := True else
           if Length(LData) > 0 then
           begin
             // 密文生成和入队不可分开，否则并发调用可能倒置 TLS 记录序号。
@@ -1219,9 +1392,19 @@ var
 begin
   Result := not FTlsEnded and not FCipherClosed and not (ConnectStatus in [csDisconnected, csClosed]);
   if not Result then Exit;
+  if not _HasCipherCapacity(Length(AData)) then
+  begin
+    _CapacityFailedLocked('ciphertext');
+    Exit(False);
+  end;
   LItem.Data := AData;
   LItem.Callback := ACallback;
   FCipherWrites.Enqueue(LItem);
+  if (FQueueLimits.MaxCipherCount > 0) or (FQueueLimits.MaxCipherBytes > 0) then
+  begin
+    Inc(FCipherCount);
+    Inc(FCipherBytes, Length(AData));
+  end;
 end;
 
 procedure TCrossOpenSslConnection._SendCipherItem(const AItem: TCipherWrite);
@@ -1240,6 +1423,11 @@ begin
       if AtomicExchange(LCompleted, 1) <> 0 then Exit;
       _SslLock;
       try
+        if (FQueueLimits.MaxCipherCount > 0) or (FQueueLimits.MaxCipherBytes > 0) then
+        begin
+          Dec(FCipherCount);
+          Dec(FCipherBytes, Length(AItem.Data));
+        end;
         LTlsEnded := FTlsEnded;
         LSuccess := OK and not FTlsEnded and not FCipherClosed
           and not (LConnection.ConnectStatus in [csDisconnected, csClosed]);
@@ -1350,7 +1538,21 @@ begin
         Exit;
       end;
       // 明文独立按解密顺序发布，不等待已连接会话的协议输出或慢发送。
-      TCrossOpenSslSocket(Owner)._Received(LConnection, @LData[0], Length(LData));
+      try
+        TCrossOpenSslSocket(Owner)._Received(LConnection, @LData[0], Length(LData));
+      finally
+        if (FQueueLimits.MaxReceivedCount > 0) or (FQueueLimits.MaxReceivedBytes > 0) then
+        begin
+          _SslLock;
+          try
+            Dec(FReceivedCount);
+            Dec(FReceivedBytes, Length(LData));
+          finally
+            _SslUnlock;
+          end;
+        end;
+        LData := nil;
+      end;
     end;
   except
     _SslLock;
@@ -1371,6 +1573,13 @@ begin
     SSL_shutdown(FSslData);
   end;
   FTerminalData := _BIO_read_all;
+  if (Length(FTerminalData) > 0)
+    and ((FQueueLimits.MaxCipherCount > 0) or (FQueueLimits.MaxCipherBytes > 0)) then
+  begin
+    Inc(FCipherCount);
+    Inc(FCipherBytes, Length(FTerminalData));
+    FTerminalCounted := True;
+  end;
 end;
 
 procedure TCrossOpenSslConnection._FinishTls;
@@ -1395,6 +1604,16 @@ begin
         LItem.Data := FTerminalData;
         LItem.Callback := nil;
         FCipherSending := True;
+      end;
+      if FTerminalCounted then
+      begin
+        // 发送时转移至物理项；不能发送时就在这里归还终态缓冲的额度。
+        if not LSend then
+        begin
+          Dec(FCipherCount);
+          Dec(FCipherBytes, Length(FTerminalData));
+        end;
+        FTerminalCounted := False;
       end;
       FTerminalData := nil;
       FCipherClosed := True;
@@ -1447,7 +1666,15 @@ begin
   try
     FCipherClosed := True;
     SetLength(LItems, FCipherWrites.Count);
-    for I := 0 to High(LItems) do LItems[I] := FCipherWrites.Dequeue;
+    for I := 0 to High(LItems) do
+    begin
+      LItems[I] := FCipherWrites.Dequeue;
+      if (FQueueLimits.MaxCipherCount > 0) or (FQueueLimits.MaxCipherBytes > 0) then
+      begin
+        Dec(FCipherCount);
+        Dec(FCipherBytes, Length(LItems[I].Data));
+      end;
+    end;
     // 已交给物理发送的条目由其完成闭包持有，不能在这里释放缓冲。
   finally
     _SslUnlock;
@@ -1509,6 +1736,17 @@ begin
 end;
 
 { TCrossOpenSslSocket }
+
+procedure TCrossOpenSslSocket.SetSslQueueLimits(const AValue: TCrossSslQueueLimits);
+begin
+  ValidateSslQueueLimits(AValue);
+  BeginTlsConfigUpdate;
+  try
+    FQueueLimits := AValue;
+  finally
+    EndTlsConfigUpdate;
+  end;
+end;
 
 constructor TCrossOpenSslSocket.Create(const AIoThreads: Integer; const ASsl: Boolean);
 begin
@@ -1897,6 +2135,7 @@ begin
         begin
           if LFatal or not OK then LConnection.Close;
         end);
+    LFatal := LFatal or LConnection.FTlsEnded;
   finally
     LConnection._SslUnlock;
   end;
@@ -1970,10 +2209,17 @@ begin
     if LDecryptedData <> nil then
     begin
       LConnectionObj.FReceivedData.Enqueue(LDecryptedData);
+      if (LConnectionObj.FQueueLimits.MaxReceivedCount > 0)
+        or (LConnectionObj.FQueueLimits.MaxReceivedBytes > 0) then
+      begin
+        Inc(LConnectionObj.FReceivedCount);
+        Inc(LConnectionObj.FReceivedBytes, Length(LDecryptedData));
+      end;
       LDecryptedData := nil;
     end;
     // 读操作也可能生成协议输出；密文登记有序，但不能让明文等慢发送。
     if not LFatal then LHandshakeData := LConnectionObj._BIO_read_all;
+    LFatal := LFatal or LConnectionObj.FTlsEnded;
     LInitialHandshake := not LConnectionObj.FConnectedPublished;
     if not LFatal and LInitialHandshake then
       LQueued := LConnectionObj._QueueCipherLocked(LHandshakeData,
@@ -1988,6 +2234,7 @@ begin
         begin
           if LFatal or not OK then _CloseCrossData(C);
         end);
+    LFatal := LFatal or LConnectionObj.FTlsEnded;
   finally
     LConnectionObj._SslUnlock;
   end;

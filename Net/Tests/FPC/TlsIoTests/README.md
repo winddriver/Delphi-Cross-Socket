@@ -129,10 +129,58 @@ F12 红绿证据和最终结果：
 
 ## O06 独立候选：非空 BIO 精确扩容
 
-在 WS 阶段提交 `ffb9407` 后，仅把 `_BIO_read_all` 的非空扩容目标改为本轮实际需要的 `LReadedCount + LBlockSize`。初始 16 KiB 分配、空 BIO 行为和查询次数保留，不重新引入已否决的提前返回。只测这一种候选，没有缓冲复用、开关或状态机重构；O06 整体仍是部分完成。
+在 WS 阶段提交 `ffb9407` 后，仅把 `_BIO_read_all` 的非空扩容目标改为本轮实际需要的 `LReadedCount + LBlockSize`。初始 16 KiB 分配、空 BIO 行为和查询次数保留，不重新引入已否决的提前返回。只测这一种候选，没有缓冲复用、开关或状态机重构。O06 已按 WS 清零、TLS 非空扩容及基准取舍结案；后续容量限制属于独立 O03。
 
 完整方法、两编译器所有写出/接收控制负载的时间、IQR、P99 和累计申请量见 [TLS_OUTPUT_BENCHMARK.md](TLS_OUTPUT_BENCHMARK.md)。写出通过真实 OpenSSL 完成并由原生对端实际解密，覆盖 1 KiB、实际密文 16 KiB/16 KiB+1 边界、输入 16 KiB/64 KiB/1 MiB。分配接口调用次数保持不变；大块输出的累计请求量每次减少 64 KiB，不能等同于实际峰值内存下降。接收 32 B/64 KiB 控制未重现前一候选的明显回退。
 
 独立验证：`tls-output-final3` / `tls-output-final111` 七个库/编译器组合各 **38/38，共 266/266**；关闭自测宏的 `tls-output-release` Delphi/FPC Win64 各 **33/33**。同源重编 `TlsCipherSuitesTests`，双目标配置自测通过、真实 TCP 客户端/服务端握手各 **38/38**，记录在 `bin/tls-output-compat/`。所有测试进程均已退出。
 
 性能基线及原始配对样本位于 `bin/tls-output-baseline/`、`bin/tls-output-{before,after}/`、`bin/tls-output-results/`。最终源码与二进制哈希汇总为 `bin/tls-output-final-manifest.json`；容量限制仍只读设计，本批未改任何队列计费规则或旧 SslMaxPendingWriteBytes 语义。
+
+## O03：可选 TLS 队列容量
+
+在非空 BIO 扩容提交 `6fbd712` 之后独立实施。只增加 OpenSSL 具体类的配置，不改变现有接口 GUID 或方法表，不修改 MbedTLS。六个新限额默认都是 0；既有 `SslMaxPendingWriteBytes` 默认 4 MiB 及 WANT/排队语义保持原样。
+
+```pascal
+var
+  Limits: TCrossSslQueueLimits;
+begin
+  Limits := Default(TCrossSslQueueLimits);
+  Limits.MaxWriteCount := 64;
+  Limits.MaxWriteBytes := 8 * 1024 * 1024;
+  Limits.MaxCipherCount := 32;
+  Limits.MaxCipherBytes := 2 * 1024 * 1024;
+  Limits.MaxReceivedCount := 8;
+  Limits.MaxReceivedBytes := 1024 * 1024;
+  // Socket 为 TCrossOpenSslSocket；在建立第一个 TLS 连接前配置。
+  Socket.SslQueueLimits := Limits;
+end;
+```
+
+这些示例值仅演示配置，不是所有部署都适用的默认值。连接取得配置快照；若需要调整具体连接，调用 `TCrossOpenSslConnection.SetSslQueueLimits`，必须没有未结算写、密文、接收缓冲或正在执行的相关回调。负数和非空闲调整抛异常，不追补已有项目。字节参数是 Int64；单个 Pascal TBytes 仍受 Integer 索引范围约束，大配置不会预分配对应内存。
+
+| 限额 | 计数归属 | 超额行为 |
+| --- | --- | --- |
+| MaxWriteCount / MaxWriteBytes | 每次正长度逻辑写的原始明文大小，包含普通队列、WANT 重试和物理在途写；部分写/重试不重复计费 | 接纳前拒绝新项，一次 False，健康连接可继续 |
+| MaxCipherCount / MaxCipherBytes | 排队、物理在途及待发送终态通知的实际密文字节；空密文的握手完成项仍占 count | 原生 TLS 已推进后不能丢记录，立即进入终态并关闭；alert 也不能绕过额度 |
+| MaxReceivedCount / MaxReceivedBytes | 一次解密结果缓冲为一个项目，包含排队及正在执行接收回调的缓冲 | 分配/增长前限制，满额用一字节栈探测区分协议处理与额外明文；超额保留可交付前缀后关闭 |
+
+额度在实际完成或取消时只归还一次。Close 取消未提交写；在途密文和关联明文直到物理完成仍保活、仍计费。接收回调抛异常或重入 Close 后也会归还额度。默认关闭时不增加写入完成包装闭包或新锁；启用后使用现有 SSL 锁。此配置约束本层有效缓冲和未完成项，不是 OpenSSL 内部堆、调用方保留数据、线程栈或进程 RSS 的硬上限；仅设置 bytes 也不能限制零字节握手项，应结合 count 使用。
+
+`TlsQueueLimitTests.inc` 新增 26 项：独立数量/字节边界、真实 WANT、32 线程接纳、64 深度反复 2048 次 wrap、Close 与迟到物理完成、128 次同步重入、TLS 1.2 重新握手的读输出、空握手完成项、TLS 1.2/1.3 正好 16 KiB 和超额输入、接收回调占用/重入/异常、1 TiB 配置、配置快照、正常 close_notify 的限额/在途释放及底层 False。SSL 状态、记录生成和对端解密都使用真实 OpenSSL；仅物理发送完成的时序由内存 fixture 控制。
+
+旧基线以 `6fbd712` 生产源构建；因旧源码没有新配置 API，`TLS_LIMITS_BASELINE` 只跳过配置调用，并省略不可用的私有计数观测，所有 TLS 操作和行为断言保持。双目标各 15 个边界均为预期失败，最终测试源重编产物在 `bin/limits-before-final2/`，源快照在 `bin/limits-baseline/production/`。这证明旧版的无限接纳行为，不把新增可选功能描述为默认配置下的安全漏洞。
+
+首次 FPC Linux 并发用例失败发生在测试的第二次 `TThread.WaitFor`：gdb 栈为 `__pthread_clockjoin_ex → TThread.WaitFor → TestLimitConcurrent`，32 个线程退出后，重复 join 访问已回收的 pthread。测试已分别记录 Started/Joined，不重复 join；修正后的诊断构建连续十轮通过，记录在 `bin/limits-thread-fix/concurrent-repeat.json`。该问题未修改生产代码。
+
+2026-10-19 最终验证：
+
+- `bin/limits-final2/`：Delphi Win64/Win32、FPC Win64、Delphi/FPC Linux64 各 **64/64**；包含原 38 项和新 26 项。
+- `bin/limits-final2-111/`：Delphi/FPC Win64 + OpenSSL 1.1.1v 各 **64/64**。七组共 **448/448**；Windows x64 OpenSSL 3.1.2、Win32 3.5.0、Linux 3.0.2。
+- `bin/limits-final2-release/`：关闭 `CROSS_OPENSSL_SELFTEST` 后 Delphi/FPC Win64 各 **59/59**，五个仅依赖既有私有钩子的场景排除。容量行为测试全部保留，只省略私有计数观测。
+- `bin/limits-compat/`：同源重编现有 `TlsCipherSuitesTests`，双目标配置自测通过、真实 TCP 客户端/服务端握手各 **38/38**；握手脚本记录独立运行目录并在 finally 回收进程。
+- 构建、结果、源码与二进制哈希、时间在 `bin/limits-final-manifest.json`；Windows 子进程检查无残留，Linux 每项由 runner 有界等待并回收。未覆盖平台不计入上述数量。
+
+底层 Socket 自身容量 API 的真实组合验证仍等待相应独立实现冻结；本目录的 `limits-physical-failure` 是物理发送返回 False 的受控路径，不能称为三后端真实容量拒绝测试。WS 容量由独立 Sender 回归验证。没有 macOS/Kqueue 运行、MbedTLS、长期压力或本批性能收益结论。
+
+容量默认关闭的窄范围开销检查见 [TLS_LIMITS_DEFAULT_BENCHMARK.md](TLS_LIMITS_DEFAULT_BENCHMARK.md)：Delphi/FPC Win64、TLS 1.2/1.3、64 KiB/1 MiB 收发均按五对交替测量。分配计数/累计请求量不变；两个首轮偏慢负载经过独占窗口定向复测后未出现稳定回退，全部原始样本保留，未因此调整生产代码。新增基准模式及其哈希单独记录在 `bin/limits-default-manifest.json`，不覆盖此前正确性证据。

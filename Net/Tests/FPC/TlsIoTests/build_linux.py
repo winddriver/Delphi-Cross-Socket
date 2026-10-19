@@ -15,7 +15,7 @@ CN = Path(r"D:\Design\Delphi\VclFmxRtl\cncrypto\Source")
 SDK = Path.home() / "Documents/Embarcadero/Studio/SDKs/ubuntu22.04.sdk"
 
 
-def build(target, label):
+def build(target, label, debug=False):
     output = HERE / "bin" / label / target
     units = HERE / "lib" / label / target
     output.mkdir(parents=True, exist_ok=True)
@@ -35,6 +35,8 @@ def build(target, label):
                 "-I" + str(REPO) + ";" + str(CN), "-E" + str(output),
                 "-N0" + str(units), "--syslibroot:" + str(SDK),
                 "--libpath:" + ";".join(map(str, libraries)), HERE / "TlsIoTests.dpr"]
+    if debug and target == "fpc-linux64":
+        args.insert(1, "-gl")
     result = subprocess.run(list(map(str, args)), cwd=HERE, capture_output=True,
                             timeout=120, creationflags=subprocess.CREATE_NO_WINDOW)
     (output / "build.log").write_bytes(result.stdout + result.stderr)
@@ -43,10 +45,11 @@ def build(target, label):
         raise SystemExit(result.returncode)
     sources = [REPO / "Net/Net.CrossSslSocket.OpenSSL.pas", REPO / "Net/Net.OpenSSL.pas",
                REPO / "Net/Net.CrossSocket.Base.pas", REPO / "Net/Net.CrossSocket.Epoll.pas",
-               HERE / "TlsIoTests.lpr", HERE / "TlsTerminalTests.inc", HERE / "TlsManagedQueueTests.inc",
+               HERE / "TlsIoTests.lpr", HERE / "TlsTerminalTests.inc", HERE / "TlsManagedQueueTests.inc", HERE / "TlsQueueLimitTests.inc",
                REPO / "DelphiToFPC/DTF.Generics.pas"]
     metadata = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     metadata["selftest"] = True
+    metadata["debug_lines"] = debug
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print("PASS build", target, flush=True)
 
@@ -56,8 +59,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("targets", nargs="+", choices=["fpc-linux64", "delphi-linux64"])
     parser.add_argument("--label", default="", help="隔离每批构建和运行日志")
+    parser.add_argument("--debug", action="store_true", help="FPC 诊断构建保留异常行号")
     options = parser.parse_args()
     if options.label and not options.label.replace("-", "").replace("_", "").isalnum():
         parser.error("label 只允许字母数字及横线")
     for selected in options.targets:
-        build(selected, options.label)
+        build(selected, options.label, options.debug)
