@@ -173,3 +173,42 @@ Linux 启动最初在沙箱内得到 WSL `E_ACCESSDENIED`，经允许的沙箱�
 最终新增 15 个策略组件、8 个 source/流组件和 6 个真实 TCP 场景，完整套件 **117 项**。Windows Delphi64/32/FPC64 和 Linux Delphi/FPC 各 **117/117，共 585/585**。Windows 为 `bin/s02-stream-final/`，Linux 为各目标目录。TCP 独立读取完整 404/500/显式 close 响应后等待真实 EOF，同时验证 HTTP/1.0 keep-alive 和列表 close；组件通过延迟完成覆盖队列取消及排队后修改。此处只完成 S02 服务端阶段，客户端头部解析结果传播另批核查。
 
 重新构建红基线可传 `run_tests.py --source-root bin/s02-before/production --label <新标签>`，脚本优先搜索该目录并记录实际选用的 Server 源码；不切换或覆盖工作区生产文件。
+
+## O03b 原始正文阈值落盘与总量限制
+
+在启动监听前配置具体类，不改变 `ICrossHttpServer` 的方法顺序或 GUID：
+
+```pascal
+ServerObject.BodyMemoryThreshold := 128 * 1024;
+ServerObject.BodyTempPath := 'private-body-temp';
+ServerObject.MaxPostDataSize := 64 * 1024 * 1024;
+```
+
+`BodyMemoryThreshold` 默认 0，保持原有内存正文。启用后仅 `btBinary` 超过阈值时迁移到临时文件，`RawBody`/`Body` 应按 `TStream` 使用，业务仍在完整请求到达后读取，起始位置为 0。URL 编码表单仍整体解码；multipart 沿用已有文件存储。总正文上限约束解压后的字节数，不因落盘而取消。
+
+`BodyTempPath` 独立于 multipart 的 `StoragePath`；空值沿用现有临时文件工具的程序目录下 `temp`。POSIX 新建临时文件使用 0600，Windows 沿用目录 ACL。临时正文始终自动删除，不受上传文件的 `AutoDeleteFiles` 控制，但要等最后一个请求引用释放：连接也缓存最近一次完整请求，因此仅清空业务变量不保证立即删除。断开/失败的未完成请求随清理删除，已发布请求可由业务继续持有和读取。
+
+发布业务前显式刷新文件流缓存，尾部写入失败返回 500、关闭并阻止业务执行。该刷新确认用户态缓存交给文件写入，不是断电持久化或 `fsync` 保证。原 Parser 的 Integer 接口保持，具体类 `MaxBodyDataSize64` 与其共享 Int64 实际限额；服务器大正文上限不再窄化回绕，头部限额安全夹取至 Integer 范围。
+
+新增 14 个存储场景和 3 个真实文件写入失败场景，完整 HTTP 套件为 134 项。存储场景覆盖默认/阈值两侧、chunked、gzip、表单兼容、目录失败、独立目录、断开、保留请求引用、解码总量和超过 32 位的限额。文件失败使用 Windows 字节锁和 Linux 子进程 `RLIMIT_FSIZE`，验证普通/chunked/gzip 尾部失败不进入业务，文件和句柄最终回收。它们使用真实解析器和 OS 文件操作，物理网络完成由夹具控制，不能当作新增 TCP 上传测试。
+
+红基线分别保留在 `bin/o03-storage-before/`（无阈值功能）和 `bin/o03-flush-before/`（未显式刷新）。后者双 Windows 目标均在三个场景错误发布业务；补充刷新后转绿。最终接口兼容版本保存在 `bin/o03-body-compatible/`，Delphi Win64/Win32、FPC Win64、Delphi/FPC Linux64 各 134/134，共 670/670；其中既有 17 个 TCP 场景按原默认配置回归。源码/程序哈希、逐例结果均保存在各目标目录。
+
+`run_storage_memory.py` 使用同一程序接收 32 MiB 原始正文，对比默认内存与 128 KiB 阈值，预热后交替三轮，读取全量字节并验证清理。各目标峰值驻留内存增量中位数（字节）：
+
+| 目标 | 默认内存 | 阈值落盘 |
+| --- | ---: | ---: |
+| Delphi Win64 | 34,353,152 | 716,800 |
+| FPC Win64 | 59,580,416 | 659,456 |
+| Delphi Linux64 | 34,074,624 | 520,192 |
+| FPC Linux64 | 34,377,728 | 557,056 |
+
+这是进程峰值增量，包含运行时分配差异，不是正文对象精确大小或吞吐比较。Linux 为避开 WSL 挂载盘不呈现 POSIX 权限的差异，将同一程序字节复制到原生临时目录运行，落盘文件均验证为 0600。测量记录为各目标的 `memory.json`。
+
+```powershell
+python -B run_tests.py --targets win64 win32 fpc64 --label o03-body-compatible
+python -B build_linux.py --label o03-body-compatible fpc-linux64 delphi-linux64
+python -B run_storage_memory.py bin/o03-body-compatible/win64/HttpFailureTests.exe --report bin/o03-body-compatible/win64/memory.json
+```
+
+Linux 运行仍使用 `run_linux.py`，传入带标签的两个目标路径；内存测量在 Linux 内使用相同 Python 入口。

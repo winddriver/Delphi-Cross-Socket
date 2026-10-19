@@ -111,7 +111,8 @@ type
   TCrossHttpParser = class(TInterfacedObject, ICrossHttpParser)
   private
     FMode: TCrossHttpParseMode;
-    FMaxHeaderSize, FMaxBodyDataSize, FMaxCompressRatio: Integer;
+    FMaxHeaderSize, FMaxCompressRatio: Integer;
+    FMaxBodyDataSize: Int64;
     FOnHeaderData: TOnHeaderData;
     FOnGetHeaderValue: TOnGetHeaderValue;
     FOnBodyBegin: TOnBodyBegin;
@@ -192,6 +193,8 @@ type
 
     property MaxHeaderSize: Integer read GetMaxHeaderSize write SetMaxHeaderSize;
     property MaxBodyDataSize: Integer read GetMaxBodyDataSize write SetMaxBodyDataSize;
+    // 保留既有 Integer 接口；64位配置与旧入口共享同一个实际限额。
+    property MaxBodyDataSize64: Int64 read FMaxBodyDataSize write FMaxBodyDataSize;
     property MaxCompressRatio: Integer read GetMaxCompressRatio write SetMaxCompressRatio;
 
     property OnHeaderData: TOnHeaderData read GetOnHeaderData write SetOnHeaderData;
@@ -1054,7 +1057,9 @@ end;
 
 function TCrossHttpParser.GetMaxBodyDataSize: Integer;
 begin
-  Result := FMaxBodyDataSize;
+  if FMaxBodyDataSize > High(Integer) then Result := High(Integer)
+  else if FMaxBodyDataSize < Low(Integer) then Result := Low(Integer)
+  else Result := Integer(FMaxBodyDataSize);
 end;
 
 procedure TCrossHttpParser.SetMaxBodyDataSize(const AValue: Integer);

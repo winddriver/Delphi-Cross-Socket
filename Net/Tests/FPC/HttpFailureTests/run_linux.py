@@ -30,7 +30,7 @@ def main():
                     result = subprocess.run([str(executable), mode, kind], cwd=HERE,
                                             capture_output=True, timeout=15)
                     detail = (result.stdout + result.stderr).decode("utf-8", errors="replace").strip()
-                    passed = result.returncode == 0 and detail.startswith("PASS ")
+                    passed = result.returncode == 0 and f'PASS {mode} {kind}' in detail.splitlines()
                 except subprocess.TimeoutExpired:
                     passed, detail = False, "TIMEOUT (child killed and reaped)"
             failed |= not passed

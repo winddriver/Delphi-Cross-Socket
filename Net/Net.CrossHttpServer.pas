@@ -321,7 +321,7 @@ type
     ///       btMultiPart(THttpMultiPartFormData)
     ///     </item>
     ///     <item>
-    ///       btBinary(TMemoryStream)
+    ///       btBinary(TStream，默认TMemoryStream；启用阈值后可能是临时文件流)
     ///     </item>
     ///   </list>
     /// </summary>
@@ -348,7 +348,7 @@ type
     ///       btMultiPart(THttpMultiPartFormData)
     ///     </item>
     ///     <item>
-    ///       btBinary(TMemoryStream)
+    ///       btBinary(TStream，默认TMemoryStream；启用阈值后可能是临时文件流)
     ///     </item>
     ///   </list>
     /// </summary>
@@ -1877,7 +1877,7 @@ type
     FParams: THttpUrlParams;
     FQuery: THttpUrlParams;
     FBody: TObject;
-    FRawBody: TMemoryStream;
+    FRawBody: TStream;
     FBodyType: TBodyType;
     FIsChunked: Boolean;
   private
@@ -2264,6 +2264,8 @@ type
     FStoragePath: string;
     FAutoDeleteFiles: Boolean;
     FMaxPostDataSize: Int64;
+    FBodyMemoryThreshold: Int64;
+    FBodyTempPath: string;
     FMaxHeaderSize: Int64;
     FMaxCompressRatio: Integer;
     FMinCompressSize: Int64;
@@ -2283,6 +2285,8 @@ type
     function GetAutoDeleteFiles: Boolean;
     function GetMaxHeaderSize: Int64;
     function GetMaxPostDataSize: Int64;
+    function GetBodyMemoryThreshold: Int64;
+    function GetBodyTempPath: string;
     function GetMaxCompressRatio: Integer;
     function GetCompressible: Boolean;
     function GetMinCompressSize: Int64;
@@ -2297,6 +2301,8 @@ type
     procedure SetAutoDeleteFiles(const Value: Boolean);
     procedure SetMaxHeaderSize(const Value: Int64);
     procedure SetMaxPostDataSize(const Value: Int64);
+    procedure SetBodyMemoryThreshold(const Value: Int64);
+    procedure SetBodyTempPath(const Value: string);
     procedure SetMaxCompressRatio(const Value: Integer);
     procedure SetCompressible(const Value: Boolean);
     procedure SetMinCompressSize(const Value: Int64);
@@ -2373,6 +2379,10 @@ type
     property AutoDeleteFiles: Boolean read GetAutoDeleteFiles write SetAutoDeleteFiles;
     property MaxHeaderSize: Int64 read GetMaxHeaderSize write SetMaxHeaderSize;
     property MaxPostDataSize: Int64 read GetMaxPostDataSize write SetMaxPostDataSize;
+    // 原始二进制正文超过此字节数后转临时文件；<=0沿用内存。文件随请求释放。
+    property BodyMemoryThreshold: Int64 read GetBodyMemoryThreshold write SetBodyMemoryThreshold;
+    // 临时正文目录；空值使用程序目录下temp，不与上传文件StoragePath共用配置。
+    property BodyTempPath: string read GetBodyTempPath write SetBodyTempPath;
     property MaxCompressRatio: Integer read GetMaxCompressRatio write SetMaxCompressRatio;
     property Compressible: Boolean read GetCompressible write SetCompressible;
     property MinCompressSize: Int64 read GetMinCompressSize write SetMinCompressSize;
@@ -2524,8 +2534,14 @@ begin
   FResponseQueueLock := TLock.Create;
 
   FHttpParser := TCrossHttpParser.Create(pmServer);
-  FHttpParser.MaxHeaderSize := FServer.MaxHeaderSize;
-  FHttpParser.MaxBodyDataSize := FServer.MaxPostDataSize;
+  // 头部回调仍使用 Integer 长度；大配置安全夹取，不能发生截断回绕。
+  if FServer.MaxHeaderSize > High(Integer) then
+    FHttpParser.MaxHeaderSize := High(Integer)
+  else if FServer.MaxHeaderSize > 0 then
+    FHttpParser.MaxHeaderSize := Integer(FServer.MaxHeaderSize)
+  else
+    FHttpParser.MaxHeaderSize := 0;
+  (FHttpParser as TCrossHttpParser).MaxBodyDataSize64 := FServer.MaxPostDataSize;
   FHttpParser.MaxCompressRatio := FServer.MaxCompressRatio;
   FHttpParser.OnHeaderData := _OnHeaderData;
   FHttpParser.OnGetHeaderValue := _OnGetHeaderValue;
@@ -3007,9 +3023,18 @@ end;
 
 procedure TCrossHttpConnection._OnBodyData(const ADataPtr: Pointer;
   const ADataSize: Integer);
+var
+  LTemporary, LOldBody: TStream;
 begin
   if (FRequestObj.FBody = nil) then Exit;
 
+  // 解码后的数据也受服务器当前总限额约束；配置变更不能使接收途中的校验失效。
+  if (FServer.FMaxPostDataSize > 0)
+    and (Int64(ADataSize) > FServer.FMaxPostDataSize - FRequestObj.FPostDataSize) then
+  begin
+    (FHttpParser as TCrossHttpParser).Fail(413, 'Request body too large.');
+    Exit;
+  end;
   Inc(FRequestObj.FPostDataSize, ADataSize);
 
   case FRequestObj.GetBodyType of
@@ -3018,7 +3043,27 @@ begin
 
     btUrlEncoded, btBinary:
       if (FRequestObj.FRawBody <> nil) then
-        FRequestObj.FRawBody.Write(ADataPtr^, ADataSize);
+      begin
+        if (FRequestObj.GetBodyType = btBinary) and (FServer.FBodyMemoryThreshold > 0)
+          and (FRequestObj.FRawBody is TMemoryStream)
+          and (Int64(ADataSize) > FServer.FBodyMemoryThreshold - FRequestObj.FRawBody.Size) then
+        begin
+          // 复用现有随流释放自动删除的临时文件；迁移成功后才交接唯一所有权。
+          LTemporary := TFileUtils.CreateTempFile(FServer.FBodyTempPath);
+          try
+            FRequestObj.FRawBody.Position := 0;
+            LTemporary.CopyFrom(FRequestObj.FRawBody, FRequestObj.FRawBody.Size);
+            LOldBody := FRequestObj.FRawBody;
+            FRequestObj.FRawBody := LTemporary;
+            FRequestObj.FBody := LTemporary;
+            LTemporary := nil;
+            LOldBody.Free;
+          finally
+            LTemporary.Free;
+          end;
+        end;
+        FRequestObj.FRawBody.WriteBuffer(ADataPtr^, ADataSize);
+      end;
   end;
 end;
 
@@ -3035,7 +3080,7 @@ begin
         if (FRequestObj.FRawBody = nil) then Exit;
 
         SetString(LUrlEncodedStr,
-          MarshaledAString(FRequestObj.FRawBody.Memory),
+          MarshaledAString(TMemoryStream(FRequestObj.FRawBody).Memory),
           FRequestObj.FRawBody.Size);
         LUrlEncodedBody := TFormUrlEncoded.Create;
         if LUrlEncodedBody.Decode(LUrlEncodedStr) then
@@ -3059,7 +3104,12 @@ begin
 
     btBinary:
       if (FRequestObj.FRawBody <> nil) then
+      begin
+        // 位置回零可能只移动文件流内部游标；尾部写入失败必须在发布业务前暴露。
+        if FRequestObj.FRawBody is TFastFileStream then
+          TFastFileStream(FRequestObj.FRawBody).FlushBuffer;
         FRequestObj.FRawBody.Position := 0;
+      end;
   end;
 end;
 
@@ -4236,6 +4286,26 @@ end;
 function TCrossHttpServer.GetMaxHeaderSize: Int64;
 begin
   Result := FMaxHeaderSize;
+end;
+
+function TCrossHttpServer.GetBodyTempPath: string;
+begin
+  Result := FBodyTempPath;
+end;
+
+procedure TCrossHttpServer.SetBodyTempPath(const Value: string);
+begin
+  FBodyTempPath := Value;
+end;
+
+function TCrossHttpServer.GetBodyMemoryThreshold: Int64;
+begin
+  Result := FBodyMemoryThreshold;
+end;
+
+procedure TCrossHttpServer.SetBodyMemoryThreshold(const Value: Int64);
+begin
+  FBodyMemoryThreshold := Value;
 end;
 
 function TCrossHttpServer.GetMaxPostDataSize: Int64;

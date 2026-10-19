@@ -1626,7 +1626,12 @@ begin
   if not TDirectoryUtils.Exists(LTempPath) then
     TDirectoryUtils.CreateDirectory(LTempPath);
 
+  {$IFDEF POSIX}
+  // 临时文件可能包含原始请求等私密内容，只授予当前用户读写权限。
+  inherited Create(FTempFileName, fmCreate or fmShareDenyWrite, Cardinal(S_IRUSR or S_IWUSR), 32768);
+  {$ELSE}
   inherited Create(FTempFileName, fmCreate or fmShareDenyWrite);
+  {$ENDIF}
 end;
 
 destructor TTempFileStream.Destroy;

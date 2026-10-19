@@ -15,9 +15,9 @@ CN = Path(r"D:\Design\Delphi\VclFmxRtl\cncrypto\Source")
 SDK = Path.home() / "Documents/Embarcadero/Studio/SDKs/ubuntu22.04.sdk"
 
 
-def build(target):
-    output = HERE / "bin" / target
-    units = HERE / "lib" / target
+def build(target, label=None):
+    output = HERE / "bin" / label / target if label else HERE / "bin" / target
+    units = HERE / "lib" / label / target if label else HERE / "lib" / target
     output.mkdir(parents=True, exist_ok=True)
     units.mkdir(parents=True, exist_ok=True)
     if target == "fpc-linux64":
@@ -35,6 +35,10 @@ def build(target):
                 "-I" + str(REPO) + ";" + str(CN), "-E" + str(output),
                 "-N0" + str(units), "--syslibroot:" + str(SDK),
                 "--libpath:" + ";".join(map(str, libraries)), HERE / "HttpFailureTests.dpr"]
+    if 'property BodyMemoryThreshold:' in (REPO / 'Net/Net.CrossHttpServer.pas').read_text(encoding='utf-8-sig'):
+        args.insert(1, '-dHTTP_BODY_STORAGE' if target == 'fpc-linux64' else '-DHTTP_BODY_STORAGE')
+    if 'property BodyTempPath:' in (REPO / 'Net/Net.CrossHttpServer.pas').read_text(encoding='utf-8-sig'):
+        args.insert(1, '-dHTTP_BODY_TEMP_PATH' if target == 'fpc-linux64' else '-DHTTP_BODY_TEMP_PATH')
     result = subprocess.run(list(map(str, args)), cwd=HERE, capture_output=True,
                             timeout=120, creationflags=subprocess.CREATE_NO_WINDOW)
     (output / "build.log").write_bytes(result.stdout + result.stderr)
@@ -44,7 +48,8 @@ def build(target):
     sources = [REPO / "Net/Net.CrossHttpParser.pas", REPO / "Net/Net.CrossHttpServer.pas",
                REPO / "Net/Net.CrossSocket.Base.pas", REPO / "Net/Net.CrossSocket.Epoll.pas",
                HERE / "HttpFailureTests.lpr", HERE / "HttpResponseQueueTests.inc", HERE / "HttpBodyPolicyTests.inc",
-               HERE / "HttpSendPolicyTests.inc"]
+               HERE / "HttpSendPolicyTests.inc", HERE / "HttpBodyStorageTests.inc", HERE / "HttpBodyFlushTests.inc",
+               REPO / 'Utils/Utils.IOUtils.pas']
     metadata = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print("PASS build", target, flush=True)
@@ -54,6 +59,9 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("targets", nargs="+", choices=["fpc-linux64", "delphi-linux64"])
+    parser.add_argument('--label')
     options = parser.parse_args()
+    if options.label and not options.label.replace('-', '').replace('_', '').isalnum():
+        parser.error('invalid label')
     for selected in options.targets:
-        build(selected)
+        build(selected, options.label)

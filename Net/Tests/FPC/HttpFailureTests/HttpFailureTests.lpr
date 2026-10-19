@@ -503,6 +503,8 @@ end;
 {$I HttpResponseQueueTests.inc}
 {$I HttpBodyPolicyTests.inc}
 {$I HttpSendPolicyTests.inc}
+{$I HttpBodyStorageTests.inc}
+{$I HttpBodyFlushTests.inc}
 
 begin
   try
@@ -522,6 +524,10 @@ begin
         TestSendPolicy(ParamStr(2))
       else if ParamStr(1) = 'source' then
         TestSendSourceFailure(ParamStr(2))
+      else if ParamStr(1) = 'storage' then
+        TestBodyStorage(ParamStr(2))
+      else if ParamStr(1) = 'flush' then
+        TestBodyFlush(ParamStr(2))
       else
         Check(False, 'unknown mode');
       Writeln('PASS ', ParamStr(1), ' ', ParamStr(2));
