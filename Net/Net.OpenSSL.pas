@@ -90,6 +90,7 @@ uses
   Math,
   Utils.DateTime,
   Utils.IOUtils,
+  Utils.SyncObjs,
 
   Net.CrossSslSocket.Types;
 
@@ -1642,6 +1643,10 @@ type
   ESslInvalidProc = class(ESsl);
   ESslContextInvalid = class(ESsl);
 
+  {$IFDEF CROSS_OPENSSL_SELFTEST}
+  TSslLoadTestHook = procedure;
+  {$ENDIF}
+
   // FPC 中 一定要用 TLibHandle 来保存动态库的句柄
   // 否则在部分操作系统中调用 GetProcAddress 时会引发异常
   // 目前测试发现在 Linux-LoongArch64 中会出现该异常
@@ -1657,8 +1662,9 @@ type
   private
     class var FRef: Integer;
     class var FSslVersion: Longword;
+    class var FLoadLock: ILock;
 
-    class destructor Destroy;
+    class constructor Create;
 
     class var FLibPath, FLibSSL, FLibCRYPTO: string;
     class var FSslLibHandle, FCryptoLibHandle: TLibHandle;
@@ -1676,18 +1682,29 @@ type
       out ALoadedLibName: string): TLibHandle; overload; static;
     class procedure LoadSslLibs; static;
     class procedure UnloadSslLibs; static;
+    class procedure _ClearSslProcs; static;
 
     class procedure SslInit; static;
     class procedure SslUninit; static;
   private
+    class function _GetLibCRYPTO: string; static;
+    class function _GetLibPath: string; static;
+    class function _GetLibSSL: string; static;
     class procedure SetLibCRYPTO(const AValue: string); static;
     class procedure SetLibPath(const AValue: string); static;
     class procedure SetLibSSL(const AValue: string); static;
   public
-    // 加载 SSL 库
-    class procedure LoadSSL; static;
+    // 成功取得一份引用返回 True；预期失败回滚后返回 False。
+    // 非预期异常继续抛出。返回 False 时不得调用 UnloadSSL。
+    class function LoadSSL: Boolean; overload; static;
+    class function LoadSSL(out AError: string): Boolean; overload; static;
 
-    // 卸载 SSL 库
+    {$IFDEF CROSS_OPENSSL_SELFTEST}
+    // 仅供测试：在动态绑定完成后控制初始化时序或注入故障。
+    class var OnBeforeInitForTest: TSslLoadTestHook;
+    {$ENDIF}
+
+    // 每次成功 LoadSSL 配对一次；先释放 SSL 对象并结束相关线程的使用。
     class procedure UnloadSSL; static;
 
     // SSL 版本号
@@ -1863,14 +1880,14 @@ type
     // 获取SSL信息
     class function GetSslInfo(ASsl: PSSL; var ASslInfo: TSslInfo): Boolean; static;
 
-    // 手动指定 ssl 库路径
-    class property LibPath: string read FLibPath write SetLibPath;
+    // 手动指定 ssl 库路径；加载期间修改配置只影响下一次完整加载。
+    class property LibPath: string read _GetLibPath write SetLibPath;
 
     // 手动指定 libssl 库名称
-    class property LibSSL: string read FLibSSL write SetLibSSL;
+    class property LibSSL: string read _GetLibSSL write SetLibSSL;
 
     // 手动指定 libcrypto 库名称
-    class property LibCRYPTO: string read FLibCRYPTO write SetLibCRYPTO;
+    class property LibCRYPTO: string read _GetLibCRYPTO write SetLibCRYPTO;
   end;
   {$ENDREGION}
 
@@ -2214,7 +2231,12 @@ end;
 
 class function TSSLTools.SSLVersion: Longword;
 begin
-  Result := FSslVersion;
+  FLoadLock.Enter;
+  try
+    Result := FSslVersion;
+  finally
+    FLoadLock.Leave;
+  end;
 end;
 
 class function TSSLTools.AnyDataToBytes(AData: Pointer;
@@ -2292,10 +2314,9 @@ begin
   BIO_free(LBio);
 end;
 
-class destructor TSSLTools.Destroy;
+class constructor TSSLTools.Create;
 begin
-  if (@OPENSSL_cleanup <> nil) then
-    OPENSSL_cleanup();
+  FLoadLock := TLock.Create;
 end;
 
 class procedure TSSLTools.FreeCTX(var AContext: PSSL_CTX);
@@ -2304,26 +2325,68 @@ begin
   AContext := nil;
 end;
 
-class procedure TSSLTools.LoadSSL;
+class function TSSLTools.LoadSSL: Boolean;
+var
+  LError: string;
 begin
-  if (AtomicIncrement(FRef) <> 1) then Exit;
+  Result := LoadSSL(LError);
+end;
 
-  {$IFNDEF __SSL_STATIC__}
-  LoadSslLibs;
-  {$ENDIF}
+class function TSSLTools.LoadSSL(out AError: string): Boolean;
+var
+  LLibSSL, LLibCRYPTO: string;
+begin
+  AError := '';
+  FLoadLock.Enter;
+  try
+    if FRef = 0 then
+    begin
+      // 自动探测会回填库名，失败时恢复，允许修改目录后重新探测。
+      LLibSSL := FLibSSL;
+      LLibCRYPTO := FLibCRYPTO;
+      try
+        {$IFNDEF __SSL_STATIC__}
+        LoadSslLibs;
+        {$ENDIF}
 
-  SslInit;
+        {$IFDEF CROSS_OPENSSL_SELFTEST}
+        if Assigned(OnBeforeInitForTest) then OnBeforeInitForTest;
+        {$ENDIF}
+
+        SslInit;
+      except
+        UnloadSslLibs;
+        FLibSSL := LLibSSL;
+        FLibCRYPTO := LLibCRYPTO;
+        if ExceptObject is ESsl then
+        begin
+          AError := ESsl(ExceptObject).Message;
+          Exit(False);
+        end;
+        raise;
+      end;
+    end;
+
+    Inc(FRef);
+    Result := True;
+  finally
+    FLoadLock.Leave;
+  end;
 end;
 
 class procedure TSSLTools.UnloadSSL;
 begin
-  if (AtomicDecrement(FRef) <> 0) then Exit;
+  FLoadLock.Enter;
+  try
+    if FRef <= 0 then Exit;
+    Dec(FRef);
+    if FRef <> 0 then Exit;
 
-  SslUninit;
-
-  {$IFNDEF __SSL_STATIC__}
-  UnloadSslLibs;
-  {$ENDIF}
+    SslUninit;
+    UnloadSslLibs;
+  finally
+    FLoadLock.Leave;
+  end;
 end;
 
 class procedure TSSLTools.AddCACertificate(AContext: PSSL_CTX;
@@ -2673,20 +2736,23 @@ end;
 class procedure TSSLTools.SslInit;
 begin
   {$IFNDEF __SSL_STATIC__}
-  if (FSslLibHandle = 0) or (FCryptoLibHandle = 0) then Exit;
+  if (FSslLibHandle = 0) or (FCryptoLibHandle = 0) then
+    raise ESslInvalidLib.Create('OpenSSL libraries are not loaded.');
   {$ENDIF}
 
   // 初始化 OpenSSL 库的 SSL/TLS 部分
-  OPENSSL_init_ssl(
+  if OPENSSL_init_ssl(
     OPENSSL_INIT_LOAD_SSL_STRINGS,
-    nil);
+    nil) <> 1 then
+    raise ESsl.CreateFmt('OPENSSL_init_ssl failed: %s', [GetOpenSslErrors]);
 
   // 初始化 OpenSSL 的加密和密码学库
-  OPENSSL_init_crypto(
+  if OPENSSL_init_crypto(
     OPENSSL_INIT_LOAD_CRYPTO_STRINGS or
     OPENSSL_INIT_ADD_ALL_CIPHERS or
     OPENSSL_INIT_ADD_ALL_DIGESTS,
-    nil);
+    nil) <> 1 then
+    raise ESsl.CreateFmt('OPENSSL_init_crypto failed: %s', [GetOpenSslErrors]);
 
   // 获取 OpenSSL 版本号
   FSslVersion := OpenSSL_version_num();
@@ -3913,45 +3979,282 @@ begin
   {$ENDIF}
 end;
 
+class function TSSLTools._GetLibCRYPTO: string;
+begin
+  FLoadLock.Enter;
+  try
+    Result := FLibCRYPTO;
+  finally
+    FLoadLock.Leave;
+  end;
+end;
+
+class function TSSLTools._GetLibPath: string;
+begin
+  FLoadLock.Enter;
+  try
+    Result := FLibPath;
+  finally
+    FLoadLock.Leave;
+  end;
+end;
+
+class function TSSLTools._GetLibSSL: string;
+begin
+  FLoadLock.Enter;
+  try
+    Result := FLibSSL;
+  finally
+    FLoadLock.Leave;
+  end;
+end;
+
 class procedure TSSLTools.SetLibCRYPTO(const AValue: string);
 begin
   {$IFNDEF __SSL_STATIC__}
-  if (FLibCRYPTO = AValue) then Exit;
-  FLibCRYPTO := AValue;
+  FLoadLock.Enter;
+  try
+    FLibCRYPTO := AValue;
+  finally
+    FLoadLock.Leave;
+  end;
   {$ENDIF}
 end;
 
 class procedure TSSLTools.SetLibPath(const AValue: string);
 begin
   {$IFNDEF __SSL_STATIC__}
-  if (FLibPath = AValue) then Exit;
-  FLibPath := AValue;
+  FLoadLock.Enter;
+  try
+    FLibPath := AValue;
+  finally
+    FLoadLock.Leave;
+  end;
   {$ENDIF}
 end;
 
 class procedure TSSLTools.SetLibSSL(const AValue: string);
 begin
   {$IFNDEF __SSL_STATIC__}
-  if (FLibSSL = AValue) then Exit;
-  FLibSSL := AValue;
+  FLoadLock.Enter;
+  try
+    FLibSSL := AValue;
+  finally
+    FLoadLock.Leave;
+  end;
   {$ENDIF}
 end;
 
 
 class procedure TSSLTools.UnloadSslLibs;
+{$IFNDEF __SSL_STATIC__}
+var
+  LSslHandle, LCryptoHandle: TLibHandle;
+{$ENDIF}
+begin
+  FSslVersion := 0;
+  {$IFNDEF __SSL_STATIC__}
+  LSslHandle := FSslLibHandle;
+  LCryptoHandle := FCryptoLibHandle;
+  FSslLibHandle := 0;
+  FCryptoLibHandle := 0;
+
+  // 在释放模块前撤销本单元的入口，部分加载失败也可安全清理。
+  _ClearSslProcs;
+  try
+    if LSslHandle <> 0 then FreeLibrary(LSslHandle);
+  finally
+    if LCryptoHandle <> 0 then FreeLibrary(LCryptoHandle);
+  end;
+  {$ENDIF}
+end;
+
+class procedure TSSLTools._ClearSslProcs;
 begin
   {$IFNDEF __SSL_STATIC__}
-  if (FSslLibHandle <> 0) then
-  begin
-    FreeLibrary(FSslLibHandle);
-    FSslLibHandle := 0;
-  end;
-
-  if (FCryptoLibHandle <> 0) then
-  begin
-    FreeLibrary(FCryptoLibHandle);
-    FCryptoLibHandle := 0;
-  end;
+  @OpenSSL_version_num := nil;
+  @OPENSSL_init_crypto := nil;
+  @OPENSSL_cleanup := nil;
+  @ERR_clear_error := nil;
+  @ERR_error_string_n := nil;
+  @ERR_get_error := nil;
+  @ERR_peek_last_error := nil;
+  @EVP_PKEY_new := nil;
+  @EVP_PKEY_free := nil;
+  @EVP_PKEY_get_size := nil;
+  @EVP_PKEY_get_bits := nil;
+  @EVP_PKEY_get_id := nil;
+  @EVP_PKEY_get0_type_name := nil;
+  @EVP_PKEY_get_security_bits := nil;
+  @EVP_PKEY_get0_RSA := nil;
+  @EVP_PKEY_CTX_new_id := nil;
+  @EVP_sha256 := nil;
+  @EVP_Digest := nil;
+  @EVP_MD_CTX_new := nil;
+  @EVP_MD_CTX_free := nil;
+  @EVP_DigestInit_ex := nil;
+  @EVP_DigestUpdate := nil;
+  @EVP_DigestFinal_ex := nil;
+  @BIO_new := nil;
+  @BIO_ctrl := nil;
+  @BIO_new_mem_buf := nil;
+  @BIO_free := nil;
+  @BIO_s_mem := nil;
+  @BIO_read := nil;
+  @BIO_write := nil;
+  @BIO_test_flags := nil;
+  @EC_KEY_new_by_curve_name := nil;
+  @EC_KEY_free := nil;
+  @X509_get_issuer_name := nil;
+  @X509_get_subject_name := nil;
+  @X509_get_serialNumber := nil;
+  @X509_get_version := nil;
+  @X509_get_ext_d2i := nil;
+  @X509_get_signature_nid := nil;
+  @X509_get0_signature := nil;
+  @X509_get0_notBefore := nil;
+  @X509_get0_notAfter := nil;
+  @X509_get0_tbs_sigalg := nil;
+  @X509_get0_pubkey := nil;
+  @X509_get0_extensions := nil;
+  @X509_get_ext_count := nil;
+  @X509_get_ext := nil;
+  @X509_NAME_print_ex := nil;
+  @X509_NAME_get_entry := nil;
+  @X509_NAME_ENTRY_get_object := nil;
+  @X509_NAME_ENTRY_get_data := nil;
+  @X509_NAME_entry_count := nil;
+  @X509_EXTENSION_get_object := nil;
+  @X509_EXTENSION_get_critical := nil;
+  @X509_EXTENSION_get_data := nil;
+  @X509V3_EXT_d2i := nil;
+  @X509V3_EXT_get := nil;
+  @X509_STORE_add_cert := nil;
+  @X509_check_private_key := nil;
+  @X509_digest := nil;
+  @X509_pubkey_digest := nil;
+  @X509_free := nil;
+  @OPENSSL_sk_num := nil;
+  @OPENSSL_sk_pop := nil;
+  @OPENSSL_sk_value := nil;
+  @OPENSSL_sk_free := nil;
+  @OPENSSL_sk_pop_free := nil;
+  @OPENSSL_hexstr2buf := nil;
+  @OPENSSL_buf2hexstr := nil;
+  @PEM_read_bio_X509 := nil;
+  @PEM_read_bio_X509_AUX := nil;
+  @PEM_read_bio_PrivateKey := nil;
+  @PEM_write_bio_PUBKEY := nil;
+  @PEM_read_bio_PUBKEY := nil;
+  @PEM_write_bio_X509 := nil;
+  @OBJ_nid2obj := nil;
+  @OBJ_nid2ln := nil;
+  @OBJ_nid2sn := nil;
+  @OBJ_obj2nid := nil;
+  @OBJ_ln2nid := nil;
+  @OBJ_sn2nid := nil;
+  @OBJ_obj2txt := nil;
+  @CRYPTO_malloc := nil;
+  @CRYPTO_free := nil;
+  @ASN1_STRING_to_UTF8 := nil;
+  @ASN1_STRING_length := nil;
+  @ASN1_STRING_get0_data := nil;
+  @ASN1_TIME_to_tm := nil;
+  @ASN1_TIME_print := nil;
+  @ASN1_item_d2i := nil;
+  @ASN1_BIT_STRING_get_bit := nil;
+  @ASN1_BIT_STRING_set_bit := nil;
+  @ASN1_INTEGER_get := nil;
+  @ASN1_INTEGER_set := nil;
+  @ASN1_INTEGER_to_BN := nil;
+  @BN_to_ASN1_INTEGER := nil;
+  @BN_bn2hex := nil;
+  @i2d_PublicKey := nil;
+  @i2d_PUBKEY := nil;
+  @i2d_X509 := nil;
+  @RSA_get0_key := nil;
+  @AUTHORITY_KEYID_free := nil;
+  @ASN1_OCTET_STRING_free := nil;
+  @GENERAL_NAME_free := nil;
+  @GENERAL_NAMES_free := nil;
+  @CERTIFICATEPOLICIES_free := nil;
+  @ASN1_OBJECT_free := nil;
+  @CRL_DIST_POINTS_free := nil;
+  @AUTHORITY_INFO_ACCESS_free := nil;
+  @BASIC_CONSTRAINTS_free := nil;
+  @ASN1_BIT_STRING_free := nil;
+  @DIST_POINT_free := nil;
+  @SCT_free := nil;
+  @X509_new := nil;
+  @X509_set_version := nil;
+  @X509_gmtime_adj := nil;
+  @X509_set_pubkey := nil;
+  @X509_NAME_add_entry_by_NID := nil;
+  @X509_NAME_add_entry_by_txt := nil;
+  @X509_set_issuer_name := nil;
+  @X509V3_EXT_conf_nid := nil;
+  @X509_add_ext := nil;
+  @X509_EXTENSION_free := nil;
+  @ASN1_OCTET_STRING_new := nil;
+  @ASN1_OCTET_STRING_set := nil;
+  @X509V3_EXT_i2d := nil;
+  @AUTHORITY_KEYID_new := nil;
+  @X509_sign := nil;
+  @BIO_new_file := nil;
+  @PEM_write_bio_PKCS8PrivateKey := nil;
+  @ASN1_INTEGER_set_int64 := nil;
+  @EVP_PKEY_keygen_init := nil;
+  @EVP_PKEY_CTX_set_rsa_keygen_bits := nil;
+  @EVP_PKEY_keygen := nil;
+  @EVP_PKEY_CTX_free := nil;
+  @OPENSSL_init_ssl := nil;
+  @TLS_method := nil;
+  @TLS_client_method := nil;
+  @TLS_server_method := nil;
+  @SSL_CTX_new := nil;
+  @SSL_CTX_free := nil;
+  @SSL_CTX_ctrl := nil;
+  @SSL_CTX_set_verify := nil;
+  @SSL_CTX_set_cipher_list := nil;
+  @SSL_CTX_set_ciphersuites := nil;
+  @SSL_CTX_use_PrivateKey := nil;
+  @SSL_CTX_use_certificate := nil;
+  @SSL_CTX_get0_certificate := nil;
+  @SSL_CTX_check_private_key := nil;
+  @SSL_CTX_get_cert_store := nil;
+  @SSL_CTX_add_client_CA := nil;
+  @SSL_CTX_set_default_verify_paths := nil;
+  @SSL_CTX_set_options := nil;
+  @SSL_CTX_get_options := nil;
+  @SSL_CTX_set_security_level := nil;
+  @SSL_set_security_level := nil;
+  @SSL_CTX_get_security_level := nil;
+  @SSL_get_security_level := nil;
+  @SSL_new := nil;
+  @SSL_set_bio := nil;
+  @SSL_get_error := nil;
+  @SSL_get_cipher_list := nil;
+  @SSL_get_version := nil;
+  @SSL_get_current_cipher := nil;
+  @SSL_CIPHER_get_name := nil;
+  @SSL_CIPHER_get_bits := nil;
+  @SSL_get_servername := nil;
+  @SSL_set1_host := nil;
+  @SSL_get0_peer_certificate := nil;
+  @SSL_ctrl := nil;
+  @SSL_shutdown := nil;
+  @SSL_free := nil;
+  @SSL_set_connect_state := nil;
+  @SSL_set_accept_state := nil;
+  @SSL_set_fd := nil;
+  @SSL_accept := nil;
+  @SSL_connect := nil;
+  @SSL_do_handshake := nil;
+  @SSL_read := nil;
+  @SSL_write := nil;
+  @SSL_pending := nil;
+  @SSL_is_init_finished := nil;
+  @RSA_pkey_ctx_ctrl_legacy := nil;
   {$ENDIF}
 end;
 

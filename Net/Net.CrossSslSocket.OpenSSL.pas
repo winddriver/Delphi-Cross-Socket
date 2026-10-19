@@ -141,6 +141,7 @@ type
   TCrossOpenSslSocket = class(TCrossSslSocketBase)
   private
     FSslCtx: PSSL_CTX;
+    FSslLoaded: Boolean;
 
     procedure _InitSslCtx;
     procedure _FreeSslCtx;
@@ -1127,12 +1128,16 @@ end;
 { TCrossOpenSslSocket }
 
 constructor TCrossOpenSslSocket.Create(const AIoThreads: Integer; const ASsl: Boolean);
+var
+  LError: string;
 begin
   inherited Create(AIoThreads, ASsl);
 
   if Ssl then
   begin
-    TSSLTools.LoadSSL;
+    FSslLoaded := TSSLTools.LoadSSL(LError);
+    if not FSslLoaded then
+      raise ESsl.CreateFmt('Failed to load OpenSSL: %s', [LError]);
     _InitSslCtx;
   end;
 end;
@@ -1143,9 +1148,10 @@ begin
   // 不依赖 CTX 存活 (OpenSSL 保证), 所以 CTX 可以延后释放.
   inherited Destroy;
 
-  if Ssl then
+  if FSslLoaded then
   begin
     _FreeSslCtx;
+    FSslLoaded := False;
     TSSLTools.UnloadSSL;
   end;
 end;

@@ -1,0 +1,1 @@
+﻿{$I IncompleteCrypto.lpr}
