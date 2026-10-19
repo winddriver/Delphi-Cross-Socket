@@ -46,8 +46,8 @@ def build(target, production=False):
     if result.returncode:
         print((result.stdout + result.stderr).decode(errors="replace")[-6000:])
         raise SystemExit(result.returncode)
-    sources = [REPO / "Net/Net.CrossHttpParser.pas", 
-               HERE / "HttpCompressionTests.lpr"]
+    sources = [REPO / "Net/Net.CrossHttpParser.pas",
+               HERE / "HttpCompressionTests.lpr", HERE / "HttpCompressionMemberTests.inc"]
     metadata = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print("PASS build", flavor, flush=True)

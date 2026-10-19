@@ -707,6 +707,9 @@ end;
 
 procedure TCrossHttpParser._OnBodyData(const ADataPtr: Pointer;
   const ADataSize: Integer);
+var
+  LNextInput: Pointer;
+  LInputLeft: Cardinal;
 begin
   // 如果数据是压缩的, 进行解压
   if FZCompressed then
@@ -714,16 +717,26 @@ begin
     // 往输入缓冲区填入新数据
     // 对于使用 inflate 函数解压缩数据, 通常不需要使用 Z_FINISH 进行收尾。
     // Z_FINISH 选项通常在压缩时使用, 以表示已经完成了压缩的数据块。
-    // 在解压缩过程中, inflate 函数会自动处理数据流的结束。
-    // 当输入数据流中的所有数据都被解压缩时, inflate 函数会返回 Z_STREAM_END,
-    // 这表示数据流已经结束，不需要额外的处理。
+    // Z_STREAM_END 只表示一个压缩流结束；gzip 正文可连续包含多个成员。
     FZStream.avail_in := ADataSize;
     FZStream.next_in := ADataPtr;
     FZFlush := Z_NO_FLUSH;
 
     repeat
-      // 返回 Z_STREAM_END 表示所有数据处理完毕
-      if (FZResult = Z_STREAM_END) then Break;
+      if (FZResult = Z_STREAM_END) then
+      begin
+        if FZStream.avail_in = 0 then Break;
+        // RFC 1952 的 gzip 成员连续排列；deflate 不接受额外压缩流或垃圾字节。
+        if not TStrUtils.SameText(FContentEncoding, 'gzip') then
+          _OnParseFailed(400, 'Unexpected data after compressed body.');
+        LNextInput := FZStream.next_in;
+        LInputLeft := FZStream.avail_in;
+        FZResult := inflateReset(FZStream);
+        if FZResult <> Z_OK then _OnParseFailed(400, 'inflateReset failed');
+        FZStream.next_in := LNextInput;
+        FZStream.avail_in := LInputLeft;
+        // 只复用 zlib 状态；HTTP 消息的解压字节数和压缩比继续累计。
+      end;
 
       // 解压数据输出缓冲区
       FZStream.avail_out := ZLIB_BUF_SIZE;
@@ -770,7 +783,7 @@ begin
       if (FZOutSize > 0) and Assigned(FOnBodyData) then
         FOnBodyData(@FZBuffer[0], FZOutSize);
       if (FParseState = psFailed) then Abort;
-    until ((FZResult = Z_STREAM_END) or (FZStream.avail_in = 0));
+    until (FZStream.avail_in = 0);
   end else
   if Assigned(FOnBodyData) then
     FOnBodyData(ADataPtr, ADataSize);

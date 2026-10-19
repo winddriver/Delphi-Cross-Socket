@@ -18,6 +18,7 @@ type
     RejectAt: string;
     RaiseFailure, AbortSuccess: Boolean;
     Begins, Ends, Successes, Failures: Integer;
+    RejectAfterBytes: Integer;
     constructor Create(const AMode: TCrossHttpParseMode);
     destructor Destroy; override;
     procedure Header(const P: Pointer; const N: Integer);
@@ -155,7 +156,7 @@ var
 begin
   SetString(LText, PAnsiChar(P), N);
   Data := Data + LText;
-  Reject('data');
+  if (RejectAfterBytes = 0) or (Length(Data) > RejectAfterBytes) then Reject('data');
 end;
 
 procedure TProbe.BodyEnd;
@@ -353,6 +354,8 @@ begin
   {$ENDIF}
 end;
 
+{$I HttpCompressionMemberTests.inc}
+
 var
   I: Integer;
 begin
@@ -366,7 +369,9 @@ begin
         RunCase('client-chunk-deflate-disconnect');
         RunCase('server-length-gzip-destroy');
       end;
-    end else RunCase(ParamStr(1));
+    end else
+    if Pos('members-', ParamStr(1)) = 1 then RunMemberCase(ParamStr(1))
+    else RunCase(ParamStr(1));
     Writeln('PASS ', ParamStr(1));
   except
     on E: Exception do

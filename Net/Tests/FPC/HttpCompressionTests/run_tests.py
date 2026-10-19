@@ -22,6 +22,17 @@ CASES += [context + "-gzip-" + action for context in CONTEXTS
 CASES += ["repeated"]
 CASES += ["client-close-gzip-successabort", "client-close-deflate-successabort",
           "server-length-gzip-successabort"]
+SINGLE_CASES = CASES.copy()
+MEMBER_CASES = ["members-" + context + "-" + kind for context in CONTEXTS
+                for kind in ("valid", "truncated", "corrupt", "junk", "prefix",
+                             "deflatedouble", "deflatejunk", "emptyfirst", "emptymiddle")]
+MEMBER_CASES += ["members-server-length-" + kind
+                 for kind in ("large", "many", "limit", "ratio", "rejectsecond", "failraise")]
+MEMBER_BASE_CASES = MEMBER_CASES.copy()
+MEMBER_CASES += ["members-" + context + "-reuse" for context in CONTEXTS]
+MEMBER_CASES += ["members-" + context + "-" + kind for context in ("server-chunk", "client-chunk")
+                 for kind in ("chunkmembers", "tinychunks")]
+CASES += MEMBER_CASES
 HOOK_CASES = ["server-length-gzip-initfail", "server-length-gzip-windowfail"]
 
 
@@ -54,16 +65,19 @@ def build(target, label, production=False):
     if result.returncode:
         print((result.stdout + result.stderr).decode(errors="replace")[-7000:])
         raise SystemExit(result.returncode)
-    sources = [REPO / "Net/Net.CrossHttpParser.pas", HERE / "HttpCompressionTests.lpr"]
+    sources = [REPO / "Net/Net.CrossHttpParser.pas", HERE / "HttpCompressionTests.lpr",
+               HERE / "HttpCompressionMemberTests.inc"]
     metadata = {str(p.relative_to(REPO)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources}
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     return output / "HttpCompressionTests.exe"
 
 
-def run(executable, report, production=False, baseline=False):
+def run(executable, report, production=False, baseline=False, single_stream=False,
+        members_only=False, members_baseline=False):
     executable = Path(executable).resolve()
     results = []
-    for case in (BASE_CASES if baseline else CASES) + ([] if production else HOOK_CASES):
+    selected = MEMBER_BASE_CASES if members_baseline else MEMBER_CASES if members_only else BASE_CASES if baseline else SINGLE_CASES if single_stream else CASES
+    for case in selected + ([] if production or members_only or members_baseline else HOOK_CASES):
         try:
             result = subprocess.run([str(executable), case], cwd=HERE, capture_output=True,
                                     timeout=10, text=True, encoding="utf-8", errors="replace")
@@ -90,8 +104,12 @@ if __name__ == "__main__":
     parser.add_argument("--report")
     parser.add_argument("--production", action="store_true")
     parser.add_argument("--baseline", action="store_true", help="只重跑红基线包含的原 65 项")
+    parser.add_argument("--single-stream", action="store_true", help="只重跑上一批的 84 项")
+    parser.add_argument("--members-only", action="store_true", help="只运行串联成员回归")
+    parser.add_argument("--members-baseline", action="store_true", help="只重跑串联红基线原 51 项")
     options = parser.parse_args()
     exe = build(options.build, options.label, options.production) if options.build else options.executable
     if not exe:
         parser.error("指定可执行文件或 --build")
-    raise SystemExit(0 if run(exe, options.report, options.production, options.baseline) else 1)
+    raise SystemExit(0 if run(exe, options.report, options.production, options.baseline,
+                             options.single_stream, options.members_only, options.members_baseline) else 1)

@@ -19,6 +19,7 @@ CASES = [
     ("post-continue", "post-body", [100], False, False),
     ("hints-gzip", "post-empty", [103], False, True),
     ("borrowed-stream", "post-response-stream", [100, 103], False, True),
+    ("hints-gzip-members", "post-empty", [103], False, True),
 ]
 
 
@@ -67,7 +68,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         payload = b"ok"
         compressed = initial and self.server.compressed
         if compressed:
-            payload = gzip.compress(payload, mtime=0)
+            if self.path == '/hints-gzip-members':
+                payload = gzip.compress(b'o', mtime=0) + gzip.compress(b'k', mtime=0)
+            else:
+                payload = gzip.compress(payload, mtime=0)
         final = (f"HTTP/1.1 200 OK\r\nContent-Length: {len(payload)}\r\n"
                  f"X-Connection-Id: {self.connection_id}\r\n" +
                  ("Content-Encoding: gzip\r\n" if compressed else "") + "\r\n").encode()

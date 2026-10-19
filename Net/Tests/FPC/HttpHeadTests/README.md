@@ -49,3 +49,5 @@ python -B run_interim_tests.py bin/x86_64-win64/HttpHeadTests.exe --report bin/f
 修复后 Delphi/FPC Win64、Delphi/FPC Linux64 各 **8/8，共 32/32**。同四目标原有 HEAD 套件各 **14/14**。Linux 使用已有 Ubuntu 22.04 WSL，运行 `python3 -B run_interim_tests.py bin/<target>/HttpHeadTests --report bin/<target>/interim-results.json`；产物目录为 `bin/{delphi-linux64,fpc-linux64}/`。交叉构建使用已有 `dcclinux64`/`ppcrossx64` 和 Ubuntu SDK，搜索路径与相邻 `HttpFailureTests/build_linux.py` 一致，仅替换工程名及本工程输出目录；FPC/POSIX 入口加入 `cthreads`。
 
 生产修复只在解析完成时丢弃非 101 的临时响应对象，保留请求、回调和连接占用。101 继续走原有协议升级路径；现有 WebSocket 套件重新构建后，Delphi/FPC Win64 的组件、11,056 合法帧组合和各 11 个真实回环场景全部通过，包含客户端协议升级。逐字节发送不能保证操作系统按相同粒度交付，因此不称为穷举所有拆包；临时响应专项未运行 HTTPS、macOS 或压力测试。
+
+F10 串联 gzip 补充后新增第 9 项 `hints-gzip-members`：真实 TCP 先返回 103，再将 `o`、`k` 分别压缩为两个连续 gzip 成员作为同一个最终正文，客户端必须收到完整两字节并复用连接。Delphi/FPC Win64 按新 Parser 重编后各 **9/9**，记录为 `bin/f10-members-*-result.json`；这不改写此前四目标 8/8 的历史结果。
