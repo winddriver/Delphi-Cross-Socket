@@ -22,6 +22,7 @@ uses
   ZLib,
   {$ELSE}
   DTF.StaticZLib,
+  DTF.Generics,
   {$ENDIF}
   Generics.Collections,
 
@@ -1153,7 +1154,7 @@ type
     property StatusText: string read GetStatusText;
   end;
 
-  TRequestQueue = TList<ICrossHttpClientRequest>;
+  TRequestQueue = {$IFDEF FPC}TFpcQueue{$ELSE}TQueue{$ENDIF}<ICrossHttpClientRequest>;
   TClientConnections = TList<ICrossHttpClientConnection>;
 
   /// <summary>
@@ -4025,8 +4026,7 @@ begin
   try
     if (FRequestQueue.Count <= 0) then Exit(False);
 
-    ARequest := FRequestQueue.Items[0];
-    FRequestQueue.Delete(0);
+    ARequest := FRequestQueue.Dequeue;
     Result := True;
   finally
     _Unlock;
@@ -4046,7 +4046,7 @@ procedure TServerDock.PushRequest(const ARequest: ICrossHttpClientRequest);
 begin
   _Lock;
   try
-    FRequestQueue.Add(ARequest);
+    FRequestQueue.Enqueue(ARequest);
   finally
     _Unlock;
   end;

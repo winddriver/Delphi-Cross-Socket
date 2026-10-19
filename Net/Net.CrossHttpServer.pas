@@ -28,6 +28,7 @@ uses
   ZLib,
   {$ELSE}
   DTF.StaticZLib,
+  DTF.Generics,
   {$ENDIF}
 
   Net.SocketAPI,
@@ -1752,6 +1753,8 @@ type
     property OnRequestException: TCrossHttpRequestExceptionEvent read GetOnRequestException write SetOnRequestException;
   end;
 
+  THttpResponseQueue = {$IFDEF FPC}TFpcQueue{$ELSE}TQueue{$ENDIF}<IHttpResponseQueueItem>;
+
   TCrossHttpConnection = class(TCrossServerConnection, ICrossHttpConnection)
   private
     FServer: TCrossHttpServer;
@@ -1768,7 +1771,7 @@ type
     FPending: Integer;
 
     // pipelining 响应队列, 按请求解析顺序串行化响应发送
-    FResponseQueue: TList<IHttpResponseQueueItem>;
+    FResponseQueue: THttpResponseQueue;
     FResponseQueueLock: ILock;
     FSendingResponse: Boolean;
     FResponseQueueClosed: Boolean;
@@ -2516,7 +2519,7 @@ begin
 
   FServer := AOwner as TCrossHttpServer;
 
-  FResponseQueue := TList<IHttpResponseQueueItem>.Create;
+  FResponseQueue := THttpResponseQueue.Create;
   FResponseQueueLock := TLock.Create;
 
   FHttpParser := TCrossHttpParser.Create(pmServer);
@@ -2704,11 +2707,10 @@ begin
   if FResponseQueueClosed or FSendingResponse
     or (ConnectStatus in [csDisconnected, csClosed]) then Exit;
   if (FResponseQueue = nil) or (FResponseQueue.Count = 0) then Exit;
-  if not FResponseQueue[0].Ready then Exit;
+  if not FResponseQueue.Peek.Ready then Exit;
 
   // 从队列中移除队首, 由调用方的局部接口引用保活后续发送过程
-  Result := FResponseQueue[0];
-  FResponseQueue.Delete(0);
+  Result := FResponseQueue.Dequeue;
   FSendingResponse := True;
   FActiveResponse := Result;
   Result.Sending := True;
@@ -3134,7 +3136,7 @@ begin
 
   FResponseQueueLock.Enter;
   try
-    FResponseQueue.Add(LItem);
+    FResponseQueue.Enqueue(LItem);
   finally
     FResponseQueueLock.Leave;
   end;

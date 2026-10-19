@@ -78,7 +78,7 @@ type
     Callback: TCrossConnectionCallback;
   end;
 
-  TSendQueue = class(TList<PSendItem>)
+  TSendQueue = class(TQueue<PSendItem>)
   protected
     procedure Notify(const Value: PSendItem; Action: TCollectionNotification); override;
   end;
@@ -642,7 +642,7 @@ begin
       if (LKqConnection.FSendQueue = nil) or (LKqConnection.FSendQueue.Count <= 0) then Break;
 
       // 获取Socket发送队列中的第一条数据
-      LSendItem := LKqConnection.FSendQueue.Items[0];
+      LSendItem := LKqConnection.FSendQueue.Peek;
 
       // 发送数据
       {$IFNDEF MACOS}
@@ -690,8 +690,9 @@ begin
         // 必须先从队列移除已发完的数据项, 然后再执行发送成功的回调
         // 因为回调里可能还会发送新的数据, 如果先执行回调再去移除,
         // 就会错误的将回调中放到队列里的新数据移除
-        if (LKqConnection.FSendQueue.Count > 0) then
-          LKqConnection.FSendQueue.Delete(0);
+        // Dequeue 的 cnRemoved 通知释放发送项；回调已由上面的数组保活。
+        // 此后不能再访问 LSendItem 或使用 Dequeue 返回的指针。
+        LKqConnection.FSendQueue.Dequeue;
       end else
       begin
         // 部分发送成功, 在下一次唤醒发送线程时继续处理剩余部分
@@ -1073,7 +1074,7 @@ begin
       // 与关闭清空队列使用同一把锁，不能在清空后重新留下待完成项。
       if not (LKqConnection.ConnectStatus in [csDisconnected, csClosed]) then
       begin
-        LKqConnection.FSendQueue.Add(LSendItem);
+        LKqConnection.FSendQueue.Enqueue(LSendItem);
         LQueued := True;
 
         // kqueue 的读写注册独立，发送只更新写事件。
