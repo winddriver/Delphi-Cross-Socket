@@ -1,0 +1,1 @@
+﻿{$I FileStreamCleanupTests.lpr}

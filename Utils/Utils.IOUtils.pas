@@ -269,9 +269,13 @@ end;
 
 destructor TFastFileStream.Destroy;
 begin
-  SyncBuffer(False);
-  FreeMem(FBuffer, FBufferSize);
-  inherited Destroy;
+  try
+    SyncBuffer(False);
+  finally
+    // 刷新失败仍需释放缓冲区并关闭文件，原写入异常继续向上传递。
+    FreeMem(FBuffer, FBufferSize);
+    inherited Destroy;
+  end;
 end;
 
 procedure TFastFileStream.SyncBuffer(AReRead: boolean);
@@ -1627,10 +1631,13 @@ end;
 
 destructor TTempFileStream.Destroy;
 begin
-  inherited Destroy;
-
-  if FileExists(FTempFileName) then
-    TFileUtils.Delete(FTempFileName);
+  try
+    inherited Destroy;
+  finally
+    // 临时文件也必须清理，包括父类析构刷新失败的路径。
+    if FileExists(FTempFileName) then
+      TFileUtils.Delete(FTempFileName);
+  end;
 end;
 
 end.
