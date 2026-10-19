@@ -430,6 +430,110 @@ type
 
 implementation
 
+// 仅在已确认 SOCK_CLOEXEC 数值的 Linux / Android 架构启用原子路径。
+// 其他架构继续使用 socket / accept + fcntl。
+{$IF DEFINED(LINUX) OR DEFINED(ANDROID)}
+{$IF DEFINED(CPUX86) OR DEFINED(CPUX64) OR DEFINED(CPUI386) OR DEFINED(CPUX86_64) OR DEFINED(CPUARM) OR DEFINED(CPUARM64) OR DEFINED(CPUAARCH64)}
+  {$DEFINE USE_SOCKET_CLOEXEC}
+{$ENDIF}
+{$ENDIF}
+
+{$IFDEF USE_SOCKET_CLOEXEC}
+uses
+  {$IFDEF DELPHI}
+  Posix.Dlfcn;
+  {$ELSE}
+  dl,
+  InitC;
+  {$ENDIF}
+{$ENDIF}
+
+{$IF DEFINED(FPC) AND DEFINED(POSIX)}
+{$IF NOT DECLARED(FD_CLOEXEC)}
+const
+  // 项目支持的 POSIX 平台使用此值，部分 FPC RTL 未声明。
+  FD_CLOEXEC = 1;
+{$ENDIF}
+{$ENDIF}
+
+{$IFDEF USE_SOCKET_CLOEXEC}
+const
+  SOCKET_CLOEXEC = $80000;
+
+type
+  TAccept4Func = function(ASocket: Integer; Addr: PSockAddr;
+    AddrLen: PInteger; AFlags: Integer): Integer; cdecl;
+
+var
+  GAccept4Handle: {$IFDEF DELPHI}NativeUInt{$ELSE}Pointer{$ENDIF};
+  GAccept4: TAccept4Func;
+
+threadvar
+  // 各线程独立记录 ENOSYS，避免共享状态竞争。
+  GAccept4Unavailable: Boolean;
+
+procedure InitAccept4;
+begin
+  // 查找已加载模块中的符号，避免绑定具体 libc 文件名。
+  GAccept4Handle := dlopen(nil, RTLD_LAZY);
+  if Pointer(GAccept4Handle) <> nil then
+    GAccept4 := TAccept4Func(dlsym(GAccept4Handle, 'accept4'));
+end;
+{$ENDIF}
+
+{$IFDEF POSIX}
+function GetSocketLastError: Integer; inline;
+begin
+  {$IFDEF DELPHI}
+  Result := Posix.Errno.errno;
+  {$ELSE}
+  Result := BaseUnix.fpgeterrno;
+  {$ENDIF}
+end;
+
+procedure SetSocketLastError(const AError: Integer); inline;
+begin
+  {$IFDEF DELPHI}
+  Posix.Errno.__error()^ := AError;
+  {$ELSE}
+  BaseUnix.fpSetErrno(AError);
+  {$ENDIF}
+end;
+
+procedure SetSocketCloseOnExec(var ASocket: TSocket);
+var
+  LFlags, LError: Integer;
+begin
+  if ASocket = INVALID_SOCKET then Exit;
+
+  {$IFDEF DELPHI}
+  LFlags := Posix.Fcntl.fcntl(ASocket, F_GETFD);
+  {$ELSE}
+  LFlags := BaseUnix.fpfcntl(ASocket, F_GETFD);
+  {$ENDIF}
+
+  if LFlags <> SOCKET_ERROR then
+  begin
+    if (LFlags and FD_CLOEXEC) <> 0 then Exit;
+
+    {$IFDEF DELPHI}
+    if Posix.Fcntl.fcntl(
+      ASocket, F_SETFD, LFlags or FD_CLOEXEC) = 0 then Exit;
+    {$ELSE}
+    if BaseUnix.fpfcntl(
+      ASocket, F_SETFD, LFlags or FD_CLOEXEC) = 0 then Exit;
+    {$ENDIF}
+  end;
+
+  // 设置失败时不返回仍可被继承的 socket。
+  // 先保存错误码，避免关闭操作覆盖真正的失败原因。
+  LError := GetSocketLastError;
+  TSocketAPI.CloseSocket(ASocket);
+  ASocket := INVALID_SOCKET;
+  SetSocketLastError(LError);
+end;
+{$ENDIF}
+
 {$IF DEFINED(FPC) AND NOT DEFINED(MSWINDOWS)}
 {$LINKLIB c}
 function getaddrinfo(hostname, servname: MarshaledAString;
@@ -444,24 +548,46 @@ function getnameinfo(sa: PSockAddr; salen: TSockLen; host: PAnsiChar; hostlen: T
 
 class function TSocketAPI.NewSocket(const ADomain, AType,
   AProtocol: Integer): TSocket;
+{$IFDEF POSIX}
+var
+  LType: Integer;
+{$ENDIF}
 begin
+  {$IFDEF MSWINDOWS}
+  Result := Net.Winsock2.socket(ADomain, AType, AProtocol);
+  {$ELSE}
+  LType := AType;
+
+  {$IFDEF USE_SOCKET_CLOEXEC}
+  LType := LType or SOCKET_CLOEXEC;
+  {$ENDIF}
+
   {$IFDEF DELPHI}
-  Result :=
-    {$IFDEF MSWINDOWS}
-    Net.Winsock2.
+  Result := Posix.SysSocket.socket(ADomain, LType, AProtocol);
+  {$ELSE}
+  Result := Sockets.fpSocket(ADomain, LType, AProtocol);
+  {$ENDIF}
+
+  {$IFDEF USE_SOCKET_CLOEXEC}
+  // 只有本函数追加了标志，并且系统返回 EINVAL 时才尝试回退。
+  // 调用者原本传入的标志不会被移除。
+  if (Result = INVALID_SOCKET)
+    and ((AType and SOCKET_CLOEXEC) = 0)
+    and (GetSocketLastError =
+      {$IFDEF DELPHI}EINVAL{$ELSE}ESysEINVAL{$ENDIF}) then
+  begin
+    {$IFDEF DELPHI}
+    Result := Posix.SysSocket.socket(ADomain, AType, AProtocol);
     {$ELSE}
-    Posix.SysSocket.
-    {$ENDIF MSWINDOWS}
-    socket(ADomain, AType, AProtocol);
-  {$ELSE DELPHI}
-  Result :=
-    {$IFDEF MSWINDOWS}
-    Net.Winsock2.socket
-    {$ELSE}
-    Sockets.fpSocket
-    {$ENDIF MSWINDOWS}
-    (ADomain, AType, AProtocol);
-  {$ENDIF DELPHI}
+    Result := Sockets.fpSocket(ADomain, AType, AProtocol);
+    {$ENDIF}
+
+    SetSocketCloseOnExec(Result);
+  end;
+  {$ELSE}
+  SetSocketCloseOnExec(Result);
+  {$ENDIF}
+  {$ENDIF MSWINDOWS}
 
   {$IFDEF DEBUG}
   if not IsValidSocket(Result) then
@@ -581,15 +707,47 @@ end;
 
 class function TSocketAPI.Accept(const ASocket: TSocket; const Addr: PSockAddr;
   const AddrLen: PInteger): TSocket;
+{$IFDEF USE_SOCKET_CLOEXEC}
+var
+  LError: Integer;
+{$ENDIF}
 begin
   {$IFDEF MSWINDOWS}
   Result := Net.Winsock2.accept(ASocket, Addr, AddrLen);
   {$ELSE}
+
+  {$IFDEF USE_SOCKET_CLOEXEC}
+  if Assigned(GAccept4) and not GAccept4Unavailable then
+  begin
+    Result := GAccept4(ASocket, Addr, AddrLen, SOCKET_CLOEXEC);
+
+    // 原子设置成功，不再执行 fcntl。
+    if Result <> INVALID_SOCKET then Exit;
+
+    {$IFDEF DELPHI}
+    LError := Posix.Errno.errno;
+    {$ELSE}
+    // accept4 来自 libc，错误码需要同步给 FPC RTL。
+    LError := InitC.fpgetCerrno;
+    BaseUnix.fpSetErrno(LError);
+    {$ENDIF}
+
+    // EAGAIN、EINTR、EINVAL、EMFILE 等错误直接交给调用者。
+    if LError <> {$IFDEF DELPHI}ENOSYS{$ELSE}ESysENOSYS{$ENDIF} then
+      Exit;
+
+    GAccept4Unavailable := True;
+  end;
+  {$ENDIF}
+
   {$IFDEF DELPHI}
   Result := Posix.SysSocket.accept(ASocket, Addr^, socklen_t(AddrLen^));
   {$ELSE}
-  Result := fpaccept(ASocket, Addr, psocklen(AddrLen));
+  Result := Sockets.fpaccept(ASocket, Addr, psocklen(AddrLen));
   {$ENDIF DELPHI}
+
+  // 此回退路径无法消除与其他线程 fork + exec 之间的竞态。
+  SetSocketCloseOnExec(Result);
   {$ENDIF MSWINDOWS}
 end;
 
@@ -1116,5 +1274,15 @@ begin
   {$ENDIF DELPHI}
   {$ENDIF MSWINDOWS}
 end;
+
+{$IFDEF USE_SOCKET_CLOEXEC}
+initialization
+  InitAccept4;
+
+finalization
+  GAccept4 := nil;
+  if Pointer(GAccept4Handle) <> nil then
+    dlclose(GAccept4Handle);
+{$ENDIF}
 
 end.
