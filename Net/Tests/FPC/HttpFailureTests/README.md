@@ -222,3 +222,5 @@ Linux 运行仍使用 `run_linux.py`，传入带标签的两个目标路径；�
 新增 7 个组件场景：默认行为、恰好上限、超限、正在发送时超限、完成后复用、解析中正文计数，以及关闭后再输入。TCP 场景保持首响应未 ready，连续发送四个请求，验证第三个到来就关闭、前两个进入业务，后两个没有发布，且没有响应插队。
 
 红基线 `bin/o03-capacity-before/` 的 Delphi/FPC Win64 各 3/8 通过、5/8 失败，其中也复现了关闭后的 Decode 仍增加 Pending。修复后 `bin/o03-http-capacity/` 五目标完整套件各 142/142，共 710/710；Windows/Linux 使用真实 IOCP/Epoll 运行 TCP 场景，组件只控制物理完成时机。`HttpQueueLimitTests.inc` 的哈希纳入构建记录。期间其他模块的容量改动仍独立验证，不将这组 HTTP 结果当成 TLS/Socket 新限额的验证。
+
+随后补充 `tcp-storage`，套件清单增至 143 项。这一增量独立重编五目标并各运行一次，共 5/5，产物为 `bin/o03-body-tcp-final/`；此前 142 项结果仍保留，不把本次增量写成又跑了一遍 715 项。客户端通过真实 TCP 分 16 段上传 64 KiB，服务器阈值为 1 KiB，业务确认正文确为文件流、位置为 0 并逐字节验证全部内容；客户端收到完整响应及 EOF，服务端停止并释放连接后确认临时目录为空且可删除。Linux 可用 `run_network.py <程序路径> --cases storage` 复现。

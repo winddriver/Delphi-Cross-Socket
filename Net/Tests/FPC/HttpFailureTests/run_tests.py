@@ -28,7 +28,7 @@ CASES = (["parser-" + kind for kind in ("length", "conflict", "chunk", "crlf", "
                                       "request-end-close", "duplicate-physical", "ready-close-race", "logger")] +
          ["tcp-" + kind for kind in ("length", "conflict", "chunk", "crlf", "same", "split", "normal", "body",
                                     "trailer", "trailer-gzip", "trailer-bad", "policy404", "policy500", "policyclose",
-                                    "requestclose", "http10close", "http10keep", "capacity")]
+                                    "requestclose", "http10close", "http10keep", "capacity", "storage")]
          + BODY_CASES + ['policy-' + kind for kind in (
              '404', '500', 'header-close', 'header-list', 'header-duplicates', 'header-nontoken',
              'request-list', 'request-duplicates', 'http10-default', 'http10-list', 'http10-close',

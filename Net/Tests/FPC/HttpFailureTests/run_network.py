@@ -56,7 +56,7 @@ class Responses:
 
 
 def run(executable, case):
-    process = subprocess.Popen([str(executable), "server"] + ([case] if case in ("body", "capacity") else []), stdin=subprocess.PIPE,
+    process = subprocess.Popen([str(executable), "server"] + ([case] if case in ("body", "capacity", "storage") else []), stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     messages = queue.Queue()
@@ -78,7 +78,17 @@ def run(executable, case):
         with socket.create_connection(("127.0.0.1", int(ready.split()[1])), timeout=3) as connection:
             connection.settimeout(2)
             responses = Responses(connection)
-            if case == 'capacity':
+            if case == 'storage':
+                expected = 1
+                header = (b'POST /storage-tcp HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n'
+                          b'Content-Type: application/octet-stream\r\nContent-Length: 65536\r\n\r\n')
+                connection.sendall(header)
+                for _ in range(16):
+                    connection.sendall(b'x' * 4096)
+                status, _, body = responses.response()
+                assert status == 200 and body == b'stored', (status, body)
+                responses.closed()
+            elif case == 'capacity':
                 expected = 2
                 connection.sendall(good('/first') + good('/second') + good('/third') + good('/tail'))
                 responses.closed()
@@ -180,6 +190,8 @@ def run(executable, case):
         error += f"; server exit={process.returncode}"
     if case.startswith('policy') and lines.count('POLICY_SEND_OK') != 1:
         error += '; missing or duplicate successful send notification'
+    if case == 'storage' and lines.count('STORAGE_CLEAN') != 1:
+        error += '; temporary body cleanup not confirmed'
     return not error, "\n".join(lines + ([error] if error else ["PASS tcp-" + case]))
 
 
@@ -191,9 +203,9 @@ if __name__ == "__main__":
     parser.add_argument("executable")
     parser.add_argument("--cases", nargs="+",
                         choices=["length", "conflict", "chunk", "crlf", "same", "split", "normal", "body", "trailer", "trailer-gzip", "trailer-bad",
-                                 "policy404", "policy500", "policyclose", "requestclose", "http10close", "http10keep"],
+                                 "policy404", "policy500", "policyclose", "requestclose", "http10close", "http10keep", "capacity", "storage"],
                         default=["length", "conflict", "chunk", "crlf", "same", "split", "normal", "body", "trailer", "trailer-gzip", "trailer-bad",
-                                 "policy404", "policy500", "policyclose", "requestclose", "http10close", "http10keep"])
+                                 "policy404", "policy500", "policyclose", "requestclose", "http10close", "http10keep", "capacity", "storage"])
     options = parser.parse_args()
     failed = False
     for case in options.cases:

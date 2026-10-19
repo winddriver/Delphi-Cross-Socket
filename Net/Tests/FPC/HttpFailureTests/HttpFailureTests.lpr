@@ -361,9 +361,26 @@ procedure TTestServer.DoOnRequest(const AConnection: ICrossHttpConnection;
   const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse);
 var
   LBody: TBytes;
+  I, LCount, LTotal: Integer;
 begin
   Requests.Add(ARequest.Path);
-  if ARequest.Path.StartsWith('/policy-') then
+  if ARequest.Path = '/storage-tcp' then
+  begin
+    Check((ARequest.RawBody <> nil) and not (ARequest.RawBody is TMemoryStream),
+      'TCP正文未切换到文件流');
+    Check((ARequest.RawBody.Size = 65536) and (ARequest.RawBody.Position = 0),
+      'TCP正文尺寸或初始位置错误');
+    SetLength(LBody, 4096);
+    LTotal := 0;
+    repeat
+      LCount := ARequest.RawBody.Read(LBody[0], Length(LBody));
+      for I := 0 to LCount - 1 do Check(LBody[I] = Ord('x'), 'TCP正文内容错误');
+      Inc(LTotal, LCount);
+    until LCount = 0;
+    Check(LTotal = 65536, 'TCP正文未完整读取');
+    AResponse.SendNoCompress('stored');
+  end
+  else if ARequest.Path.StartsWith('/policy-') then
   begin
     if ARequest.Path = '/policy-404' then AResponse.StatusCode := 404;
     if ARequest.Path = '/policy-500' then AResponse.StatusCode := 500;
@@ -477,6 +494,8 @@ var
   LServerRef: ICrossHttpServer;
   LPort: Word;
   LLine: string;
+  LDirectory: string;
+  LId: TGUID;
 begin
   LServer := TTestServer.Create;
   LServerRef := LServer;
@@ -488,6 +507,19 @@ begin
     LServer.HoldFirst := True;
     {$IFDEF HTTP_QUEUE_LIMIT}
     LServer.MaxPendingRequests := 2;
+    {$ENDIF}
+  end;
+  LDirectory := '';
+  if ParamStr(2) = 'storage' then
+  begin
+    CreateGUID(LId);
+    LDirectory := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'tcpbody-' + GUIDToString(LId);
+    ForceDirectories(LDirectory);
+    {$IFDEF HTTP_BODY_STORAGE}
+    LServer.BodyMemoryThreshold := 1024;
+    {$ENDIF}
+    {$IFDEF HTTP_BODY_TEMP_PATH}
+    LServer.BodyTempPath := LDirectory;
     {$ENDIF}
   end;
   LServer.Port := 0;
@@ -505,6 +537,12 @@ begin
   Writeln('TOTAL ', LServer.Requests.Count);
   Flush(Output);
   LServerRef := nil;
+  if LDirectory <> '' then
+  begin
+    Check(RemoveDir(LDirectory), 'TCP断开后临时正文未清理');
+    Writeln('STORAGE_CLEAN');
+    Flush(Output);
+  end;
 end;
 
 {$I HttpResponseQueueTests.inc}
