@@ -6,7 +6,8 @@ uses
   {$IF DEFINED(FPC) AND DEFINED(POSIX)}cthreads,{$ENDIF}
   {$IFDEF MSWINDOWS}Windows,{$ENDIF}
   SysUtils, Classes, Generics.Collections, Utils.SyncObjs,
-  Net.SocketAPI, Net.CrossSocket.Base, Net.CrossSslSocket.OpenSSL, Net.OpenSSL;
+  Net.SocketAPI, Net.CrossSocket.Base, Net.CrossSslSocket.OpenSSL, Net.OpenSSL,
+  Net.CrossWebSocketParser;
 
 type
   TObservedTlsConnection = class(TCrossOpenSslConnection)
@@ -40,6 +41,8 @@ type
     SendDepth, MaxSendDepth: Integer;
     DestroyedConnections: Integer;
     Plaintext: AnsiString;
+    BenchReceive: Boolean;
+    BenchBytes: Int64;
     constructor Create; reintroduce;
     destructor Destroy; override;
     function StartClient: ICrossConnection;
@@ -187,6 +190,12 @@ var
   LPart: AnsiString;
 begin
   Inc(ReceivedCalls);
+  if BenchReceive then
+  begin
+    Check((ALen > 0) and (PByte(ABuf)^ = $41) and (PByte(ABuf)[ALen - 1] = $41), 'benchmark plaintext mismatch');
+    Inc(BenchBytes, ALen);
+    Exit;
+  end;
   SetString(LPart, PAnsiChar(ABuf), ALen);
   Plaintext := Plaintext + LPart;
   if Assigned(ReceivedAction) then ReceivedAction(AConnection, True);
@@ -808,6 +817,7 @@ end;
 
 {$I TlsTerminalTests.inc}
 {$I TlsManagedQueueTests.inc}
+{$I BufferBench.inc}
 
 begin
   try
@@ -854,6 +864,10 @@ begin
       else if ParamStr(1) = 'managed-clear-pending' then TestManagedTlsClear(0)
       else if ParamStr(1) = 'managed-clear-cipher' then TestManagedTlsClear(1)
       else if ParamStr(1) = 'managed-clear-plain' then TestManagedTlsClear(2)
+      else if ParamStr(1) = 'bench-ws' then RunWsBufferBench
+      else if ParamStr(1) = 'bench-tls12' then RunTlsBufferBench(TLS1_2_VERSION)
+      else if ParamStr(1) = 'bench-tls13' then RunTlsBufferBench(TLS1_3_VERSION)
+      else if ParamStr(1) = 'probe-bio' then ProbeTlsPending
       else raise Exception.Create('unknown mode');
     finally
       TSSLTools.UnloadSSL;

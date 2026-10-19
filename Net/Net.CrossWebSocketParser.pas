@@ -656,7 +656,7 @@ begin
     Inc(LHeaderSize, 4);
 
   SetLength(Result, LHeaderSize + LDataSize);
-  FillChar(Result[0], LHeaderSize + LDataSize, 0);
+  FillChar(Result[0], LHeaderSize, 0);
 
   if AFin then
     Result[0] := Result[0] or $80;

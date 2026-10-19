@@ -114,3 +114,15 @@ F12 红绿证据和最终结果：
 - 最终七组原 34 加新增 4 项，**38/38，共 266/266**；目标/运行库组合与 F12 相同，产物为 `bin/managed-final3/` 和 `bin/managed-final111/`。关闭测试宏的 Delphi/FPC Win64 各 **33/33**，位于 `bin/managed-release/`。
 
 沿用上述命令，将标签改为 `managed-final3`、`managed-final111`、`managed-release` 即可。源码、实际二进制哈希及本批 WebSocket 组合结果汇总在 `bin/managed-final-manifest.json`。
+
+## O06 首批性能取舍
+
+完整方法、每个负载的中位数/IQR、分配请求和本地调用 P99 见 [BUFFER_BENCHMARK.md](BUFFER_BENCHMARK.md)。最终仅采用 WS 编码时保留帧头清零、去掉显式 payload 清零的单行修改；TLS 空 BIO 提前返回在 Delphi 大块读取中稳定退化，经复核后撤回。最终 SSL 生产源与 `65a5df2` 相同，没有新增缓冲复用或所有权转移。
+
+`BufferBench.inc` 复用本目录真实 TLS fixture，并增加实际 WS 编码基准。性能窗口只在 Windows x64 的显式优化构建中运行；普通正确性运行器不把基准模式加入默认用例集。最终帧编码对照两版都使用同一 SSL 源，Pascal 分配计数用原生线程 ID 排除后台 I/O 线程；计时 pass 没有内存钩子。
+
+最终正确性重编标签：TLS `o06-ws-final3` / `o06-ws-final111` 七组各 **38/38，共 266/266**，关闭测试宏的 `o06-ws-release` 双目标各 **33/33**。包含原生 WANT_READ、重新握手、KeyUpdate、alert/close_notify、物理完成重入、关闭和引用寿命，未遗漏协议输出。
+
+相邻 WebSocketFrameTests 的 `bin/o06-ws-final/` 四目标通过完整组件、每目标 11,056 组合法帧/拆分矩阵与 11 个真实 TCP 回环。前三目标使用此前已冻结的 HTTP 依赖；FPC Linux 初次构建遇到另一任务修改 Server 的中间态，随后在明确稳定窗口重新构建并通过，使用后续 BodyStorage 修复后的 Server/Parser。每个目标的 source.json 记录实际依赖，不称为四目标的 HTTP 源完全相同。
+
+最终源码、二进制与结果汇总为 `bin/o06-final-manifest.json`。被撤回的 TLS 候选和初步采样保留为实验记录，不与最终采用的 WS 收益混合，也不把本地编码/接收微基准等同于网络吞吐或网络 P99。
