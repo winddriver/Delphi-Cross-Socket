@@ -1048,6 +1048,8 @@ type
     FResponseStream: TStream;
     FInitProc: TCrossHttpRequestInitProc;
     FCallback: TCrossHttpResponseProc;
+    FCompleted: Integer;
+    FAdmission: IInterface;
 
     FHttpVersion: THttpVersion;
     FMethod: string;
@@ -1066,6 +1068,7 @@ type
       const AInitProc: TCrossHttpRequestInitProc;
       const ACallback: TCrossHttpResponseProc);
     procedure _ExecCallback(const AResponse: ICrossHttpClientResponse);
+    procedure _ReleaseAdmission;
   protected
     function GetConnection: ICrossHttpClientConnection;
     function GetHeader: THttpHeader;
@@ -1189,10 +1192,15 @@ type
     FConnections: TClientConnections;
     FConnCount, FConnectingCount: Integer;
     FLock: ILock;
+    FRequestLimit: Integer;
+    FRequestCount: IInterface;
 
     procedure _Lock; inline;
     procedure _Unlock; inline;
+    function _IsClosing: Boolean; inline;
+    procedure _CancelRequest(const ARequest: TCrossHttpClientRequest);
     function _TryBeginConnect: Boolean;
+    function _TryAdmitRequest(const ARequest: TCrossHttpClientRequest): Boolean;
     procedure _EndConnect;
 
     // 在指定连接上执行请求(仅内部使用: 空闲连接复用路径 与 Connect 成功回调路径)
@@ -1250,6 +1258,7 @@ type
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AHost: string;
       const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
+    procedure TriggerConnecting(const AConnection: ICrossConnection); override;
     procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
   public
@@ -1278,6 +1287,8 @@ type
     class function GetDefault: ICrossHttpClient; static;
   private
     FIoThreads, FMaxConnsPerServer, FMaxCompressRatio: Integer;
+    FMaxPendingRequestsPerServer: Integer;
+    FClosing: Integer;
     FCompressType: TCompressType;
     FLock: ILock;
     FTimer: IEasyTimer;
@@ -1419,6 +1430,9 @@ type
 
     property Idleout: Integer read GetIdleout write SetIdleout;
     property IoThreads: Integer read GetIoThreads write SetIoThreads;
+    // 首次请求前配置；每个新 server 池快照，已有池不追溯修改。<=0 不限。
+    // 包括排队、连接建立中和活动请求，完成/取消后归还额度。
+    property MaxPendingRequestsPerServer: Integer read FMaxPendingRequestsPerServer write FMaxPendingRequestsPerServer;
     property MaxConnsPerServer: Integer read GetMaxConnsPerServer write SetMaxConnsPerServer;
     property MaxCompressRatio: Integer read GetMaxCompressRatio write SetMaxCompressRatio;
     property ReUseConnection: Boolean read GetReUseConnection write SetReUseConnection;
@@ -1439,7 +1453,21 @@ procedure ProcHttpTimeoutForTest(const AClient: TCrossHttpClient;
   const AAfterCollect: THttpTimeoutCollectedProc);
 {$ENDIF}
 
+{$IFDEF CROSS_CAPACITY_TESTS}
+type TClientAdmissionTestProc = reference to procedure(const AStage: string;
+  const ARequest: ICrossHttpClientRequest);
+procedure SetClientAdmissionTestHook(const AHook: TClientAdmissionTestProc);
+{$ENDIF}
+
 implementation
+
+{$IFDEF CROSS_CAPACITY_TESTS}
+var GClientAdmissionTestHook: TClientAdmissionTestProc;
+procedure SetClientAdmissionTestHook(const AHook: TClientAdmissionTestProc);
+begin GClientAdmissionTestHook := AHook; end;
+procedure _ClientAdmissionTest(const AStage: string; const ARequest: ICrossHttpClientRequest);
+begin if Assigned(GClientAdmissionTestHook) then GClientAdmissionTestHook(AStage, ARequest); end;
+{$ENDIF}
 
 {$IFDEF CROSS_HTTP_TIMEOUT_TESTS}
 var GHttpTimeoutAfterCollect: THttpTimeoutCollectedProc;
@@ -1459,6 +1487,25 @@ begin
   try AClient._ProcTimeout; finally GHttpTimeoutAfterCollect := nil; end;
 end;
 {$ENDIF}
+
+// 请求只持计数状态，不反向持有 server 池，避免队列与请求形成引用环。
+type
+  THttpRequestCount = class(TInterfacedObject)
+  public
+    Lock: ILock;
+    Count: Integer;
+    procedure ReleaseRequest;
+  end;
+
+procedure THttpRequestCount.ReleaseRequest;
+begin
+  Lock.Enter;
+  try
+    Dec(Count);
+  finally
+    Lock.Leave;
+  end;
+end;
 
 { TCrossHttpClientConnection }
 
@@ -2530,6 +2577,7 @@ end;
 
 destructor TCrossHttpClientRequest.Destroy;
 begin
+  _ReleaseAdmission;
   FreeAndNil(FHeader);
   FreeAndNil(FCookies);
   FreeAndNil(FQuery);
@@ -2572,16 +2620,27 @@ begin
   Result := FQuery;
 end;
 
+procedure TCrossHttpClientRequest._ReleaseAdmission;
+var
+  LAdmission: IInterface;
+begin
+  LAdmission := FAdmission;
+  FAdmission := nil;
+  if LAdmission <> nil then
+    (LAdmission as THttpRequestCount).ReleaseRequest;
+end;
+
 procedure TCrossHttpClientRequest._ExecCallback(
   const AResponse: ICrossHttpClientResponse);
 var
   LCallback: TCrossHttpResponseProc;
 begin
-  if not Assigned(FCallback) then Exit;
-
+  if AtomicExchange(FCompleted, 1) <> 0 then Exit;
   LCallback := FCallback;
   FCallback := nil;
-  LCallback(AResponse);
+  // nil 回调也必须结算；先退额度再通知，重入可立即接纳下一请求。
+  _ReleaseAdmission;
+  if Assigned(LCallback) then LCallback(AResponse);
 end;
 
 procedure TCrossHttpClientRequest._Init(const AMethod, AUrl: string;
@@ -2856,6 +2915,14 @@ begin
   FServerDockLock := TLock.Create;
 end;
 
+procedure TCrossHttpClientSocket.TriggerConnecting(const AConnection: ICrossConnection);
+begin
+  inherited;
+  {$IFDEF CROSS_CAPACITY_TESTS}_ClientAdmissionTest('registered', nil);{$ENDIF}
+  // 登记晚于析构的 CloseAll 快照时，也必须立即回收该连接。
+  if AtomicCmpExchange(FHttpClient.FClosing, 0, 0) <> 0 then AConnection.Close;
+end;
+
 function TCrossHttpClientSocket.CreateConnection(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AHost: string; const AConnectCb: TCrossConnectionCallback): ICrossConnection;
@@ -3081,25 +3148,43 @@ begin
 end;
 
 destructor TCrossHttpClient.Destroy;
+var
+  LHttpCli: ICrossHttpClientSocket;
 begin
-  if (FTimer <> nil) then
-  begin
-    FTimer.Terminate;
-    FTimer.WaitFor;
-    FTimer := nil;
+  AtomicExchange(FClosing, 1);
+  try
+    if FTimer <> nil then
+    begin
+      FTimer.Terminate;
+      FTimer.WaitFor;
+      FTimer := nil;
+    end;
+  finally
+    // 析构中的取消回调可以重入；入口只拒绝，不复活 Self 或再接纳请求。
+    for LHttpCli in FHttpCliArr do
+    begin
+      try
+        LHttpCli.CancelAllRequests;
+        {$IFDEF CROSS_CAPACITY_TESTS}_ClientAdmissionTest('after-cancel', nil);{$ENDIF}
+      except
+        on E: Exception do _LogException('HTTP client destroy cancel failed', E);
+      end;
+      try
+        LHttpCli.CloseAll;
+      except
+        on E: Exception do _LogException('HTTP client destroy close failed', E);
+      end;
+      try
+        LHttpCli.StopLoop;
+      except
+        on E: Exception do _LogException('HTTP client destroy stop failed', E);
+      end;
+    end;
+    if Length(FPrivateKey) > 0 then
+      FillChar(FPrivateKey[0], Length(FPrivateKey), 0);
+    FPrivateKeyPassword := '';
+    inherited;
   end;
-
-  if (FHttpCli <> nil) then
-    FHttpCli.StopLoop;
-
-  if (FHttpsCli <> nil) then
-    FHttpsCli.StopLoop;
-
-  if Length(FPrivateKey) > 0 then
-    FillChar(FPrivateKey[0], Length(FPrivateKey), 0);
-  FPrivateKeyPassword := '';
-
-  inherited;
 end;
 
 class constructor TCrossHttpClient.Create;
@@ -3166,6 +3251,15 @@ begin
     AInitProc,
     ACallback);
   LRequest := LRequestObj;
+  if AtomicCmpExchange(FClosing, 0, 0) <> 0 then
+  begin
+    try
+      LRequestObj._ExecCallback(TCrossHttpClientResponse.Create(400, 'Request canceled'));
+    except
+      on E: Exception do _LogException('HTTP client closing callback failed', E);
+    end;
+    Exit;
+  end;
   if not LRequestObj.FUrlReady then Exit;
 
   // 根据协议获取HttpCli对象
@@ -3199,6 +3293,15 @@ begin
     AInitProc,
     ACallback);
   LRequest := LRequestObj;
+  if AtomicCmpExchange(FClosing, 0, 0) <> 0 then
+  begin
+    try
+      LRequestObj._ExecCallback(TCrossHttpClientResponse.Create(400, 'Request canceled'));
+    except
+      on E: Exception do _LogException('HTTP client closing callback failed', E);
+    end;
+    Exit;
+  end;
   if not LRequestObj.FUrlReady then Exit;
 
   // 根据协议获取HttpCli对象
@@ -3885,12 +3988,14 @@ begin
       TCrossHttpClientResponse.Create(AStatusCode, AStatusText));
   except
     on E: Exception do
-      _Log('CancelAllRequests callback exception: %s', [E.Message]);
+      _LogException('CancelAllRequests callback failed', E);
   end;
 end;
 
 constructor TServerDock.Create(const AClientSocket: TCrossHttpClientSocket;
   const AProtocol, AHost: string; const APort, ALocalPort: Word);
+var
+  LCount: THttpRequestCount;
 begin
   FClientSocket := AClientSocket;
   FProtocol := AProtocol;
@@ -3903,6 +4008,14 @@ begin
   FConnections := TClientConnections.Create;
 
   FLock := TLock.Create;
+  if FClientSocket <> nil then
+    FRequestLimit := FClientSocket.FHttpClient.FMaxPendingRequestsPerServer;
+  if FRequestLimit > 0 then
+  begin
+    LCount := THttpRequestCount.Create;
+    LCount.Lock := FLock;
+    FRequestCount := LCount;
+  end;
 end;
 
 destructor TServerDock.Destroy;
@@ -3924,6 +4037,11 @@ begin
   // 连接失败场景已在 DoRequest 闭包失败分支独立处理, 不再进入本方法
   LRequest := ARequest;
   LRequestObj := ARequest as TCrossHttpClientRequest;
+  if _IsClosing then
+  begin
+    try AHttpConn.Close; finally _CancelRequest(LRequestObj); end;
+    Exit;
+  end;
 
   LConnectionObj := AHttpConn as TCrossHttpClientConnection;
   LConnectionObj.DoRequest(ARequest,
@@ -3947,6 +4065,12 @@ var
   LNewHttpConn: ICrossHttpClientConnection;
   LNewHttpConnObj: TCrossHttpClientConnection;
 begin
+  if _IsClosing then
+  begin
+    try AConnection.Close;
+    finally _CancelRequest(ARequest as TCrossHttpClientRequest); end;
+    Exit;
+  end;
   LNewHttpConn := AConnection as ICrossHttpClientConnection;
   LNewHttpConnObj := LNewHttpConn as TCrossHttpClientConnection;
   LNewHttpConnObj.FProtocol := AProtocol;
@@ -3980,6 +4104,21 @@ begin
   end;
   ALSelf.ProcNext;
 end;
+function TServerDock._IsClosing: Boolean;
+begin
+  Result := (FClientSocket <> nil)
+    and (AtomicCmpExchange(FClientSocket.FHttpClient.FClosing, 0, 0) <> 0);
+end;
+
+procedure TServerDock._CancelRequest(const ARequest: TCrossHttpClientRequest);
+begin
+  try
+    ARequest._ExecCallback(TCrossHttpClientResponse.Create(400, 'Request canceled'));
+  except
+    on E: Exception do _LogException('HTTP client canceled callback failed', E);
+  end;
+end;
+
 function TServerDock._TryBeginConnect: Boolean;
 var
   LMaxConnsPerServer: Integer;
@@ -3987,8 +4126,8 @@ begin
   LMaxConnsPerServer := FClientSocket.FMaxConnsPerServer;
   _Lock;
   try
-    Result := (LMaxConnsPerServer <= 0)
-      or (FConnCount + FConnectingCount < LMaxConnsPerServer);
+    Result := not _IsClosing and ((LMaxConnsPerServer <= 0)
+      or (FConnCount + FConnectingCount < LMaxConnsPerServer));
     if Result then
       Inc(FConnectingCount);
   finally
@@ -4006,6 +4145,28 @@ begin
   end;
 end;
 
+function TServerDock._TryAdmitRequest(const ARequest: TCrossHttpClientRequest): Boolean;
+var
+  LCount: THttpRequestCount;
+begin
+  if AtomicCmpExchange(ARequest.FCompleted, 0, 0) <> 0 then Exit(False);
+  // 默认无限制不创建计数对象，也不为每个请求保存额外引用。
+  if FRequestCount = nil then Exit(True);
+  _Lock;
+  try
+    if AtomicCmpExchange(ARequest.FCompleted, 0, 0) <> 0 then Exit(False);
+    // 已出队但尚未完成的请求仍占原额度，重试不能重复计费。
+    if ARequest.FAdmission <> nil then Exit(True);
+    LCount := FRequestCount as THttpRequestCount;
+    if LCount.Count >= FRequestLimit then Exit(False);
+    Inc(LCount.Count);
+    ARequest.FAdmission := FRequestCount;
+    Result := True;
+  finally
+    _Unlock;
+  end;
+end;
+
 procedure TServerDock.DoRequest(const ARequest: ICrossHttpClientRequest);
 var
   LSelf: IServerDock;
@@ -4018,6 +4179,20 @@ var
 begin
   LRequest := ARequest;
   LRequestObj := LRequest as TCrossHttpClientRequest;
+  if _IsClosing then
+  begin
+    _CancelRequest(LRequestObj);
+    Exit;
+  end;
+  if not _TryAdmitRequest(LRequestObj) then
+  begin
+    try
+      LRequestObj._ExecCallback(TCrossHttpClientResponse.Create(503, 'Client request limit exceeded'));
+    except
+      on E: Exception do _LogException('HTTP client rejected callback failed', E);
+    end;
+    Exit;
+  end;
   LIdleHttpConn := nil;
 
   // 优先使用空闲连接
@@ -4160,18 +4335,24 @@ var
   LRequest: ICrossHttpClientRequest;
 begin
   if not PopRequest(LRequest) then Exit;
+  {$IFDEF CROSS_CAPACITY_TESTS}_ClientAdmissionTest('after-pop', LRequest);{$ENDIF}
 
   DoRequest(LRequest);
 end;
 
 procedure TServerDock.PushRequest(const ARequest: ICrossHttpClientRequest);
+var
+  LCancel: Boolean;
 begin
+  {$IFDEF CROSS_CAPACITY_TESTS}_ClientAdmissionTest('before-push', ARequest);{$ENDIF}
   _Lock;
   try
-    FRequestQueue.Enqueue(ARequest);
+    LCancel := _IsClosing;
+    if not LCancel then FRequestQueue.Enqueue(ARequest);
   finally
     _Unlock;
   end;
+  if LCancel then _CancelRequest(ARequest as TCrossHttpClientRequest);
 end;
 
 procedure TServerDock.RemoveConnection(

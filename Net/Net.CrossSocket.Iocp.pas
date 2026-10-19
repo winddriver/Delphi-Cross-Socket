@@ -502,12 +502,8 @@ var
   function _Connect(ASocket: TSocket; AAddr: PRawAddrInfo): Boolean;
     procedure _Failed2;
     begin
-      try
-        if Assigned(ACallback) then
-          ACallback(nil, False);
-      finally
-        TSocketAPI.CloseSocket(ASocket);
-      end;
+      // 尚未建立连接对象，仅回收本次尝试；全部地址失败后统一通知一次。
+      TSocketAPI.CloseSocket(ASocket);
     end;
   var
     LSockAddr: TRawSockAddrIn;
@@ -542,6 +538,8 @@ var
 
     LConnection := CreateConnection(Self, ASocket, ctConnect, AHost, ACallback);
     TriggerConnecting(LConnection);
+    // 登记回调可能已关闭并通知失败；本次调用已处理，不再重试其他地址。
+    if LConnection.IsClosed then Exit(True);
 
     LPerIoData := _NewIoData;
     LPerIoData.Action := ioConnect;
@@ -557,7 +555,8 @@ var
       _LogLastOsError(Self.ClassName + '._Connect.ConnectEx');
       _FreeIoData(LPerIoData);
       LConnection.Close;
-      Exit(False);
+      // Close 已取得并通知连接回调，不能再重试地址或由外层二次通知。
+      Exit(True);
     end;
 
     Result := True;

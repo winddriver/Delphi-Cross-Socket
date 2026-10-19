@@ -939,6 +939,9 @@ type
   end;
 
   TCrossLogger = reference to procedure(const S: string);
+  {$IFDEF CROSS_CAPACITY_TESTS}
+  TCrossConnectTestHook = reference to procedure(const AConnection: ICrossConnection);
+  {$ENDIF}
 
   function GetTagByUID(const AUID: UInt64): Byte;
 
@@ -953,6 +956,7 @@ type
   procedure _CloseCrossData(const AData: ICrossData);
 
 var
+  {$IFDEF CROSS_CAPACITY_TESTS}CrossConnectBeforeRegisterForTest: TCrossConnectTestHook;{$ENDIF}
   CrossSocketLogEnabled: Boolean = {$IFDEF DEBUG}True{$ELSE}False{$ENDIF};
 
 implementation
