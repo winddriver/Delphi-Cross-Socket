@@ -95,8 +95,8 @@ type
     procedure Listen(const AHost: string; const APort: Word;
       const ACallback: TCrossListenCallback = nil); override;
 
-    procedure Connect(const AHost: string; const APort, ALocalPort: Word;
-      const ACallback: TCrossConnectionCallback = nil); override;
+    function _ConnectAddr(const AOp: IInterface;
+      const AAddr: TCrossConnectAddr): Boolean; override;
 
     procedure Send(const AConnection: ICrossConnection; const ABuf: Pointer;
       const ALen: Integer; const ACallback: TCrossConnectionCallback = nil); override;
@@ -245,29 +245,47 @@ procedure TIocpCrossSocket._HandleConnect(const APerIoData: PPerIoData);
 var
   LClientSocket: TSocket;
   LConnection: ICrossConnection;
+  LConnObj: TIocpConnection;
   LSockErr: Integer;
+  LFailed, LContextFailed: Boolean;
+  LErrorTag: string;
 begin
   LClientSocket := APerIoData.Socket;
   LConnection := APerIoData.CrossData as ICrossConnection;
+  if (LConnection = nil) then Exit;
+  LConnObj := LConnection as TIocpConnection;
+  LContextFailed := False;
 
-  LSockErr := TSocketAPI.GetError(LClientSocket);
-  if (LSockErr <> 0) then
-  begin
-    if (LConnection <> nil) then
+  // 完成包持有连接接口，但句柄仍可能被 Close 关闭；与实际关闭串行访问。
+  LConnObj._Lock;
+  try
+    if LConnection.IsClosed then Exit;
+    LSockErr := TSocketAPI.GetError(LClientSocket);
+    LFailed := (LSockErr <> 0);
+    if not LFailed then
+    begin
+      // 不设置该参数, 会导致 getpeername 调用失败
+      LFailed := (TSocketAPI.SetSockOpt<Integer>(LClientSocket, SOL_SOCKET,
+        SO_UPDATE_CONNECT_CONTEXT, 1) < 0);
+      if LFailed then
+      begin
+        LSockErr := WSAGetLastError;
+        LContextFailed := True;
+      end;
+    end;
+    if LFailed then
       LConnection.LastNetError := LSockErr;
-    _LogLastOsError(Self.ClassName + '._HandleConnect.GetError');
-    LConnection.Close;
-    Exit;
+  finally
+    LConnObj._Unlock;
   end;
 
-  // 不设置该参数, 会导致 getpeername 调用失败
-  if (TSocketAPI.SetSockOpt<Integer>(LClientSocket, SOL_SOCKET,
-    SO_UPDATE_CONNECT_CONTEXT, 1) < 0) then
+  if LFailed then
   begin
-    if (LConnection <> nil) then
-      LConnection.LastNetError := WSAGetLastError;
-    _LogLastOsError(Self.ClassName + '._HandleConnect.SetSockOpt');
-    LConnection.Close;
+    if LContextFailed then LErrorTag := 'SetSockOpt'
+    else LErrorTag := 'GetError';
+    _Log('%s._HandleConnect.%s: %d, %s',
+      [Self.ClassName, LErrorTag, LSockErr, SysErrorMessage(LSockErr)]);
+    _ConnectAttemptFailed(LConnection);
     Exit;
   end;
 
@@ -486,125 +504,120 @@ begin
   CloseHandle(FIocpHandle);
 end;
 
-procedure TIocpCrossSocket.Connect(const AHost: string;
-  const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
+function TIocpCrossSocket._ConnectAddr(const AOp: IInterface;
+  const AAddr: TCrossConnectAddr): Boolean;
 var
-  LHints: TRawAddrInfo;
-  P, LAddrInfo: PRawAddrInfo;
+  LState: TCrossConnectOp;
   LSocket: TSocket;
-
-  procedure _Failed1;
-  begin
-    if Assigned(ACallback) then
-      ACallback(nil, False);
-  end;
-
-  function _Connect(ASocket: TSocket; AAddr: PRawAddrInfo): Boolean;
-    procedure _Failed2;
-    begin
-      // 尚未建立连接对象，仅回收本次尝试；全部地址失败后统一通知一次。
-      TSocketAPI.CloseSocket(ASocket);
-    end;
-  var
-    LSockAddr: TRawSockAddrIn;
-    LPerIoData: PPerIoData;
-    LBytes: Cardinal;
-    LConnection: ICrossConnection;
-  begin
-    FillChar(LSockAddr, SizeOf(TRawSockAddrIn), 0);
-    LSockAddr.AddrLen := AAddr.ai_addrlen;
-    if (AAddr.ai_family = AF_INET6) then
-    begin
-      LSockAddr.Addr6.sin6_family := AAddr.ai_family;
-      LSockAddr.Addr6.sin6_port := htons(ALocalPort);
-    end else
-    begin
-      LSockAddr.Addr.sin_family := AAddr.ai_family;
-      LSockAddr.Addr.sin_port := htons(ALocalPort);
-    end;
-    if (TSocketAPI.Bind(ASocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
-    begin
-      _LogLastOsError(Self.ClassName + '._Connect.Bind');
-      _Failed2;
-      Exit(False);
-    end;
-
-    if (CreateIoCompletionPort(ASocket, FIocpHandle, ULONG_PTR(ASocket), 0) = 0) then
-    begin
-      _LogLastOsError(Self.ClassName + '._Connect.CreateIoCompletionPort');
-      _Failed2;
-      Exit(False);
-    end;
-
-    LConnection := CreateConnection(Self, ASocket, ctConnect, AHost, ACallback);
-    TriggerConnecting(LConnection);
-    // 登记回调可能已关闭并通知失败；本次调用已处理，不再重试其他地址。
-    if LConnection.IsClosed then Exit(True);
-
-    LPerIoData := _NewIoData;
-    LPerIoData.Action := ioConnect;
-    LPerIoData.CrossData := LConnection;
-    LPerIoData.Socket := ASocket;
-    LPerIoData.Callback := nil;
-    if not ConnectEx(ASocket, AAddr.ai_addr, AAddr.ai_addrlen, nil, 0, LBytes, PWSAOverlapped(LPerIoData)) and
-      (WSAGetLastError <> WSA_IO_PENDING) then
-    begin
-      // 先保存 WSAGetLastError 再记录日志, 避免后续 API 调用改写 lastError
-      if (LConnection <> nil) then
-        LConnection.LastNetError := WSAGetLastError;
-      _LogLastOsError(Self.ClassName + '._Connect.ConnectEx');
-      _FreeIoData(LPerIoData);
-      LConnection.Close;
-      // Close 已取得并通知连接回调，不能再重试地址或由外层二次通知。
-      Exit(True);
-    end;
-
-    Result := True;
-  end;
-
+  LSockAddr: TRawSockAddrIn;
+  LPerIoData: PPerIoData;
+  LBytes: Cardinal;
+  LConnection: ICrossConnection;
+  LConnObj: TIocpConnection;
+  LRetryOp: IInterface;
+  LConnectCb: TCrossConnectionCallback;
+  LError: Integer;
+  LOwnsSocket, LSubmitted: Boolean;
 begin
-  FillChar(LHints, SizeOf(TRawAddrInfo), 0);
-  LHints.ai_family := AF_UNSPEC;
-  LHints.ai_socktype := SOCK_STREAM;
-  LHints.ai_protocol := IPPROTO_TCP;
-  LAddrInfo := TSocketAPI.GetAddrInfo(AHost, APort, LHints);
-  if (LAddrInfo = nil) then
+  LState := AOp as TCrossConnectOp;
+  LSocket := WSASocket(AAddr.Family, AAddr.SockType, AAddr.Protocol,
+    nil, 0, WSA_FLAG_OVERLAPPED);
+  if (LSocket = INVALID_SOCKET) then
   begin
-    _LogLastOsError(Self.ClassName + '.Connect.GetAddrInfo');
-    _Failed1;
-    Exit;
+    LError := WSAGetLastError;
+    _LogLastOsError(Self.ClassName + '._ConnectAddr.WSASocket');
+    if (LError = WSAEAFNOSUPPORT) or (LError = WSAEPROTONOSUPPORT)
+      or (LError = WSAESOCKTNOSUPPORT) then Exit(False);
+    LState.Complete(nil, False);
+    Exit(True);
   end;
 
-  P := LAddrInfo;
+  LOwnsSocket := True;
+  LPerIoData := nil;
   try
-    while (LAddrInfo <> nil) do
-    begin
-      LSocket := WSASocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
-        LAddrInfo.ai_protocol, nil, 0, WSA_FLAG_OVERLAPPED);
-      if (LSocket = INVALID_SOCKET) then
-      begin
-        _LogLastOsError(Self.ClassName + '.Connect.WSASocket');
-        _Failed1;
-        Exit;
-      end;
-
+    try
       TSocketAPI.SetNonBlock(LSocket, True);
       SetKeepAlive(LSocket);
 
-      {$IFDEF DEBUG}
-      _Log('TIocpCrossSocket.Connect.WSASocket=%d', [LSocket]);
-      {$ENDIF}
+      FillChar(LSockAddr, SizeOf(TRawSockAddrIn), 0);
+      LSockAddr.AddrLen := AAddr.Addr.AddrLen;
+      if (AAddr.Family = AF_INET6) then
+      begin
+        LSockAddr.Addr6.sin6_family := AAddr.Family;
+        LSockAddr.Addr6.sin6_port := htons(LState.LocalPort);
+      end else
+      begin
+        LSockAddr.Addr.sin_family := AAddr.Family;
+        LSockAddr.Addr.sin_port := htons(LState.LocalPort);
+      end;
+      if (TSocketAPI.Bind(LSocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
+      begin
+        _LogLastOsError(Self.ClassName + '._ConnectAddr.Bind');
+        Exit(False);
+      end;
 
-      if _Connect(LSocket, LAddrInfo) then Exit;
+      if (CreateIoCompletionPort(LSocket, FIocpHandle, ULONG_PTR(LSocket), 0) = 0) then
+      begin
+        _LogLastOsError(Self.ClassName + '._ConnectAddr.CreateIoCompletionPort');
+        Exit(False);
+      end;
 
-      LAddrInfo := PRawAddrInfo(LAddrInfo.ai_next);
+      LConnectCb := LState.CreateCallback();
+      // 从构造开始由连接拥有句柄，构造抛错也由其析构回收。
+      LOwnsSocket := False;
+      LConnection := CreateConnection(Self, LSocket, ctConnect, LState.Host, LConnectCb);
+      LConnObj := LConnection as TIocpConnection;
+      LConnObj._SetConnectOp(AOp);
+      TriggerConnecting(LConnection);
+      if LConnection.IsClosed then Exit(True);
+
+      LPerIoData := _NewIoData;
+      LPerIoData.Action := ioConnect;
+      LPerIoData.CrossData := LConnection;
+      LPerIoData.Socket := LSocket;
+      // Close 在实际关闭句柄前也取得此锁，避免提交时旧句柄被释放或复用。
+      LConnObj._Lock;
+      try
+        if LConnection.IsClosed then Exit(True);
+        LSubmitted := ConnectEx(LSocket, @AAddr.Addr.Addr, AAddr.Addr.AddrLen,
+          nil, 0, LBytes, PWSAOverlapped(LPerIoData));
+        if not LSubmitted then
+        begin
+          LError := WSAGetLastError;
+          LSubmitted := (LError = WSA_IO_PENDING);
+          if not LSubmitted then
+            LConnection.LastNetError := LError;
+        end;
+        // 完成包接管 PerIoData，可能已经在另一线程完成并释放。
+        if LSubmitted then
+          LPerIoData := nil;
+      finally
+        LConnObj._Unlock;
+      end;
+
+      if not LSubmitted then
+      begin
+        _LogLastOsError(Self.ClassName + '._ConnectAddr.ConnectEx');
+        _FreeIoData(LPerIoData);
+        LPerIoData := nil;
+        // 仅失败清理的赢家续试，主动 Close 已取得的终态不能被重试覆盖。
+        Exit(not LConnObj._CloseRetryingConnect(LRetryOp));
+      end;
+
+      Result := True;
+    except
+      on E: Exception do
+      begin
+        if (LConnection <> nil) then
+          _CloseCrossData(LConnection);
+        raise;
+      end;
     end;
   finally
-    TSocketAPI.FreeAddrInfo(P);
+    _FreeIoData(LPerIoData);
+    if LOwnsSocket then
+      TSocketAPI.CloseSocket(LSocket);
   end;
-
-  _LogLastOsError(Self.ClassName + '.Connect.Unknown');
-  _Failed1;
 end;
 
 function TIocpCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;
@@ -788,7 +801,7 @@ begin
 end;
 
 function TIocpCrossSocket.ProcessIoEvent: Boolean;
-  procedure _ReleasePerIoData(const APerIoData: PPerIoData);
+  procedure _ReleasePerIoData(const APerIoData: PPerIoData; const AError: Cardinal);
   var
     LConnection: ICrossConnection;
   begin
@@ -828,7 +841,13 @@ function TIocpCrossSocket.ProcessIoEvent: Boolean;
             _CallConnectionCallback(APerIoData.Callback, LConnection, False);
           end;
 
-          _CloseCrossData(APerIoData.CrossData);
+          if (APerIoData.Action = ioConnect) then
+          begin
+            LConnection := APerIoData.CrossData as ICrossConnection;
+            LConnection.LastNetError := AError;
+            _ConnectAttemptFailed(LConnection);
+          end else
+            _CloseCrossData(APerIoData.CrossData);
         end;
       end else
       begin
@@ -854,9 +873,7 @@ var
   LBytes: Cardinal;
   LSocket: TSocket;
   LPerIoData: PPerIoData;
-  {$IFDEF DEBUG}
   LErrNo: Cardinal;
-  {$ENDIF}
 begin
   if not GetQueuedCompletionStatus(FIocpHandle, LBytes, ULONG_PTR(LSocket), POverlapped(LPerIoData), INFINITE) then
   begin
@@ -867,8 +884,8 @@ begin
     // WSAESHUTDOWN, 10058, 套接字已关闭
     // ERROR_NETNAME_DELETED, 64, 指定的网络名不再可用
     // ERROR_CONNECTION_REFUSED, 1225, 远程计算机拒绝网络连接。
-    {$IFDEF DEBUG}
     LErrNo := GetLastError;
+    {$IFDEF DEBUG}
     _Log('[%s]thread%d, GetQueuedCompletionStatus:%d, %s', [
       Self.ClassName, TThread.Current.ThreadID, LErrNo, SysErrorMessage(LErrNo)
     ]);
@@ -878,7 +895,7 @@ begin
     if (LPerIoData = nil) then Exit(False);
 
     // 非空完成包属于一次失败的 I/O，回收它后继续服务其他连接。
-    _ReleasePerIoData(LPerIoData);
+    _ReleasePerIoData(LPerIoData, LErrNo);
 
     Exit(True);
   end;

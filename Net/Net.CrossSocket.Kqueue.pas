@@ -203,8 +203,8 @@ type
     procedure Listen(const AHost: string; const APort: Word;
       const ACallback: TCrossListenCallback = nil); override;
 
-    procedure Connect(const AHost: string; const APort, ALocalPort: Word;
-      const ACallback: TCrossConnectionCallback = nil); override;
+    function _ConnectAddr(const AOp: IInterface;
+      const AAddr: TCrossConnectAddr): Boolean; override;
 
     procedure Send(const AConnection: ICrossConnection; const ABuf: Pointer;
       const ALen: Integer; const ACallback: TCrossConnectionCallback = nil); override;
@@ -708,7 +708,7 @@ begin
   begin
     LConnection.LastNetError := LSockErr;
     _LogLastOsError(Self.ClassName + '._HandleConnect.GetError');
-    LConnection.Close;
+    _ConnectAttemptFailed(LConnection);
     Exit;
   end;
 
@@ -1004,58 +1004,79 @@ begin
   _CloseStopHandle;
 end;
 
-procedure TKqueueCrossSocket.Connect(const AHost: string;
-  const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
-
-  procedure _Failed1;
+function TKqueueCrossSocket._ConnectAddr(const AOp: IInterface;
+  const AAddr: TCrossConnectAddr): Boolean;
+var
+  LState: TCrossConnectOp;
+  LSocket, LClientSocket: TSocket;
+  LError: Integer;
+  LSockAddr: TRawSockAddrIn;
+  LConnection: ICrossConnection;
+  LConnectCb: TCrossConnectionCallback;
+  LKqConnection: TKqueueConnection;
+  LRetryOp: IInterface;
+  LSuccess, LCloseRequired: Boolean;
+begin
+  LState := AOp as TCrossConnectOp;
+  LSocket := TSocketAPI.NewSocket(AAddr.Family, AAddr.SockType, AAddr.Protocol);
+  if (LSocket = INVALID_SOCKET) then
   begin
-    if Assigned(ACallback) then
-      ACallback(nil, False);
+    LError := GetLastError;
+    _LogLastOsError('TKqueueCrossSocket._ConnectAddr.NewSocket');
+    // 地址族不受支持仍可尝试另一地址；资源不足等全局错误直接结束。
+    {$IFDEF DELPHI}
+    if (LError = EAFNOSUPPORT) or (LError = EPROTONOSUPPORT) then Exit(False);
+    {$ELSE}
+    if (LError = ESysEAFNOSUPPORT) or (LError = ESysEPROTONOSUPPORT) then Exit(False);
+    {$ENDIF}
+    LState.Complete(nil, False);
+    Exit(True);
   end;
 
-  function _Connect(const ASocket: TSocket; const AAddr: PRawAddrInfo): Boolean;
-    procedure _Failed2;
+  try
+    TSocketAPI.SetNonBlock(LSocket, True);
+    SetKeepAlive(LSocket);
+    _SetNoSigPipe(LSocket);
+    FillChar(LSockAddr, SizeOf(LSockAddr), 0);
+    LSockAddr.AddrLen := AAddr.Addr.AddrLen;
+    if (AAddr.Family = AF_INET6) then
     begin
-      // 尚未建立连接对象，仅回收本次尝试；全部地址失败后统一通知一次。
-      TSocketAPI.CloseSocket(ASocket);
-    end;
-  var
-    LSockAddr: TRawSockAddrIn;
-    LConnection: ICrossConnection;
-    LKqConnection: TKqueueConnection;
-    LSuccess, LCloseRequired: Boolean;
-  begin
-    FillChar(LSockAddr, SizeOf(TRawSockAddrIn), 0);
-    LSockAddr.AddrLen := AAddr.ai_addrlen;
-    if (AAddr.ai_family = AF_INET6) then
-    begin
-      LSockAddr.Addr6.sin6_family := AAddr.ai_family;
-      LSockAddr.Addr6.sin6_port := htons(ALocalPort);
+      LSockAddr.Addr6.sin6_family := AAddr.Family;
+      LSockAddr.Addr6.sin6_port := htons(LState.LocalPort);
     end else
     begin
-      LSockAddr.Addr.sin_family := AAddr.ai_family;
-      LSockAddr.Addr.sin_port := htons(ALocalPort);
+      LSockAddr.Addr.sin_family := AAddr.Family;
+      LSockAddr.Addr.sin_port := htons(LState.LocalPort);
     end;
-    if (TSocketAPI.Bind(ASocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
+    if (TSocketAPI.Bind(LSocket, @LSockAddr.Addr, LSockAddr.AddrLen) < 0) then
     begin
-      {$IFDEF DEBUG}
-      _LogLastOsError('TKqueueCrossSocket._Connect.Bind');
-      {$ENDIF}
-      _Failed2;
+      _LogLastOsError('TKqueueCrossSocket._ConnectAddr.Bind');
       Exit(False);
     end;
 
-    if (TSocketAPI.Connect(ASocket, AAddr.ai_addr, AAddr.ai_addrlen) = 0)
-      or (GetLastError = EINPROGRESS) then
+    if (TSocketAPI.Connect(LSocket, @AAddr.Addr.Addr, AAddr.Addr.AddrLen) <> 0)
+      and (GetLastError <> EINPROGRESS) then
     begin
-      LConnection := CreateConnection(Self, ASocket, ctConnect, AHost, ACallback);
+      _LogLastOsError('TKqueueCrossSocket._ConnectAddr.Connect');
+      Exit(False);
+    end;
+
+    LConnectCb := LState.CreateCallback();
+    // 从调用构造函数起，句柄由连接对象及其构造失败析构路径负责。
+    LClientSocket := LSocket;
+    LSocket := INVALID_SOCKET;
+    LConnection := CreateConnection(Self, LClientSocket, ctConnect,
+      LState.Host, LConnectCb);
+    try
+      LKqConnection := LConnection as TKqueueConnection;
+      LKqConnection._SetConnectOp(AOp);
       TriggerConnecting(LConnection);
-      // 登记回调可能已关闭并通知失败；本次调用已处理，不再重试其他地址。
+      // 用户关闭或 CloseAllConnections 已终止整次操作，不再回退。
       if LConnection.IsClosed then Exit(True);
       {$IFDEF CROSS_CAPACITY_TESTS}
-      if Assigned(CrossConnectBeforeRegisterForTest) then CrossConnectBeforeRegisterForTest(LConnection);
+      if Assigned(CrossConnectBeforeRegisterForTest) then
+        CrossConnectBeforeRegisterForTest(LConnection);
       {$ENDIF}
-      LKqConnection := LConnection as TKqueueConnection;
 
       LKqConnection._KqLock;
       try
@@ -1063,58 +1084,20 @@ procedure TKqueueCrossSocket.Connect(const AHost: string;
       finally
         LKqConnection._KqUnlock;
       end;
-      if LCloseRequired then _CloseCrossData(LConnection);
-      if not LSuccess then Exit(LConnection.IsClosed);
-    end else
-    begin
-      _Failed2;
-      Exit(False);
-    end;
-
-    Result := True;
-  end;
-
-var
-  LHints: TRawAddrInfo;
-  P, LAddrInfo: PRawAddrInfo;
-  LSocket: TSocket;
-begin
-  FillChar(LHints, SizeOf(TRawAddrInfo), 0);
-  LHints.ai_family := AF_UNSPEC;
-  LHints.ai_socktype := SOCK_STREAM;
-  LHints.ai_protocol := IPPROTO_TCP;
-  LAddrInfo := TSocketAPI.GetAddrInfo(AHost, APort, LHints);
-  if (LAddrInfo = nil) then
-  begin
-    _Failed1;
-    Exit;
-  end;
-
-  P := LAddrInfo;
-  try
-    while (LAddrInfo <> nil) do
-    begin
-      LSocket := TSocketAPI.NewSocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
-        LAddrInfo.ai_protocol);
-      if (LSocket = INVALID_SOCKET) then
+      // 先独占失败清理，锁外关闭旧尝试；只有清理获胜者才能继续下一地址。
+      if not LSuccess then
+        Exit(not LKqConnection._CloseRetryingConnect(LRetryOp));
+      Result := True;
+    except
+      on E: Exception do
       begin
-        _Failed1;
-        Exit;
+        _CloseCrossData(LConnection);
+        raise;
       end;
-
-      TSocketAPI.SetNonBlock(LSocket, True);
-      SetKeepAlive(LSocket);
-      _SetNoSigPipe(LSocket);
-
-      if _Connect(LSocket, LAddrInfo) then Exit;
-
-      LAddrInfo := PRawAddrInfo(LAddrInfo.ai_next);
     end;
   finally
-    TSocketAPI.FreeAddrInfo(P);
+    if (LSocket <> INVALID_SOCKET) then TSocketAPI.CloseSocket(LSocket);
   end;
-
-  _Failed1;
 end;
 
 function TKqueueCrossSocket.CreateConnection(const AOwner: TCrossSocketBase;

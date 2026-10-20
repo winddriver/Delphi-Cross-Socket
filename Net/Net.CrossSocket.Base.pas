@@ -704,6 +704,36 @@ type
     function DebugInfo: string; override;
   end;
 
+  TCrossConnectAddr = record
+    Family, SockType, Protocol: Integer;
+    Addr: TRawSockAddrIn;
+  end;
+
+  // 一次 Connect 的状态由接口保活，不反向持有各次连接尝试。
+  TCrossConnectOp = class(TInterfacedObject)
+  private
+    FLock: ILock;
+    FHost: string;
+    FLocalPort: Word;
+    FGeneration, FNextIndex: Integer;
+    FAddrs: TArray<TCrossConnectAddr>;
+    FCallback: TCrossConnectionCallback;
+    FCompleted: Boolean;
+    function GetCompleted: Boolean;
+  public
+    constructor Create(const AHost: string; const ALocalPort: Word;
+      const AGeneration: Integer; const AAddrs: TArray<TCrossConnectAddr>;
+      const ACallback: TCrossConnectionCallback);
+    function NextAddr(out AAddr: TCrossConnectAddr): Boolean;
+    function HasNextAddr: Boolean;
+    function CreateCallback: TCrossConnectionCallback;
+    procedure Complete(const AConnection: ICrossConnection; const ASuccess: Boolean);
+    property Host: string read FHost;
+    property LocalPort: Word read FLocalPort;
+    property Generation: Integer read FGeneration;
+    property Completed: Boolean read GetCompleted;
+  end;
+
   TCrossConnectionBase = class(TCrossData, ICrossConnection)
   public const
     SND_BUF_SIZE = 32768;
@@ -716,8 +746,11 @@ type
     FLastNetError: Integer;
     FRecvLock, FSentLock: ILock;
     FConnectCb: TCrossConnectionCallback;
+    FConnectOp: IInterface;
     FSendLimits: IInterface;
     function _TakeConnectCallback: TCrossConnectionCallback;
+    function _TakeConnectOp: IInterface;
+    procedure _Close;
   protected
     procedure _LockRecv; inline;
     procedure _UnlockRecv; inline;
@@ -750,6 +783,9 @@ type
     procedure UpdateAddr; override;
     procedure Close; override;
     procedure Disconnect; virtual;
+
+    procedure _SetConnectOp(const AOp: IInterface);
+    function _CloseRetryingConnect(out AOp: IInterface): Boolean;
 
     procedure SendBuf(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); overload;
@@ -802,6 +838,7 @@ type
 
     FConnections: TCrossConnections;
     FConnectionsLock: ILock;
+    FConnectGeneration: Integer;
 
     FListens: TCrossListens;
     FListensLock: ILock;
@@ -861,6 +898,13 @@ type
     function ProcessIoEvent: Boolean; virtual; abstract;
     function GetIoThreads: Integer; virtual;
 
+    function ResolveConnectAddrs(const AHost: string;
+      const APort: Word): TArray<TCrossConnectAddr>; virtual;
+    function _ConnectAddr(const AOp: IInterface;
+      const AAddr: TCrossConnectAddr): Boolean; virtual; abstract;
+    procedure _ConnectNextAddr(const AOp: IInterface);
+    procedure _ConnectAttemptFailed(const AConnection: ICrossConnection);
+
     // 创建连接对象
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AHost: string;
@@ -905,11 +949,6 @@ type
     procedure Listen(const AHost: string; const APort: Word;
       const ACallback: TCrossListenCallback = nil); virtual; abstract;
 
-    procedure Connect(const AHost: string; const APort, ALocalPort: Word;
-      const ACallback: TCrossConnectionCallback = nil); overload; virtual; abstract;
-    procedure Connect(const AHost: string; const APort: Word;
-      const ACallback: TCrossConnectionCallback = nil); overload;
-
     procedure Send(const AConnection: ICrossConnection; const ABuf: Pointer;
       const ALen: Integer; const ACallback: TCrossConnectionCallback = nil); virtual; abstract;
 
@@ -918,6 +957,10 @@ type
     procedure CloseAll; virtual;
     procedure DisconnectAll; virtual;
   public
+    procedure Connect(const AHost: string; const APort, ALocalPort: Word;
+      const ACallback: TCrossConnectionCallback = nil); overload; virtual;
+    procedure Connect(const AHost: string; const APort: Word;
+      const ACallback: TCrossConnectionCallback = nil); overload;
     constructor Create(const AIoThreads: Integer); virtual;
     destructor Destroy; override;
 
@@ -982,6 +1025,13 @@ var
 implementation
 
 uses
+  {$IF defined(MSWINDOWS)}
+  Net.Winsock2,
+  {$ELSEIF defined(DELPHI)}
+  Posix.SysSocket, Posix.NetinetIn,
+  {$ELSE}
+  Sockets,
+  {$ENDIF}
   Utils.Logger;
 
 var
@@ -1263,6 +1313,80 @@ end;
 
 { TCrossSocketBase }
 
+{ TCrossConnectOp }
+
+constructor TCrossConnectOp.Create(const AHost: string; const ALocalPort: Word;
+  const AGeneration: Integer; const AAddrs: TArray<TCrossConnectAddr>;
+  const ACallback: TCrossConnectionCallback);
+begin
+  inherited Create;
+  FLock := TLock.Create;
+  FHost := AHost;
+  FLocalPort := ALocalPort;
+  FGeneration := AGeneration;
+  FAddrs := AAddrs;
+  FCallback := ACallback;
+end;
+
+function TCrossConnectOp.NextAddr(out AAddr: TCrossConnectAddr): Boolean;
+begin
+  FLock.Enter;
+  try
+    Result := not FCompleted and (FNextIndex < Length(FAddrs));
+    if Result then
+    begin
+      // 复制地址，完成或取消时清空列表不会影响正在提交的系统调用。
+      AAddr := FAddrs[FNextIndex];
+      Inc(FNextIndex);
+    end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TCrossConnectOp.GetCompleted: Boolean;
+begin
+  FLock.Enter;
+  try Result := FCompleted;
+  finally FLock.Leave; end;
+end;
+
+function TCrossConnectOp.HasNextAddr: Boolean;
+begin
+  FLock.Enter;
+  try Result := not FCompleted and (FNextIndex < Length(FAddrs));
+  finally FLock.Leave; end;
+end;
+
+function TCrossConnectOp.CreateCallback: TCrossConnectionCallback;
+var
+  LKeep: IInterface;
+begin
+  LKeep := Self;
+  Result := procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+    begin
+      (LKeep as TCrossConnectOp).Complete(AConnection, ASuccess);
+    end;
+end;
+
+procedure TCrossConnectOp.Complete(const AConnection: ICrossConnection;
+  const ASuccess: Boolean);
+var
+  LCallback: TCrossConnectionCallback;
+begin
+  FLock.Enter;
+  try
+    if FCompleted then Exit;
+    FCompleted := True;
+    LCallback := FCallback;
+    FCallback := nil;
+    FAddrs := nil;
+  finally
+    FLock.Leave;
+  end;
+  if Assigned(LCallback) then LCallback(AConnection, ASuccess);
+end;
+
 procedure TCrossSocketBase.CloseAll;
 begin
   CloseAllListens;
@@ -1278,6 +1402,8 @@ begin
 
   _LockConnections;
   try
+    // 解析中及两次尝试间的操作可能不在连接表内，也必须取消。
+    AtomicIncrement(FConnectGeneration);
     LLConnectionArr := FConnections.Values.ToArray;
   finally
     _UnlockConnections;
@@ -1309,6 +1435,89 @@ procedure TCrossSocketBase.Connect(const AHost: string; const APort: Word;
   const ACallback: TCrossConnectionCallback);
 begin
   Connect(AHost, APort, 0, ACallback);
+end;
+
+procedure TCrossSocketBase.Connect(const AHost: string;
+  const APort, ALocalPort: Word; const ACallback: TCrossConnectionCallback);
+var
+  LGeneration: Integer;
+  LAddrs: TArray<TCrossConnectAddr>;
+  LOp: IInterface;
+begin
+  LGeneration := AtomicCmpExchange(FConnectGeneration, 0, 0);
+  LAddrs := ResolveConnectAddrs(AHost, APort);
+  LOp := TCrossConnectOp.Create(AHost, ALocalPort, LGeneration, LAddrs, ACallback);
+  _ConnectNextAddr(LOp);
+end;
+
+function TCrossSocketBase.ResolveConnectAddrs(const AHost: string;
+  const APort: Word): TArray<TCrossConnectAddr>;
+var
+  LHints: TRawAddrInfo;
+  LFirst, LInfo: PRawAddrInfo;
+  LAddr: TCrossConnectAddr;
+begin
+  Result := nil;
+  FillChar(LHints, SizeOf(LHints), 0);
+  LHints.ai_family := AF_UNSPEC;
+  LHints.ai_socktype := SOCK_STREAM;
+  LHints.ai_protocol := IPPROTO_TCP;
+  LFirst := TSocketAPI.GetAddrInfo(AHost, APort, LHints);
+  LInfo := LFirst;
+  try
+    while LInfo <> nil do
+    begin
+      if (LInfo.ai_addr <> nil) and
+        ((LInfo.ai_family = AF_INET) or (LInfo.ai_family = AF_INET6)) and
+        (LInfo.ai_addrlen > 0) and
+        (LInfo.ai_addrlen <= SizeOf(LAddr.Addr.Addr6)) then
+      begin
+        LAddr := Default(TCrossConnectAddr);
+        LAddr.Family := LInfo.ai_family;
+        LAddr.SockType := LInfo.ai_socktype;
+        LAddr.Protocol := LInfo.ai_protocol;
+        LAddr.Addr.AddrLen := LInfo.ai_addrlen;
+        Move(LInfo.ai_addr^, LAddr.Addr.Addr, LInfo.ai_addrlen);
+        Result := Result + [LAddr];
+      end;
+      LInfo := PRawAddrInfo(LInfo.ai_next);
+    end;
+  finally
+    if LFirst <> nil then TSocketAPI.FreeAddrInfo(LFirst);
+  end;
+end;
+
+procedure TCrossSocketBase._ConnectNextAddr(const AOp: IInterface);
+var
+  LOp: TCrossConnectOp;
+  LAddr: TCrossConnectAddr;
+begin
+  LOp := AOp as TCrossConnectOp;
+  try
+    while (LOp.Generation = AtomicCmpExchange(FConnectGeneration, 0, 0))
+      and LOp.NextAddr(LAddr) do
+      if _ConnectAddr(AOp, LAddr) then Exit;
+    // 地址耗尽或已被 CloseAllConnections 取消，统一结算一次。
+    LOp.Complete(nil, False);
+  except
+    // 系统调用包装、构造或派生钩子抛错时也结束操作；保留原异常。
+    try
+      LOp.Complete(nil, False);
+    except
+      on E: Exception do _LogException('Connect failure callback', E);
+    end;
+    raise;
+  end;
+end;
+
+procedure TCrossSocketBase._ConnectAttemptFailed(const AConnection: ICrossConnection);
+var
+  LOp: IInterface;
+begin
+  if (AConnection <> nil) and
+    (AConnection as TCrossConnectionBase)._CloseRetryingConnect(LOp) and
+    (LOp <> nil) then
+    _ConnectNextAddr(LOp);
 end;
 
 constructor TCrossSocketBase.Create(const AIoThreads: Integer);
@@ -1448,6 +1657,7 @@ var
 begin
   LConnObj := AConnection as TCrossConnectionBase;
 
+  LConnObj._TakeConnectOp;
   // 成功和关闭竞争时，由同一把锁决定唯一的通知持有者。
   LConnectCb := LConnObj._TakeConnectCallback();
   if Assigned(LConnectCb) then
@@ -1557,35 +1767,59 @@ end;
 procedure TCrossSocketBase.TriggerConnecting(const AConnection: ICrossConnection);
 var
   LConnObj: TCrossConnectionBase;
+  LCancelled: Boolean;
+  LStatus: Integer;
 begin
   LConnObj := AConnection as TCrossConnectionBase;
 
   LConnObj._Lock;
   try
-    AConnection.ConnectStatus := csConnecting;
-
     _LockConnections;
     try
-      FConnections.AddOrSetValue(AConnection.UID, AConnection);
-      FConnectionsCount := FConnections.Count;
+      // 与关闭全部串行发布，不能让已经取消的旧操作重新入表。
+      LCancelled := AConnection.IsClosed;
+      if not LCancelled and (LConnObj.FConnectOp <> nil) then
+        LCancelled := ((LConnObj.FConnectOp as TCrossConnectOp).Generation <> FConnectGeneration)
+          or (LConnObj.FConnectOp as TCrossConnectOp).Completed;
+      // Close 在锁外原子取得关闭权，状态写入也必须尊重它。
+      while not LCancelled do
+      begin
+        LStatus := AtomicCmpExchange(LConnObj.FConnectStatus, 0, 0);
+        if TConnectStatus(LStatus) in [csDisconnected, csClosed] then
+          LCancelled := True
+        else if AtomicCmpExchange(LConnObj.FConnectStatus,
+          Integer(csConnecting), LStatus) = LStatus then Break;
+      end;
+      if not LCancelled then
+      begin
+        FConnections.AddOrSetValue(AConnection.UID, AConnection);
+        FConnectionsCount := FConnections.Count;
+      end;
     finally
       _UnlockConnections;
     end;
   finally
     LConnObj._Unlock;
   end;
+  if LCancelled then _CloseCrossData(AConnection);
 end;
 
 procedure TCrossSocketBase.TriggerConnected(const AConnection: ICrossConnection);
 var
   LConnObj: TCrossConnectionBase;
+  LStatus: Integer;
 begin
   LConnObj := AConnection as TCrossConnectionBase;
 
   LConnObj._Lock;
   try
+    if AConnection.IsClosed then Exit;
     AConnection.UpdateAddr;
-    AConnection.ConnectStatus := csConnected;
+    repeat
+      LStatus := AtomicCmpExchange(LConnObj.FConnectStatus, 0, 0);
+      if TConnectStatus(LStatus) in [csDisconnected, csClosed] then Exit;
+    until AtomicCmpExchange(LConnObj.FConnectStatus,
+      Integer(csConnected), LStatus) = LStatus;
   finally
     LConnObj._Unlock;
   end;
@@ -1945,11 +2179,15 @@ begin
 end;
 
 procedure TCrossConnectionBase.Close;
+begin
+  if (_SetConnectStatus(csClosed) = csClosed) then Exit;
+  _Close;
+end;
+
+procedure TCrossConnectionBase._Close;
 var
   LSelf: ICrossConnection;
 begin
-  if (_SetConnectStatus(csClosed) = csClosed) then Exit;
-
   if (FSocket <> INVALID_SOCKET) then
   begin
     // TriggerDisconnected removes this connection from the owner list and runs
@@ -1973,6 +2211,60 @@ begin
   end;
 end;
 
+procedure TCrossConnectionBase._SetConnectOp(const AOp: IInterface);
+begin
+  // 只在连接发布前设置；之后通过连接锁取走。
+  FConnectOp := AOp;
+end;
+
+function TCrossConnectionBase._TakeConnectOp: IInterface;
+begin
+  Result := nil;
+  if FLock = nil then Exit;
+  _Lock;
+  try
+    Result := FConnectOp;
+    FConnectOp := nil;
+  finally
+    _Unlock;
+  end;
+end;
+
+function TCrossConnectionBase._CloseRetryingConnect(out AOp: IInterface): Boolean;
+var
+  LConnectCb: TCrossConnectionCallback;
+begin
+  AOp := nil;
+  _Lock;
+  try
+    // 只关闭仍在连接的尝试，不能撤销已经成功或被外部取消的终态。
+    Result := AtomicCmpExchange(FConnectStatus, Integer(csClosed),
+      Integer(csConnecting)) = Integer(csConnecting);
+    if not Result then Exit;
+    // 末次失败保留普通 Close 通知，调用者仍可读取连接的 LastNetError。
+    if (FConnectOp <> nil) and (FConnectOp as TCrossConnectOp).HasNextAddr then
+    begin
+      AOp := FConnectOp;
+      FConnectOp := nil;
+      LConnectCb := FConnectCb;
+      FConnectCb := nil;
+    end;
+  finally
+    _Unlock;
+  end;
+  // 闭包最后一个引用的释放也放在锁外。
+  LConnectCb := nil;
+  try
+    _Close;
+  except
+    // 清理抛错不能遗留一个再也不会收到结果的操作。
+    if AOp <> nil then
+      (AOp as TCrossConnectOp).Complete(nil, False);
+    raise;
+  end;
+  Result := AOp <> nil;
+end;
+
 function TCrossConnectionBase.DebugInfo: string;
 begin
   Result := TStrUtils.Format('socket=%d, type=%s, local=(%s:%d), remote=(%s:%d)', [
@@ -1987,6 +2279,7 @@ destructor TCrossConnectionBase.Destroy;
 var
   LConnectCb: TCrossConnectionCallback;
 begin
+  _TakeConnectOp;
   // 连接释放时, 调用连接回调, 告知连接失败
   // 连接成功后 FConnectCb 会被置为 nil,
   // 所以如果这里 FConnectCb 不等于 nil, 则表示连接释放时仍未连接成功
@@ -2088,7 +2381,7 @@ begin
   TSocketAPI.CloseSocket(FSocket);
   FSocket := INVALID_SOCKET;
 
-
+  _TakeConnectOp;
   LConnectCb := _TakeConnectCallback();
   _CallConnectionCallback(LConnectCb, Self, False);
 end;

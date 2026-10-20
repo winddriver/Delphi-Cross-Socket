@@ -10,6 +10,16 @@
 - **回调可能同步执行，也可能来自 I/O 线程。** 不保证固定线程或异步切换；不要在回调中等待必须依靠当前回调返回才能推进的工作。界面线程切换和业务对象的并发保护由调用方负责。
 - **接口只保活它实际拥有的对象。** 原始对象指针和借用流不会因被闭包捕获就自动获得所有权。调用方应保留所需的接口强引用；显式释放对象后不能再访问原变量。
 
+## Connect 的顺序多地址回退
+
+同一次 `Connect` 按系统解析顺序尝试 IPv4/IPv6 地址。绑定、连接提交或异步连接失败时继续下一地址；地址族/协议不支持也允许回退，创建 socket 时的全局资源错误直接结束。只有连接成功、地址耗尽或主动取消时才执行最终回调，不把单个地址失败提前报告为整次操作失败。
+
+地址列表复制后由一次连接操作持有，各平台共用解析、地址循环与最终结果逻辑。操作通过接口引用保活，不反向强持有连接。失败尝试先从连接表和事件注册中清理，再续试；最终回调及清理通知均沿现有锁外调用规则执行。末次失败若已创建连接，回调保留该关闭连接及其 `LastNetError`；在创建连接之前失败时，回调的连接参数仍可能为 `nil`。`OnDisconnected` 仍按具体尝试对象触发，不能把它当作整次 `Connect` 的最终结果。
+
+普通 `Close` 取消当前连接操作，不启动下一地址。`CloseAllConnections` 同时使解析中、发布前以及两个地址尝试之间的已有操作失效；解析调用本身不会被强制中断，但返回后不得再发布旧连接。关闭全部之后新发起的 `Connect` 仍是新操作，不受上一轮关闭代次影响。调用方仍须保证 socket owner 在并发调用期间存活。
+
+这项功能不增加并行地址竞速或新的每地址超时；挂起的连接仍等待系统结果或调用方取消。TCP 成功后的 TLS 握手失败沿现有 TLS 终态规则处理，不作为换地址的信号。真实回退、关闭屏障、失败信息和堆检查见 [Connect 多地址回归](Tests/FPC/ConnectFallbackTests/README.md)。
+
 ## Kqueue 的事件与关闭
 
 Kqueue 的 `udata` 保存 owner 生命周期内不复用的编号。第一次实际注册前，后端私有表保留一份对象接口；同一连接的读写过滤器及重复 `EV_ADD` 共用这一身份，不按注册调用次数累积引用。编号使用本机指针宽度，保留零和停止哨兵；耗尽时注册失败，不回卷复用。
@@ -30,11 +40,11 @@ StopLoop 从外部线程关闭对象并等待注册归零、工作线程退出�
 
 HTTP Parser 的失败是终态：回调吞掉 `EAbort`、再次 Decode / Finish 或重入解析，都不能把失败改成成功。HTTP 正文发送策略与连接复用规则另见 [HTTP 状态归属及发送策略](Tests/FPC/HttpFailureTests/README.md)。
 
-实现入口：[Socket 通知隔离](Net.CrossSocket.Base.pas#L1168)、[OpenSSL 逻辑写完成](Net.CrossSslSocket.OpenSSL.pas#L1169)、[HTTP 完成通知](Net.CrossHttpServer.pas#L2907)、[WS 完成与发送泵](Net.CrossWebSocketSender.pas#L330)。这些入口集中各自职责，不要求把它们迁移到一个通用框架。
+实现入口：[Socket 通知隔离](Net.CrossSocket.Base.pas#L1218)、[OpenSSL 逻辑写完成](Net.CrossSslSocket.OpenSSL.pas#L1169)、[HTTP 完成通知](Net.CrossHttpServer.pas#L2907)、[WS 完成与发送泵](Net.CrossWebSocketSender.pas#L330)。这些入口集中各自职责，不要求把它们迁移到一个通用框架。
 
 ## 锁边界：队列锁外不等于没有锁
 
-`TCrossSocketBase.TriggerReceived` 在连接的接收锁内同步调用协议接收逻辑，HTTP Parser 回调、路由和 WS 消息事件可能仍处在这条调用链中。发送队列先解锁再执行 provider / 完成通知，只说明它们不持有**该发送队列的状态锁**；若发送由接收回调发起，外层接收锁仍可能存在。见 [TriggerReceived](Net.CrossSocket.Base.pas#L1671) 与 [HTTP 解析入口注释](Net.CrossHttpServer.pas#L3172)。
+`TCrossSocketBase.TriggerReceived` 在连接的接收锁内同步调用协议接收逻辑，HTTP Parser 回调、路由和 WS 消息事件可能仍处在这条调用链中。发送队列先解锁再执行 provider / 完成通知，只说明它们不持有**该发送队列的状态锁**；若发送由接收回调发起，外层接收锁仍可能存在。见 [TriggerReceived](Net.CrossSocket.Base.pas#L1905) 与 [HTTP 解析入口注释](Net.CrossHttpServer.pas#L3172)。
 
 - HTTP 响应队列、WS Sender 与 OpenSSL 的状态锁保护接纳、顺序和终结；业务取数、通知及关闭工作按各层实现移到该状态锁外。
 - 允许的同线程 Close / Send 重入已有回归；这不意味着任意跨线程互等安全。尤其不要持有业务锁等待一个可能反向请求该锁的接收或发送回调。
