@@ -97,7 +97,7 @@ python run_tests.py bin/f16-final/win64/SocketCallbackTests.exe --cases listen-d
 
 - Windows 用 Net.Winsock2 已有函数变量观测 close，并注入 socket/listen 的错误返回；DNS 失败路径必须没有项目发出的 close 调用。
 - Linux socket/listen 错误由四条 seccomp 指令在测试主线程中返回指定 errno；不修改全局配置，已有 I/O 线程不受该过滤器影响。该注入仅适用于 Linux x86_64。
-- 注册失败使用另一个已经 StopLoop 的测试实例，其事件句柄失效，从而触发真实注册错误；不停止主实例的正常监听。
+- 注册失败使用另一个运行中的测试实例，在 `CreateListen` 后令其原生监听句柄无效；Linux 用 `/dev/null` 占住原编号，使 epoll_ctl 真正返回错误。停止后的实例现在会在准入阶段拒绝，不能再用于验证原生注册失败。原有失败回调、保留对象、20 次资源计数和主监听存活断言不变。
 - 所有注入都只在对应测试子进程中生效。不制造栈值来控制未初始化变量。
 
 红基线位于 `bin/f16-baseline/`：Windows 地址解析失败 20 次错误调用了 close 20 次；监听失败回调抛异常使 Windows 句柄从 156 增至 176、FPC Linux fd 从 10 增至 30。Linux 本机的未初始化值没有碰巧误关存活资源，DNS 原版用例通过，此项不冒称 Linux 动态复现。其他阶段的正常失败清理原版通过，作为相邻回归保留。

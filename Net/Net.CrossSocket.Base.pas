@@ -690,6 +690,8 @@ type
     FSockType: Integer;
     FProtocol: Integer;
     FClosed: Integer;
+    FGeneration: Integer;
+    FPublished: Integer;
   protected
     function GetUIDTag: Byte; override;
     function GetFamily: Integer;
@@ -702,6 +704,8 @@ type
 
     procedure Close; override;
     function DebugInfo: string; override;
+    function _IsPublished: Boolean;
+    property Generation: Integer read FGeneration;
   end;
 
   TCrossConnectAddr = record
@@ -842,6 +846,8 @@ type
 
     FListens: TCrossListens;
     FListensLock: ILock;
+    FListenGeneration: Integer;
+    FLoopStopping: Integer;
 
     FOnIoThreadBegin: TCrossIoThreadEvent;
     FOnIoThreadEnd: TCrossIoThreadEvent;
@@ -897,6 +903,11 @@ type
       out APrepared: TCrossConnectionCallback): Boolean;
     function ProcessIoEvent: Boolean; virtual; abstract;
     function GetIoThreads: Integer; virtual;
+    function _GetListenGeneration: Integer;
+    function _CanListen(const AGeneration: Integer): Boolean;
+    function _RegisterListen(const AListen: ICrossListen; const AGeneration: Integer): Boolean;
+    procedure _StartListening;
+    procedure _StopListening;
 
     function ResolveConnectAddrs(const AHost: string;
       const APort: Word): TArray<TCrossConnectAddr>; virtual;
@@ -1021,6 +1032,13 @@ var
   CrossSendRejectedForTest: TCrossSendRejectedTestHook;
   {$ENDIF}
   CrossSocketLogEnabled: Boolean = {$IFDEF DEBUG}True{$ELSE}False{$ENDIF};
+
+{$IFDEF CROSS_LISTEN_TESTS}
+type
+  TCrossListenTestHook = reference to procedure(const AListen: ICrossListen);
+var
+  CrossListenRegisteredForTest: TCrossListenTestHook;
+{$ENDIF}
 
 implementation
 
@@ -1422,6 +1440,7 @@ begin
 
   _LockListens;
   try
+    AtomicIncrement(FListenGeneration);
     LListenArr := FListens.Values.ToArray;
   finally
     _UnlockListens;
@@ -1522,6 +1541,7 @@ end;
 
 constructor TCrossSocketBase.Create(const AIoThreads: Integer);
 begin
+  FLoopStopping := 1;
   FIoThreads := AIoThreads;
 
   FKeepAliveIdle := 5;
@@ -1777,7 +1797,8 @@ begin
     _LockConnections;
     try
       // 与关闭全部串行发布，不能让已经取消的旧操作重新入表。
-      LCancelled := AConnection.IsClosed;
+      LCancelled := AConnection.IsClosed
+        or (AtomicCmpExchange(FLoopStopping, 0, 0) <> 0);
       if not LCancelled and (LConnObj.FConnectOp <> nil) then
         LCancelled := ((LConnObj.FConnectOp as TCrossConnectOp).Generation <> FConnectGeneration)
           or (LConnObj.FConnectOp as TCrossConnectOp).Completed;
@@ -1872,20 +1893,82 @@ begin
     FOnIoThreadEnd(Self, AIoThread);
 end;
 
-procedure TCrossSocketBase.TriggerListened(const AListen: ICrossListen);
+function TCrossSocketBase._GetListenGeneration: Integer;
 begin
-  AListen.UpdateAddr;
+  Result := AtomicCmpExchange(FListenGeneration, 0, 0);
+end;
 
+function TCrossSocketBase._CanListen(const AGeneration: Integer): Boolean;
+begin
+  Result := (AtomicCmpExchange(FLoopStopping, 0, 0) = 0)
+    and (AGeneration = _GetListenGeneration);
+end;
+
+procedure TCrossSocketBase._StartListening;
+begin
   _LockListens;
-  try
-    FListens.AddOrSetValue(AListen.UID, AListen);
-    FListensCount := FListens.Count;
-  finally
-    _UnlockListens;
-  end;
+  try AtomicExchange(FLoopStopping, 0);
+  finally _UnlockListens; end;
+end;
 
-  if Assigned(FOnListened) then
-    FOnListened(Self, AListen);
+procedure TCrossSocketBase._StopListening;
+begin
+  _LockListens;
+  try AtomicExchange(FLoopStopping, 1);
+  finally _UnlockListens; end;
+end;
+
+function TCrossSocketBase._RegisterListen(const AListen: ICrossListen;
+  const AGeneration: Integer): Boolean;
+var
+  LListen: TCrossListenBase;
+begin
+  LListen := AListen as TCrossListenBase;
+  LListen._Lock;
+  try
+    _LockListens;
+    try
+      Result := not AListen.IsClosed and _CanListen(AGeneration);
+      if not Result then Exit;
+      LListen.FGeneration := AGeneration;
+      FListens.AddOrSetValue(AListen.UID, AListen);
+      FListensCount := FListens.Count;
+    finally
+      _UnlockListens;
+    end;
+  finally
+    LListen._Unlock;
+  end;
+  {$IFDEF CROSS_LISTEN_TESTS}
+  if Result and Assigned(CrossListenRegisteredForTest) then
+    CrossListenRegisteredForTest(AListen);
+  {$ENDIF}
+end;
+
+procedure TCrossSocketBase.TriggerListened(const AListen: ICrossListen);
+var
+  LListen: TCrossListenBase;
+  LRegistered: ICrossListen;
+begin
+  LListen := AListen as TCrossListenBase;
+  if AListen.IsClosed then Exit;
+  // 虚方法可能抛错或重入，不能在内部锁中执行。
+  AListen.UpdateAddr;
+  LListen._Lock;
+  try
+    _LockListens;
+    try
+      if AListen.IsClosed or not _CanListen(LListen.Generation) then Exit;
+      if not FListens.TryGetValue(AListen.UID, LRegistered) then Exit;
+      if AtomicCmpExchange(LListen.FPublished, 1, 0) <> 0 then Exit;
+    finally
+      _UnlockListens;
+    end;
+  finally
+    LListen._Unlock;
+  end;
+  // 成功已经认领；用户主动关闭后不再重复入表或改报失败。
+  if Assigned(FOnListened) then FOnListened(Self, AListen);
 end;
 
 procedure TCrossSocketBase.TriggerListenEnd(const AListen: ICrossListen);
@@ -2112,19 +2195,28 @@ end;
 procedure TCrossListenBase.Close;
 var
   LSelf: ICrossListen;
+  LSocket: TSocket;
 begin
   if (AtomicExchange(FClosed, 1) = 1) then Exit;
-
-  if (FSocket <> INVALID_SOCKET) then
-  begin
-    LSelf := Self;
-    TSocketAPI.CloseSocket(FSocket);
-    try
-      FOwner.TriggerListenEnd(LSelf);
-    finally
-      FSocket := INVALID_SOCKET;
-    end;
+  LSelf := Self;
+  _Lock;
+  try
+    // 原生注册/投递也持有此锁；取走句柄后，新提交只能看到关闭状态。
+    LSocket := FSocket;
+    FSocket := INVALID_SOCKET;
+  finally
+    _Unlock;
   end;
+  if LSocket <> INVALID_SOCKET then
+  begin
+    TSocketAPI.CloseSocket(LSocket);
+    FOwner.TriggerListenEnd(LSelf);
+  end;
+end;
+
+function TCrossListenBase._IsPublished: Boolean;
+begin
+  Result := AtomicCmpExchange(FPublished, 0, 0) <> 0;
 end;
 
 function TCrossListenBase.GetFamily: Integer;

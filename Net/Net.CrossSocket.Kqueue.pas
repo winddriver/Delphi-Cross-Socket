@@ -65,7 +65,6 @@ type
     FIoEvents: TIoEvents;
     FEventId: NativeUInt;
     FClosing: Integer;
-    FPublished: Boolean;
 
     function _ReadEnabled: Boolean; inline;
     function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
@@ -189,7 +188,6 @@ type
     procedure _HandleRead(const AConnection: ICrossConnection);
     procedure _HandleWrite(const AConnection: ICrossConnection);
   protected
-    procedure TriggerListened(const AListen: ICrossListen); override;
 
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AHost: string;
@@ -279,7 +277,8 @@ var
   LEvent: TKEvent;
 begin
   FIoEvents := AIoEvents;
-  if not _ReadEnabled or IsClosed then Exit(False);
+  if not _ReadEnabled or IsClosed
+    or not TKqueueCrossSocket(Owner)._CanListen(Generation) then Exit(False);
 
   try
     // 在提交之前入表，事件即使立即返回也能取得接口。
@@ -566,31 +565,6 @@ begin
   Result := _RegisteredCount;
 end;
 {$ENDIF}
-
-procedure TKqueueCrossSocket.TriggerListened(const AListen: ICrossListen);
-var
-  LListen: TKqueueListen;
-  LListens: TCrossListens;
-begin
-  LListen := AListen as TKqueueListen;
-  LListen._Lock;
-  try
-    // StopLoop 可能已经关闭了刚 arm、尚未发布的监听，不能重新入表。
-    if LListen.IsClosed then Exit;
-    AListen.UpdateAddr;
-    LListens := LockListens;
-    try
-      LListens.AddOrSetValue(AListen.UID, AListen);
-      FListensCount := LListens.Count;
-      LListen.FPublished := True;
-    finally
-      UnlockListens;
-    end;
-  finally
-    LListen._Unlock;
-  end;
-  if Assigned(OnListened) then OnListened(Self, AListen);
-end;
 
 procedure TKqueueCrossSocket._CloseIdleHandle;
 begin
@@ -953,11 +927,11 @@ begin
   _OpenIdleHandle;
 
   FKqueueHandle := kqueue();
+  _OpenStopHandle;
+  _StartListening;
   SetLength(FIoThreads, GetIoThreads);
   for I := 0 to Length(FIoThreads) - 1 do
     FIoThreads[i] := TIoEventThread.Create(Self);
-
-  _OpenStopHandle;
 end;
 
 procedure TKqueueCrossSocket.StopLoop;
@@ -967,6 +941,7 @@ var
 begin
   if (FIoThreads = nil) then
   begin
+    _StopListening;
     _CloseRegisteredData;
     Exit;
   end;
@@ -977,6 +952,7 @@ begin
     if (FIoThreads[I].ThreadID = LCurrentThreadID) then
       raise ECrossSocket.Create('不能在IO线程中执行StopLoop!');
 
+  _StopListening;
   FRegisteredLock.Enter;
   try
     FStopping := True;
@@ -1127,6 +1103,7 @@ var
   LListen: ICrossListen;
   LKqListen: TKqueueListen;
   LListenSuccess, LUpdateIoEventSuccess: Boolean;
+  LGeneration: Integer;
 
   procedure _Failed;
   begin
@@ -1147,6 +1124,12 @@ var
 begin
   LListenSocket := INVALID_SOCKET;
   LListenSuccess := False;
+  LGeneration := _GetListenGeneration;
+  if not _CanListen(LGeneration) then
+  begin
+    _Failed;
+    Exit;
+  end;
   FillChar(LHints, SizeOf(TRawAddrInfo), 0);
 
   LHints.ai_flags := AI_PASSIVE;
@@ -1167,6 +1150,11 @@ begin
   try
     while (LAddrInfo <> nil) do
     begin
+      if not _CanListen(LGeneration) then
+      begin
+        if not LListenSuccess then _Failed;
+        Break;
+      end;
       LListen := nil;
       LListenSocket := TSocketAPI.NewSocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
         LAddrInfo.ai_protocol);
@@ -1200,6 +1188,11 @@ begin
       LKqListen := LListen as TKqueueListen;
 
       try
+        if not _RegisterListen(LListen, LGeneration) then
+        begin
+          _Failed;
+          Exit;
+        end;
         // 监听套接字的读事件
         // 读事件到达表明有新连接
         LKqListen._Lock;
@@ -1217,7 +1210,7 @@ begin
         end;
 
         TriggerListened(LListen);
-        if not LKqListen.FPublished then
+        if not LKqListen._IsPublished then
         begin
           // 注册后被 StopLoop 关闭、未能发布，仍走失败通知和清理。
           _Failed;

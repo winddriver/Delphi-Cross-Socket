@@ -35,8 +35,11 @@ type
     FProbeByte: Byte;
     FGuardFile: TFileStream;
     FGuardByte: Byte;
+    FFailListenRegistration: Boolean;
     procedure _Send(const AConnection: ICrossConnection; const AId, ASize: Integer);
   protected
+    function CreateListen(const AOwner: TCrossSocketBase; const ASocket: TSocket;
+      const AFamily, ASockType, AProtocol: Integer): ICrossListen; override;
     function ProcessIoEvent: Boolean; override;
     procedure LogicConnected(const AConnection: ICrossConnection); override;
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
@@ -162,6 +165,26 @@ begin
   FResume.Free;
   FLock.Free;
   inherited;
+end;
+
+function TTestSocket.CreateListen(const AOwner: TCrossSocketBase; const ASocket: TSocket;
+  const AFamily, ASockType, AProtocol: Integer): ICrossListen;
+{$IFDEF LINUX}
+var
+  LNull: Integer;
+{$ENDIF}
+begin
+  Result := inherited CreateListen(AOwner, ASocket, AFamily, ASockType, AProtocol);
+  if not FFailListenRegistration then Exit;
+  // 保持实例运行，实际触发原生注册错误，不被停止准入检查提前拦截。
+  {$IFDEF LINUX}
+  LNull := TestOpen('/dev/null', 0);
+  Check(LNull >= 0, 'registration probe open failed');
+  try Check(TestDup2(LNull, Integer(Result.Socket)) >= 0, 'registration probe dup2 failed');
+  finally TestClose(LNull); end;
+  {$ELSE}
+  TSocketAPI.CloseSocket(Result.Socket);
+  {$ENDIF}
 end;
 
 function TTestSocket.ProcessIoEvent: Boolean;
@@ -739,10 +762,10 @@ begin
   LTarget := Self;
   if (AKind = 'register') or (AKind = 'register-callback') then
   begin
-    // 另一实例保留已经失效的事件句柄，触发真实注册失败，不关闭主实例。
+    // 另一运行中实例注入无效监听句柄，不关闭主实例。
     LTarget := TTestSocket.Create('race');
     LTargetOwner := LTarget;
-    LTarget.StopLoop;
+    LTarget.FFailListenRegistration := True;
   end;
   if AKind = 'dns' then LHost := '::invalid::' else LHost := '127.0.0.1';
   {$IFDEF LINUX}

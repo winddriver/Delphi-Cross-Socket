@@ -54,7 +54,7 @@ type
     FEpollHandle: Integer;
     FOpCode: Integer;
 
-    function _UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
+    function _UpdateIoEvent(const AIoEvents: TIoEvents; out AError: Integer): Boolean;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AListenSocket: TSocket;
       const AFamily, ASockType, AProtocol: Integer); override;
@@ -194,23 +194,19 @@ begin
   FEpollHandle := TEpollCrossSocket(Owner).FEpollHandle;
 end;
 
-function TEpollListen._UpdateIoEvent(const AIoEvents: TIoEvents): Boolean;
+function TEpollListen._UpdateIoEvent(const AIoEvents: TIoEvents; out AError: Integer): Boolean;
 var
   LEvent: TEPoll_Event;
 begin
-  if (AIoEvents = []) or IsClosed then Exit(False);
-
+  AError := 0;
+  if (AIoEvents = []) or IsClosed
+    or not TEpollCrossSocket(Owner)._CanListen(Generation) then Exit(False);
   LEvent.Events := EPOLLET or EPOLLONESHOT;
   LEvent.Data.u64 := Self.UID;
-
-  if (ieRead in AIoEvents) then
-    LEvent.Events := LEvent.Events or EPOLLIN;
-
-  Result := (epoll_ctl(FEpollHandle, FOpCode, Socket, @LEvent) >= 0);
-  FOpCode := EPOLL_CTL_MOD;
-
-  if not Result then
-    _LogLastOsError('listen epoll_ctl, %s', [Self.DebugInfo]);
+  if ieRead in AIoEvents then LEvent.Events := LEvent.Events or EPOLLIN;
+  Result := epoll_ctl(FEpollHandle, FOpCode, Socket, @LEvent) >= 0;
+  if Result then FOpCode := EPOLL_CTL_MOD
+  else AError := GetLastError;
 end;
 
 { TSendQueue }
@@ -376,74 +372,61 @@ end;
 
 procedure TEpollCrossSocket._HandleAccept(const AListen: ICrossListen);
 var
-  LListen: ICrossListen;
+  LListen: TEpollListen;
   LConnection: ICrossConnection;
   LEpConnection: TEpollConnection;
   LError: Integer;
-  LSocket, LListenSocket, LClientSocket: TSocket;
+  LSocket: TSocket;
   LCloseRequired: Boolean;
 begin
-  LListen := AListen;
-  LListenSocket := LListen.Socket;
-
+  LListen := AListen as TEpollListen;
   while True do
   begin
-    LSocket := TSocketAPI.Accept(LListenSocket, nil, nil);
-
-    // Accept失败
-    // EAGAIN 所有就绪的连接都已处理完毕
-    // EMFILE 进程的文件句柄已经用完了
-    if (LSocket < 0) then
-    begin
-      LError := GetLastError;
-
-      if (LError = EAGAIN) or (LError = EWOULDBLOCK) then
+    LListen._Lock;
+    try
+      if AListen.IsClosed or not _CanListen(LListen.Generation) then Exit;
+      LSocket := TSocketAPI.Accept(AListen.Socket, nil, nil);
+      LError := 0;
+      if LSocket < 0 then
       begin
-      end else
-      // 当句柄用完了的时候, 释放事先占用的临时句柄
-      // 然后再次 accept, 然后将 accept 的句柄关掉
-      // 这样可以保证在文件句柄耗尽的时候依然能响应连接请求
-      // 并立即将新到的连接关闭
-      if (LError = EMFILE) then
-      begin
-        FIdleLock.Enter;
-        try
-          _CloseIdleHandle;
-          LSocket := TSocketAPI.Accept(LListenSocket, nil, nil);
-          TSocketAPI.CloseSocket(LSocket);
-          _OpenIdleHandle;
-        finally
-          FIdleLock.Leave;
+        LError := GetLastError;
+        if LError = EMFILE then
+        begin
+          FIdleLock.Enter;
+          try
+            _CloseIdleHandle;
+            LSocket := TSocketAPI.Accept(AListen.Socket, nil, nil);
+            if LSocket >= 0 then TSocketAPI.CloseSocket(LSocket);
+            _OpenIdleHandle;
+          finally FIdleLock.Leave; end;
+          LSocket := INVALID_SOCKET;
         end;
-      end else
-        _LogLastOsError('Accept');
-
+      end;
+    finally LListen._Unlock; end;
+    if LSocket < 0 then
+    begin
+      if (LError <> EAGAIN) and (LError <> EWOULDBLOCK) and (LError <> EMFILE) then
+        _Log('Accept error %d: %s', [LError, SysErrorMessage(LError)]);
       Break;
     end;
-
-    LClientSocket := LSocket;
-    TSocketAPI.SetNonBlock(LClientSocket, True);
-    SetKeepAlive(LClientSocket);
-
-    LConnection := CreateConnection(Self, LClientSocket, ctAccept, '');
+    if not _CanListen(LListen.Generation) then
+    begin
+      TSocketAPI.CloseSocket(LSocket);
+      Break;
+    end;
+    // 工厂、配置扩展和用户事件在监听锁外执行。
+    TSocketAPI.SetNonBlock(LSocket, True);
+    SetKeepAlive(LSocket);
+    LConnection := CreateConnection(Self, LSocket, ctAccept, '');
     try
       TriggerConnecting(LConnection);
+      if LConnection.IsClosed then Continue;
       TriggerConnected(LConnection);
-
-      // 连接建立后监视Socket的读事件
       LEpConnection := LConnection as TEpollConnection;
       LEpConnection._EpLock;
-      try
-        LEpConnection._UpdateIoEvent([ieRead], LCloseRequired);
-      finally
-        LEpConnection._EpUnlock;
-      end;
-
-      if LCloseRequired then
-      begin
-        _Log('_HandleAccept._UpdateIoEvent failed, %s', [LConnection.DebugInfo]);
-        LConnection.Close;
-      end;
+      try LEpConnection._UpdateIoEvent([ieRead], LCloseRequired);
+      finally LEpConnection._EpUnlock; end;
+      if LCloseRequired then _CloseCrossData(LConnection);
     except
       on E: Exception do
       begin
@@ -672,11 +655,11 @@ begin
   // 并不是说队列的大小会受限于该值
   // http://man7.org/linux/man-pages/man2/epoll_create.2.html
   FEpollHandle := epoll_create(MAX_EVENT_COUNT);
+  _OpenStopHandle;
+  _StartListening;
   SetLength(FIoThreads, GetIoThreads);
   for I := 0 to Length(FIoThreads) - 1 do
     FIoThreads[I] := TIoEventThread.Create(Self);
-
-  _OpenStopHandle;
 end;
 
 procedure TEpollCrossSocket.StopLoop;
@@ -686,18 +669,19 @@ var
 begin
   if (FIoThreads = nil) then Exit;
 
+  LCurrentThreadID := GetCurrentThreadId;
+  for I := 0 to Length(FIoThreads) - 1 do
+    if FIoThreads[I].ThreadID = LCurrentThreadID then
+      raise ECrossSocket.Create('不能在IO线程中执行StopLoop!');
+  _StopListening;
   CloseAll;
 
   while (FListensCount > 0) or (FConnectionsCount > 0) do Sleep(1);
 
   _PostStopCommand;
 
-  LCurrentThreadID := GetCurrentThreadId;
   for I := 0 to Length(FIoThreads) - 1 do
   begin
-    if (FIoThreads[I].ThreadID = LCurrentThreadID) then
-      raise ECrossSocket.Create('不能在IO线程中执行StopLoop!');
-
     FIoThreads[I].WaitFor;
     FreeAndNil(FIoThreads[I]);
   end;
@@ -831,6 +815,7 @@ var
   LListen: ICrossListen;
   LEpListen: TEpollListen;
   LListenSuccess, LUpdateIoEventSuccess: Boolean;
+  LGeneration, LError: Integer;
 
   procedure _Failed;
   begin
@@ -851,6 +836,12 @@ var
 begin
   LListenSocket := INVALID_SOCKET;
   LListenSuccess := False;
+  LGeneration := _GetListenGeneration;
+  if not _CanListen(LGeneration) then
+  begin
+    _Failed;
+    Exit;
+  end;
   FillChar(LHints, SizeOf(TRawAddrInfo), 0);
   LHints.ai_flags := AI_PASSIVE;
   LHints.ai_family := AF_UNSPEC;
@@ -870,6 +861,11 @@ begin
   try
     while (LAddrInfo <> nil) do
     begin
+      if not _CanListen(LGeneration) then
+      begin
+        if not LListenSuccess then _Failed;
+        Break;
+      end;
       LListen := nil;
       LListenSocket := TSocketAPI.NewSocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
         LAddrInfo.ai_protocol);
@@ -902,26 +898,34 @@ begin
         LAddrInfo.ai_socktype, LAddrInfo.ai_protocol);
       LEpListen := LListen as TEpollListen;
 
-      // 监听套接字的读事件
-      // 读事件到达表明有新连接
-      LEpListen._Lock;
       try
-        LUpdateIoEventSuccess := LEpListen._UpdateIoEvent([ieRead]);
-      finally
-        LEpListen._Unlock;
+        if not _RegisterListen(LListen, LGeneration) then
+        begin
+          _Failed;
+          Exit;
+        end;
+        LEpListen._Lock;
+        try LUpdateIoEventSuccess := LEpListen._UpdateIoEvent([ieRead], LError);
+        finally LEpListen._Unlock; end;
+        if not LUpdateIoEventSuccess then
+        begin
+          try
+            if LError <> 0 then _Log('Listen epoll_ctl error %d: %s', [LError, SysErrorMessage(LError)]);
+          finally _Failed; end;
+          Exit;
+        end;
+        TriggerListened(LListen);
+        if not LEpListen._IsPublished then
+        begin
+          _Failed;
+          Exit;
+        end;
+        LListenSuccess := True;
+        if Assigned(ACallback) then ACallback(LListen, True);
+      except
+        _CloseCrossData(LListen);
+        raise;
       end;
-
-      if not LUpdateIoEventSuccess then
-      begin
-        _Failed;
-        Exit;
-      end;
-
-      // 监听成功
-      LListenSuccess := True;
-      TriggerListened(LListen);
-      if Assigned(ACallback) then
-        ACallback(LListen, True);
 
       // 如果端口传入0，让所有地址统一用首个分配到的端口
       if (APort = 0) and (LAddrInfo.ai_next <> nil) then
@@ -998,7 +1002,8 @@ var
   LEpListen: TEpollListen;
   LConnection: ICrossConnection;
   LEpConnection: TEpollConnection;
-  LCloseRequired: Boolean;
+  LCloseRequired, LRearmed: Boolean;
+  LListenError: Integer;
   LIoEvents: TIoEvents;
 begin
   // 被系统信号打断或者出错会返回-1, 具体需要根据错误代码判断
@@ -1068,9 +1073,16 @@ begin
           LEpListen := LListen as TEpollListen;
           LEpListen._Lock;
           try
-            LEpListen._UpdateIoEvent([ieRead]);
+            LRearmed := LEpListen._UpdateIoEvent([ieRead], LListenError);
           finally
             LEpListen._Unlock;
+          end;
+          if not LRearmed then
+          begin
+            try
+              if LListenError <> 0 then
+                _Log('Listen rearm error %d: %s', [LListenError, SysErrorMessage(LListenError)]);
+            finally _CloseCrossData(LListen); end;
           end;
         end;
       end else
