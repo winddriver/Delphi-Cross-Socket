@@ -497,12 +497,22 @@ begin
 end;
 
 class procedure TArrayUtils<T>.SortRandom(var AArray: array of T);
+var
+  I, J: Integer;
+  LTemp: T;
 begin
-  Sort(AArray,
-    function(const ALeft, ARight: T): Integer
+  // Fisher-Yates 洗牌: 均匀分布, 且不依赖 comparator 契约
+  // 旧实现用"随机 comparator + Sort" 会违反比较传递性, 分布也不均匀
+  for I := High(AArray) downto 1 do
+  begin
+    J := Random(I + 1);
+    if (J <> I) then
     begin
-      Exit(RandomRange(-1, 1 + 1));
-    end);
+      LTemp := AArray[I];
+      AArray[I] := AArray[J];
+      AArray[J] := LTemp;
+    end;
+  end;
 end;
 
 class function TArrayUtils<T>.Split(const S, ADelimiter: string): TArray<T>;

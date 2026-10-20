@@ -22,6 +22,8 @@ type
       const AFormatSettings: TFormatSettings): string; overload; static;
     class function FormatDateTime(const AFormat: string; const ADateTime: TDateTime): string; overload; static;
 
+    class function CompareStr(const AStr1, AStr2: string): Integer; static; inline;
+    class function CompareText(const AStr1, AStr2: string): Integer; static; inline;
     class function SameText(const AStr1, AStr2: string): Boolean; static; inline;
 
     // 将字符串中指定部分替换为新内容
@@ -39,6 +41,16 @@ type
 implementation
 
 { TStrUtils }
+
+class function TStrUtils.CompareStr(const AStr1, AStr2: string): Integer;
+begin
+  Result := SysUtils.{$IFDEF DELPHI}CompareStr{$ELSE}UnicodeCompareStr{$ENDIF}(AStr1, AStr2);
+end;
+
+class function TStrUtils.CompareText(const AStr1, AStr2: string): Integer;
+begin
+  Result := SysUtils.{$IFDEF DELPHI}CompareText{$ELSE}UnicodeCompareText{$ENDIF}(AStr1, AStr2);
+end;
 
 class function TStrUtils.Format(const AFormat: string;
   const AArgs: array of const; const AFormatSettings: TFormatSettings): string;
@@ -58,16 +70,21 @@ end;
 class function TStrUtils.FormatDateTime(const AFormat: string;
   const ADateTime: TDateTime; const AFormatSettings: TFormatSettings): string;
 begin
+  {$IFDEF DELPHI}
   Result := SysUtils.FormatDateTime(AFormat, ADateTime, AFormatSettings);
+  {$ELSE}
+  Result := string(SysUtils.FormatDateTime(AnsiString(AFormat), ADateTime, AFormatSettings));
+  {$ENDIF}
 end;
 
 class function TStrUtils.FormatDateTime(const AFormat: string;
   const ADateTime: TDateTime): string;
-var
-  LFormatSettings : TFormatSettings;
 begin
-  LFormatSettings := SysUtils.FormatSettings;
-  Result := FormatDateTime(AFormat, ADateTime, LFormatSettings);
+  {$IFDEF DELPHI}
+  Result := SysUtils.FormatDateTime(AFormat, ADateTime);
+  {$ELSE}
+  Result := string(SysUtils.FormatDateTime(AnsiString(AFormat), ADateTime));
+  {$ENDIF}
 end;
 
 class function TStrUtils.Left(const AStr: string; const ALen: Integer): string;
@@ -95,6 +112,8 @@ var
 begin
   LInputLen := Length(AInputStr);
   LOldStrLen := Length(AOldStr);
+  if (LOldStrLen = 0) then
+    Exit(AInputStr);
   LReserveStartTagLen := Length(AReserveStartTag);
   LReserveEndTagLen := Length(AReserveEndTag);
   LIsWithinFlags := False;

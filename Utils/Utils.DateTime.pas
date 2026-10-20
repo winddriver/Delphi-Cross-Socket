@@ -20,7 +20,9 @@ uses
   SysUtils,
   DateUtils,
   Types,
-  Math;
+  Math,
+
+  Utils.StrUtils;
 
 const
   ShortDayNamesEnglish :array[1..7] of string =
@@ -574,7 +576,7 @@ begin
   // 2015-02-01T16:08:19.202Z
   DecodeDate(Self, LYear, LMonth, LDay);
   DecodeTime(Self, LHour, LMinute, LSecond, LMilliseconds);
-  Result := Format('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%d', [LYear, LMonth, LDay, LHour, LMinute, LSecond, LMilliseconds]);
+  Result := TStrUtils.Format('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%d', [LYear, LMonth, LDay, LHour, LMinute, LSecond, LMilliseconds]);
 
   if not AIsUtcDateTime and (Self <> 0) then
     LOffset := Self - Self.ToUniversalTime
@@ -584,7 +586,7 @@ begin
   if (LOffset <> 0) then
   begin
     DecodeTime(LOffset, LHour, LMinute, LSecond, LMilliseconds);
-    Result := Format('%s%s%.2d:%.2d', [Result, NEG[LOffset > 0], LHour, LMinute]);
+    Result := TStrUtils.Format('%s%s%.2d:%.2d', [Result, NEG[LOffset > 0], LHour, LMinute]);
   end else
     Result := Result + 'Z';
 end;
@@ -636,7 +638,7 @@ begin
   LDayOfWeek := DayOfTheWeek(LDateTime);
 
   // Fri, 30 Jul 2024 10:10:35 GMT
-  Result := Format('%s, %.2d %s %.4d %.2d:%.2d:%.2d GMT', [
+  Result := TStrUtils.Format('%s, %.2d %s %.4d %.2d:%.2d:%.2d GMT', [
     RFC1123_StrWeekDay[LDayOfWeek],
     LDay,
     RFC1123_StrMonth[LMonth],
@@ -649,7 +651,7 @@ begin
   if (AFormatStr = '') then
     Result := DateToStr(Self)
   else
-    Result := FormatDateTime(AFormatStr, Self);
+    Result := TStrUtils.FormatDateTime(AFormatStr, Self);
 end;
 
 function TDateTimeHelper.ToTimeStamp: TTimeStamp;

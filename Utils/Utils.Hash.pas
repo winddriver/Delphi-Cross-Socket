@@ -15,7 +15,12 @@ interface
 uses
   SysUtils,
   Classes,
+  //ZLib,
+  {$IFDEF DELPHI}
   ZLib,
+  {$ELSE}
+  DTF.StaticZLib,
+  {$ENDIF}
 
   {$IFDEF DELPHI}
   System.Hash,
@@ -37,7 +42,11 @@ uses
 
   Utils.Utils,
   CnPemUtils,
-  CnSM3;
+  CnSM3,
+  Crypt.XXHash,
+  Crypt.Crc32,
+  Crypt.SipHash,
+  Crypt.MurmurHash;
 
 const
   HMAC_INNER_PAD: Byte = $36;
@@ -67,7 +76,7 @@ type
 
     // 基础 hash 方法
     // 调用顺序: Start -> Update -> Finish
-    procedure Start; virtual; abstract;
+    procedure Start; virtual;
     procedure Update(const AData: Pointer; const ASize: NativeInt); overload; virtual; abstract;
     procedure Update(const AData: TBytes); overload;
     procedure Update(const AData: string); overload;
@@ -249,6 +258,20 @@ type
     function Finish: TBytes; override;
   end;
 
+  THashCrc32V2 = class(THashBase)
+  private
+    FCrc32: UInt32;
+  public
+    class function CreateHash: THashBase; override;
+
+    class function GetBlockSize: Integer; override;
+    class function GetHashSize: Integer; override;
+
+    procedure Start; override;
+    procedure Update(const AData: Pointer; const ASize: NativeInt); override;
+    function Finish: TBytes; override;
+  end;
+
   THashBobJenkins = class(THashBase)
   private type
     TExternalHashBobJenkins = {$IFDEF _DTF_HASH__}DTF.Hash.{$ELSE}System.Hash.{$ENDIF}THashBobJenkins;
@@ -285,6 +308,120 @@ type
 
     class function GetHashValue(const AData: string): Integer; overload; static; inline;
     class function GetHashValue(const AData; ALength: NativeInt; AInitialValue: Cardinal = TExternalFNV1a32.FNV_SEED): Integer; overload; static; inline;
+  end;
+
+  // XXH32 适合快速散列, 索引和去重, 不适合密码学认证.
+  THashXXH32 = class(THashBase)
+  private
+    FXXH32State: TXXH32_state_t;
+  public
+    class function CreateHash: THashBase; override;
+
+    class function GetBlockSize: Integer; override;
+    class function GetHashSize: Integer; override;
+
+    procedure Start; override;
+    procedure Update(const AData: Pointer; const ASize: NativeInt); override;
+    function Finish: TBytes; override;
+  end;
+
+  // XXH64 适合快速散列, 索引和去重, 不适合密码学认证.
+  THashXXH64 = class(THashBase)
+  private
+    FXXH64State: TXXH64_state_t;
+  public
+    class function CreateHash: THashBase; override;
+
+    class function GetBlockSize: Integer; override;
+    class function GetHashSize: Integer; override;
+
+    procedure Start; override;
+    procedure Update(const AData: Pointer; const ASize: NativeInt); override;
+    function Finish: TBytes; override;
+  end;
+
+  THashXXH3_64 = class(THashBase)
+  private
+    FXXH3State: TXXH3_state_t;
+  public
+    class function CreateHash: THashBase; override;
+
+    class function GetBlockSize: Integer; override;
+    class function GetHashSize: Integer; override;
+
+    procedure Start; override;
+    procedure Update(const AData: Pointer; const ASize: NativeInt); override;
+    function Finish: TBytes; override;
+  end;
+
+  THashXXH3_128 = class(THashBase)
+  private
+    FXXH3State: TXXH3_state_t;
+  public
+    class function CreateHash: THashBase; override;
+
+    class function GetBlockSize: Integer; override;
+    class function GetHashSize: Integer; override;
+
+    procedure Start; override;
+    procedure Update(const AData: Pointer; const ASize: NativeInt); override;
+    function Finish: TBytes; override;
+  end;
+
+  THashSipHash = class(THashBase)
+  private
+    FSipHashState: TSipHashState;
+  public
+    class function CreateHash: THashBase; override;
+
+    class function GetBlockSize: Integer; override;
+    class function GetHashSize: Integer; override;
+
+    procedure Start; override;
+    procedure Update(const AData: Pointer; const ASize: NativeInt); override;
+    function Finish: TBytes; override;
+  end;
+
+  THashMurmurHash3_x86_32 = class(THashBase)
+  private
+    FMurmurHash3_x86_32Context: TMurmurHash3_x86_32Context;
+  public
+    class function CreateHash: THashBase; override;
+
+    class function GetBlockSize: Integer; override;
+    class function GetHashSize: Integer; override;
+
+    procedure Start; override;
+    procedure Update(const AData: Pointer; const ASize: NativeInt); override;
+    function Finish: TBytes; override;
+  end;
+
+  THashMurmurHash3_x86_128 = class(THashBase)
+  private
+    FMurmurHash3_x86_128Context: TMurmurHash3_x86_128Context;
+  public
+    class function CreateHash: THashBase; override;
+
+    class function GetBlockSize: Integer; override;
+    class function GetHashSize: Integer; override;
+
+    procedure Start; override;
+    procedure Update(const AData: Pointer; const ASize: NativeInt); override;
+    function Finish: TBytes; override;
+  end;
+
+  THashMurmurHash3_x64_128 = class(THashBase)
+  private
+    FMurmurHash3_x64_128Context: TMurmurHash3_x64_128Context;
+  public
+    class function CreateHash: THashBase; override;
+
+    class function GetBlockSize: Integer; override;
+    class function GetHashSize: Integer; override;
+
+    procedure Start; override;
+    procedure Update(const AData: Pointer; const ASize: NativeInt); override;
+    function Finish: TBytes; override;
   end;
 
 implementation
@@ -553,6 +690,11 @@ begin
   Update(LTempBuffer1);
 end;
 
+procedure THashBase.Start;
+begin
+  FFinished := False;
+end;
+
 class function THashBase.StrToBytes(const AStr: string): TBytes;
 begin
   if (AStr <> '') then
@@ -563,12 +705,14 @@ end;
 
 procedure THashBase.Update(const AData: TBytes);
 begin
-  Update(PByte(AData), Length(AData));
+  if (AData <> nil) then
+    Update(PByte(AData), Length(AData));
 end;
 
 procedure THashBase.Update(const AData: string);
 begin
-  Update(StrToBytes(AData));
+  if (AData <> '') then
+    Update(StrToBytes(AData));
 end;
 
 procedure THashBase.UpdateFromStream(const AStream: TStream; const APos,
@@ -694,6 +838,7 @@ end;
 
 procedure THashSM3.Start;
 begin
+  inherited Start;
   SM3Init(FContext);
 end;
 
@@ -736,6 +881,8 @@ end;
 
 procedure THashMD5.Start;
 begin
+  inherited Start;
+
   {$IFDEF __CN_MD5__}
   MD5Init(FMD5Context);
   {$ELSE}
@@ -786,6 +933,8 @@ end;
 
 procedure THashSHA1.Start;
 begin
+  inherited Start;
+
   {$IFDEF __CN_SHA1__}
   SHA1Init(FSHA1Context);
   {$ELSE}
@@ -836,6 +985,8 @@ end;
 
 procedure THashSHA256.Start;
 begin
+  inherited Start;
+
   {$IFDEF __CN_SHA2__}
   SHA256Init(FSHA256Context);
   {$ELSE}
@@ -887,6 +1038,8 @@ end;
 
 procedure THashSHA384.Start;
 begin
+  inherited Start;
+
   {$IFDEF __CN_SHA2__}
   SHA384Init(FSHA384Context);
   {$ELSE}
@@ -938,6 +1091,8 @@ end;
 
 procedure THashSHA512.Start;
 begin
+  inherited Start;
+
   {$IFDEF __CN_SHA2__}
   SHA512Init(FSHA512Context);
   {$ELSE}
@@ -963,9 +1118,15 @@ begin
 end;
 
 function THashCrc32.Finish: TBytes;
+var
+  P: PByte;
 begin
   SetLength(Result, GetHashSize);
-  Move(FCrc32, Result[0], GetHashSize);
+  P := @FCrc32;
+  Result[0] := P[3];
+  Result[1] := P[2];
+  Result[2] := P[1];
+  Result[3] := P[0];
 end;
 
 class function THashCrc32.GetBlockSize: Integer;
@@ -975,17 +1136,19 @@ end;
 
 class function THashCrc32.GetHashSize: Integer;
 begin
-  Result := SizeOf(UInt32);
+  Result := 4;
 end;
 
 procedure THashCrc32.Start;
 begin
+  inherited Start;
+
   FCrc32 := 0;
 end;
 
 procedure THashCrc32.Update(const AData: Pointer; const ASize: NativeInt);
 begin
-  FCrc32 := ZLib.crc32(FCrc32, AData, ASize);
+  FCrc32 := crc32(FCrc32, AData, ASize);
 end;
 
 { THashBobJenkins }
@@ -1023,6 +1186,8 @@ end;
 
 procedure THashBobJenkins.Start;
 begin
+  inherited Start;
+
   FBobJenkins.Reset;
 end;
 
@@ -1066,12 +1231,462 @@ end;
 
 procedure THashFNV1a32.Start;
 begin
+  inherited Start;
+
   FFNV1a32.Reset;
 end;
 
 procedure THashFNV1a32.Update(const AData: Pointer; const ASize: NativeInt);
 begin
   FFNV1a32.Update(AData^, ASize);
+end;
+
+{ THashXXH32 }
+
+class function THashXXH32.CreateHash: THashBase;
+begin
+  Result := THashXXH32.Create;
+end;
+
+function THashXXH32.Finish: TBytes;
+var
+  LHash32: UInt32;
+  P: PByte;
+begin
+  SetLength(Result, GetHashSize);
+  LHash32 := XXH32_final(FXXH32State);
+  P := @LHash32;
+  Result[0] := P[3];
+  Result[1] := P[2];
+  Result[2] := P[1];
+  Result[3] := P[0];
+end;
+
+class function THashXXH32.GetBlockSize: Integer;
+begin
+  Result := 64;
+end;
+
+class function THashXXH32.GetHashSize: Integer;
+begin
+  Result := 4;
+end;
+
+procedure THashXXH32.Start;
+begin
+  inherited Start;
+
+  XXH32_init(FXXH32State);
+end;
+
+procedure THashXXH32.Update(const AData: Pointer; const ASize: NativeInt);
+begin
+  XXH32_update(FXXH32State, AData, ASize);
+end;
+
+{ THashXXH64 }
+
+class function THashXXH64.CreateHash: THashBase;
+begin
+  Result := THashXXH64.Create;
+end;
+
+function THashXXH64.Finish: TBytes;
+var
+  LHash64: UInt64;
+  P: PByte;
+begin
+  SetLength(Result, GetHashSize);
+  LHash64 := XXH64_final(FXXH64State);
+  P := @LHash64;
+  Result[0] := P[7];
+  Result[1] := P[6];
+  Result[2] := P[5];
+  Result[3] := P[4];
+  Result[4] := P[3];
+  Result[5] := P[2];
+  Result[6] := P[1];
+  Result[7] := P[0];
+end;
+
+class function THashXXH64.GetBlockSize: Integer;
+begin
+  Result := 64;
+end;
+
+class function THashXXH64.GetHashSize: Integer;
+begin
+  Result := 8;
+end;
+
+procedure THashXXH64.Start;
+begin
+  inherited Start;
+
+  XXH64_init(FXXH64State);
+end;
+
+procedure THashXXH64.Update(const AData: Pointer; const ASize: NativeInt);
+begin
+  XXH64_update(FXXH64State, AData, ASize);
+end;
+
+{ THashXXH3_64 }
+
+class function THashXXH3_64.CreateHash: THashBase;
+begin
+  Result := THashXXH3_64.Create;
+end;
+
+function THashXXH3_64.Finish: TBytes;
+var
+  LHash64: TXXH3_hash64_t;
+  P: PByte;
+begin
+  SetLength(Result, GetHashSize);
+  LHash64 := XXH3_64bits_final(FXXH3State);
+  P := @LHash64;
+  Result[0] := P[7];
+  Result[1] := P[6];
+  Result[2] := P[5];
+  Result[3] := P[4];
+  Result[4] := P[3];
+  Result[5] := P[2];
+  Result[6] := P[1];
+  Result[7] := P[0];
+end;
+
+class function THashXXH3_64.GetBlockSize: Integer;
+begin
+  Result := 64;
+end;
+
+class function THashXXH3_64.GetHashSize: Integer;
+begin
+  Result := 8;
+end;
+
+procedure THashXXH3_64.Start;
+begin
+  inherited Start;
+
+  XXH3_64bits_init(FXXH3State);
+end;
+
+procedure THashXXH3_64.Update(const AData: Pointer; const ASize: NativeInt);
+begin
+  XXH3_64bits_update(FXXH3State, AData, ASize);
+end;
+
+{ THashXXH3_128 }
+
+class function THashXXH3_128.CreateHash: THashBase;
+begin
+  Result := THashXXH3_128.Create;
+end;
+
+function THashXXH3_128.Finish: TBytes;
+var
+  LHash128: TXXH3_hash128_t;
+  P: PByte;
+begin
+  LHash128 := XXH3_128bits_final(FXXH3State);
+  SetLength(Result, GetHashSize);
+
+  P := @LHash128.high64;
+  Result[0] := P[7];
+  Result[1] := P[6];
+  Result[2] := P[5];
+  Result[3] := P[4];
+  Result[4] := P[3];
+  Result[5] := P[2];
+  Result[6] := P[1];
+  Result[7] := P[0];
+
+  P := @LHash128.low64;
+  Result[8] := P[7];
+  Result[9] := P[6];
+  Result[10] := P[5];
+  Result[11] := P[4];
+  Result[12] := P[3];
+  Result[13] := P[2];
+  Result[14] := P[1];
+  Result[15] := P[0];
+end;
+
+class function THashXXH3_128.GetBlockSize: Integer;
+begin
+  Result := 64;
+end;
+
+class function THashXXH3_128.GetHashSize: Integer;
+begin
+  Result := 16;
+end;
+
+procedure THashXXH3_128.Start;
+begin
+  inherited Start;
+
+  XXH3_128bits_init(FXXH3State);
+end;
+
+procedure THashXXH3_128.Update(const AData: Pointer; const ASize: NativeInt);
+begin
+  XXH3_128bits_update(FXXH3State, AData, ASize);
+end;
+
+{ THashCrc32V2 }
+
+class function THashCrc32V2.CreateHash: THashBase;
+begin
+  Result := THashCrc32V2.Create;
+end;
+
+function THashCrc32V2.Finish: TBytes;
+var
+  P: PByte;
+begin
+  SetLength(Result, GetHashSize);
+  Crc32Final(FCrc32);
+  P := @FCrc32;
+  Result[0] := P[3];
+  Result[1] := P[2];
+  Result[2] := P[1];
+  Result[3] := P[0];
+end;
+
+class function THashCrc32V2.GetBlockSize: Integer;
+begin
+  Result := 64;
+end;
+
+class function THashCrc32V2.GetHashSize: Integer;
+begin
+  Result := 4;
+end;
+
+procedure THashCrc32V2.Start;
+begin
+  inherited Start;
+
+  Crc32Start(FCrc32);
+end;
+
+procedure THashCrc32V2.Update(const AData: Pointer; const ASize: NativeInt);
+begin
+  Crc32Update(FCrc32, AData, ASize);
+end;
+
+{ THashSipHash }
+
+class function THashSipHash.CreateHash: THashBase;
+begin
+  Result := THashSipHash.Create;
+end;
+
+function THashSipHash.Finish: TBytes;
+var
+  LHash64: UInt64;
+  P: PByte;
+begin
+  SetLength(Result, GetHashSize);
+  LHash64 := SipHashFinal(FSipHashState);
+  P := @LHash64;
+  Result[0] := P[7];
+  Result[1] := P[6];
+  Result[2] := P[5];
+  Result[3] := P[4];
+  Result[4] := P[3];
+  Result[5] := P[2];
+  Result[6] := P[1];
+  Result[7] := P[0];
+end;
+
+class function THashSipHash.GetBlockSize: Integer;
+begin
+  Result := 64;
+end;
+
+class function THashSipHash.GetHashSize: Integer;
+begin
+  Result := 8;
+end;
+
+procedure THashSipHash.Start;
+begin
+  inherited Start;
+
+  SipHashInit(FSipHashState, 0, 0);
+end;
+
+procedure THashSipHash.Update(const AData: Pointer; const ASize: NativeInt);
+begin
+  SipHashUpdate(FSipHashState, AData, ASize);
+end;
+
+{ THashMurmurHash3_x86_32 }
+
+class function THashMurmurHash3_x86_32.CreateHash: THashBase;
+begin
+  Result := THashMurmurHash3_x86_32.Create;
+end;
+
+function THashMurmurHash3_x86_32.Finish: TBytes;
+var
+  LHash32: UInt32;
+  P: PByte;
+begin
+  SetLength(Result, GetHashSize);
+  LHash32 := MurmurHash3_x86_32Final(FMurmurHash3_x86_32Context);
+  P := @LHash32;
+  Result[0] := P[3];
+  Result[1] := P[2];
+  Result[2] := P[1];
+  Result[3] := P[0];
+end;
+
+class function THashMurmurHash3_x86_32.GetBlockSize: Integer;
+begin
+  Result := 64;
+end;
+
+class function THashMurmurHash3_x86_32.GetHashSize: Integer;
+begin
+  Result := 4;
+end;
+
+procedure THashMurmurHash3_x86_32.Start;
+begin
+  inherited Start;
+
+  MurmurHash3_x86_32Init(FMurmurHash3_x86_32Context);
+end;
+
+procedure THashMurmurHash3_x86_32.Update(const AData: Pointer;
+  const ASize: NativeInt);
+begin
+  MurmurHash3_x86_32Update(FMurmurHash3_x86_32Context, AData, ASize);
+end;
+
+{ THashMurmurHash3_x64_128 }
+
+class function THashMurmurHash3_x64_128.CreateHash: THashBase;
+begin
+  Result := THashMurmurHash3_x64_128.Create;
+end;
+
+function THashMurmurHash3_x64_128.Finish: TBytes;
+var
+  LHash128: TArray<UInt64>;
+  P: PByte;
+begin
+  LHash128 := MurmurHash3_x64_128Final(FMurmurHash3_x64_128Context);
+  SetLength(Result, GetHashSize);
+  P := @LHash128[0];
+  Result[0] := P[7];
+  Result[1] := P[6];
+  Result[2] := P[5];
+  Result[3] := P[4];
+  Result[4] := P[3];
+  Result[5] := P[2];
+  Result[6] := P[1];
+  Result[7] := P[0];
+
+  P := @LHash128[1];
+  Result[8] := P[7];
+  Result[9] := P[6];
+  Result[10] := P[5];
+  Result[11] := P[4];
+  Result[12] := P[3];
+  Result[13] := P[2];
+  Result[14] := P[1];
+  Result[15] := P[0];
+end;
+
+class function THashMurmurHash3_x64_128.GetBlockSize: Integer;
+begin
+  Result := 64;
+end;
+
+class function THashMurmurHash3_x64_128.GetHashSize: Integer;
+begin
+  Result := 16;
+end;
+
+procedure THashMurmurHash3_x64_128.Start;
+begin
+  inherited Start;
+
+  MurmurHash3_x64_128Init(FMurmurHash3_x64_128Context);
+end;
+
+procedure THashMurmurHash3_x64_128.Update(const AData: Pointer;
+  const ASize: NativeInt);
+begin
+  MurmurHash3_x64_128Update(FMurmurHash3_x64_128Context, AData, ASize);
+end;
+
+{ THashMurmurHash3_x86_128 }
+
+class function THashMurmurHash3_x86_128.CreateHash: THashBase;
+begin
+  Result := THashMurmurHash3_x86_128.Create;
+end;
+
+function THashMurmurHash3_x86_128.Finish: TBytes;
+var
+  LHash128: TArray<Cardinal>;
+  P: PByte;
+begin
+  LHash128 := MurmurHash3_x86_128Final(FMurmurHash3_x86_128Context);
+  SetLength(Result, GetHashSize);
+  P := @LHash128[0];
+  Result[0] := P[3];
+  Result[1] := P[2];
+  Result[2] := P[1];
+  Result[3] := P[0];
+
+  P := @LHash128[1];
+  Result[4] := P[3];
+  Result[5] := P[2];
+  Result[6] := P[1];
+  Result[7] := P[0];
+
+  P := @LHash128[2];
+  Result[8] := P[3];
+  Result[9] := P[2];
+  Result[10] := P[1];
+  Result[11] := P[0];
+
+  P := @LHash128[3];
+  Result[12] := P[3];
+  Result[13] := P[2];
+  Result[14] := P[1];
+  Result[15] := P[0];
+end;
+
+class function THashMurmurHash3_x86_128.GetBlockSize: Integer;
+begin
+  Result := 64;
+end;
+
+class function THashMurmurHash3_x86_128.GetHashSize: Integer;
+begin
+  Result := 16;
+end;
+
+procedure THashMurmurHash3_x86_128.Start;
+begin
+  inherited Start;
+
+  MurmurHash3_x86_128Init(FMurmurHash3_x86_128Context);
+end;
+
+procedure THashMurmurHash3_x86_128.Update(const AData: Pointer;
+  const ASize: NativeInt);
+begin
+  MurmurHash3_x86_128Update(FMurmurHash3_x86_128Context, AData, ASize);
 end;
 
 end.

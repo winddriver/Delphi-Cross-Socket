@@ -782,7 +782,7 @@ end;
 function TRegEx.Replace(const AEvaluator: TMatchEvaluator;
   const ACount: Integer): string;
 begin
-  Result := _InternalReplace(AEvaluator, ACount, False);
+  Result := _InternalReplace(AEvaluator, ACount, True);
 end;
 
 function TRegEx.Replace(const AReplacement: string;
