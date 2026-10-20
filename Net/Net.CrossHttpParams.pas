@@ -458,6 +458,15 @@ type
     property Cookies[const AName: string]: TResponseCookie read GetCookie write SetCookie;
   end;
 
+  // 可延迟落盘的文件流；FilePath 只反映当前存储，读取不得触发 IO。
+  TFormFileStream = class(TStream)
+  protected
+    function GetFilePath: string; virtual; abstract;
+  public
+    function EnsureFilePath: string; virtual; abstract;
+    property FilePath: string read GetFilePath;
+  end;
+
   TFormField = class
   private
     FName: string;
@@ -467,6 +476,8 @@ type
     FContentType: string;
     FContentTransferEncoding: string;
     FValueOwned, FIsTempFile: Boolean;
+    function GetFilePath: string;
+    function GetIsFile: Boolean;
   public
     constructor Create; overload;
     destructor Destroy; override;
@@ -493,6 +504,8 @@ type
     ///   释放流数据
     /// </summary>
     procedure FreeValue;
+    // 显式需要文件路径时才落盘；普通文件和旧的无路径发送流保持原有行为。
+    function EnsureFilePath: string;
 
     /// <summary>
     ///   名称
@@ -512,7 +525,9 @@ type
     /// <summary>
     ///   文件保存路径（只有文件才有该属性）
     /// </summary>
-    property FilePath: string read FFilePath;
+    property FilePath: string read GetFilePath;
+    // 接收文件可暂存在内存，不能再仅用路径是否为空区分它和文本字段。
+    property IsFile: Boolean read GetIsFile;
 
     /// <summary>
     ///   内容类型（只有文件才有该属性）
@@ -577,6 +592,9 @@ type
     function GetDataSize: Integer;
     function GetField(const AName: string): TFormField;
     procedure SetBoundary(const AValue: string);
+  protected
+    // 默认仍直接创建文件；私有协议可仅为特定字段覆盖存储方式。
+    function CreateFileStream(const AField: TFormField): TStream; virtual;
   public
     constructor Create; virtual;
     destructor Destroy; override;
@@ -644,6 +662,12 @@ type
     /// </param>
     {$ENDREGION}
     function Decode(const AStream: TStream): TFormDataDecodeResult; overload;
+
+    // 长度协议已验证完整字段后直接装配，不再经过 multipart boundary 解析。
+    // 成功后接管 AValue；抛错时流仍归调用方。接收文件由 AutoDeleteFiles 管理。
+    function AddDecodedField(const AName, AFileName, AContentType,
+      AContentTransferEncoding: string; const AValue: TStream;
+      const AIsFile: Boolean): TFormField;
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -1786,8 +1810,37 @@ end;
 
 procedure TFormField.FreeValue;
 begin
-  if FValueOwned and Assigned(FValue) then
+  // 借用流在发送结束后可能已由调用方释放，清理字段不能再检查其VMT或路径。
+  if not FValueOwned then Exit;
+  // 释放前记录已经存在的真实路径，不能在析构时强制把内存内容落盘。
+  if FValue is TFormFileStream then
+    FFilePath := TFormFileStream(FValue).FilePath;
+  if Assigned(FValue) then
     FreeAndNil(FValue);
+end;
+
+function TFormField.GetFilePath: string;
+begin
+  if FValue is TFormFileStream then
+    Result := TFormFileStream(FValue).FilePath
+  else
+    Result := FFilePath;
+end;
+
+function TFormField.GetIsFile: Boolean;
+begin
+  // 保持旧发送端无路径流的分类；新增内存文件只来自接收端临时文件分支。
+  Result := FIsTempFile or (FFilePath <> '');
+end;
+
+function TFormField.EnsureFilePath: string;
+begin
+  if FValue is TFormFileStream then
+    FFilePath := TFormFileStream(FValue).EnsureFilePath
+  else
+  if FValue is TFastFileStream then
+    TFastFileStream(FValue).FlushBuffer;
+  Result := FFilePath;
 end;
 
 function TFormField.AsBytes: TBytes;
@@ -1810,7 +1863,15 @@ begin
 end;
 
 procedure TFormField.Assign(const ASource: TFormField);
+var
+  LSourcePath: string;
 begin
+  if ASource = Self then Exit;
+  // 文件字段复制沿用按路径重新打开的语义；延迟文件必须先显式物化，
+  // 不能复制尚未创建的预定路径。物化失败时保留目标原内容。
+  LSourcePath := '';
+  if ASource <> nil then
+    LSourcePath := ASource.EnsureFilePath;
   FreeValue;
 
   if (ASource = nil) then Exit;
@@ -1819,7 +1880,7 @@ begin
   FValueOwned := ASource.FValueOwned;
   FIsTempFile := ASource.FIsTempFile;
   FFileName := ASource.FFileName;
-  FFilePath := ASource.FFilePath;
+  FFilePath := LSourcePath;
   FContentType := ASource.FContentType;
   FContentTransferEncoding := ASource.FContentTransferEncoding;
 
@@ -1877,6 +1938,11 @@ begin
   FCurrentPartDataSize := 0;
 end;
 
+function THttpMultiPartFormData.CreateFileStream(const AField: TFormField): TStream;
+begin
+  Result := TFileUtils.OpenCreate(AField.FilePath);
+end;
+
 function THttpMultiPartFormData.Decode(
   const AStream: TStream): TFormDataDecodeResult;
 const
@@ -1897,11 +1963,17 @@ end;
 
 destructor THttpMultiPartFormData.Destroy;
 begin
-  Clear;
-  FCurrentPartHeader := nil;
-  FCurrentPartField := nil;
-  FreeAndNil(FPartFields);
-  inherited;
+  try
+    Clear;
+  finally
+    FCurrentPartHeader := nil;
+    FCurrentPartField := nil;
+    try
+      FreeAndNil(FPartFields);
+    finally
+      inherited;
+    end;
+  end;
 end;
 
 function THttpMultiPartFormData.AddField(const AField: TFormField): TFormField;
@@ -2032,23 +2104,76 @@ begin
   AsString(AFieldName, AEncoding, Result);
 end;
 
+function THttpMultiPartFormData.AddDecodedField(const AName, AFileName,
+  AContentType, AContentTransferEncoding: string; const AValue: TStream;
+  const AIsFile: Boolean): TFormField;
+begin
+  Result := TFormField.Create;
+  try
+    Result.FValueOwned := False;
+    Result.FName := AName;
+    Result.FFileName := AFileName;
+    Result.FContentType := AContentType;
+    Result.FContentTransferEncoding := AContentTransferEncoding;
+    Result.FValue := AValue;
+    Result.FIsTempFile := AIsFile;
+    FPartFields.Add(Result);
+    Result.FValueOwned := True;
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
 procedure THttpMultiPartFormData.Clear;
 var
   LField: TFormField;
-begin
-  for LField in FPartFields do
-  begin
-    if FAutoDeleteFiles and (LField.FilePath <> '')
-      and FileExists(LField.FilePath) then
-    begin
-      LField.FreeValue;
+  LFilePath: string;
+  LFirstException: TObject;
 
-      if LField.FIsTempFile then
-        DeleteFile(LField.FilePath);
-    end;
+  procedure SaveFirstException;
+  begin
+    if LFirstException = nil then
+      LFirstException := TObject(AcquireExceptionObject);
   end;
 
-  FPartFields.Clear;
+begin
+  if FPartFields = nil then Exit;
+  LFirstException := nil;
+  FCurrentPartField := nil;
+  // 一次反转后从末尾提取，保持原字段清理顺序，避免反复移动剩余元素。
+  FPartFields.Reverse;
+  while FPartFields.Count > 0 do
+  begin
+    {$IFDEF FPC}
+    LField := FPartFields.ExtractIndex(FPartFields.Count - 1);
+    {$ELSE}
+    LField := FPartFields.ExtractAt(FPartFields.Count - 1);
+    {$ENDIF}
+    if LField = nil then Continue;
+    LFilePath := '';
+    try
+      if FAutoDeleteFiles and LField.FIsTempFile then
+        LFilePath := LField.FilePath;
+    except
+      SaveFirstException;
+    end;
+    // 先脱离拥有列表。关闭流失败也不能使该字段留在列表中被再次释放。
+    try
+      LField.Free;
+    except
+      SaveFirstException;
+    end;
+    try
+      // 保持原有的尽力删除语义，例如其它合法读句柄可能暂时阻止 Windows 删除。
+      if (LFilePath <> '') and FileExists(LFilePath) then
+        DeleteFile(LFilePath);
+    except
+      SaveFirstException;
+    end;
+  end;
+  if LFirstException <> nil then
+    raise LFirstException;
 end;
 
 function THttpMultiPartFormData.FindField(const AFieldName: string;
@@ -2209,7 +2334,9 @@ function THttpMultiPartFormData.Decode(const ABuf: Pointer; ALen: Integer; out A
         end;
 
         AFormField.FIsTempFile := True;
-        AFormField.FValue := TFileUtils.OpenCreate(AFormField.FFilePath);
+        AFormField.FValue := CreateFileStream(AFormField);
+        if AFormField.FValue = nil then
+          raise EStreamError.Create('文件字段未创建存储流');
       end else
         AFormField.FValue := TBytesStream.Create(nil);
 
@@ -2228,6 +2355,8 @@ var
   I, LSize: Integer;
   P: PByte;
   LPartHeader: string;
+  LNewField: TFormField;
+  LFailedFilePath: string;
 begin
   AConsumed := 0;
   if (FBoundaryBytes = nil) then Exit(frFailed);
@@ -2349,6 +2478,12 @@ begin
 
       dsPartHeader:
         begin
+          // 在写入前检查实际容量，允许结束符恰好落在最后一个有效字节。
+          if FCurrentPartHeaderLen >= Length(FCurrentPartHeader) then
+          begin
+            AConsumed := I;
+            Exit(frFailed);
+          end;
           FCurrentPartHeader[FCurrentPartHeaderLen] := C;
           Inc(FCurrentPartHeaderLen);
 
@@ -2369,14 +2504,31 @@ begin
                 // 块头部通常采用UTF8编码
                 LPartHeader := TUtils.GetString(@FCurrentPartHeader[0], FCurrentPartHeaderLen - 4{#13#10#13#10});
                 FCurrentPartHeaderLen := 0;
-                FCurrentPartField := TFormField.Create;
-                if not __InitFormFieldByHeader(FCurrentPartField, LPartHeader) then
-                begin
-                  FreeAndNil(FCurrentPartField);
-                  AConsumed := I + 1;
-                  Exit(frFailed);
+                LNewField := TFormField.Create;
+                try
+                  if not __InitFormFieldByHeader(LNewField, LPartHeader) then
+                  begin
+                    AConsumed := I + 1;
+                    Exit(frFailed);
+                  end;
+                  FPartFields.Add(LNewField);
+                  FCurrentPartField := LNewField;
+                  LNewField := nil;
+                finally
+                  if LNewField <> nil then
+                  begin
+                    // 初始化或加入拥有列表失败时，不能留下未被接管的流和临时文件。
+                    LFailedFilePath := '';
+                    try
+                      if LNewField.FIsTempFile then
+                        LFailedFilePath := LNewField.FilePath;
+                    finally
+                      LNewField.Free;
+                    end;
+                    if LFailedFilePath <> '' then
+                      DeleteFile(LFailedFilePath);
+                  end;
                 end;
-                FPartFields.Add(FCurrentPartField);
 
                 FDecodeState := dsPartData;
                 FPartDataBegin := -1;
@@ -2388,12 +2540,6 @@ begin
               else FLineEndState := lesCR1;
           end;
 
-          // 块头部过大, 视为非法数据
-          if (FCurrentPartHeaderLen > MAX_PART_HEADER) then
-          begin
-            AConsumed := I + 1;
-            Exit(frFailed);
-          end;
         end;
 
       dsPartData:
@@ -2418,7 +2564,7 @@ begin
             // 进一步判断之后确定不是Boundary, 需要把这部分数据写入Field中
             if (FPrevBoundaryIndex > 0) then
             begin
-              FCurrentPartField.FValue.Write(FLookbehind[0], FPrevBoundaryIndex);
+              FCurrentPartField.FValue.WriteBuffer(FLookbehind[0], FPrevBoundaryIndex);
               Inc(FCurrentPartDataSize, FPrevBoundaryIndex);
               // 检查单 Part Body 大小是否超限 (与块结尾检查对称)
               if (FMaxPartDataSize > 0) and (FCurrentPartDataSize > FMaxPartDataSize) then
@@ -2434,7 +2580,7 @@ begin
             begin
               // 之前检测到有一部分数据跟Boundary有点像, 但是到这个字节可以确定之前
               // 这部分数据并不是Boundary, 需要把这部分数据写入Field中
-              FCurrentPartField.FValue.Write(P[FPartDataBegin], I - FPartDataBegin);
+              FCurrentPartField.FValue.WriteBuffer(P[FPartDataBegin], I - FPartDataBegin);
               Inc(FCurrentPartDataSize, I - FPartDataBegin);
               FPartDataBegin := I;
 
@@ -2455,7 +2601,7 @@ begin
               LSize := I - FPartDataBegin - FBoundaryIndex + 1;
               if (LSize > 0) then
               begin
-                FCurrentPartField.FValue.Write(P[FPartDataBegin], LSize);
+                FCurrentPartField.FValue.WriteBuffer(P[FPartDataBegin], LSize);
                 Inc(FCurrentPartDataSize, LSize);
               end;
             end;
