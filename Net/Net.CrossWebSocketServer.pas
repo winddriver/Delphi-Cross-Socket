@@ -272,8 +272,13 @@ type
     FIsWebSocket: Boolean;
     FWsParser: TCrossWebSocketParser;
     FWsSender: TCrossWebSocketSender;
+    FHandshakeLimit, FHandshakeCount: Integer;
+    FHandshakeReady, FHandshakeDraining: Boolean;
+    FHandshakeData: TBytes;
 
     procedure _WebSocketRecv(var ABuf: Pointer; var ALen: Integer);
+    procedure _BufferHandshake(var ABuf: Pointer; var ALen: Integer);
+    procedure _ClearHandshake;
 
     {$region '内部发送方法'}
     procedure _WsSend(AOpCode: Byte; AFin: Boolean; AData: Pointer; ACount: NativeInt;
@@ -291,11 +296,15 @@ type
     procedure _StopParserIfDisconnected;
   protected
     procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); override;
+    procedure InternalClose; override;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AHost: string;
       const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
+    procedure SetHandshakeBufferLimit(const AValue: Integer);
+    function HandshakeReady: Boolean;
+    procedure CompleteHandshake;
 
     // 开始接收前配置。接口不变，具体连接类增加可选资源策略。
     procedure SetWebSocketLimits(const AMaxMessageSize: UInt64;
@@ -385,6 +394,9 @@ type
 
     procedure DoOnRequest(const AConnection: ICrossHttpConnection;
       const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse); override;
+    // 通用验证成功后、切换 WS 状态和发送101之前执行；False发送HTTP400。
+    function PrepareWebSocketUpgrade(const AConnection: ICrossWebSocketConnection;
+      const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse): Boolean; virtual;
   public
     constructor Create(const AIoThreads: Integer; const ASsl: Boolean); override;
     destructor Destroy; override;
@@ -407,6 +419,7 @@ constructor TCrossWebSocketConnection.Create(const AOwner: TCrossSocketBase;
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AHost, AConnectCb);
   FWsSender := TCrossWebSocketSender.Create(Self, True);
+  FHandshakeLimit := 0;
   FWsParser := TCrossWebSocketParser.Create(
     procedure(const AOpCode: Byte; const AData: TBytes)
     var
@@ -462,16 +475,114 @@ begin
   Result := FIsWebSocket;
 end;
 
+procedure TCrossWebSocketConnection.SetHandshakeBufferLimit(const AValue: Integer);
+begin
+  if AValue < 0 then raise Exception.Create('握手暂存上限不能为负数');
+  _LockRecv;
+  try
+    if (AValue > 0) and (FHandshakeCount > AValue) then raise Exception.Create('握手暂存已超过新上限');
+    FHandshakeLimit := AValue;
+    if (AValue > 0) and (Length(FHandshakeData) > AValue) then SetLength(FHandshakeData, AValue);
+  finally _UnlockRecv; end;
+end;
+
+function TCrossWebSocketConnection.HandshakeReady: Boolean;
+begin
+  _LockRecv;
+  try Result := FHandshakeReady and not IsClosed; finally _UnlockRecv; end;
+end;
+
+procedure TCrossWebSocketConnection._ClearHandshake;
+begin
+  _LockRecv;
+  try
+    FHandshakeReady := False;
+    FHandshakeData := nil;
+    FHandshakeCount := 0;
+  finally _UnlockRecv; end;
+end;
+
+procedure TCrossWebSocketConnection._BufferHandshake(var ABuf: Pointer; var ALen: Integer);
+var N, Need, Capacity, MaxCapacity: Integer;
+begin
+  N := FHandshakeCount;
+  MaxCapacity := FHandshakeLimit;
+  if MaxCapacity = 0 then MaxCapacity := High(Integer);
+  if ALen > MaxCapacity - N then
+  begin
+    ABuf := PByte(ABuf) + ALen;
+    ALen := 0;
+    _ClearHandshake;
+    Close;
+    Exit;
+  end;
+  Need := N + ALen;
+  Capacity := Length(FHandshakeData);
+  if Capacity < Need then
+  begin
+    if Capacity = 0 then
+      if MaxCapacity < 4096 then Capacity := MaxCapacity else Capacity := 4096;
+    while Capacity < Need do
+      if Capacity > MaxCapacity div 2 then Capacity := MaxCapacity else Capacity := Capacity * 2;
+    SetLength(FHandshakeData, Capacity);
+  end;
+  if ALen > 0 then Move(ABuf^, FHandshakeData[N], ALen);
+  FHandshakeCount := Need;
+  ABuf := PByte(ABuf) + ALen;
+  ALen := 0;
+end;
+
+procedure TCrossWebSocketConnection.CompleteHandshake;
+var Data: TBytes; P: Pointer; N: Integer;
+begin
+  _LockRecv;
+  try
+    if IsClosed or FWsSender.IsClosing then
+    begin
+      _ClearHandshake;
+      Close;
+      Exit;
+    end;
+    FHandshakeReady := True;
+    FHandshakeDraining := True;
+    try
+      while (FHandshakeCount > 0) and not IsClosed do
+      begin
+        Data := FHandshakeData;
+        FHandshakeData := nil;
+        P := @Data[0];
+        N := FHandshakeCount;
+        FHandshakeCount := 0;
+        while (N > 0) and not IsClosed do _WebSocketRecv(P, N);
+      end;
+      if IsClosed then
+      begin FHandshakeData := nil; FHandshakeCount := 0; end;
+    finally FHandshakeDraining := False; end;
+  finally _UnlockRecv; end;
+end;
+
+procedure TCrossWebSocketConnection.InternalClose;
+begin
+  try _ClearHandshake; finally inherited; end;
+end;
+
 procedure TCrossWebSocketConnection.ParseRecvData(var ABuf: Pointer;
   var ALen: Integer);
 begin
   while (ALen > 0) do
   begin
+    if IsClosed then
+    begin
+      ABuf := PByte(ABuf) + ALen;
+      ALen := 0;
+      Exit;
+    end;
     if not FIsWebSocket then
       inherited ParseRecvData(ABuf, ALen);
 
     if (ALen > 0) and FIsWebSocket then
-      _WebSocketRecv(ABuf, ALen);
+      if not FHandshakeReady or FHandshakeDraining then _BufferHandshake(ABuf, ALen)
+      else _WebSocketRecv(ABuf, ALen);
   end;
 end;
 
@@ -715,10 +826,11 @@ var
   LConnection: ICrossWebSocketConnection;
 begin
   LConnection := AConnection as ICrossWebSocketConnection;
-  if LConnection.IsWebSocket then
-    _OnClose(LConnection);
-
-  inherited LogicDisconnected(AConnection);
+  try
+    if LConnection.IsWebSocket then _OnClose(LConnection);
+  finally
+    inherited LogicDisconnected(AConnection);
+  end;
 end;
 
 function TCrossWebSocketServer.OnClose(const ACallback: TWsServerOnClose): ICrossWebSocketServer;
@@ -909,6 +1021,13 @@ begin
     AConnectCb);
 end;
 
+function TCrossWebSocketServer.PrepareWebSocketUpgrade(
+  const AConnection: ICrossWebSocketConnection; const ARequest: ICrossHttpRequest;
+  const AResponse: ICrossHttpResponse): Boolean;
+begin
+  Result := True;
+end;
+
 procedure TCrossWebSocketServer.DoOnRequest(
   const AConnection: ICrossHttpConnection;
   const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse);
@@ -972,15 +1091,33 @@ begin
       RejectHandshake(426);
       Exit;
     end;
+    if not PrepareWebSocketUpgrade(LConnection, ARequest, AResponse) then
+    begin
+      RejectHandshake(400);
+      Exit;
+    end;
     LConnectionObj.FIsWebSocket := True;
-    _WebSocketHandshake(LConnection, ARequest, AResponse,
-      procedure(const AConnection: ICrossWebSocketConnection; const ASuccess: Boolean)
-      begin
-        if ASuccess then
-          _OnOpen(AConnection)
-        else
-          _CloseCrossData(AConnection);
-      end);
+    try
+      _WebSocketHandshake(LConnection, ARequest, AResponse,
+        procedure(const AConnection: ICrossWebSocketConnection; const ASuccess: Boolean)
+        begin
+          if not ASuccess or AConnection.IsClosed then
+          begin
+            _CloseCrossData(AConnection);
+            Exit;
+          end;
+          try
+            _OnOpen(AConnection);
+            (AConnection as TCrossWebSocketConnection).CompleteHandshake;
+          except
+            _CloseCrossData(AConnection);
+            raise;
+          end;
+        end);
+    except
+      _CloseCrossData(LConnection);
+      raise;
+    end;
   end else
     inherited DoOnRequest(LConnection, ARequest, AResponse);
 end;
