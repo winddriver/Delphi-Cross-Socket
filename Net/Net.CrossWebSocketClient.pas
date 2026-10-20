@@ -308,8 +308,19 @@ type
 
     FWsParser: TCrossWebSocketParser;
     FWsSender: TCrossWebSocketSender;
+    FProtocolLock: ILock;
+    FProtocolOnMessage: TWsClientOnMessage;
+    FProtocolOnClose: TWsClientOnClose;
+    FHandshakeLimit, FHandshakeCount: Integer;
+    FHandshakeReady, FHandshakeDraining: Boolean;
+    FHandshakeData: TBytes;
+    FHandshakeContext: IInterface;
 
     procedure _WebSocketRecv(var ABuf: Pointer; var ALen: Integer);
+    procedure _BufferHandshake(var ABuf: Pointer; var ALen: Integer);
+    procedure _ClearHandshake;
+    function _GetProtocolMessage: TWsClientOnMessage;
+    procedure _CloseProtocol;
 
     procedure _RespondPong(const AData: TBytes);
     procedure _RespondClose(const AData: TBytes);
@@ -327,11 +338,21 @@ type
     {$endregion}
   protected
     procedure ParseRecvData(var ABuf: Pointer; var ALen: Integer); override;
+    procedure InternalClose; override;
   public
     constructor Create(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AHost: string;
       const AConnectCb: TCrossConnectionCallback); override;
     destructor Destroy; override;
+
+    // 内部协议按物理连接绑定；断线时解除回调并终止对应会话。
+    procedure SetProtocolCallbacks(const AOnMessage: TWsClientOnMessage;
+      const AOnClose: TWsClientOnClose);
+    procedure SetHandshakeBufferLimit(const AValue: Integer);
+    procedure SetHandshakeContext(const AContext: IInterface);
+    function GetHandshakeContext: IInterface;
+    function HandshakeReady: Boolean;
+    procedure CompleteHandshake;
 
     // 开始接收前配置。接口不变，具体连接类增加可选资源策略。
     procedure SetWebSocketLimits(const AMaxMessageSize: UInt64;
@@ -397,6 +418,8 @@ type
     FUrl: string;
     FMgr: TCrossWebSocketMgr;
     FConnection: TCrossWebSocketClientConnection;
+    FOpeningConnection: ICrossWebSocketClientConnection;
+    FOpenSerial: UInt64;
     FStatus: TWsStatus;
     FLock: ILock;
 
@@ -414,14 +437,21 @@ type
     procedure _OnOpenRequest(const ARequest: ICrossHttpClientRequest);
     procedure _OnOpenResponse(const AResponse: ICrossHttpClientResponse);
     procedure _OnOpen;
-    procedure _OnMessage(const AMessageType: TWsMessageType; const AMessageData: TBytes);
-    procedure _OnClose;
+    procedure _OnMessage(const AMessageType: TWsMessageType; const AMessageData: TBytes;
+      const AProtocolOnMessage: TWsClientOnMessage = nil);
+    procedure _OnClose(const AConnection: ICrossWebSocketClientConnection = nil);
+    function _IsCurrentOpen(const ASerial: UInt64): Boolean;
 
     procedure _OnPing;
     procedure _OnPong;
   protected
     function GetStatus: TWsStatus;
     function GetUrl: string;
+    function GetConnection: ICrossWebSocketClientConnection;
+    procedure PrepareOpenRequest(const ARequest: ICrossHttpClientRequest); virtual;
+    procedure ValidateOpenRequest(const ARequest: ICrossHttpClientRequest); virtual;
+    function ValidateOpenResponse(const AResponse: ICrossHttpClientResponse): Boolean; virtual;
+    procedure DoOnOpen(const AConnection: ICrossWebSocketClientConnection); virtual;
   public
     constructor Create(const AMgr: TCrossWebSocketMgr; const AUrl: string); overload; virtual;
     constructor Create(const AUrl: string); overload;
@@ -429,6 +459,13 @@ type
 
     function Open: ICrossWebSocket;
     function Close: ICrossWebSocket;
+
+    // 撤销本外观的业务开关事件；已取得的回调快照继续保活至退出。
+    // 握手、认证及消息事件不受影响。
+    procedure ClearLifecycleEvents;
+    {$IFDEF CROSS_WS_PRIVATE_SELFTEST}
+    procedure TestTriggerCloseEvent;
+    {$ENDIF}
 
     procedure Ping;
 
@@ -484,6 +521,9 @@ constructor TCrossWebSocketClientConnection.Create(const AOwner: TCrossSocketBas
   const AHost: string; const AConnectCb: TCrossConnectionCallback);
 begin
   inherited Create(AOwner, AClientSocket, AConnectType, AHost, AConnectCb);
+  FProtocolLock := TLock.Create;
+  // 通用 WS 不新增限额；私有适配器在发起握手前设置有界上限。
+  FHandshakeLimit := 0;
   FWsSender := TCrossWebSocketSender.Create(Self, False);
   FWsParser := TCrossWebSocketParser.Create(
     procedure(const AOpCode: Byte; const AData: TBytes)
@@ -505,9 +545,16 @@ begin
       end;
     end,
     procedure(const AType: TWsMessageType; const AData: TBytes)
+    var
+      LProtocolOnMessage: TWsClientOnMessage;
     begin
       try
-        if FWebSocket <> nil then FWebSocket._OnMessage(AType, AData);
+        LProtocolOnMessage := _GetProtocolMessage();
+        if FWebSocket <> nil then
+          FWebSocket._OnMessage(AType, AData, LProtocolOnMessage)
+        else
+        if Assigned(LProtocolOnMessage) then
+          LProtocolOnMessage(AType, AData);
       finally
         _StopParserIfDisconnected;
       end;
@@ -523,6 +570,7 @@ end;
 
 destructor TCrossWebSocketClientConnection.Destroy;
 begin
+  _CloseProtocol;
   if (FWebSocket <> nil) then
   begin
     FWebSocket.FStatus := wsShutdown;
@@ -536,16 +584,196 @@ begin
   inherited;
 end;
 
+procedure TCrossWebSocketClientConnection.SetProtocolCallbacks(
+  const AOnMessage: TWsClientOnMessage; const AOnClose: TWsClientOnClose);
+var
+  LClosed: Boolean;
+begin
+  FProtocolLock.Enter;
+  try
+    LClosed := ConnectStatus in [csDisconnected, csClosed];
+    if not LClosed then
+    begin
+      if Assigned(FProtocolOnMessage) or Assigned(FProtocolOnClose) then
+        raise Exception.Create('此连接已经绑定内部协议');
+      FProtocolOnMessage := AOnMessage;
+      FProtocolOnClose := AOnClose;
+    end;
+  finally
+    FProtocolLock.Leave;
+  end;
+  if LClosed and Assigned(AOnClose) then
+    AOnClose();
+end;
+
+function TCrossWebSocketClientConnection._GetProtocolMessage: TWsClientOnMessage;
+begin
+  FProtocolLock.Enter;
+  try
+    Result := FProtocolOnMessage;
+  finally
+    FProtocolLock.Leave;
+  end;
+end;
+
+procedure TCrossWebSocketClientConnection.SetHandshakeBufferLimit(const AValue: Integer);
+begin
+  if AValue < 0 then raise Exception.Create('握手暂存上限不能为负数');
+  _LockRecv;
+  try
+    if (AValue > 0) and (FHandshakeCount > AValue) then raise Exception.Create('握手暂存已超过新上限');
+    FHandshakeLimit := AValue;
+    if (AValue > 0) and (Length(FHandshakeData) > AValue) then SetLength(FHandshakeData, AValue);
+  finally _UnlockRecv; end;
+end;
+
+procedure TCrossWebSocketClientConnection.SetHandshakeContext(const AContext: IInterface);
+var Old: IInterface;
+begin
+  FProtocolLock.Enter;
+  try
+    Old := FHandshakeContext;
+    FHandshakeContext := AContext;
+  finally FProtocolLock.Leave; end;
+  Old := nil;
+end;
+
+function TCrossWebSocketClientConnection.GetHandshakeContext: IInterface;
+begin
+  FProtocolLock.Enter;
+  try Result := FHandshakeContext; finally FProtocolLock.Leave; end;
+end;
+
+function TCrossWebSocketClientConnection.HandshakeReady: Boolean;
+begin
+  _LockRecv;
+  try Result := FHandshakeReady and not IsClosed; finally _UnlockRecv; end;
+end;
+
+procedure TCrossWebSocketClientConnection._ClearHandshake;
+begin
+  _LockRecv;
+  try
+    FHandshakeReady := False;
+    FHandshakeData := nil;
+    FHandshakeCount := 0;
+  finally _UnlockRecv; end;
+end;
+
+procedure TCrossWebSocketClientConnection._BufferHandshake(var ABuf: Pointer; var ALen: Integer);
+var N, Need, Capacity, MaxCapacity: Integer;
+begin
+  N := FHandshakeCount;
+  MaxCapacity := FHandshakeLimit;
+  if MaxCapacity = 0 then MaxCapacity := High(Integer);
+  if ALen > MaxCapacity - N then
+  begin
+    ABuf := PByte(ABuf) + ALen;
+    ALen := 0;
+    _ClearHandshake;
+    Close;
+    Exit;
+  end;
+  Need := N + ALen;
+  Capacity := Length(FHandshakeData);
+  if Capacity < Need then
+  begin
+    if Capacity = 0 then
+      if MaxCapacity < 4096 then Capacity := MaxCapacity else Capacity := 4096;
+    while Capacity < Need do
+      if Capacity > MaxCapacity div 2 then Capacity := MaxCapacity else Capacity := Capacity * 2;
+    SetLength(FHandshakeData, Capacity);
+  end;
+  if ALen > 0 then Move(ABuf^, FHandshakeData[N], ALen);
+  FHandshakeCount := Need;
+  ABuf := PByte(ABuf) + ALen;
+  ALen := 0;
+end;
+
+procedure TCrossWebSocketClientConnection.CompleteHandshake;
+var Data: TBytes; P: Pointer; N: Integer;
+begin
+  _LockRecv;
+  try
+    if IsClosed or FWsSender.IsClosing then
+    begin
+      _ClearHandshake;
+      Close;
+      Exit;
+    end;
+    FHandshakeReady := True;
+    FHandshakeDraining := True;
+    try
+      // 同线程重入接收也先排到暂存尾部，不能越过当前正在排空的数据。
+      while (FHandshakeCount > 0) and not IsClosed do
+      begin
+        Data := FHandshakeData;
+        FHandshakeData := nil;
+        P := @Data[0];
+        N := FHandshakeCount;
+        FHandshakeCount := 0;
+        while (N > 0) and not IsClosed do _WebSocketRecv(P, N);
+      end;
+      if IsClosed then
+      begin FHandshakeData := nil; FHandshakeCount := 0; end;
+    finally FHandshakeDraining := False; end;
+  finally _UnlockRecv; end;
+end;
+
+procedure TCrossWebSocketClientConnection.InternalClose;
+begin
+  try _ClearHandshake; finally inherited; end;
+end;
+
+procedure TCrossWebSocketClientConnection._CloseProtocol;
+var
+  LOnMessage: TWsClientOnMessage;
+  LOnClose: TWsClientOnClose;
+  LContext: IInterface;
+begin
+  if FProtocolLock = nil then Exit;
+  FProtocolLock.Enter;
+  try
+    // 局部引用让会话及其传输引用在锁外释放。
+    LOnMessage := FProtocolOnMessage;
+    LOnClose := FProtocolOnClose;
+    FProtocolOnMessage := nil;
+    FProtocolOnClose := nil;
+    LContext := FHandshakeContext;
+    FHandshakeContext := nil;
+  finally
+    FProtocolLock.Leave;
+  end;
+  _ClearHandshake;
+  LContext := nil;
+  if Assigned(LOnClose) then
+    LOnClose();
+end;
+
 procedure TCrossWebSocketClientConnection.ParseRecvData(var ABuf: Pointer;
   var ALen: Integer);
 begin
   while (ALen > 0) do
   begin
+    if IsClosed then
+    begin
+      ABuf := PByte(ABuf) + ALen;
+      ALen := 0;
+      Exit;
+    end;
     if not FIsWebSocket then
+    begin
+      if RequestStatus = rsUpgraded then
+      begin
+        _BufferHandshake(ABuf, ALen);
+        Exit;
+      end;
       inherited ParseRecvData(ABuf, ALen);
+    end;
 
     if (ALen > 0) and FIsWebSocket then
-      _WebSocketRecv(ABuf, ALen);
+      if not FHandshakeReady or FHandshakeDraining then _BufferHandshake(ABuf, ALen)
+      else _WebSocketRecv(ABuf, ALen);
   end;
 end;
 
@@ -775,21 +1003,69 @@ var
   LConnectionObj: TCrossWebSocketClientConnection;
 begin
   LConnectionObj := AConnection as TCrossWebSocketClientConnection;
-  if (LConnectionObj.FWebSocket <> nil) then
-    LConnectionObj.FWebSocket._OnClose;
-
-  inherited LogicDisconnected(AConnection);
+  try
+    if (LConnectionObj.FWebSocket <> nil) then
+      LConnectionObj.FWebSocket._OnClose(AConnection as ICrossWebSocketClientConnection);
+  finally
+    try
+      // 外观可能已销毁，仍须终止该物理连接自己的协议会话。
+      LConnectionObj._CloseProtocol;
+    finally
+      inherited LogicDisconnected(AConnection);
+    end;
+  end;
 end;
 
 { TCrossWebSocket }
 
 function TCrossWebSocket.Close: ICrossWebSocket;
+var
+  LConnection: ICrossWebSocketClientConnection;
+  LStatus: TWsStatus;
 begin
   Result := Self;
-
-  if (GetStatus = wsConnected) then
-    FConnection.WsClose;
+  _Lock;
+  try
+    LStatus := FStatus;
+    if (LStatus = wsConnecting) and (FOpeningConnection <> nil) then LConnection := FOpeningConnection
+    else LConnection := FConnection;
+  finally _Unlock; end;
+  if LStatus = wsConnecting then
+  begin
+    try _OnClose;
+    finally if LConnection <> nil then LConnection.Close; end;
+  end else if (LStatus = wsConnected) and (LConnection <> nil) then
+    LConnection.WsClose;
 end;
+
+procedure TCrossWebSocket.ClearLifecycleEvents;
+var
+  LOpenEvents: TArray<TWsClientOnOpen>;
+  LCloseEvents: TArray<TWsClientOnClose>;
+begin
+  _Lock;
+  try
+    LOpenEvents := FOnOpenEvents.ToArray;
+    LCloseEvents := FOnCloseEvents.ToArray;
+    FOnOpenEvents.Clear;
+    FOnCloseEvents.Clear;
+  finally
+    _Unlock;
+  end;
+  // 用户闭包的最后释放不能发生在内部事件锁中。
+  LOpenEvents := nil;
+  LCloseEvents := nil;
+end;
+
+{$IFDEF CROSS_WS_PRIVATE_SELFTEST}
+procedure TCrossWebSocket.TestTriggerCloseEvent;
+begin
+  _Lock;
+  try if FStatus = wsDisconnected then FStatus := wsConnecting;
+  finally _Unlock; end;
+  _OnClose;
+end;
+{$ENDIF}
 
 constructor TCrossWebSocket.Create(const AMgr: TCrossWebSocketMgr;
   const AUrl: string);
@@ -826,6 +1102,11 @@ begin
         FConnection.FWebSocket := nil;
         FConnection.Close;
         FConnection := nil;
+      end;
+      if FOpeningConnection <> nil then
+      begin
+        FOpeningConnection.Close;
+        FOpeningConnection := nil;
       end;
 
       FreeAndNil(FOnOpenRequestEvents);
@@ -952,6 +1233,7 @@ var
   LWebSocket: ICrossWebSocket;
   LSecWebSocketKey, LSecWebSocketAccept: string;
   LProtocols: TArray<string>;
+  LOpenSerial: UInt64;
 begin
   LWebSocket := Self;
   Result := LWebSocket;
@@ -959,6 +1241,9 @@ begin
   try
     if (FStatus in [wsConnecting, wsConnected]) then Exit;
     FStatus := wsConnecting;
+    if FOpenSerial = High(UInt64) then FOpenSerial := 0;
+    Inc(FOpenSerial);
+    LOpenSerial := FOpenSerial;
   finally
     _Unlock;
   end;
@@ -971,6 +1256,12 @@ begin
     nil, 0, nil,
     procedure(const ARequest: ICrossHttpClientRequest)
     begin
+      _Lock;
+      try
+        if (FOpenSerial <> LOpenSerial) or (FStatus <> wsConnecting) then
+          raise Exception.Create('WebSocket 打开已取消');
+        FOpeningConnection := ARequest.Connection as ICrossWebSocketClientConnection;
+      finally _Unlock; end;
       {
         GET /websocket-endpoint HTTP/1.1
         Host: example.com
@@ -983,7 +1274,9 @@ begin
       ARequest.Header[HEADER_CONNECTION] := HEADER_UPGRADE;
       ARequest.Header[HEADER_SEC_WEBSOCKET_KEY] := LSecWebSocketKey;
       ARequest.Header[HEADER_SEC_WEBSOCKET_VERSION] := WEBSOCKET_VERSION;
+      PrepareOpenRequest(ARequest);
       _OnOpenRequest(ARequest);
+      ValidateOpenRequest(ARequest);
       // 按扩展回调之后实际发送的 key 和子协议验证响应。
       LSecWebSocketAccept := TCrossWebSocketParser.MakeSecWebSocketAccept(
         ARequest.Header[HEADER_SEC_WEBSOCKET_KEY].Trim);
@@ -1003,22 +1296,28 @@ begin
         Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
       }
       try
+        if not _IsCurrentOpen(LOpenSerial) then
+        begin
+          if AResponse <> nil then _CloseCrossData(AResponse.Connection);
+          Exit;
+        end;
         try
           _OnOpenResponse(AResponse);
         except
           if AResponse <> nil then _CloseCrossData(AResponse.Connection);
-          _OnClose;
+          if _IsCurrentOpen(LOpenSerial) then _OnClose;
           raise;
         end;
         // 连接失败
         if (AResponse = nil) then
         begin
-          _OnClose;
+          if _IsCurrentOpen(LOpenSerial) then _OnClose;
           Exit;
         end;
 
         // 验证失败
         LValid := (AResponse.StatusCode = 101) and (AResponse.Connection <> nil)
+          and not AResponse.Connection.IsClosed
           and TCrossWebSocketParser.IsValidHttpVersion((AResponse as TCrossHttpClientResponse).Version)
           and AResponse.Header.ContainsToken(HEADER_UPGRADE, WEBSOCKET)
           and AResponse.Header.ContainsToken(HEADER_CONNECTION, HEADER_UPGRADE);
@@ -1045,20 +1344,40 @@ begin
           end;
           LValid := LValid and LProtocolFound;
         end;
+        if LValid then LValid := ValidateOpenResponse(AResponse);
+        LValid := LValid and _IsCurrentOpen(LOpenSerial);
         if not LValid then
         begin
           // 101 已从 HTTP 池移出；握手拒绝必须真正关闭，不能只改变 WS 状态。
           _CloseCrossData(AResponse.Connection);
-          _OnClose;
+          if _IsCurrentOpen(LOpenSerial) then _OnClose;
           Exit;
         end;
 
         // 握手成功
-        FConnection := AResponse.Connection as TCrossWebSocketClientConnection;
-        FConnection.FWebSocket := Self;
-        FConnection.FIsWebSocket := True;
-
-        _OnOpen;
+        _Lock;
+        try
+          LValid := (FOpenSerial = LOpenSerial) and (FStatus = wsConnecting);
+          if LValid then
+          begin
+            FConnection := AResponse.Connection as TCrossWebSocketClientConnection;
+            FOpeningConnection := nil;
+            FConnection.FWebSocket := Self;
+            FConnection.FIsWebSocket := True;
+          end;
+        finally _Unlock; end;
+        if not LValid then
+        begin
+          _CloseCrossData(AResponse.Connection);
+          Exit;
+        end;
+        try
+          _OnOpen;
+          (AResponse.Connection as TCrossWebSocketClientConnection).CompleteHandshake;
+        except
+          _CloseCrossData(AResponse.Connection);
+          raise;
+        end;
       finally
         LWebSocket := nil;
       end;
@@ -1148,8 +1467,9 @@ begin
   FLock.Enter;
 end;
 
-procedure TCrossWebSocket._OnClose;
+procedure TCrossWebSocket._OnClose(const AConnection: ICrossWebSocketClientConnection);
 var
+  LConnection: ICrossWebSocketClientConnection;
   LOnCloseEvents: TArray<TWsClientOnClose>;
   LOnCloseEvent: TWsClientOnClose;
 begin
@@ -1157,25 +1477,62 @@ begin
 
   _Lock;
   try
+    // 重连后旧物理连接的晚到关闭不能清掉新会话。
+    if (AConnection <> nil) and
+      (FConnection <> (AConnection as TCrossWebSocketClientConnection)) and
+      (FOpeningConnection <> AConnection) then Exit;
+    if (FStatus = wsDisconnected) and (FConnection = nil) and (FOpeningConnection = nil) then Exit;
     FStatus := wsDisconnected;
     LOnCloseEvents := FOnCloseEvents.ToArray;
 
     if (FConnection <> nil) then
     begin
+      LConnection := FConnection;
       FConnection.FWebSocket := nil;
       FConnection := nil;
-    end;
+    end else
+      LConnection := FOpeningConnection;
+    FOpeningConnection := nil;
   finally
     _Unlock;
   end;
+
+  if LConnection <> nil then
+    (LConnection as TCrossWebSocketClientConnection)._CloseProtocol;
 
   for LOnCloseEvent in LOnCloseEvents do
     if Assigned(LOnCloseEvent) then
       LOnCloseEvent();
 end;
 
+function TCrossWebSocket._IsCurrentOpen(const ASerial: UInt64): Boolean;
+begin
+  _Lock;
+  try Result := (FOpenSerial = ASerial) and (FStatus = wsConnecting);
+  finally _Unlock; end;
+end;
+
+function TCrossWebSocket.GetConnection: ICrossWebSocketClientConnection;
+begin
+  _Lock;
+  try Result := FConnection; finally _Unlock; end;
+end;
+
+procedure TCrossWebSocket.PrepareOpenRequest(const ARequest: ICrossHttpClientRequest);
+begin
+end;
+
+procedure TCrossWebSocket.ValidateOpenRequest(const ARequest: ICrossHttpClientRequest);
+begin
+end;
+
+function TCrossWebSocket.ValidateOpenResponse(const AResponse: ICrossHttpClientResponse): Boolean;
+begin
+  Result := True;
+end;
+
 procedure TCrossWebSocket._OnMessage(const AMessageType: TWsMessageType;
-  const AMessageData: TBytes);
+  const AMessageData: TBytes; const AProtocolOnMessage: TWsClientOnMessage);
 var
   LOnMessageEvents: TArray<TWsOnMessage>;
   LOnMessageEvent: TWsOnMessage;
@@ -1188,6 +1545,10 @@ begin
   finally
     _Unlock;
   end;
+
+  // 协议回调可以关闭或释放外观，公开事件仍使用进入时的独立快照。
+  if Assigned(AProtocolOnMessage) then
+    AProtocolOnMessage(AMessageType, AMessageData);
 
   for LOnMessageEvent in LOnMessageEvents do
     if Assigned(LOnMessageEvent) then
@@ -1234,6 +1595,7 @@ end;
 
 procedure TCrossWebSocket._OnOpen;
 var
+  LConnection: ICrossWebSocketClientConnection;
   LOnOpenEvents: TArray<TWsClientOnOpen>;
   LOnOpenEvent: TWsClientOnOpen;
 begin
@@ -1241,15 +1603,24 @@ begin
 
   _Lock;
   try
+    if (FStatus <> wsConnecting) or (FConnection = nil) then Exit;
     FStatus := wsConnected;
+    LConnection := FConnection;
     LOnOpenEvents := FOnOpenEvents.ToArray;
   finally
     _Unlock;
   end;
 
+  DoOnOpen(LConnection);
+
   for LOnOpenEvent in LOnOpenEvents do
     if Assigned(LOnOpenEvent) then
       LOnOpenEvent();
+end;
+
+procedure TCrossWebSocket.DoOnOpen(
+  const AConnection: ICrossWebSocketClientConnection);
+begin
 end;
 
 procedure TCrossWebSocket._OnPing;
