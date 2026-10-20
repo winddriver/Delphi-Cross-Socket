@@ -179,6 +179,16 @@ end;
 
 { THashBobJenkins }
 
+// 哈希混合按模 2^32 回绕；FPC 的范围检查也会拒绝 Cardinal 加减的截断。
+// 仅关闭此核心函数的检查，后续代码恢复进入前的独立 Q/R 状态。
+{$IFOPT Q+}
+  {$DEFINE DTF_HASH_RESTORE_OVERFLOW_CHECKS}
+  {$Q-}
+{$ENDIF}
+{$IFOPT R+}
+  {$DEFINE DTF_HASH_RESTORE_RANGE_CHECKS}
+  {$R-}
+{$ENDIF}
 class function THashBobJenkins.HashLittle(const Data; Len, InitVal: Integer): Integer;
   function Rot(x, k: Cardinal): Cardinal; inline;
   begin
@@ -344,6 +354,27 @@ case_1:
   Final(a, b, c);
   Result := Integer(c);
 end;
+
+{$IFDEF DTF_HASH_RESTORE_OVERFLOW_CHECKS}
+  {$Q+}
+{$ENDIF}
+{$IFDEF DTF_HASH_RESTORE_RANGE_CHECKS}
+  {$R+}
+{$ENDIF}
+{$IFDEF DTF_HASH_SELFTEST}
+  {$IFDEF DTF_HASH_RESTORE_OVERFLOW_CHECKS}
+    {$IFOPT Q-}{$MESSAGE ERROR 'HashLittle 未恢复溢出检查'}{$ENDIF}
+  {$ELSE}
+    {$IFOPT Q+}{$MESSAGE ERROR 'HashLittle 改变了溢出检查状态'}{$ENDIF}
+  {$ENDIF}
+  {$IFDEF DTF_HASH_RESTORE_RANGE_CHECKS}
+    {$IFOPT R-}{$MESSAGE ERROR 'HashLittle 未恢复范围检查'}{$ENDIF}
+  {$ELSE}
+    {$IFOPT R+}{$MESSAGE ERROR 'HashLittle 改变了范围检查状态'}{$ENDIF}
+  {$ENDIF}
+{$ENDIF}
+{$UNDEF DTF_HASH_RESTORE_OVERFLOW_CHECKS}
+{$UNDEF DTF_HASH_RESTORE_RANGE_CHECKS}
 
 {$POINTERMATH OFF}
 
