@@ -98,9 +98,10 @@ HTTP Parser 的失败是终态：回调吞掉 `EAbort`、再次 Decode / Finish 
 ## EasyThread / EasyTimer
 
 - `Terminate` 是协作终止，不会中断正在执行的用户代码。外部 `WaitFor` / 析构等待任务实际结束；不要在持有任务所需锁时等待。
-- EasyThread 的外部等待串行完成一次原生 join，`Finished` 不能替代首次 join。工作线程自身 WaitFor 直接返回；自身析构把底层线程释放交给 `FreeOnTerminate`，不等待自己。见 [WaitFor](../Utils/Utils.EasyThread.pas#L152) 和 [生命周期测试](../Utils/Tests/FPC/EasyThreadTests/README.md)。
+- EasyThread 的无参及 `High(Cardinal)` 外部等待串行完成一次原生 join，`Finished` 不能替代首次 join。有限 `WaitFor(timeout)` 只等待任务和线程保存的闭包清理，True 不表示已经 native join，超时不会终止任务。工作线程自身无参等待直接返回、有限等待返回 True（no-op）；自身析构把底层线程释放交给 `FreeOnTerminate`。回调收到独立 Control，保留它不会变成悬空线程指针；ThreadID 是缓存身份，不能用来证明线程仍存活。见 [生命周期测试](../Utils/Tests/FPC/EasyThreadTests/README.md)。
 - EasyTimer 的工作回调保活独立状态，允许回调内释放 Timer；析构发出停止信号，回调返回后结束。Timer 捕获回调异常后继续后续周期，日志异常不阻断清理；这不同于一次性任务和 Session 清理线程。回调运行在 Timer 状态锁外，但调用方自己的锁仍由调用方负责。
 - Timer 的暂停不取消已经接纳的回调；空闲/暂停时视为健康，正在运行的回调可通过超时检查识别卡顿，Finished 后保留最后心跳。见 [Timer 实现](../Utils/Utils.EasyTimer.pas#L125) 与 [测试说明](../Utils/Tests/FPC/EasyTimerTests/README.md)。
+- 最新版的 Timeout、BeforeExecute/AfterExecute、超时等待接口已合并。非正周期仍按10ms执行；IsTimeout正参数优先，否则使用Timeout配置。事件参数保留真实Timer身份，事件周期临时保活并在finally锁外释放；Before异常跳过本轮后续，Proc异常仍执行After。非nil事件须在构造后持有接口再安装，事件接收对象由调用方保活。接口布局扩展后须完整重编，详见[最新版合并与跨平台验证](../Utils/Tests/FPC/LatestThreadTimerTests/README.md)。
 
 上述自毁支持不能推广到 Session 容器、任意 TThread 或其他具有后台回调的对象。
 

@@ -82,3 +82,61 @@ wsl.exe -d Ubuntu-22.04 --cd /mnt/d/GitHub/Delphi-Cross-Socket/Utils/Tests/FPC/E
 ```
 
 此批红二进制位于 `bin/join-red-<target>/`，其运行使用当前默认完整列表；早期 `bin/baseline-*` 仍用 `--baseline`，仅运行原始六项。`--production` 执行现有全部非注入测试，包含批量及并发用例。源码和二进制记录保存在 `bin/join-final-source.json` 与各结果 JSON；没有声称覆盖 Win32、ARM 或长期压力，也未把 EasyTimer 本身的回调内销毁问题算作本批已修复。
+
+## 2026-10-20 用户最新版迁移：生命周期适配
+
+本轮依据 `docs/plans/2026-10-20-latest-thread-timer-merge.md`，保留用户提供的独立 Control 回调身份、`EEasyThread` 和 `WaitFor(Cardinal): Boolean` 重载。工作回调得到的接口不再是包装对象，允许保存该 Control 并在 wrapper 释放后继续读取状态和等待。
+
+原四个 self 场景改为在工作线程内明确释放最后的 wrapper 引用，再继续使用回调 Control，仍检查 wrapper 和捕获资源各释放一次。`self-terminate` 在释放 wrapper 之前检查外部 Terminate 传播，避免析构自动终止掩盖错误。新增 `control-external-destroy`：与原无参数匿名任务一样，用独立释放线程验证有参数任务最后外部引用析构会等待实际任务结束；不允许直接删掉阻塞等待断言。
+
+真实线程 ID 复用场景继续要求本次确实发生复用。由于新实现会在 Execute 尾部提前清掉 Proc，捕获资源释放已经不能单独证明底层线程对象释放。因此测试宏新增只读 `GetEasyThreadDestroyedCountForTest`，在此场景检查 join 后 wrapper 仍存在时计数为 0、由复用 ID 的新线程释放 wrapper 后计数为 1；生产分支没有该计数器或析构观测代码。
+
+等待语义分开记录：
+
+- 无参及 `High(Cardinal)` 等待、外部析构：原生 join 恰好一次；主线程竞争等待锁时仍处理 Synchronize。
+- 有限等待：只等任务及线程持有的闭包清理完成，不进入 join 锁，不在等待中执行 CheckSynchronize。True 不表示原生 join 已完成；后续无参等待和析构仍负责回收。主线程有限等待可能因 worker 等待 Synchronize 而超时，返回后由正常主线程循环继续处理。
+- 自身调用两种 WaitFor 均为 no-op，有限重载返回 True；这不表示工作线程已经退出。
+- 已 Start 的任务即使立即 Terminate 也会进入 Proc，由任务按协作终止状态执行自身收尾。原生 Terminate 仅在 worker 进入 Execute 后同步，避免 RTL 跳过整个 Execute 而遗漏捕获清理；Start 前失败仍显式拆掉未执行捕获且不调用 Proc。
+
+`--baseline` 保持历史六项列表不变，用于已有旧二进制。默认及 `--production` 列表各增加 `control-external-destroy`；当前源不能因独立 Control 带来的释放时序变化而照搬旧的 Self 捕获假设。此处仅记录本轮代码和测试安排，未将历史通过数视为本轮运行结果；新 API 专项及本轮平台结果由后续完整构建另行记录。
+
+### Thread 预验证：固定旧 Timer 快照
+
+新版 Thread `1532ebb26dee3efc659a5c230fa2e2988648382cfa493880f44b96c94d67218b` 已在 Windows Delphi 13.1/FPC 3.3.1 各通过 13/13 项。Timer 单元搜索优先固定到相邻 `EasyTimerTests/bin/latest-merge-input/project/` 的旧项目快照，本轮不代表最终新版 Timer 整合验证；Windows 列表不包含 Unix 真实线程 ID 复用场景。
+
+- Delphi Win64：`bin/latest-thread-fpc-fix/delphi-win64/`。
+- FPC Win64：`bin/latest-thread-fpc-deps/fpc-win64/`。
+
+以上目录各有 build.log、run.log、source.json、results.json，输入哈希在构建/运行前后相同，可执行文件哈希与结果相同。宏构建包含 Start 前故障注入及 worker 析构观测；本轮尚未运行关闭测试宏的生产构建。
+
+原始 `bin/latest-thread-first/` 保留 Delphi 13/13 及 FPC 的重载解析编译失败：Boolean WaitFor 内裸 `WaitFor;` 需明确写 `Self.WaitFor;`。该一行兼容修复后，`latest-thread-fpc-fix/fpc-win64` 又记录旧 Timer 依赖 Masks 缺搜索路径；按照现有 Linux 构建约定补 Lazarus components/lazutils 后得到上述 FPC 13/13，未因此修改生产逻辑。`--baseline` 历史六项列表未变。
+
+### 最新 Thread + Timer 最终整合（Windows / Linux）
+
+此次直接编译项目 `Utils/` 的新版 Thread 和 Timer，不再使用旧 Timer 快照。冻结输入：Thread `1532ebb26dee3efc659a5c230fa2e2988648382cfa493880f44b96c94d67218b`；Timer `99c2e81e09840dd3d6e4397d312f894d170297afff6fc6ebf6e351da5e10d02f`。
+
+| 平台 | 开启测试宏 | 关闭测试宏（--production） |
+| --- | --- | --- |
+| Delphi Win64 | 13/13 | 11/11 |
+| FPC Win64 | 13/13 | 11/11 |
+| Delphi Linux64 / Ubuntu 22.04 WSL | 14/14 | 12/12 |
+| FPC Linux64 / Ubuntu 22.04 WSL | 14/14 | 12/12 |
+
+合计 **100/100**。Linux 四组均实际取得复用的线程 ID；宏构建额外确认底层 worker 析构计数由 0 变为 1。生产分支排除两个构造注入案例，但保留原六项、Control 参数的外部 lastref 等待、批量 Timer、并发等待、自身等待和 Unix ID 复用，没有缩减成 --baseline 六项。
+
+证据统一放在 `bin/latest-integrated/` 下的八个 flavor（四个目标及对应 `production-` 前缀）。每组保存 build.log、source.json、results.json、run.log；Linux 另有 build.json 记录完整编译命令和前后输入哈希。所有结果已逐项核对当前源码哈希与可执行文件哈希，外部用户提供的两个文件仍与本计划记录的输入哈希一致。此次不包含 Mac，也不替代新 API 专项结果。
+
+Linux 构建脚本新增可选 --label，省略时保留原路径。例如：
+
+```powershell
+python build_linux.py delphi-linux64 fpc-linux64 --label latest-integrated
+python build_linux.py delphi-linux64 fpc-linux64 --production --label latest-integrated
+```
+
+随后在 WSL 使用现有 run_tests.py 运行相应目录中的 EasyThreadTests，生产二进制加 --production。Windows 继续使用本 README 的 Delphi/FPC 编译参数；FPC 补充已有 Lazarus components/lazutils 搜索路径，完整命令已记录在对应 source.json。历史目录未覆盖。
+
+### 真实 HTTP 客户端兼容与正式示例构建
+
+相同 Thread/Timer 冻结版本下，既有 HttpHeadTests 在 Delphi/FPC Win64、Delphi/FPC Linux64 各 14/14，共 **56/56**；真实 TCP 检查仍包括请求定界、正文以及后续 GET 复用同一连接。未扩跑临时响应等无关套件。证据为 `Net/Tests/FPC/HttpHeadTests/bin/latest-timers/` 的四目标结果、build-inputs.json 和 manifest.json。
+
+正式 `Net/Demos/Delphi/HttpClient/HttpClient.dproj` 经 MSBuild Rebuild、Release/Win64 构建成功，输出位于同标签的 `formal-httpclient-fixed/`；未运行该示例。首次启动命令的 rsvars 引号包装错误保留在 `formal-httpclient/build.log`，该次未进入编译器；修正命令后未改变项目源文件。正式构建前后全部输入哈希一致，新生成的 HttpClient.res 已移除，原有项目文件字节未变，没有覆盖用户文件。外部用户提供的 Thread/Timer 文件哈希再次确认不变。

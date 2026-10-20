@@ -94,6 +94,9 @@ begin
     LOldID := Easy.ThreadID;
     ReleaseTask.SetEvent;
     Easy.WaitFor;
+    {$IFDEF CROSS_EASY_THREAD_TESTS}
+    Check(GetEasyThreadDestroyedCountForTest = 0, 'wrapper仍持有Control时底层worker提前析构');
+    {$ENDIF}
     LMatched := False;
     for I := 1 to 64 do
     begin
@@ -112,6 +115,10 @@ begin
     Await(WrapperDestroyed, '已结束线程的包装对象未析构');
     Await(CaptureReleased, 'ID复用被误认为自身线程，遗漏底层TThread释放');
     Check((WrapperCount = 1) and (CaptureCount = 1), 'ID复用清理次数错误');
+    {$IFDEF CROSS_EASY_THREAD_TESTS}
+    // Proc已在Execute尾部清理，必须另外观察底层TThread实际析构。
+    Check(GetEasyThreadDestroyedCountForTest = 1, 'ID复用遗漏或重复释放底层worker');
+    {$ENDIF}
     Exit;
   end;
 

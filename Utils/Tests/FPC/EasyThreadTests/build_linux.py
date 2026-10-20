@@ -15,10 +15,10 @@ CN = Path(r"D:\Design\Delphi\VclFmxRtl\cncrypto\Source")
 SDK = Path.home() / "Documents/Embarcadero/Studio/SDKs/ubuntu22.04.sdk"
 
 
-def build(target, production=False):
+def build(target, production=False, label=None):
     flavor = ("production-" if production else "") + target
-    output = HERE / "bin" / flavor
-    units = HERE / "lib" / flavor
+    output = HERE / "bin" / label / flavor if label else HERE / "bin" / flavor
+    units = HERE / "lib" / label / flavor if label else HERE / "lib" / flavor
     output.mkdir(parents=True, exist_ok=True)
     units.mkdir(parents=True, exist_ok=True)
     if target == "fpc-linux64":
@@ -40,16 +40,23 @@ def build(target, production=False):
         args.insert(1, "-dCROSS_EASY_THREAD_TESTS" if target == "fpc-linux64" else "-DCROSS_EASY_THREAD_TESTS")
     elif target == "fpc-linux64":
         args.insert(1, "-uCROSS_EASY_THREAD_TESTS")
+    sources = [REPO / "Utils/Utils.EasyThread.pas", REPO / "Utils/Utils.AnonymousThread.pas",
+               REPO / "Utils/Utils.EasyTimer.pas", REPO / "Utils/Utils.SyncObjs.pas",
+               HERE / "EasyThreadTests.lpr", HERE / "EasyThreadJoinTests.inc",
+               HERE / "run_tests.py", HERE / "build_linux.py"]
+    before = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     result = subprocess.run(list(map(str, args)), cwd=HERE, capture_output=True,
                             timeout=120, creationflags=subprocess.CREATE_NO_WINDOW)
     (output / "build.log").write_bytes(result.stdout + result.stderr)
     if result.returncode:
         print((result.stdout + result.stderr).decode(errors="replace")[-6000:])
         raise SystemExit(result.returncode)
-    sources = [REPO / "Utils/Utils.EasyThread.pas", REPO / "Utils/Utils.AnonymousThread.pas",
-               REPO / "Utils/Utils.EasyTimer.pas", HERE / "EasyThreadTests.lpr", HERE / "EasyThreadJoinTests.inc"]
     metadata = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     (output / "source.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    (output / "build.json").write_text(json.dumps(dict(command=list(map(str, args)),
+        sources_before=before, sources_after=metadata), indent=2), encoding="utf-8")
+    if before != metadata:
+        raise RuntimeError("构建期间源码发生变化，本次产物不得作为冻结版本证据")
     print("PASS build", flavor, flush=True)
 
 
@@ -58,6 +65,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("targets", nargs="+", choices=["fpc-linux64", "delphi-linux64"])
     parser.add_argument("--production", action="store_true", help="不启用构造失败测试入口")
+    parser.add_argument("--label", help="产物放入 bin/lib 的独立标签目录；省略保持原路径")
     options = parser.parse_args()
+    if options.label and not options.label.replace("-", "").replace("_", "").isalnum():
+        parser.error("invalid label")
     for selected in options.targets:
-        build(selected, options.production)
+        build(selected, options.production, options.label)

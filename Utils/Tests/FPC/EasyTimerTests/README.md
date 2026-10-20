@@ -128,3 +128,40 @@ wsl.exe -d Ubuntu-22.04 --cd /mnt/d/GitHub/Delphi-Cross-Socket/Utils/Tests/FPC/E
 - 本轮实际运行 Windows Win64 和 Linux64；没有运行 Win32、ARM、移动系统或长期压力，也没有修改系统优先级、时钟分辨率或系统时间。根代理用最终 `0e2f9ede` 源码重编 HttpHeadTests，Delphi/FPC Windows、Delphi/FPC Linux 四目标真实客户端各 14/14，共 56/56；覆盖请求、HEAD/压缩/provider、连接复用和退出。构建及源码哈希位于该套件 `bin/o04-final-<target>/`，未将此结果表述成 HTTP 吞吐测量。
 - 周期和 IsTimeout 使用单调计时；但 Delphi Linux 的现有 TEvent RTL 使用 CLOCK_REALTIME 的 sem_timedwait，底层等待仍可能受系统墙钟跳变影响。没有修改第三方 RTL 或把单调计算表述成所有平台的底层等待都免受墙钟变化。
 - 本次未改变 Logger 的独立线程或其他定时服务；比较的是独立 Timer 进程。共享工作区存在其他批次改动，源码和构建证据以记录的哈希为准。
+
+## 2026-10-20 用户最新版合并后的旧矩阵复验
+
+以用户新版 Timer 的公开 API 为基础，重新整合事件等待、独立状态和异常/自毁修复。新接口增加 `Timeout`、`BeforeExecute`、`AfterExecute`、`WaitFor(Cardinal): Boolean` 和 `IsTimeout` 默认参数；同 GUID 下方法布局已扩展，所有使用者必须完整重编译，不能混用旧 DCU/PPU/package。本节不追溯更改前述 b935b69 当时“接口布局保持”的历史记录。
+
+用户明确保留此前两项行为：自身 WaitFor 不等待，有限版本返回 True（不表示自身线程已经退出）；非正 Interval 接受，后续周期按 10ms。其余新版行为包括 Timeout 回退、StartTime 非正值立即启动、Before → Proc → After 顺序及 Proc 中动态更换 After 的本轮生效。
+
+有 Before/After 的周期临时保活实际 Timer 接口；Proc 本轮首次安装事件时可补当前周期引用，所有退出路径都在锁外释放。无事件路径不新增 Timer 接口引用，保留旧的外部析构等待与自毁收尾。安装非 nil 事件须在构造完成后持有 `IEasyTimer`，否则同步抛 `EEasyTimer`；不自动把裸对象改成接口所有权。事件的接收对象由调用方保活。有限 WaitFor 按新版 EasyThread 等待任务及其线程回调捕获清理，无参/无限等待承担实际 join；具体新增 API 交叉用例由另一个专项记录。
+
+本目录测试源码和断言未修改，原有 `self-destroy`、`self-destroy-exception`、`external-destroy`、构造失败和已清理对象内存比对均保留。基于以下冻结生产源码重新构建：
+
+- Timer：`99c2e81e09840dd3d6e4397d312f894d170297afff6fc6ebf6e351da5e10d02f`
+- EasyThread：`1532ebb26dee3efc659a5c230fa2e2988648382cfa493880f44b96c94d67218b`
+
+| 目标 | 测试宏 | 关闭测试宏 |
+| --- | --- | --- |
+| Delphi 13.1 Windows Win64 | 27/27 | 26/26 |
+| FPC 3.3.1 Windows Win64 | 27/27 | 26/26 |
+| Delphi 13.1 Linux64 / Ubuntu 22.04 WSL | 27/27 | 26/26 |
+| FPC 3.3.1 Linux64 / Ubuntu 22.04 WSL | 27/27 | 26/26 |
+
+合计 **212/212 实际通过**，无跳过；生产分支只排除既有构造故障注入。新标签为 `latest-merge-<target>` 和 `latest-merge-production-<target>`，没有覆盖历史原版、轮询或事件版本。八个二进制、源码/结果与简短等待核对的证据索引为 `bin/latest-merge-source.json`。
+
+正确性通过后复用 `run_perf.idle`，四目标的生产程序各建立 16 个 Timer，分别空闲/暂停测量 1 秒（预热 0.3 秒）。八个窗口均为 `CALLS 0`、`cleanup_ok=true`，CPU 时间及系统上下文切换增量均为 0。原始记录为 `bin/latest-merge-idle-win.json` 和 `bin/latest-merge-idle-linux.json`。这只是确认可唤醒等待没有恢复轮询的短核对，不是新旧性能比较，不据此新增速度收益声明；既有三轮基准保持原有源码版本与适用范围。
+
+复验命令沿用原 runner，输出标签独立：
+
+```powershell
+python -B run_tests.py --build delphi-win64 --label latest-merge --report bin/latest-merge-delphi-win64.json
+python -B run_tests.py --build fpc-win64 --label latest-merge-production --production --report bin/latest-merge-production-fpc-win64.json
+python -B build_linux.py --label latest-merge delphi-linux64 fpc-linux64
+python -B build_linux.py --label latest-merge --production delphi-linux64 fpc-linux64
+wsl.exe -d Ubuntu-22.04 --cd /mnt/d/GitHub/Delphi-Cross-Socket/Utils/Tests/FPC/EasyTimerTests -- python3 -B run_tests.py bin/latest-merge-delphi-linux64/EasyTimerTests --report bin/latest-merge-delphi-linux64.json
+wsl.exe -d Ubuntu-22.04 --cd /mnt/d/GitHub/Delphi-Cross-Socket/Utils/Tests/FPC/EasyTimerTests -- python3 -B run_tests.py bin/latest-merge-production-fpc-linux64/EasyTimerTests --production --report bin/latest-merge-production-fpc-linux64.json
+```
+
+其余目标按表替换；本批未运行 Mac、Win32、新增事件 API 的完整矩阵或正式示例，这些由主任务其他验收记录负责，不能混入本目录 212 项。

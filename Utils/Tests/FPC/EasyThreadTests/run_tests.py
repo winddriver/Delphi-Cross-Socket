@@ -25,7 +25,7 @@ def main():
     if not args.baseline:
         if args.production:
             cases = CASES.copy()
-        cases += ["join-timers16", "join-timers64", "join-concurrent", "join-worker-self"]
+        cases += ["control-external-destroy", "join-timers16", "join-timers64", "join-concurrent", "join-worker-self"]
         if os.name != "nt":
             cases += ["join-id-reuse"]
     for case in cases:

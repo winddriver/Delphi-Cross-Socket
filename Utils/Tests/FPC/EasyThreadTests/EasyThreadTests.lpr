@@ -87,9 +87,15 @@ begin
       Started.SetEvent;
       try
         Await(ReleaseTask, '任务没有得到继续信号');
+        if AMode = 'self-terminate' then Check(AThread.Terminated, 'Terminate 状态未传播');
+        // 新版回调拿到独立 Control；由工作线程明确释放最后的 wrapper 引用。
+        if AMode.StartsWith('self-') then
+        begin
+          Easy := nil;
+          Check(WrapperCount = 1, '工作线程释放wrapper未完成一次析构');
+        end;
         LProbe.Touch;
         if AMode = 'self-wait' then AThread.WaitFor;
-        if AMode = 'self-terminate' then Check(AThread.Terminated, 'Terminate 状态未传播');
         if AMode = 'self-exception' then raise Exception.Create('预期的任务异常');
       finally
         TaskFinished.SetEvent;
@@ -149,10 +155,11 @@ begin
     Check(False, '构造失败用例需要测试开关');
     {$ENDIF}
   end;
-  if AMode = 'anonymous-external-destroy' then
+  if (AMode = 'anonymous-external-destroy') or (AMode = 'control-external-destroy') then
   begin
-    CreateAnonymousThread;
-    Await(Started, '匿名任务未启动');
+    if AMode = 'control-external-destroy' then CreateSelfThread('external-destroy')
+    else CreateAnonymousThread;
+    Await(Started, '外部析构任务未启动');
     LReleaser := TReleaseThread.Create(True);
     try
       LReleaser.Start;
@@ -172,11 +179,7 @@ begin
     CreateSelfThread(AMode);
     Await(Started, '任务未启动');
     if AMode = 'self-terminate' then Easy.Terminate;
-    if AMode <> 'external-wait' then
-    begin
-      Easy := nil;
-      Check(WrapperCount = 0, '任务完成前包装对象提前销毁');
-    end;
+    Check(WrapperCount = 0, '任务放行前包装对象提前销毁');
     ReleaseTask.SetEvent;
     Await(TaskFinished, '任务未结束（可能在等待自己）');
     if AMode = 'external-wait' then
