@@ -1240,7 +1240,7 @@ begin
         on e: Exception do
         begin
           _Log('%s Io线程ID %d, 异常 %s, %s', [
-            FOwner.ClassName, Self.ThreadID, e.ClassName, e.Message
+            FOwner.ClassName, NativeUInt(Self.ThreadID), e.ClassName, e.Message
           ]);
           {$IFDEF DELPHI}
           if (e.StackTrace <> '') then
@@ -1623,7 +1623,7 @@ end;
 procedure TCrossSocketBase.TriggerIoThreadBegin(const AIoThread: TIoEventThread);
 begin
   {$IFDEF __DEBUG__}
-  _Log('[%s]thread%d start', [Self.ClassName, TThread.Current.ThreadID]);
+  _Log('[%s]thread%d start', [Self.ClassName, NativeUInt(TThread.Current.ThreadID)]);
   {$ENDIF}
   if Assigned(FOnIoThreadBegin) then
     FOnIoThreadBegin(Self, AIoThread);
@@ -1632,7 +1632,7 @@ end;
 procedure TCrossSocketBase.TriggerIoThreadEnd(const AIoThread: TIoEventThread);
 begin
   {$IFDEF __DEBUG__}
-  _Log('[%s]thread%d exit', [Self.ClassName, TThread.Current.ThreadID]);
+  _Log('[%s]thread%d exit', [Self.ClassName, NativeUInt(TThread.Current.ThreadID)]);
   {$ENDIF}
   if Assigned(FOnIoThreadEnd) then
     FOnIoThreadEnd(Self, AIoThread);

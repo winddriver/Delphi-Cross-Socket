@@ -241,7 +241,9 @@ begin
       begin
         if (FMode = 'cancel-sends') or (FMode = 'cancel-error') then
         begin
-          Check(TSocketAPI.SetSndBuf(AConnection.Socket, 0) = 0, 'cannot set send buffer');
+          // Darwin 不接受零大小发送缓冲区；小缓冲区仍能令大块发送挂起。
+          Check(TSocketAPI.SetSndBuf(AConnection.Socket,
+            {$IFDEF MACOS}4096{$ELSE}0{$ENDIF}) = 0, 'cannot set send buffer');
           if FMode = 'cancel-error' then LCount := 1 else LCount := 3;
           for I := 1 to LCount do _Send(AConnection, I, 4 * 1024 * 1024);
           Print('BLOCKED');

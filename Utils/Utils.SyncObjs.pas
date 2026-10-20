@@ -594,7 +594,7 @@ begin
     Exit(False);
 
   // 只要没有其它线程在写, 就可以读
-  Result := (FWriterThreadID = 0) or (FWriterThreadID = AThreadID);
+  Result := (FWriterThreadID = TThreadID(0)) or (FWriterThreadID = AThreadID);
 end;
 
 function TReenterableRWLock.CanWriteAccess(const AThreadID: TThreadID): Boolean;
@@ -603,7 +603,7 @@ begin
   //   (GetThreadReadCount(AThreadID) > 0) 表示这个线程有读操作
   //   (FReaders = 1) 表示当前有1个线程在读
   //   这两个条件同时满足说明当前正在读的线程就是AThreadID
-  Result := ((FWriterThreadID = 0) or (FWriterThreadID = AThreadID)) and
+  Result := ((FWriterThreadID = TThreadID(0)) or (FWriterThreadID = AThreadID)) and
     ((FReaders = 0) or ((GetThreadReadCount(AThreadID) > 0) and (FReaders = 1)));
 end;
 

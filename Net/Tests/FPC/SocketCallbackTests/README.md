@@ -107,3 +107,10 @@ Windows 首次无效地址查询会初始化系统缓存句柄，例中计数为
 修复后重新构建，Delphi Win64、Win32、FPC Win64、Delphi Linux64、FPC Linux64 的七项均通过，共 **35/35**，记录在 `bin/f16-final/<target>/`。三个 Windows DNS 用例的项目 close 次数均为 0；失败回调不再增加句柄。保留监听对象后抛异常的补充项也验证对象已经关闭，不能依赖接口最终释放才清理。
 
 Kqueue x64/ARM64 再次仅编译通过，无 macOS/FreeBSD 运行验证。F16 的 35 项与上面的历史 A04 72 项分开记录，不把未重跑的历史场景计作本轮全套运行。
+
+
+## 2026-10-20 macOS 续验
+
+F05 修复后，arm64 macOS14 / FPC3.3.1 实机13/13通过：batch、accept、sent-event、send-callback、pending-send、cancel-sends、cancel-error、stop、connect-callback、connect-race、send-close-race、closed-state、closed-send。两种竞争各100轮。Mac不接受零大小发送缓冲区，测试仅在MACOS使用4096，其它平台保持0；未运行基于/proc或Linux seccomp的用例。
+
+Base线程ID调试格式、FPC Darwin地址声明和读写锁零值比较另经Windows三个目标各13/13、Linux两个目标各14/14回归，共67/67，记录在bin/mac-prereq/manifest.json。该组保留构建时的测试源快照，后续MACOS条件分支适配不改变Windows/Linux展开代码。最终Kqueue的Delphi OSX64/OSXARM64仍仅编译单元通过；Mac原生FPC结果及边界详见[生命周期回归](../KqueueLifecycleTests/README.md)。历史章节保留当时尚未实机验证的事实。
