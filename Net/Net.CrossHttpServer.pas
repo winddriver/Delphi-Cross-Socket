@@ -1753,6 +1753,15 @@ type
     property OnRequestException: TCrossHttpRequestExceptionEvent read GetOnRequestException write SetOnRequestException;
   end;
 
+  TCrossHttpBodyPolicyEvent = reference to procedure(
+    const ARequest: ICrossHttpRequest; var APreserveEntity: Boolean);
+
+  // 独立能力接口，保留 ICrossHttpServer 的 IID 和布局。
+  ICrossHttpServerBodyPolicy = interface
+  ['{43549B57-3E04-4BB1-AF05-7903618725AC}']
+    procedure SetBodyPolicy(const APolicy: TCrossHttpBodyPolicyEvent);
+  end;
+
   THttpResponseQueue = {$IFDEF FPC}TFpcQueue{$ELSE}TQueue{$ENDIF}<IHttpResponseQueueItem>;
 
   TCrossHttpConnection = class(TCrossServerConnection, ICrossHttpConnection)
@@ -1786,6 +1795,7 @@ type
     // 所以无需担心以下事件的多线程安全问题
     procedure _OnHeaderData(const ADataPtr: Pointer; const ADataSize: Integer);
     function _OnGetHeaderValue(const AHeaderName: string; out AHeaderValues: TArray<string>): Boolean;
+    procedure _OnBodyPolicy(var APreserveEntity: Boolean);
     procedure _OnBodyBegin;
     procedure _OnBodyData(const ADataPtr: Pointer; const ADataSize: Integer);
     procedure _OnBodyEnd;
@@ -2258,7 +2268,7 @@ type
     procedure Clear;
   end;
 
-  TCrossHttpServer = class(TCrossServer, ICrossHttpServer)
+  TCrossHttpServer = class(TCrossServer, ICrossHttpServer, ICrossHttpServerBodyPolicy)
   private const
     SESSIONID_COOKIE_NAME = 'cross_sessionid';
   private
@@ -2282,6 +2292,7 @@ type
     FOnRequest: TCrossHttpRequestEvent;
     FOnRequestException: TCrossHttpRequestExceptionEvent;
     FCompressible: Boolean;
+    FBodyPolicy: TCrossHttpBodyPolicyEvent;
   protected
     function GetStoragePath: string;
     function GetAutoDeleteFiles: Boolean;
@@ -2338,6 +2349,8 @@ type
   public
     constructor Create(const AIoThreads: Integer; const ASsl: Boolean); override;
     destructor Destroy; override;
+    // 在启动服务前配置；回调只选择正文模式，不读取尚未到达的正文。
+    procedure SetBodyPolicy(const APolicy: TCrossHttpBodyPolicyEvent);
 
     function Use(const AMethod, APath: string;
       const AMiddlewareProc: TCrossHttpRouterProc): ICrossHttpServer; overload;
@@ -2551,6 +2564,7 @@ begin
   FHttpParser.MaxCompressRatio := FServer.MaxCompressRatio;
   FHttpParser.OnHeaderData := _OnHeaderData;
   FHttpParser.OnGetHeaderValue := _OnGetHeaderValue;
+  (FHttpParser as TCrossHttpParser).OnBodyPolicy := _OnBodyPolicy;
   FHttpParser.OnBodyBegin := _OnBodyBegin;
   FHttpParser.OnBodyData := _OnBodyData;
   FHttpParser.OnBodyEnd := _OnBodyEnd;
@@ -2982,6 +2996,13 @@ begin
     end;
   end;
   if LItemNext <> nil then _SendQueueItem(LItemNext);
+end;
+
+procedure TCrossHttpConnection._OnBodyPolicy(var APreserveEntity: Boolean);
+begin
+  if Assigned(FServer.FBodyPolicy) then
+    FServer.FBodyPolicy(FRequest, APreserveEntity);
+  if APreserveEntity then FRequestObj.FBodyType := btBinary;
 end;
 
 procedure TCrossHttpConnection._OnBodyBegin;
@@ -4392,6 +4413,11 @@ end;
 procedure TCrossHttpServer.SetAutoDeleteFiles(const Value: Boolean);
 begin
   FAutoDeleteFiles := Value;
+end;
+
+procedure TCrossHttpServer.SetBodyPolicy(const APolicy: TCrossHttpBodyPolicyEvent);
+begin
+  FBodyPolicy := APolicy;
 end;
 
 procedure TCrossHttpServer.SetOnRequestBegin(const Value: TCrossHttpRequestBeginEvent);
