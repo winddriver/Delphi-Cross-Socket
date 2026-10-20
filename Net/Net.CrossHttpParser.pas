@@ -54,6 +54,7 @@ type
   TOnHeaderData = procedure(const ADataPtr: Pointer; const ADataSize: Integer) of object;
   TOnGetHeaderValue = function(const AHeaderName: string; out AHeaderValues: TArray<string>): Boolean of object;
   TOnBodyBegin = procedure of object;
+  TOnBodyPolicy = procedure(var APreserveEntity: Boolean) of object;
   TOnBodyData = procedure(const ADataPtr: Pointer; const ADataSize: Integer) of object;
   TOnBodyEnd = procedure of object;
   TOnParseBegin = procedure of object;
@@ -116,6 +117,8 @@ type
     FOnHeaderData: TOnHeaderData;
     FOnGetHeaderValue: TOnGetHeaderValue;
     FOnBodyBegin: TOnBodyBegin;
+    FOnBodyPolicy: TOnBodyPolicy;
+    FPreserveEntity: Boolean;
     FOnBodyData: TOnBodyData;
     FOnBodyEnd: TOnBodyEnd;
     FOnParseBegin: TOnParseBegin;
@@ -195,6 +198,9 @@ type
     property MaxBodyDataSize: Integer read GetMaxBodyDataSize write SetMaxBodyDataSize;
     // 保留既有 Integer 接口；64位配置与旧入口共享同一个实际限额。
     property MaxBodyDataSize64: Int64 read FMaxBodyDataSize write FMaxBodyDataSize;
+    // 每条消息独立选择；在头部及 framing 验证后、解压/分配正文前调用。
+    // True 保留去除传输分帧后的实体字节，跳过 Content-Encoding 解压。
+    property OnBodyPolicy: TOnBodyPolicy read FOnBodyPolicy write FOnBodyPolicy;
     property MaxCompressRatio: Integer read GetMaxCompressRatio write SetMaxCompressRatio;
 
     property OnHeaderData: TOnHeaderData read GetOnHeaderData write SetOnHeaderData;
@@ -719,7 +725,7 @@ begin
   // 根据 FContentEncoding(gzip deflate br) 判断使用哪种方式解压
   // 目前暂时只支持 gzip deflate
   // 初始化解压库
-  if (FContentEncoding <> '') then
+  if not FPreserveEntity and (FContentEncoding <> '') then
   begin
     if TStrUtils.SameText(FContentEncoding, 'gzip') then
     begin
@@ -1010,6 +1016,10 @@ begin
     FHasBody := (FContentLength <> 0) or FIsChunked;
   end;
 
+  FPreserveEntity := False;
+  if Assigned(FOnBodyPolicy) then FOnBodyPolicy(FPreserveEntity);
+  if FParseState = psFailed then Abort;
+
   if FHasBody then
   begin
     FParsedBodySize := 0;
@@ -1043,6 +1053,7 @@ begin
   FParsedBodySize := 0;
   FDecodedBodySize := 0;
   FNoBody := False;
+  FPreserveEntity := False;
 end;
 
 function TCrossHttpParser.GetMaxHeaderSize: Integer;
