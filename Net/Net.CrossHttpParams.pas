@@ -1150,18 +1150,49 @@ end;
 
 function THttpHeader.ContainsToken(const AName, AToken: string): Boolean;
 var
-  LHeader: TNameValue;
-  LToken, LValue: string;
+  I, J, LStart, LEnd, LNext, LLength, LTokenLength: Integer;
+  LValue: string;
+  C, T: Char;
+  LMatched: Boolean;
 begin
   if not _IsHttpToken(AToken) then Exit(False);
-  for LHeader in Self do
-    if TStrUtils.SameText(LHeader.Name, AName) then
-      for LToken in LHeader.Value.Split([',']) do
+  LTokenLength := Length(AToken);
+  for I := 0 to FParams.Count - 1 do
+    if TStrUtils.SameText(FParams[I].Name, AName) then
+    begin
+      LValue := FParams[I].Value;
+      LLength := Length(LValue);
+      LStart := 1;
+      while LStart <= LLength do
       begin
-        LValue := LToken.Trim;
-        // HTTP token 只有 ASCII；不能让 Unicode 大小写折叠把其他字符当成协议名。
-        if _IsHttpToken(LValue) and TStrUtils.SameText(LValue, AToken) then Exit(True);
+        LEnd := LStart;
+        while (LEnd <= LLength) and (LValue[LEnd] <> ',') do Inc(LEnd);
+        LNext := LEnd + 1;
+        Dec(LEnd);
+        // 与原 Trim 一致，只去除两端不大于空格的字符，不创建子串。
+        while (LStart <= LEnd) and (LValue[LStart] <= ' ') do Inc(LStart);
+        while (LEnd >= LStart) and (LValue[LEnd] <= ' ') do Dec(LEnd);
+        if LEnd - LStart + 1 = LTokenLength then
+        begin
+          LMatched := True;
+          for J := 1 to LTokenLength do
+          begin
+            C := LValue[LStart + J - 1];
+            T := AToken[J];
+            // AToken 已验证；仅折叠 ASCII 大小写，匹配成功也就验证了输入 token。
+            if (C >= 'A') and (C <= 'Z') then C := Char(Ord(C) + 32);
+            if (T >= 'A') and (T <= 'Z') then T := Char(Ord(T) + 32);
+            if C <> T then
+            begin
+              LMatched := False;
+              Break;
+            end;
+          end;
+          if LMatched then Exit(True);
+        end;
+        LStart := LNext;
       end;
+    end;
   Result := False;
 end;
 
