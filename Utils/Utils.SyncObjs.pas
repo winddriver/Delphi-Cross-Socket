@@ -4,6 +4,13 @@
 
 interface
 
+// 调用注意事项：
+// 1. 普通读锁期间不得直接、间接或在回调中申请写锁；不支持读转写升级。
+//    违规 BeginWrite 可能永久等待，不抛升级冲突异常；TryBeginWrite 返回 False。
+// 2. 加锁成功后用 try/finally 配对解锁；Try 失败不得解锁。锁须由持有线程释放。
+// 3. 接口引用计数只管理寿命，不自动解锁。各线程持有稳定引用，所有使用/等待结束后再释放。
+//    对同一共享接口变量的并发赋值仍需外部同步。
+
 uses
   {$IFDEF MSWINDOWS}
   Windows,
@@ -170,7 +177,7 @@ type
     property CurrentCount: Integer read GetCurrentCount;
   end;
 
-  // 标准锁对象(使用临界区实现, 不占用系统句柄)
+  // 可重入临界区。未显式创建事件，平台内部仍可能分配等待资源。
   TLock = class(TInterfacedObject, ILock)
   private
     {$IFDEF DELPHI}
@@ -192,7 +199,7 @@ type
   end;
 
   // 自旋锁对象(不占用系统句柄)
-  // 比 TLock 性能低, 不要用于需要高吞吐量的场景
+  // 不可重入；竞争时休眠轮询，释放不会主动唤醒等待者，长等待优先考虑 TLock。
   TSpinLock = class(TInterfacedObject, ILock)
   private
     FLock: Integer;
@@ -204,14 +211,18 @@ type
     procedure Leave;
   end;
 
-  // 读写锁(需要占用一个系统句柄)
+  // 使用一个事件的读者优先锁；不保证写者等待上限，不支持普通读转写。
+  // 支持正确嵌套的读中读、写中写和写中读；不跟踪每个读者的线程所有权。
   TReadWriteLock = class(TInterfacedObject, IReadWriteLock)
   private
     FReadCount: Integer;
     FLock: ILock;
     FWriteEvent: IEvent;
   public
-    constructor Create;
+    constructor Create; overload;
+    {$IFDEF SYNCOBJS_SELFTEST}
+    constructor Create(const ALock: ILock; const AWriteEvent: IEvent); overload;
+    {$ENDIF}
 
     procedure BeginRead;
     function TryBeginRead: Boolean;
@@ -222,12 +233,14 @@ type
     procedure EndWrite;
   end;
 
-  // 可重入的读写锁(需要占用两个系统句柄)
-  // 支持写者优先，防止写者饥饿
+  // 使用两个事件的可重入读写锁。写者排队后阻挡新读者，不保证 FIFO 或有界等待。
+  // 支持读中读、写中写、写中读；已有写者再次写仍是重入，而不是普通读转写。
+  // 可先取得读锁再 EndWrite 降级，其他写者等最后一层读退出后才可进入。
   TReenterableRWLock = class(TInterfacedObject, IReadWriteLock)
   private
     FLock: ILock;
     FReadEvent, FWriteEvent: IEvent;
+    FReadSignaled, FWriteSignaled: Boolean;
     FReaders: Integer;           // 当前活跃的读者线程数
     FWriterCount: Integer;       // 写者重入计数
     FWaitingWriters: Integer;    // 等待中的写者数量(用于写者优先)
@@ -239,10 +252,14 @@ type
     function IncrementThreadReadCount(const AThreadID: TThreadID): Integer;
     function DecrementThreadReadCount(const AThreadID: TThreadID): Integer;
     function CanReadAccess(const AThreadID: TThreadID): Boolean; inline;
-    function CanWriteAccess(const AThreadID: TThreadID): Boolean; inline;
+    function CanWriteAccess: Boolean; inline;
     function GetThreadReadCount(const AThreadID: TThreadID): Integer; inline;
+    procedure UpdateEvents;
   public
-    constructor Create;
+    constructor Create; overload;
+    {$IFDEF SYNCOBJS_SELFTEST}
+    constructor Create(const ALock: ILock; const AReadEvent, AWriteEvent: IEvent); overload;
+    {$ENDIF}
     destructor Destroy; override;
 
     procedure BeginRead;
@@ -254,7 +271,7 @@ type
     procedure EndWrite;
   end;
 
-  // 标准事件对象(需要占用一个系统句柄)
+  // RTL 事件包装；默认手动重置、初始无信号。等待返回 wrError 不代表收到信号。
   TEvent = class(TInterfacedObject, IEvent)
   private
     FEvent: SyncObjs.TEvent;
@@ -269,7 +286,7 @@ type
   end;
 
   // 自旋事件对象(不占用系统句柄)
-  // 比 TEvent 性能低, 不要用于需要高吞吐量的场景
+  // 轮询事件：不依赖短暂 SetEvent/ResetEvent 传递必达通知；自动事件不累计信号次数。
   TSpinEvent = class(TInterfacedObject, IEvent)
   private
     FState: Integer;
@@ -283,7 +300,9 @@ type
     function WaitFor(const ATimeout: Cardinal = INFINITE): TWaitResult;
   end;
 
-  // 自定义带计数的事件对象
+  // 计数事件：构造/Reset 计数非负，AddCount 必须为正且不溢出；非法参数抛范围异常。
+  // 先登记任务再启动，避免登记未完成时提前归零。零后多余 SetEvent 不再减计数。
+  // Reset 或零后 AddCount 开启新一轮前，调用方须结束旧轮回调及等待；本对象不区分代次。
   TCustomCountdownEvent = class(TInterfacedObject, ICountdownEvent)
   private
     FLock: ILock;  // 保护计数和事件状态的一致性
@@ -302,14 +321,14 @@ type
     procedure AddCount(const ACount: Integer = 1);
   end;
 
-  // 标准带计数的事件对象(需要占用一个系统句柄)
+  // 等待显式使用一个 RTL 事件，计数保护使用临界区。
   TCountdownEvent = class(TCustomCountdownEvent)
   public
     constructor Create(const ACount: Integer = 1); reintroduce;
   end;
 
-  // 自旋带计数的事件对象(不占用系统句柄)
-  // 比 TCountdownEvent 性能低, 不要用于需要高吞吐量的场景
+  // 等待使用自旋事件，计数保护使用临界区，不能保证完全没有平台等待资源。
+  // 共享计数事件的参数/复用契约，等待采用轮询，适用性需按负载测量。
   TSpinCountdownEvent = class(TCustomCountdownEvent)
   public
     constructor Create(const ACount: Integer = 1); reintroduce;
@@ -317,17 +336,28 @@ type
 
 implementation
 
+// 调用时已持有内部锁。即使底层等待抛异常，也先恢复持锁状态再由上层清理。
+procedure WaitForEvent(const ALock: ILock; const AEvent: IEvent);
+var
+  LResult: TWaitResult;
+begin
+  ALock.Leave;
+  try
+    LResult := AEvent.WaitFor(INFINITE);
+  finally
+    ALock.Enter;
+  end;
+  // 实际等待失败不能当成取得锁；这不是正常竞争或升级冲突异常。
+  if LResult <> wrSignaled then
+    raise ESyncObjectException.CreateFmt('同步事件等待失败: %d', [Ord(LResult)]);
+end;
+
 { TLock }
 
 constructor TLock.Create;
 begin
   {$IFDEF MSWINDOWS}
-  {
-    InitializeCriticalSectionAndSpinCount函数的第二个参数是旋转计数器的初始值。旋转计数器的作用是在尝试进入临界区之前，先进行自旋操作，如果在自旋期间临界区已经可用，那么就可以避免进入内核等待队列，从而提高性能。
-    旋转计数器的初始值越大，表示允许更多次的自旋操作。如果临界区的持有时间很短，那么这样的自旋操作可以提高性能。但如果临界区的持有时间很长，那么自旋操作的效果不佳，反而会浪费CPU时间。
-    在Windows系统中，旋转计数器的初始值可以设置为0或大于等于2的值。如果设置为0，则表示不进行自旋操作，直接进入内核等待队列。如果设置为大于等于2的值，则表示进行自旋操作的次数。根据微软官方文档，推荐的初始值范围是1000到4000之间。
-    因此，在InitializeCriticalSectionAndSpinCount函数中，参数4000的意义是将旋转计数器的初始值设置为4000，表示在尝试进入临界区之前，允许进行最多4000次的自旋操作。这个值可以根据实际情况进行调整，以平衡临界区持有时间和自旋操作的效果。
-  }
+  // 4000 为当前短临界区的自旋策略，实际收益取决于负载和平台。
   InitializeCriticalSectionAndSpinCount(FCriticalSection, 4000);
   {$ELSE}
     {$IFDEF DELPHI}
@@ -440,6 +470,16 @@ begin
   FReadCount := 0;
 end;
 
+{$IFDEF SYNCOBJS_SELFTEST}
+constructor TReadWriteLock.Create(const ALock: ILock; const AWriteEvent: IEvent);
+begin
+  inherited Create;
+  FLock := ALock;
+  FWriteEvent := AWriteEvent;
+  FWriteEvent.SetEvent;
+end;
+{$ENDIF}
+
 procedure TReadWriteLock.BeginRead;
 begin
   FLock.Enter;
@@ -456,9 +496,9 @@ procedure TReadWriteLock.EndRead;
 begin
   FLock.Enter;
   try
+    if FReadCount <= 0 then Exit;
     Dec(FReadCount);
-    if (FReadCount = 0) then
-      FWriteEvent.SetEvent;
+    if FReadCount = 0 then FWriteEvent.SetEvent;
   finally
     FLock.Leave;
   end;
@@ -468,26 +508,26 @@ procedure TReadWriteLock.BeginWrite;
 begin
   FLock.Enter;
   try
-    // 等待所有读者结束
-    while (FReadCount > 0) do
-    begin
-      FLock.Leave;
-      FWriteEvent.WaitFor(INFINITE);
-      FLock.Enter;
-    end;
-    // 阻止新的读者进入
+    // 自己持有的读锁也计入 FReadCount，因此禁止普通读转写。
+    while FReadCount > 0 do
+      WaitForEvent(FLock, FWriteEvent);
     FWriteEvent.ResetEvent;
   except
     FLock.Leave;
     raise;
   end;
-  // 注意：成功获取写锁后不释放 FLock，由 EndWrite 释放
+  // 写期间保留内部锁，最后由调用方 EndWrite。
 end;
 
 procedure TReadWriteLock.EndWrite;
 begin
-  FWriteEvent.SetEvent;
-  FLock.Leave;
+  try
+    // 保留读锁降级时，不让其他写者在有信号的事件上空转。
+    if FReadCount = 0 then FWriteEvent.SetEvent
+    else FWriteEvent.ResetEvent;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 function TReadWriteLock.TryBeginRead: Boolean;
@@ -508,22 +548,19 @@ end;
 
 function TReadWriteLock.TryBeginWrite: Boolean;
 begin
-  // 先尝试获取锁（非阻塞）
-  if not FLock.TryEnter then
-    Exit(False);
-
-  // 检查是否有读者
-  if (FReadCount > 0) then
-  begin
+  if not FLock.TryEnter then Exit(False);
+  try
+    if FReadCount > 0 then
+    begin
+      FLock.Leave;
+      Exit(False);
+    end;
+    FWriteEvent.ResetEvent;
+    Result := True;
+  except
     FLock.Leave;
-    Exit(False);
+    raise;
   end;
-
-  // 阻止新的读者进入
-  FWriteEvent.ResetEvent;
-
-  // 成功获取写锁，不释放 FLock，由 EndWrite 释放
-  Result := True;
 end;
 
 { TReenterableRWLock }
@@ -536,11 +573,29 @@ begin
   FReadEvent := TEvent.Create(True, True);   // 手动重置，初始有信号
   FWriteEvent := TEvent.Create(True, True);  // 手动重置，初始有信号
   FReaderThreads := TDictionary<TThreadID, Integer>.Create;
+  FReadSignaled := True;
+  FWriteSignaled := True;
   FReaders := 0;
   FWriterThreadID := TThreadID(0);
   FWriterCount := 0;
   FWaitingWriters := 0;
 end;
+
+{$IFDEF SYNCOBJS_SELFTEST}
+constructor TReenterableRWLock.Create(const ALock: ILock;
+  const AReadEvent, AWriteEvent: IEvent);
+begin
+  inherited Create;
+  FLock := ALock;
+  FReadEvent := AReadEvent;
+  FWriteEvent := AWriteEvent;
+  FReadEvent.SetEvent;
+  FWriteEvent.SetEvent;
+  FReaderThreads := TDictionary<TThreadID, Integer>.Create;
+  FReadSignaled := True;
+  FWriteSignaled := True;
+end;
+{$ENDIF}
 
 destructor TReenterableRWLock.Destroy;
 begin
@@ -575,15 +630,29 @@ end;
 
 function TReenterableRWLock.DecrementThreadReadCount(const AThreadID: TThreadID): Integer;
 begin
-  if FReaderThreads.TryGetValue(AThreadID, Result) then
+  if not FReaderThreads.TryGetValue(AThreadID, Result) then
+    Exit(-1); // 未持有与正常归零不同，不得减少全局读者数。
+  Dec(Result);
+  if Result > 0 then FReaderThreads.AddOrSetValue(AThreadID, Result)
+  else FReaderThreads.Remove(AThreadID);
+end;
+
+procedure TReenterableRWLock.UpdateEvents;
+var
+  LReadSignaled, LWriteSignaled: Boolean;
+begin
+  LReadSignaled := (FWriterCount = 0) and (FWaitingWriters = 0);
+  LWriteSignaled := (FWriterCount = 0) and (FReaders = 0);
+  if LReadSignaled <> FReadSignaled then
   begin
-    Dec(Result);
-    if (Result > 0) then
-      FReaderThreads.AddOrSetValue(AThreadID, Result)
-    else
-      FReaderThreads.Remove(AThreadID);
-  end else
-    Result := 0;
+    if LReadSignaled then FReadEvent.SetEvent else FReadEvent.ResetEvent;
+    FReadSignaled := LReadSignaled;
+  end;
+  if LWriteSignaled <> FWriteSignaled then
+  begin
+    if LWriteSignaled then FWriteEvent.SetEvent else FWriteEvent.ResetEvent;
+    FWriteSignaled := LWriteSignaled;
+  end;
 end;
 
 function TReenterableRWLock.CanReadAccess(const AThreadID: TThreadID): Boolean;
@@ -597,14 +666,10 @@ begin
   Result := (FWriterThreadID = TThreadID(0)) or (FWriterThreadID = AThreadID);
 end;
 
-function TReenterableRWLock.CanWriteAccess(const AThreadID: TThreadID): Boolean;
+function TReenterableRWLock.CanWriteAccess: Boolean;
 begin
-  // 只要没有其它线程在写或读, 就可以写
-  //   (GetThreadReadCount(AThreadID) > 0) 表示这个线程有读操作
-  //   (FReaders = 1) 表示当前有1个线程在读
-  //   这两个条件同时满足说明当前正在读的线程就是AThreadID
-  Result := ((FWriterThreadID = TThreadID(0)) or (FWriterThreadID = AThreadID)) and
-    ((FReaders = 0) or ((GetThreadReadCount(AThreadID) > 0) and (FReaders = 1)));
+  // 已有写者的重入由入口单独处理；普通读者即使唯一也不能升级。
+  Result := (FWriterThreadID = TThreadID(0)) and (FReaders = 0);
 end;
 
 procedure TReenterableRWLock.BeginRead;
@@ -612,33 +677,15 @@ var
   LCurThreadID: TThreadID;
 begin
   LCurThreadID := GetCurrentThreadID;
-
   FLock.Enter;
   try
-    // 如果当前线程就是写者, 重入
-    if IsThreadWriter(LCurThreadID) then
-    begin
-      if (IncrementThreadReadCount(LCurThreadID) = 1) then
-        Inc(FReaders);
-      Exit;
-    end;
-
-    // 等待其它线程写结束才允许继续读
-    while not CanReadAccess(LCurThreadID) do
-    begin
-      FLock.Leave;
-      FReadEvent.WaitFor(INFINITE);
-      FLock.Enter;
-    end;
-
-    if (IncrementThreadReadCount(LCurThreadID) = 1) then
+    if not IsThreadWriter(LCurThreadID) then
+      while not CanReadAccess(LCurThreadID) do
+        WaitForEvent(FLock, FReadEvent);
+    if IncrementThreadReadCount(LCurThreadID) = 1 then
     begin
       Inc(FReaders);
-
-      // 第一个读开始之后, 其它线程就不可以写了
-      // 所以要将写事件置为无信号状态
-      if (FReaders = 1) then
-        FWriteEvent.ResetEvent;
+      UpdateEvents;
     end;
   finally
     FLock.Leave;
@@ -650,28 +697,14 @@ var
   LCurThreadID: TThreadID;
 begin
   LCurThreadID := GetCurrentThreadID;
-
-  FLock.Enter;
+  if not FLock.TryEnter then Exit(False);
   try
-    // 如果当前线程就是写者, 重入
-    if IsThreadWriter(LCurThreadID) then
-    begin
-      if (IncrementThreadReadCount(LCurThreadID) = 1) then
-        Inc(FReaders);
-      Exit(True);
-    end;
-
-    // 等待其它线程写结束才允许继续读
-    if not CanReadAccess(LCurThreadID) then Exit(False);
-
-    if (IncrementThreadReadCount(LCurThreadID) = 1) then
+    if not IsThreadWriter(LCurThreadID) and not CanReadAccess(LCurThreadID) then
+      Exit(False);
+    if IncrementThreadReadCount(LCurThreadID) = 1 then
     begin
       Inc(FReaders);
-
-      // 第一个读开始之后, 其它线程就不可以写了
-      // 所以要将写事件置为无信号状态
-      if (FReaders = 1) then
-        FWriteEvent.ResetEvent;
+      UpdateEvents;
     end;
     Result := True;
   finally
@@ -680,21 +713,13 @@ begin
 end;
 
 procedure TReenterableRWLock.EndRead;
-var
-  LCurThreadID: TThreadID;
 begin
-  LCurThreadID := GetCurrentThreadID;
-
   FLock.Enter;
   try
-    if (DecrementThreadReadCount(LCurThreadID) = 0) then
+    if DecrementThreadReadCount(GetCurrentThreadID) = 0 then
     begin
       Dec(FReaders);
-
-      // 所有读结束之后, 其它线程就可以写了
-      // 所以要将写事件置为有信号状态
-      if (FReaders = 0) then
-        FWriteEvent.SetEvent;
+      UpdateEvents;
     end;
   finally
     FLock.Leave;
@@ -706,38 +731,25 @@ var
   LCurThreadID: TThreadID;
 begin
   LCurThreadID := GetCurrentThreadID;
-
   FLock.Enter;
   try
-    // 如果当前线程就是写者, 重入
     if IsThreadWriter(LCurThreadID) then
     begin
       Inc(FWriterCount);
       Exit;
     end;
-
-    // 增加等待写者计数，阻止新的读者进入
     Inc(FWaitingWriters);
     try
-      // 等待其它所有写或读线程结束才允许继续写
-      while not CanWriteAccess(LCurThreadID) do
-      begin
-        FLock.Leave;
-        FWriteEvent.WaitFor(INFINITE);
-        FLock.Enter;
-      end;
+      UpdateEvents;
+      while not CanWriteAccess do
+        WaitForEvent(FLock, FWriteEvent);
+      FWriterThreadID := LCurThreadID;
+      FWriterCount := 1;
     finally
-      // 获取到写锁后，减少等待写者计数
       Dec(FWaitingWriters);
+      // 成功时已发布写者，失败时恢复新读者通道，均没有中间可见窗口。
+      UpdateEvents;
     end;
-
-    FWriterThreadID := LCurThreadID;
-    FWriterCount := 1;
-
-    // 开始写之后, 其它所有线程都不能读或写了
-    // 所以要把读和写的事件都置为无信号状态
-    FReadEvent.ResetEvent;
-    FWriteEvent.ResetEvent;
   finally
     FLock.Leave;
   end;
@@ -748,26 +760,17 @@ var
   LCurThreadID: TThreadID;
 begin
   LCurThreadID := GetCurrentThreadID;
-
-  FLock.Enter;
+  if not FLock.TryEnter then Exit(False);
   try
-    // 如果当前线程就是写者, 重入
     if IsThreadWriter(LCurThreadID) then
     begin
       Inc(FWriterCount);
       Exit(True);
     end;
-
-    // 等待其它所有写或读线程结束才允许继续写
-    if not CanWriteAccess(LCurThreadID) then Exit(False);
-
+    if not CanWriteAccess then Exit(False);
     FWriterThreadID := LCurThreadID;
     FWriterCount := 1;
-
-    // 开始写之后, 其它所有线程都不能读或写了
-    FReadEvent.ResetEvent;
-    FWriteEvent.ResetEvent;
-
+    UpdateEvents;
     Result := True;
   finally
     FLock.Leave;
@@ -778,23 +781,12 @@ procedure TReenterableRWLock.EndWrite;
 begin
   FLock.Enter;
   try
-    if IsThreadWriter(GetCurrentThreadID) then
+    if not IsThreadWriter(GetCurrentThreadID) then Exit;
+    Dec(FWriterCount);
+    if FWriterCount = 0 then
     begin
-      Dec(FWriterCount);
-      if (FWriterCount = 0) then
-      begin
-        FWriterThreadID := TThreadID(0);
-
-        // 写者优先：如果有等待中的写者，只唤醒写者
-        // 否则同时唤醒读者和写者
-        if (FWaitingWriters > 0) then
-          FWriteEvent.SetEvent
-        else
-        begin
-          FReadEvent.SetEvent;
-          FWriteEvent.SetEvent;
-        end;
-      end;
+      FWriterThreadID := TThreadID(0);
+      UpdateEvents;
     end;
   finally
     FLock.Leave;
@@ -862,48 +854,36 @@ end;
 
 function TSpinEvent.WaitFor(const ATimeout: Cardinal): TWaitResult;
 var
-  LStartTick: UInt64;
+  LStartTick, LElapsed, LRemaining: UInt64;
   LSpinCount: Integer;
-  LState: Integer;
+  LDelay: Cardinal;
 begin
-  LStartTick := TThread.GetTickCount64;
+  LStartTick := 0;
+  if (ATimeout <> 0) and (ATimeout <> INFINITE) then
+    LStartTick := TThread.GetTickCount64;
   LSpinCount := 0;
-
   while True do
   begin
-    // 判断是否收到信号
     if FManualReset then
     begin
-      // 手动重置事件：只检查状态，不修改
-      // 使用原子读取代替不必要的CAS
-      LState := AtomicCmpExchange(FState, 0, 0);  // 原子读取
-      if (LState = 1) then
-        Exit(TWaitResult.wrSignaled);
+      // CAS 提供原子观察，不能直接改成缺少可见性保障的普通字段读取。
+      if AtomicCmpExchange(FState, 0, 0) = 1 then Exit(wrSignaled);
     end else
+      if AtomicCmpExchange(FState, 0, 1) = 1 then Exit(wrSignaled);
+    if ATimeout = 0 then Exit(wrTimeout);
+    LRemaining := INFINITE;
+    if ATimeout <> INFINITE then
     begin
-      // 自动重置事件：原子性地检测并重置，避免竞态条件
-      // 如果FState=1，则将其设为0并返回1（表示成功获取信号）
-      if (AtomicCmpExchange(FState, 0, 1) = 1) then
-        Exit(TWaitResult.wrSignaled);
+      LElapsed := TThread.GetTickCount64 - LStartTick;
+      if LElapsed >= ATimeout then Exit(wrTimeout);
+      LRemaining := ATimeout - LElapsed;
     end;
-
-    // 超时检查移到前面，避免不必要的Sleep
-    if (ATimeout <> INFINITE) then
-    begin
-      if (TThread.GetTickCount64 - LStartTick >= ATimeout) then
-        Exit(TWaitResult.wrTimeout);
-    end;
-
-    if (LSpinCount < 1000) then
-      Inc(LSpinCount);
-
-    // 自旋退避, 避免 CPU 占满
-    if (LSpinCount < 100) then
-      Sleep(0)
-    else if (LSpinCount < 1000) then
-      Sleep(1)
-    else
-      Sleep(5);
+    if LSpinCount < 1000 then Inc(LSpinCount);
+    if LSpinCount < 100 then LDelay := 0
+    else if LSpinCount < 1000 then LDelay := 1
+    else LDelay := 5;
+    if UInt64(LDelay) > LRemaining then LDelay := Cardinal(LRemaining);
+    Sleep(LDelay);
   end;
 end;
 
@@ -911,6 +891,7 @@ end;
 
 constructor TCustomCountdownEvent.Create(const ASpin: Boolean; const ACount: Integer);
 begin
+  if ACount < 0 then raise EArgumentOutOfRangeException.Create('初始计数不能为负数');
   FLock := TLock.Create;
 
   if ASpin then
@@ -937,13 +918,14 @@ end;
 
 procedure TCustomCountdownEvent.AddCount(const ACount: Integer);
 begin
+  if ACount <= 0 then
+    raise EArgumentOutOfRangeException.Create('增加计数必须大于零');
   FLock.Enter;
   try
+    if ACount > High(Integer) - FCurCount then
+      raise EArgumentOutOfRangeException.Create('增加计数超出 Integer 范围');
+    if FCurCount = 0 then FEvent.ResetEvent;
     Inc(FCurCount, ACount);
-    if (FCurCount > 0) then
-      FEvent.ResetEvent
-    else
-      FEvent.SetEvent;
   finally
     FLock.Leave;
   end;
@@ -951,6 +933,7 @@ end;
 
 procedure TCustomCountdownEvent.ResetEvent(const ACount: Integer);
 begin
+  if ACount < 0 then raise EArgumentOutOfRangeException.Create('重置计数不能为负数');
   FLock.Enter;
   try
     FCurCount := ACount;
@@ -984,9 +967,9 @@ procedure TCustomCountdownEvent.SetEvent;
 begin
   FLock.Enter;
   try
+    if FCurCount = 0 then Exit;
     Dec(FCurCount);
-    if (FCurCount <= 0) then
-      FEvent.SetEvent;
+    if FCurCount = 0 then FEvent.SetEvent;
   finally
     FLock.Leave;
   end;
