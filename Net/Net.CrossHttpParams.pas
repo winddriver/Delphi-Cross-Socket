@@ -1135,12 +1135,14 @@ function TBaseParams.GetHeaderValues(const AName: string;
 var
   I, LCount: Integer;
 begin
-  SetLength(AValues, FParams.Count);
+  AValues := nil;
   LCount := 0;
   Result := False;
   for I := 0 to FParams.Count - 1 do
   begin
     if not TStrUtils.SameText(FParams[I].Name, AName) then Continue;
+    // 找到首项后才预留剩余字段的容量；缺失字段查询不申请临时数组。
+    if LCount = 0 then SetLength(AValues, FParams.Count - I);
     AValues[LCount] := FParams[I].Value;
     Inc(LCount);
     Result := True;

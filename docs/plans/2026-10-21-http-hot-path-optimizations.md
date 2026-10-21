@@ -12,7 +12,7 @@
 
 - [x] P1：`Net/Net.CrossHttpParams.pas` 的 ContainsToken 改为直接扫描，避免枚举器、Split、Trim 的临时分配。
   - 验证大小写、重复字段、空 token、逗号、空白、非法 ASCII/Unicode 字符、完整 token 匹配；与旧算法差分比较。
-- [ ] P2：同单元 GetHeaderValues 在没有匹配字段时不分配数组。
+- [x] P2：同单元 GetHeaderValues 在没有匹配字段时不分配数组。
   - 验证无匹配、空值、重复字段顺序、大小写、调用前输出数组已有内容；测量无匹配及多匹配场景。
 - [ ] P3：`Net/Net.CrossHttpServer.pas` 路由处理器快照复用。
   - 更新路由时生成独立数组，请求在既有锁内取得引用；不得修改正在执行的快照。
@@ -44,3 +44,11 @@
 - HttpFailureTests hotpath-p1：14 个连接策略/真实 TCP 用例，Delphi Win64、FPC Win64 共 28/28 通过。
 - 30 万组（三次查询）中位耗时：Win64 187039.9 → 34290.1 us；Win32 149969.8 → 32092.6 us；FPC64 666331.063 → 401573.813 us。
 - 每 1 万组分配调用三目标均 70000 → 0；性能原始数据保存在 HttpHotPathTests/bin/p1-after/<target>/benchmarks.json。
+
+### P2 完成
+
+- 无匹配不分配；首次匹配才预留剩余容量，保持输出清理、重复值顺序和空值。
+- p2-before/p2-after/p2-checked：三目标均通过 tokens 13543 条、headers 4008 条；HttpFailureTests hotpath-p2 三目标 27/27 通过。
+- 30 万组无匹配查询：Win64 37761.2 → 19436.0 us，Win32 29276.9 → 16751.5 us，FPC64 274609.219 → 258916.406 us。每万组分配 20000 → 0。
+- 单匹配时间下降 2–9%，重复匹配基本持平（Win32 中位数慢 1.8%，分配字节减少）；不声称所有查询都更快。
+- P1 独立提交：04f2276。

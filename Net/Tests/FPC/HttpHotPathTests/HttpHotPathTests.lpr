@@ -137,6 +137,41 @@ begin
   finally LHeader.Free; end;
 end;
 
+procedure TestHeaderValues;
+var
+  LHeader: THttpHeader;
+  LValues, LSaved: TArray<string>;
+  I: Integer;
+begin
+  LHeader := THttpHeader.Create;
+  try
+    SetLength(LValues, 1);
+    LValues[0] := 'previous';
+    Check(not LHeader.GetHeaderValues('Cookie', LValues), '空头返回值');
+    Check(Length(LValues) = 0, '空头未清理输出');
+    LHeader.Add('Host', 'localhost');
+    LHeader.Add('Cookie', 'first');
+    LHeader.Add('X-Other', 'ignore');
+    LHeader.Add('COOKIE', '', True);
+    LHeader.Add('cookie', 'last', True);
+    Check(LHeader.GetHeaderValues('cOoKiE', LValues), '大小写查询');
+    Check((Length(LValues) = 3) and (LValues[0] = 'first') and
+      (LValues[1] = '') and (LValues[2] = 'last'), '重复字段顺序或空值');
+    LSaved := LValues;
+    Check(not LHeader.GetHeaderValues('Missing', LValues), '无匹配返回值');
+    Check(Length(LValues) = 0, '无匹配未清理已有输出');
+    Check((Length(LSaved) = 3) and (LSaved[0] = 'first'), '影响外部持有的旧数组');
+    for I := 1 to 1000 do
+    begin
+      Check(LHeader.GetHeaderValues('HOST', LValues), '单字段重复查询');
+      Check((Length(LValues) = 1) and (LValues[0] = 'localhost'), '单字段内容');
+      Check(not LHeader.GetHeaderValues('Absent', LValues), '重复无匹配查询');
+      Check(Length(LValues) = 0, '输出数组残留');
+    end;
+  finally LHeader.Free; end;
+  Check((Length(LSaved) = 3) and (LSaved[2] = 'last'), '结果不应依赖原对象寿命');
+end;
+
 procedure Benchmark(const AName: string; const ACount: Integer; const AAllocations: Boolean);
 var
   LHeader: THttpHeader;
@@ -153,6 +188,12 @@ begin
     LHeader.Add('Accept', '*/*');
     LHeader.Add('X-First', 'a');
     LHeader.Add('X-Last', 'b');
+    if (AName = 'present') or (AName = 'duplicates') then LHeader.Add('Cookie', 'first');
+    if AName = 'duplicates' then
+    begin
+      LHeader.Add('COOKIE', '', True);
+      LHeader.Add('Cookie', 'last', True);
+    end;
     Check(SetThreadAffinityMask(GetCurrentThread, 4) <> 0, '绑定基准 CPU 失败');
     QueryPerformanceFrequency(LFrequency);
     LHits := 0;
@@ -172,14 +213,21 @@ begin
           if LHeader.GetHeaderValues('Cookie', LValues) then Inc(LHits);
           if LHeader.GetHeaderValues('Content-Length', LValues) then Inc(LHits);
         end else
+        if (AName = 'present') or (AName = 'duplicates') then
+        begin
+          if LHeader.GetHeaderValues('Cookie', LValues) then Inc(LHits);
+        end else
           raise Exception.Create('未知基准: ' + AName);
       end;
       QueryPerformanceCounter(LEnd);
     finally
       if AAllocations then EndCounting;
     end;
-    if AName = 'tokens' then Check(LHits = ACount, 'token 结果错误')
-    else Check((LHits = 0) and (Length(LValues) = 0), '查询结果错误');
+    if AName = 'missing' then Check((LHits = 0) and (Length(LValues) = 0), '无匹配结果错误')
+    else Check(LHits = ACount, '查询命中数错误');
+    if AName = 'present' then Check((Length(LValues) = 1) and (LValues[0] = 'first'), '单字段结果错误');
+    if AName = 'duplicates' then Check((Length(LValues) = 3) and
+      (LValues[1] = '') and (LValues[2] = 'last'), '多字段结果错误');
     Writeln(Format('METRIC n=%d us=%.3f calls=%d bytes=%d',
       [ACount, (LEnd - LStart) * 1000000.0 / LFrequency, AllocationCalls, AllocationBytes]));
   finally LHeader.Free; end;
@@ -192,6 +240,8 @@ begin
       Benchmark(ParamStr(2), StrToInt(ParamStr(3)), ParamStr(4) = 'alloc')
     else
     if ParamStr(1) = 'tokens' then TestTokens
+    else
+    if ParamStr(1) = 'headers' then TestHeaderValues
     else raise Exception.Create('未知测试');
     Writeln('PASS ', ParamStr(1), ' checks=', Checks);
   except
