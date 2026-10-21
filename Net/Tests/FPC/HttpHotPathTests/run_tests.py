@@ -55,6 +55,8 @@ def build(target, label, source=None, checked=False):
         p = source / name if source and (source / name).exists() else REPO / 'Net' / name
         metadata['sources'][name] = hashlib.sha256(p.read_bytes()).hexdigest()
     metadata['test_sha256'] = hashlib.sha256((HERE / 'HttpHotPathTests.lpr').read_bytes()).hexdigest()
+    metadata['includes'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in HERE.glob('*.inc')}
+    metadata['binary_sha256'] = hashlib.sha256((out / 'HttpHotPathTests.exe').read_bytes()).hexdigest()
     (out / 'source.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
     print('BUILD PASS', label, target, flush=True)
 

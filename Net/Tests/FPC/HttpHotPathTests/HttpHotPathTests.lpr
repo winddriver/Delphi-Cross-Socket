@@ -66,6 +66,9 @@ begin
   SetMemoryManager(OriginalManager);
 end;
 
+{$I HttpTestSupport.inc}
+{$I RouterTests.inc}
+
 // 独立保留修改前算法，供语义差分验证，不参与性能计时。
 function ReferenceToken(const AValue: string): Boolean;
 var I: Integer;
@@ -179,6 +182,11 @@ var
   LStart, LEnd, LFrequency: Int64;
   LValues: TArray<string>;
 begin
+  if AName = 'router' then
+  begin
+    BenchmarkRouter(ACount, AAllocations);
+    Exit;
+  end;
   Check(ACount > 0, '无效循环数');
   LHeader := THttpHeader.Create;
   try
@@ -242,6 +250,8 @@ begin
     if ParamStr(1) = 'tokens' then TestTokens
     else
     if ParamStr(1) = 'headers' then TestHeaderValues
+    else
+    if ParamStr(1) = 'router' then TestRouter
     else raise Exception.Create('未知测试');
     Writeln('PASS ', ParamStr(1), ' checks=', Checks);
   except

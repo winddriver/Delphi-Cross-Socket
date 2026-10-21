@@ -2143,8 +2143,8 @@ type
     FLock: IReadWriteLock;
 
     // 路由处理函数
-    FRouterProcList: TList<TCrossHttpRouterProc>;
-    FRouterMethodList: TList<TCrossHttpRouterMethod>;
+    FRouterProcs: TArray<TCrossHttpRouterProc>;
+    FRouterMethods: TArray<TCrossHttpRouterMethod>;
 
     function GetRouteType: TRouteType;
     function GetMethodPattern: string;
@@ -3349,20 +3349,33 @@ end;
 { TRouter }
 
 procedure TRouter.AddRouterProc(const ARouterProc: TCrossHttpRouterProc);
+var
+  LProcs: TArray<TCrossHttpRouterProc>;
+  I: Integer;
 begin
   FLock.BeginWrite;
   try
-    FRouterProcList.Add(ARouterProc);
+    // 已发布的数组可能仍被请求持有；注册时创建独立快照，不能原位修改。
+    SetLength(LProcs, Length(FRouterProcs) + 1);
+    for I := 0 to High(FRouterProcs) do LProcs[I] := FRouterProcs[I];
+    LProcs[High(LProcs)] := ARouterProc;
+    FRouterProcs := LProcs;
   finally
     FLock.EndWrite;
   end;
 end;
 
 procedure TRouter.AddRouterProc(const ARouterMethod: TCrossHttpRouterMethod);
+var
+  LMethods: TArray<TCrossHttpRouterMethod>;
+  I: Integer;
 begin
   FLock.BeginWrite;
   try
-    FRouterMethodList.Add(ARouterMethod);
+    SetLength(LMethods, Length(FRouterMethods) + 1);
+    for I := 0 to High(FRouterMethods) do LMethods[I] := FRouterMethods[I];
+    LMethods[High(LMethods)] := ARouterMethod;
+    FRouterMethods := LMethods;
   finally
     FLock.EndWrite;
   end;
@@ -3373,15 +3386,13 @@ begin
   FMethodPattern := AMethodPattern;
   FRouteType := GetPatternType(AMethodPattern);
 
-  FRouterProcList := TList<TCrossHttpRouterProc>.Create;
-  FRouterMethodList := TList<TCrossHttpRouterMethod>.Create;
   FLock := TReadWriteLock.Create;
 end;
 
 destructor TRouter.Destroy;
 begin
-  FreeAndNil(FRouterProcList);
-  FreeAndNil(FRouterMethodList);
+  FRouterProcs := nil;
+  FRouterMethods := nil;
 
   inherited;
 end;
@@ -3413,8 +3424,8 @@ var
 begin
   FLock.BeginRead;
   try
-    LRouterProcArr := FRouterProcList.ToArray;
-    LRouterMethodArr := FRouterMethodList.ToArray;
+    LRouterProcArr := FRouterProcs;
+    LRouterMethodArr := FRouterMethods;
   finally
     FLock.EndRead;
   end;
