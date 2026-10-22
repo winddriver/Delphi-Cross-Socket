@@ -828,6 +828,7 @@ begin
   begin
     loadSize := XXH3_INTERNALBUFFER_SIZE - state.bufferedSize;
     Move(input^, state.buffer[state.bufferedSize], loadSize);
+    Inc(input, loadSize);
 
     XXH3_consumeStripes(@state.acc, state.nbStripesSoFar,
       state.nbStripesPerBlock, @state.buffer,
@@ -966,6 +967,8 @@ function XXH3_hashLong_64b_internal(const input: Pointer; len: NativeInt; const 
 
 { 64位哈希(带种子，按长度分派) }
 function XXH3_64bits(input: Pointer; len: NativeInt; seed: UInt64): TXXH3_hash64_t;
+var
+  customSecret: array[0..XXH3_SECRET_DEFAULT_SIZE - 1] of Byte;
 begin
   ValidateInput(input, len);
   { 按数据长度选择最优分支 }
@@ -976,7 +979,13 @@ begin
   else if len <= XXH3_MIDSIZE_MAX then
     Result := XXH3_len_129to240_64b(input, len, @XXH3_kSecret, XXH3_SECRET_DEFAULT_SIZE, seed)
   else
-    Result := XXH3_hashLong_64b_internal(input, len, @XXH3_kSecret, XXH3_SECRET_DEFAULT_SIZE);
+  if seed = 0 then
+    Result := XXH3_hashLong_64b_internal(input, len, @XXH3_kSecret, XXH3_SECRET_DEFAULT_SIZE)
+  else
+  begin
+    XXH3_initCustomSecret_scalar(@customSecret, seed);
+    Result := XXH3_hashLong_64b_internal(input, len, @customSecret, SizeOf(customSecret));
+  end;
 end;
 
 { 64位哈希(自定义密钥) }
@@ -1007,6 +1016,8 @@ function XXH3_hashLong_128b_internal(const input: Pointer; len: NativeInt; const
 
 { 128位哈希(带种子，按长度分派) }
 function XXH3_128bits(input: Pointer; len: NativeInt; seed: UInt64): TXXH3_hash128_t;
+var
+  customSecret: array[0..XXH3_SECRET_DEFAULT_SIZE - 1] of Byte;
 begin
   ValidateInput(input, len);
   { 按数据长度选择最优分支 }
@@ -1017,7 +1028,13 @@ begin
   else if len <= XXH3_MIDSIZE_MAX then
     Result := XXH3_len_129to240_128b(input, len, @XXH3_kSecret, XXH3_SECRET_DEFAULT_SIZE, seed)
   else
-    Result := XXH3_hashLong_128b_internal(input, len, @XXH3_kSecret, XXH3_SECRET_DEFAULT_SIZE);
+  if seed = 0 then
+    Result := XXH3_hashLong_128b_internal(input, len, @XXH3_kSecret, XXH3_SECRET_DEFAULT_SIZE)
+  else
+  begin
+    XXH3_initCustomSecret_scalar(@customSecret, seed);
+    Result := XXH3_hashLong_128b_internal(input, len, @customSecret, SizeOf(customSecret));
+  end;
 end;
 
 { 128位哈希(自定义密钥) }
@@ -1237,12 +1254,12 @@ end;
 { 128位长度分派函数 }
 
 { 混合两段32字节数据 }
-function XXH128_mix32B(acc: TXXH3_hash128_t; input_1, input_2, secret: PByte; seed: UInt64): TXXH3_hash128_t;
+procedure XXH128_mix32B(var acc: TXXH3_hash128_t; input_1, input_2, secret: PByte; seed: UInt64);
 begin
-  Result.low64 := acc.low64 + XXH3_mix16B(input_1, secret, seed);
-  Result.low64 := Result.low64 xor (XXH_readLE64(input_2) + XXH_readLE64(input_2 + 8));
-  Result.high64 := acc.high64 + XXH3_mix16B(input_2, secret + 16, seed);
-  Result.high64 := Result.high64 xor (XXH_readLE64(input_1) + XXH_readLE64(input_1 + 8));
+  acc.low64 := acc.low64 + XXH3_mix16B(input_1, secret, seed);
+  acc.low64 := acc.low64 xor (XXH_readLE64(input_2) + XXH_readLE64(input_2 + 8));
+  acc.high64 := acc.high64 + XXH3_mix16B(input_2, secret + 16, seed);
+  acc.high64 := acc.high64 xor (XXH_readLE64(input_1) + XXH_readLE64(input_1 + 8));
 end;
 
 { 1~3字节短输入128位哈希 }
@@ -1279,7 +1296,7 @@ begin
   seed := seed xor (UInt64(XXH_swap32(UInt32(seed))) shl 32);
   input_lo := XXH_readLE32(input);
   input_hi := XXH_readLE32(input + len - 4);
-  input64 := UInt64(input_hi) or (UInt64(input_lo) shl 32);
+  input64 := UInt64(input_lo) or (UInt64(input_hi) shl 32);
   bitflip := (XXH_readLE64(secret + 16) xor XXH_readLE64(secret + 24)) + seed;
   keyed := input64 xor bitflip;
 
@@ -1356,12 +1373,12 @@ begin
     if len > 64 then
     begin
       if len > 96 then
-        acc := XXH128_mix32B(acc, input + 48, input + len - 64, secret + 96, seed);
-      acc := XXH128_mix32B(acc, input + 32, input + len - 48, secret + 64, seed);
+        XXH128_mix32B(acc, input + 48, input + len - 64, secret + 96, seed);
+      XXH128_mix32B(acc, input + 32, input + len - 48, secret + 64, seed);
     end;
-    acc := XXH128_mix32B(acc, input + 16, input + len - 32, secret + 32, seed);
+    XXH128_mix32B(acc, input + 16, input + len - 32, secret + 32, seed);
   end;
-  acc := XXH128_mix32B(acc, input, input + len - 16, secret, seed);
+  XXH128_mix32B(acc, input, input + len - 16, secret, seed);
 
   Result.low64 := acc.low64 + acc.high64;
   Result.high64 := (acc.low64 * XXH_PRIME64_1) + (acc.high64 * XXH_PRIME64_4) +
@@ -1380,17 +1397,17 @@ begin
   acc.high64 := 0;
 
   for i := 0 to 3 do
-    acc := XXH128_mix32B(acc, input + 32 * i, input + 32 * i + 16, secret + 32 * i, seed);
+    XXH128_mix32B(acc, input + 32 * i, input + 32 * i + 16, secret + 32 * i, seed);
 
   acc.low64 := XXH3_avalanche(acc.low64);
   acc.high64 := XXH3_avalanche(acc.high64);
 
   nbRounds := len div 32;
   for i := 4 to nbRounds - 1 do
-    acc := XXH128_mix32B(acc, input + 32 * i, input + 32 * i + 16,
+    XXH128_mix32B(acc, input + 32 * i, input + 32 * i + 16,
                         secret + 3 + 32 * (i - 4), seed);
 
-  acc := XXH128_mix32B(acc, input + len - 16, input + len - 32,
+  XXH128_mix32B(acc, input + len - 16, input + len - 32,
                       secret + XXH3_SECRET_SIZE_MIN - 33, UInt64(0) - seed);
 
   Result.low64 := acc.low64 + acc.high64;
