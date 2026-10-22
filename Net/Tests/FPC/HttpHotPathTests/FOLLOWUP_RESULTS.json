@@ -1,0 +1,979 @@
+{
+  "date": "2026-10-21",
+  "scope": "Only P1/P2/P3 retained; P4 cancelled; production code unchanged during follow-up",
+  "head": "c2cca8b6a446686e28f7e04720c3bd93983a224e",
+  "http": {
+    "config": "Delphi13.1 Release Win64, FastMM5, default65 IO threads, c=1000, warmup20k, ab100k and Bombardier15s, five alternating pairs",
+    "summary": {
+      "before": {
+        "ab_rps": 33520.1,
+        "bomb_rps": 97035.2509381245,
+        "bomb_p99_us": 13672,
+        "ab_server_cpu_s": 13.046875,
+        "bomb_server_cpu_us_per_response": 125.33671272543067
+      },
+      "after": {
+        "ab_rps": 33404.95,
+        "bomb_rps": 96245.62428941912,
+        "bomb_p99_us": 13790,
+        "ab_server_cpu_s": 13.28125,
+        "bomb_server_cpu_us_per_response": 123.45412086540809
+      }
+    },
+    "samples": [
+      {
+        "index": 0,
+        "role": "before",
+        "ab_rps": 31880.22,
+        "bomb_rps": 96790.80053086426,
+        "bomb_ok": 1449635,
+        "bomb_p99_us": 13669,
+        "errors": 0,
+        "ab_server_cpu_s": 12.859375,
+        "bomb_server_cpu_s": 166.78125,
+        "bomb_server_cpu_us_per_response": 115.0505127152697
+      },
+      {
+        "index": 0,
+        "role": "after",
+        "ab_rps": 32094.32,
+        "bomb_rps": 94775.17770581043,
+        "bomb_ok": 1419957,
+        "bomb_p99_us": 13790,
+        "errors": 0,
+        "ab_server_cpu_s": 13.28125,
+        "bomb_server_cpu_s": 163.84375,
+        "bomb_server_cpu_us_per_response": 115.38641663092615
+      },
+      {
+        "index": 1,
+        "role": "after",
+        "ab_rps": 29974.13,
+        "bomb_rps": 96315.76094878357,
+        "bomb_ok": 1442464,
+        "bomb_p99_us": 13893,
+        "errors": 0,
+        "ab_server_cpu_s": 14.390625,
+        "bomb_server_cpu_s": 178.078125,
+        "bomb_server_cpu_us_per_response": 123.45412086540809
+      },
+      {
+        "index": 1,
+        "role": "before",
+        "ab_rps": 33942.83,
+        "bomb_rps": 97436.4335729853,
+        "bomb_ok": 1460815,
+        "bomb_p99_us": 14169,
+        "errors": 0,
+        "ab_server_cpu_s": 12.96875,
+        "bomb_server_cpu_s": 183.09375,
+        "bomb_server_cpu_us_per_response": 125.33671272543067
+      },
+      {
+        "index": 2,
+        "role": "before",
+        "ab_rps": 33312.47,
+        "bomb_rps": 95163.87103877173,
+        "bomb_ok": 1425684,
+        "bomb_p99_us": 13512,
+        "errors": 0,
+        "ab_server_cpu_s": 13.609375,
+        "bomb_server_cpu_s": 172.546875,
+        "bomb_server_cpu_us_per_response": 121.0274331478785
+      },
+      {
+        "index": 2,
+        "role": "after",
+        "ab_rps": 34014.61,
+        "bomb_rps": 97071.74842490819,
+        "bomb_ok": 1454921,
+        "bomb_p99_us": 13720,
+        "errors": 0,
+        "ab_server_cpu_s": 12.46875,
+        "bomb_server_cpu_s": 181.609375,
+        "bomb_server_cpu_us_per_response": 124.8242172599062
+      },
+      {
+        "index": 3,
+        "role": "after",
+        "ab_rps": 33404.95,
+        "bomb_rps": 94537.65310256886,
+        "bomb_ok": 1416843,
+        "bomb_p99_us": 13671,
+        "errors": 0,
+        "ab_server_cpu_s": 12.8125,
+        "bomb_server_cpu_s": 165.609375,
+        "bomb_server_cpu_us_per_response": 116.88618640173964
+      },
+      {
+        "index": 3,
+        "role": "before",
+        "ab_rps": 33520.1,
+        "bomb_rps": 97151.10377579651,
+        "bomb_ok": 1455595,
+        "bomb_p99_us": 13679,
+        "errors": 0,
+        "ab_server_cpu_s": 13.65625,
+        "bomb_server_cpu_s": 189.3125,
+        "bomb_server_cpu_us_per_response": 130.0584984147376
+      },
+      {
+        "index": 4,
+        "role": "before",
+        "ab_rps": 34590.59,
+        "bomb_rps": 97035.2509381245,
+        "bomb_ok": 1453318,
+        "bomb_p99_us": 13672,
+        "errors": 0,
+        "ab_server_cpu_s": 13.046875,
+        "bomb_server_cpu_s": 184.578125,
+        "bomb_server_cpu_us_per_response": 127.00463697552772
+      },
+      {
+        "index": 4,
+        "role": "after",
+        "ab_rps": 33754.23,
+        "bomb_rps": 96245.62428941912,
+        "bomb_ok": 1442534,
+        "bomb_p99_us": 13978,
+        "errors": 0,
+        "ab_server_cpu_s": 13.375,
+        "bomb_server_cpu_s": 180.546875,
+        "bomb_server_cpu_us_per_response": 125.15952830227918
+      }
+    ],
+    "before_source": {
+      "Net.CrossHttpParams.pas": "a869a8361411bb50f75619fe6ecb6b5eb33721b294b9c2da5a0681bd17946d82",
+      "Net.CrossHttpServer.pas": "c6a049938b84fa14a9c3e72c72238f9839484517c3d8d750ffaafbede5c9a6e1",
+      "binary_sha256": "6bcc0dd6ca626e5dbae813f13271f43379abaa81a8bdf0a96d901df1bf184766",
+      "demo_sha256": "7feb5545a963c72682b65e3425d1314cb48529b20ed7bb1565959a67aee2e78e",
+      "fastmm_sha256": "07348bd27cdd98cb018b73c4003a55abd64d91273c0254a9270400452ac7ca08"
+    },
+    "after_source": {
+      "Net.CrossHttpParams.pas": "f3105105e3941ca436bf3ac4e4a78c7b27a378c7b8a49a979fc1120ccd2a5dd5",
+      "Net.CrossHttpServer.pas": "ea7f6a4601b2eaf16b5b5f60c04d4b2b82e1cbe2111bf63409b2bd48a25ff553",
+      "binary_sha256": "8032d156d503782fce13637fff3a495cd1ba9dc71b7926f946e3dac0324bfbac",
+      "demo_sha256": "7feb5545a963c72682b65e3425d1314cb48529b20ed7bb1565959a67aee2e78e",
+      "fastmm_sha256": "07348bd27cdd98cb018b73c4003a55abd64d91273c0254a9270400452ac7ca08"
+    }
+  },
+  "accept_diagnosis": [
+    {
+      "index": 0,
+      "case": "threads4",
+      "threads": 4,
+      "accepts": 4,
+      "backlog": 2147483647,
+      "rate": 0,
+      "concurrency": 1000,
+      "ok": 124746,
+      "errors": 296764,
+      "error_details": [
+        {
+          "description": "dial tcp 127.0.0.1:18080: connectex: No connection could be made because the target machine actively refused it.",
+          "count": 296764
+        }
+      ],
+      "effective_ok_rps": 12457.56229035797,
+      "reported_rps": 42187.35740540973,
+      "server_cpu_s": 12.640625,
+      "listeners_after": [
+        "TCP    127.0.0.1:18080        0.0.0.0:0              LISTENING       161100"
+      ],
+      "fresh_connection": true,
+      "stats": [
+        {
+          "tick": 594894187,
+          "accepted": 1001,
+          "submitted": 1005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        },
+        {
+          "tick": 594895234,
+          "accepted": 1383,
+          "submitted": 1384,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 379,
+          "listens": 1
+        },
+        {
+          "tick": 594897250,
+          "accepted": 1521,
+          "submitted": 1522,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 449,
+          "listens": 1
+        },
+        {
+          "tick": 594899250,
+          "accepted": 1676,
+          "submitted": 1677,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 450,
+          "listens": 1
+        },
+        {
+          "tick": 594901265,
+          "accepted": 1845,
+          "submitted": 1846,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 449,
+          "listens": 1
+        },
+        {
+          "tick": 594903281,
+          "accepted": 2017,
+          "submitted": 2018,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 458,
+          "listens": 1
+        },
+        {
+          "tick": 594904390,
+          "accepted": 2292,
+          "submitted": 2296,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        }
+      ],
+      "accept_error_logs": [],
+      "run_folder": "accept-diagnosis"
+    },
+    {
+      "index": 0,
+      "case": "backlog2048",
+      "threads": 4,
+      "accepts": 4,
+      "backlog": -2048,
+      "rate": 0,
+      "concurrency": 1000,
+      "ok": 492906,
+      "errors": 0,
+      "error_details": [],
+      "effective_ok_rps": 49220.56012734998,
+      "reported_rps": 49291.631960743645,
+      "server_cpu_s": 39.921875,
+      "listeners_after": [
+        "TCP    127.0.0.1:18080        0.0.0.0:0              LISTENING       172956"
+      ],
+      "fresh_connection": true,
+      "stats": [
+        {
+          "tick": 594905687,
+          "accepted": 1001,
+          "submitted": 1005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        },
+        {
+          "tick": 594906734,
+          "accepted": 1902,
+          "submitted": 1906,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 901,
+          "listens": 1
+        },
+        {
+          "tick": 594908750,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594910750,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594912765,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594914781,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594915875,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        }
+      ],
+      "accept_error_logs": [],
+      "run_folder": "accept-diagnosis"
+    },
+    {
+      "index": 0,
+      "case": "accepts65",
+      "threads": 4,
+      "accepts": 65,
+      "backlog": 2147483647,
+      "rate": 0,
+      "concurrency": 1000,
+      "ok": 433982,
+      "errors": 38288,
+      "error_details": [
+        {
+          "description": "dial tcp 127.0.0.1:18080: connectex: No connection could be made because the target machine actively refused it.",
+          "count": 38288
+        }
+      ],
+      "effective_ok_rps": 43347.36654325472,
+      "reported_rps": 47349.58011910243,
+      "server_cpu_s": 35.296875,
+      "listeners_after": [
+        "TCP    127.0.0.1:18080        0.0.0.0:0              LISTENING       168120"
+      ],
+      "fresh_connection": true,
+      "stats": [
+        {
+          "tick": 594917109,
+          "accepted": 1001,
+          "submitted": 1066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        },
+        {
+          "tick": 594918156,
+          "accepted": 1601,
+          "submitted": 1662,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 596,
+          "listens": 1
+        },
+        {
+          "tick": 594920156,
+          "accepted": 2001,
+          "submitted": 2066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594922171,
+          "accepted": 2001,
+          "submitted": 2066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594924187,
+          "accepted": 2001,
+          "submitted": 2066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594926187,
+          "accepted": 2001,
+          "submitted": 2066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594927406,
+          "accepted": 2001,
+          "submitted": 2066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        }
+      ],
+      "accept_error_logs": [],
+      "run_folder": "accept-diagnosis"
+    },
+    {
+      "index": 0,
+      "case": "rate30000",
+      "threads": 4,
+      "accepts": 4,
+      "backlog": 2147483647,
+      "rate": 30000,
+      "concurrency": 1000,
+      "ok": 299996,
+      "errors": 47,
+      "error_details": [
+        {
+          "description": "dial tcp 127.0.0.1:18080: connectex: No connection could be made because the target machine actively refused it.",
+          "count": 47
+        }
+      ],
+      "effective_ok_rps": 29994.882404895357,
+      "reported_rps": 30017.82053101868,
+      "server_cpu_s": 27.265625,
+      "listeners_after": [
+        "TCP    127.0.0.1:18080        0.0.0.0:0              LISTENING       146356"
+      ],
+      "fresh_connection": true,
+      "stats": [
+        {
+          "tick": 594928687,
+          "accepted": 1001,
+          "submitted": 1005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        },
+        {
+          "tick": 594929734,
+          "accepted": 1589,
+          "submitted": 1593,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 588,
+          "listens": 1
+        },
+        {
+          "tick": 594931734,
+          "accepted": 1589,
+          "submitted": 1593,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 588,
+          "listens": 1
+        },
+        {
+          "tick": 594933750,
+          "accepted": 1589,
+          "submitted": 1593,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 588,
+          "listens": 1
+        },
+        {
+          "tick": 594935750,
+          "accepted": 1589,
+          "submitted": 1593,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 588,
+          "listens": 1
+        },
+        {
+          "tick": 594937765,
+          "accepted": 1589,
+          "submitted": 1593,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 588,
+          "listens": 1
+        },
+        {
+          "tick": 594938875,
+          "accepted": 1589,
+          "submitted": 1593,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        }
+      ],
+      "accept_error_logs": [],
+      "run_folder": "accept-diagnosis"
+    },
+    {
+      "index": 0,
+      "case": "threads65",
+      "threads": 65,
+      "accepts": 65,
+      "backlog": 2147483647,
+      "rate": 0,
+      "concurrency": 1000,
+      "ok": 956207,
+      "errors": 0,
+      "error_details": [],
+      "effective_ok_rps": 95544.57295061015,
+      "reported_rps": 95766.5120476712,
+      "server_cpu_s": 119.0625,
+      "listeners_after": [
+        "TCP    127.0.0.1:18080        0.0.0.0:0              LISTENING       126224"
+      ],
+      "fresh_connection": true,
+      "stats": [
+        {
+          "tick": 594940203,
+          "accepted": 1001,
+          "submitted": 1066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        },
+        {
+          "tick": 594941234,
+          "accepted": 2001,
+          "submitted": 2066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594943250,
+          "accepted": 2001,
+          "submitted": 2066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594945265,
+          "accepted": 2001,
+          "submitted": 2066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594947281,
+          "accepted": 2001,
+          "submitted": 2066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594949296,
+          "accepted": 2001,
+          "submitted": 2066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 594950406,
+          "accepted": 2001,
+          "submitted": 2066,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        }
+      ],
+      "accept_error_logs": [],
+      "run_folder": "accept-diagnosis"
+    },
+    {
+      "index": 0,
+      "case": "threads4",
+      "threads": 4,
+      "accepts": 4,
+      "backlog": 2147483647,
+      "rate": 0,
+      "concurrency": 1000,
+      "ok": 83211,
+      "errors": 287836,
+      "error_details": [
+        {
+          "description": "dial tcp 127.0.0.1:18080: connectex: No connection could be made because the target machine actively refused it.",
+          "count": 287836
+        }
+      ],
+      "effective_ok_rps": 8308.821058063972,
+      "reported_rps": 37105.462157816124,
+      "server_cpu_s": 8.734375,
+      "listeners_after": [
+        "TCP    127.0.0.1:18080        0.0.0.0:0              LISTENING       171556"
+      ],
+      "fresh_connection": true,
+      "stats": [
+        {
+          "tick": 595002687,
+          "accepted": 1001,
+          "submitted": 1005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        },
+        {
+          "tick": 595003718,
+          "accepted": 1269,
+          "submitted": 1270,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 265,
+          "listens": 1
+        },
+        {
+          "tick": 595005734,
+          "accepted": 1385,
+          "submitted": 1386,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 329,
+          "listens": 1
+        },
+        {
+          "tick": 595007750,
+          "accepted": 1489,
+          "submitted": 1490,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 330,
+          "listens": 1
+        },
+        {
+          "tick": 595009765,
+          "accepted": 1590,
+          "submitted": 1591,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 329,
+          "listens": 1
+        },
+        {
+          "tick": 595011765,
+          "accepted": 1694,
+          "submitted": 1695,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 329,
+          "listens": 1
+        },
+        {
+          "tick": 595012875,
+          "accepted": 1945,
+          "submitted": 1949,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        }
+      ],
+      "accept_error_logs": [],
+      "run_folder": "accept-confirm"
+    },
+    {
+      "index": 0,
+      "case": "backlog2048",
+      "threads": 4,
+      "accepts": 4,
+      "backlog": -2048,
+      "rate": 0,
+      "concurrency": 1000,
+      "ok": 435034,
+      "errors": 0,
+      "error_details": [],
+      "effective_ok_rps": 43448.54143709611,
+      "reported_rps": 43536.825671607,
+      "server_cpu_s": 39.859375,
+      "listeners_after": [
+        "TCP    127.0.0.1:18080        0.0.0.0:0              LISTENING       173752"
+      ],
+      "fresh_connection": true,
+      "stats": [
+        {
+          "tick": 595014312,
+          "accepted": 1001,
+          "submitted": 1005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        },
+        {
+          "tick": 595015343,
+          "accepted": 1839,
+          "submitted": 1843,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 838,
+          "listens": 1
+        },
+        {
+          "tick": 595017359,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 595019375,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 595021390,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 595023390,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 595024500,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        }
+      ],
+      "accept_error_logs": [],
+      "run_folder": "accept-confirm"
+    },
+    {
+      "index": 1,
+      "case": "backlog2048",
+      "threads": 4,
+      "accepts": 4,
+      "backlog": -2048,
+      "rate": 0,
+      "concurrency": 1000,
+      "ok": 464766,
+      "errors": 0,
+      "error_details": [],
+      "effective_ok_rps": 46421.123971586516,
+      "reported_rps": 46531.87509701498,
+      "server_cpu_s": 39.84375,
+      "listeners_after": [
+        "TCP    127.0.0.1:18080        0.0.0.0:0              LISTENING       168236"
+      ],
+      "fresh_connection": true,
+      "stats": [
+        {
+          "tick": 595025890,
+          "accepted": 1001,
+          "submitted": 1005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        },
+        {
+          "tick": 595026937,
+          "accepted": 1902,
+          "submitted": 1906,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 901,
+          "listens": 1
+        },
+        {
+          "tick": 595028937,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 595030953,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 595032953,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 595034968,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 1000,
+          "listens": 1
+        },
+        {
+          "tick": 595036078,
+          "accepted": 2001,
+          "submitted": 2005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        }
+      ],
+      "accept_error_logs": [],
+      "run_folder": "accept-confirm"
+    },
+    {
+      "index": 1,
+      "case": "threads4",
+      "threads": 4,
+      "accepts": 4,
+      "backlog": 2147483647,
+      "rate": 0,
+      "concurrency": 1000,
+      "ok": 83133,
+      "errors": 292432,
+      "error_details": [
+        {
+          "description": "dial tcp 127.0.0.1:18080: connectex: No connection could be made because the target machine actively refused it.",
+          "count": 292432
+        }
+      ],
+      "effective_ok_rps": 8300.131675094828,
+      "reported_rps": 37542.62689668639,
+      "server_cpu_s": 8.4375,
+      "listeners_after": [
+        "TCP    127.0.0.1:18080        0.0.0.0:0              LISTENING       171720"
+      ],
+      "fresh_connection": true,
+      "stats": [
+        {
+          "tick": 595037328,
+          "accepted": 1001,
+          "submitted": 1005,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        },
+        {
+          "tick": 595038375,
+          "accepted": 1273,
+          "submitted": 1274,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 269,
+          "listens": 1
+        },
+        {
+          "tick": 595040390,
+          "accepted": 1377,
+          "submitted": 1378,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 326,
+          "listens": 1
+        },
+        {
+          "tick": 595042390,
+          "accepted": 1476,
+          "submitted": 1477,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 326,
+          "listens": 1
+        },
+        {
+          "tick": 595044406,
+          "accepted": 1585,
+          "submitted": 1586,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 325,
+          "listens": 1
+        },
+        {
+          "tick": 595046421,
+          "accepted": 1698,
+          "submitted": 1699,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 325,
+          "listens": 1
+        },
+        {
+          "tick": 595047531,
+          "accepted": 1927,
+          "submitted": 1931,
+          "submit_errors": 0,
+          "complete_errors": 0,
+          "active": 0,
+          "listens": 1
+        }
+      ],
+      "accept_error_logs": [],
+      "run_folder": "accept-confirm"
+    }
+  ],
+  "references": [
+    "https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-listen",
+    "https://raw.githubusercontent.com/microsoft/win32metadata/main/generation/WinSDK/RecompiledIdlHeaders/um/WinSock2.h"
+  ],
+  "limitations": [
+    "Same-machine Windows loopback only; no HTTPS/Linux/macOS measurement.",
+    "RPS median differences are small and ranges overlap; no established end-to-end throughput gain.",
+    "SOMAXCONN actual queue size is provider-selected and not measured; no claim about its exact capacity.",
+    "Backlog and prepost changes exist only in diagnostic source copies, not production.",
+    "No new commits or push."
+  ],
+  "diagnostic_source": {
+    "production_iocp_sha256": "534fa1e4056d775ef0536c93d994cca81ec8d4fcf535c9ba00c145f7e743211b",
+    "diagnostic_iocp_sha256": "711521b60ebae439aebb99308fff41149d863aaaa0bd75831a91c15d778e3ad1",
+    "binary_sha256": "31d0fca4eb6f86f8d07fc2846e319a07cd2576d9d3781c850b04df308ea81cbb",
+    "backlog_hint_definition": "Microsoft WinSock2.h: SOMAXCONN_HINT(b) (-(b))"
+  },
+  "conclusion": "For this 1000-connection burst, raising only the Windows listen backlog to SOMAXCONN_HINT(2048) removed refusals in all three repetitions, while listener and AcceptEx remained healthy. Increasing preposts alone did not remove all startup failures."
+}
