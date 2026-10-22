@@ -11,10 +11,17 @@ unit Crypt.MurmurHash;
 //   - MurmurHash3_x86_128  : 128 位输出 (x86 优化, 返回 TArray<UInt32>)
 //   - MurmurHash3_x64_128  : 128 位输出 (x64 优化, 返回 TArray<UInt64>)
 // 每种变体均提供一次性计算函数和流式 (Init/Update/Final) 接口
+// Final 不修改上下文，可重复读取摘要，之后仍可继续 Update；新计算需调用 Init。
+// 每次 Update 最多接收 High(UInt32) 字节，x64_128 使用 64 位累计长度。
+// x64_128 上下文的 Length 已扩展为 UInt64，使用该记录的单元需重新编译。
 
 interface
 
 type
+  // Fixed-size numeric words in H1, H2[, H3, H4] order; no managed fields.
+  TMurmurHash3_x86_128Digest = array[0..3] of UInt32;
+  TMurmurHash3_x64_128Digest = array[0..1] of UInt64;
+
   TMurmurHash3_x86_32Context = record
     H1: UInt32;
     Length: UInt32;
@@ -31,10 +38,21 @@ type
 
   TMurmurHash3_x64_128Context = record
     H1, H2: UInt64;
-    Length: UInt32;
+    Length: UInt64;
     Tail: array [0 .. 15] of Byte;
     Count: UInt32;
   end;
+
+// 无分配接口：结果为固定数组；FinalDigest 不修改上下文。
+// Digest 对 nil + 非零长度返回全零；原有动态数组接口仍返回 nil。
+function MurmurHash3_x86_128Digest(AData: Pointer; ALength: UInt32;
+  ASeed: UInt32 = 0): TMurmurHash3_x86_128Digest;
+function MurmurHash3_x64_128Digest(AData: Pointer; ALength: UInt32;
+  ASeed: UInt32 = 0): TMurmurHash3_x64_128Digest;
+function MurmurHash3_x86_128FinalDigest(
+  const AContext: TMurmurHash3_x86_128Context): TMurmurHash3_x86_128Digest;
+function MurmurHash3_x64_128FinalDigest(
+  const AContext: TMurmurHash3_x64_128Context): TMurmurHash3_x64_128Digest;
 
 function MurmurHash3_x86_32(AData: Pointer; ALength: UInt32; ASeed: UInt32 = 0): UInt32;
 function MurmurHash3_x86_128(AData: Pointer; ALength: UInt32; ASeed: UInt32 = 0): TArray<UInt32>;
@@ -53,6 +71,10 @@ procedure MurmurHash3_x64_128Update(var AContext: TMurmurHash3_x64_128Context; A
 function MurmurHash3_x64_128Final(var AContext: TMurmurHash3_x64_128Context): TArray<UInt64>;
 
 implementation
+
+type
+  PMurmurHash3_x86_128Digest = ^TMurmurHash3_x86_128Digest;
+  PMurmurHash3_x64_128Digest = ^TMurmurHash3_x64_128Digest;
 
 const
   C1_32  = UInt32($CC9E2D51);
@@ -181,6 +203,21 @@ begin
   Result := MurmurHash3_x86_128Final(LContext);
 end;
 
+function MurmurHash3_x86_128Digest(AData: Pointer; ALength: UInt32;
+  ASeed: UInt32): TMurmurHash3_x86_128Digest;
+var
+  LContext: TMurmurHash3_x86_128Context;
+begin
+  if (AData = nil) and (ALength > 0) then
+  begin
+    FillChar(Result, SizeOf(Result), 0);
+    Exit;
+  end;
+  MurmurHash3_x86_128Init(LContext, ASeed);
+  MurmurHash3_x86_128Update(LContext, AData, ALength);
+  Result := MurmurHash3_x86_128FinalDigest(LContext);
+end;
+
 function MurmurHash3_x64_128(AData: Pointer; ALength: UInt32; ASeed: UInt32): TArray<UInt64>;
 var
   LContext: TMurmurHash3_x64_128Context;
@@ -189,6 +226,21 @@ begin
   MurmurHash3_x64_128Init(LContext, ASeed);
   MurmurHash3_x64_128Update(LContext, AData, ALength);
   Result := MurmurHash3_x64_128Final(LContext);
+end;
+
+function MurmurHash3_x64_128Digest(AData: Pointer; ALength: UInt32;
+  ASeed: UInt32): TMurmurHash3_x64_128Digest;
+var
+  LContext: TMurmurHash3_x64_128Context;
+begin
+  if (AData = nil) and (ALength > 0) then
+  begin
+    FillChar(Result, SizeOf(Result), 0);
+    Exit;
+  end;
+  MurmurHash3_x64_128Init(LContext, ASeed);
+  MurmurHash3_x64_128Update(LContext, AData, ALength);
+  Result := MurmurHash3_x64_128FinalDigest(LContext);
 end;
 
 procedure MurmurHash3_x86_32Init(var AContext: TMurmurHash3_x86_32Context;
@@ -263,8 +315,10 @@ end;
 
 function MurmurHash3_x86_32Final(var AContext: TMurmurHash3_x86_32Context): UInt32;
 var
-  LK: UInt32;
+  LH1, LK: UInt32;
 begin
+  LH1 := AContext.H1;
+
   if (AContext.Count > 0) then
   begin
     LK := 0;
@@ -292,13 +346,13 @@ begin
     LK := LK * C1_32;
     LK := Rotl32(LK, 15);
     LK := LK * C2_32;
-    AContext.H1 := AContext.H1 xor LK;
+    LH1 := LH1 xor LK;
   end;
 
-  AContext.H1 := AContext.H1 xor AContext.Length;
-  AContext.H1 := FMix32(AContext.H1);
+  LH1 := LH1 xor AContext.Length;
+  LH1 := FMix32(LH1);
 
-  Result := AContext.H1;
+  Result := LH1;
 end;
 
 procedure MurmurHash3_x86_128Init(var AContext: TMurmurHash3_x86_128Context;
@@ -360,23 +414,25 @@ procedure MurmurHash3_x86_128Update(var AContext: TMurmurHash3_x86_128Context;
   AData: Pointer; ALength: UInt32);
 var
   LData: PByte;
-  LRemaining: UInt32;
+  LRemaining, LNeeded: UInt32;
+  {$IF not (defined(DELPHI) and defined(CPUX86))}
+  LH1, LH2, LH3, LH4, LK1, LK2, LK3, LK4: UInt32;
+  {$ENDIF}
 begin
   if (AData = nil) or (ALength <= 0) then Exit;
 
+  Inc(AContext.Length, ALength);
   LData := AData;
   LRemaining := ALength;
 
   if (AContext.Count > 0) then
   begin
-    while (LRemaining > 0) and (AContext.Count < 16) do
-    begin
-      AContext.Tail[AContext.Count] := LData^;
-      Inc(LData);
-      Dec(LRemaining);
-      Inc(AContext.Count);
-      Inc(AContext.Length);
-    end;
+    LNeeded := 16 - AContext.Count;
+    if LNeeded > LRemaining then LNeeded := LRemaining;
+    Move(LData^, AContext.Tail[AContext.Count], LNeeded);
+    Inc(LData, LNeeded);
+    Dec(LRemaining, LNeeded);
+    Inc(AContext.Count, LNeeded);
 
     if AContext.Count = 16 then
     begin
@@ -385,24 +441,87 @@ begin
     end;
   end;
 
-  while (LRemaining >= 16) do
+  {$IF defined(DELPHI) and defined(CPUX86)}
+  // Delphi Win32 performs better with the context-based loop.
+  while LRemaining >= 16 do
   begin
     MurmurHash3_x86_128Block(AContext, LData);
-
     Inc(LData, 16);
     Dec(LRemaining, 16);
-    Inc(AContext.Length, 16);
   end;
+  {$ELSE}
+  // Keep the running hash in locals throughout the full-block loop.
+  if LRemaining >= 16 then
+  begin
+    LH1 := AContext.H1;
+    LH2 := AContext.H2;
+    LH3 := AContext.H3;
+    LH4 := AContext.H4;
+    while LRemaining >= 16 do
+    begin
+      LK1 := ReadLE32(LData + 0);
+      LK2 := ReadLE32(LData + 4);
+      LK3 := ReadLE32(LData + 8);
+      LK4 := ReadLE32(LData + 12);
+
+      LK1 := LK1 * C1_128;
+      LK1 := Rotl32(LK1, 15);
+      LK1 := LK1 * C2_128;
+      LH1 := LH1 xor LK1;
+      LH1 := Rotl32(LH1, 19);
+      LH1 := LH1 + LH2;
+      LH1 := LH1 * 5 + $561CCD1B;
+
+      LK2 := LK2 * C2_128;
+      LK2 := Rotl32(LK2, 16);
+      LK2 := LK2 * C3_128;
+      LH2 := LH2 xor LK2;
+      LH2 := Rotl32(LH2, 17);
+      LH2 := LH2 + LH3;
+      LH2 := LH2 * 5 + $0BCAA747;
+
+      LK3 := LK3 * C3_128;
+      LK3 := Rotl32(LK3, 17);
+      LK3 := LK3 * C4_128;
+      LH3 := LH3 xor LK3;
+      LH3 := Rotl32(LH3, 15);
+      LH3 := LH3 + LH4;
+      LH3 := LH3 * 5 + $96CD1C35;
+
+      LK4 := LK4 * C4_128;
+      LK4 := Rotl32(LK4, 18);
+      LK4 := LK4 * C1_128;
+      LH4 := LH4 xor LK4;
+      LH4 := Rotl32(LH4, 13);
+      LH4 := LH4 + LH1;
+      LH4 := LH4 * 5 + $32AC3B17;
+      Inc(LData, 16);
+      Dec(LRemaining, 16);
+    end;
+    AContext.H1 := LH1;
+    AContext.H2 := LH2;
+    AContext.H3 := LH3;
+    AContext.H4 := LH4;
+  end;
+  {$ENDIF}
 
   if (LRemaining > 0) then
   begin
-    Inc(AContext.Length, LRemaining);
     AContext.Count := LRemaining;
     Move(LData^, AContext.Tail[0], LRemaining);
   end;
 end;
 
 function MurmurHash3_x86_128Final(var AContext: TMurmurHash3_x86_128Context): TArray<UInt32>;
+begin
+  Result := nil;
+  SetLength(Result, 4);
+  // The four words have the same layout; write directly into the allocated result.
+  PMurmurHash3_x86_128Digest(@Result[0])^ := MurmurHash3_x86_128FinalDigest(AContext);
+end;
+
+function MurmurHash3_x86_128FinalDigest(
+  const AContext: TMurmurHash3_x86_128Context): TMurmurHash3_x86_128Digest;
 var
   LH1, LH2, LH3, LH4: UInt32;
   LK1, LK2, LK3, LK4: UInt32;
@@ -787,8 +906,6 @@ begin
   LH3 := LH3 + LH1;
   LH4 := LH4 + LH1;
 
-  Result := nil;
-  SetLength(Result, 4);
   Result[0] := LH1;
   Result[1] := LH2;
   Result[2] := LH3;
@@ -833,23 +950,23 @@ procedure MurmurHash3_x64_128Update(var AContext: TMurmurHash3_x64_128Context;
   AData: Pointer; ALength: UInt32);
 var
   LData: PByte;
-  LRemaining: UInt32;
+  LRemaining, LNeeded: UInt32;
+  LH1, LH2, LK1, LK2: UInt64;
 begin
   if (AData = nil) or (ALength <= 0) then Exit;
 
+  Inc(AContext.Length, ALength);
   LData := AData;
   LRemaining := ALength;
 
   if (AContext.Count > 0) then
   begin
-    while (LRemaining > 0) and (AContext.Count < 16) do
-    begin
-      AContext.Tail[AContext.Count] := LData^;
-      Inc(LData);
-      Dec(LRemaining);
-      Inc(AContext.Count);
-      Inc(AContext.Length);
-    end;
+    LNeeded := 16 - AContext.Count;
+    if LNeeded > LRemaining then LNeeded := LRemaining;
+    Move(LData^, AContext.Tail[AContext.Count], LNeeded);
+    Inc(LData, LNeeded);
+    Dec(LRemaining, LNeeded);
+    Inc(AContext.Count, LNeeded);
 
     if AContext.Count = 16 then
     begin
@@ -859,24 +976,55 @@ begin
     end;
   end;
 
-  while (LRemaining >= 16) do
+  // Keep the running hash in locals throughout the full-block loop.
+  if LRemaining >= 16 then
   begin
-    MurmurHash3_x64_128Block(AContext, LData);
+    LH1 := AContext.H1;
+    LH2 := AContext.H2;
+    while LRemaining >= 16 do
+    begin
+      LK1 := ReadLE64(LData);
+      LK2 := ReadLE64(LData + 8);
 
-    Inc(LData, 16);
-    Dec(LRemaining, 16);
-    Inc(AContext.Length, 16);
+      LK1 := LK1 * C1_x64;
+      LK1 := Rotl64(LK1, 31);
+      LK1 := LK1 * C2_x64;
+      LH1 := LH1 xor LK1;
+      LH1 := Rotl64(LH1, 27);
+      LH1 := LH1 + LH2;
+      LH1 := LH1 * 5 + $52DCE729;
+
+      LK2 := LK2 * C2_x64;
+      LK2 := Rotl64(LK2, 33);
+      LK2 := LK2 * C1_x64;
+      LH2 := LH2 xor LK2;
+      LH2 := Rotl64(LH2, 31);
+      LH2 := LH2 + LH1;
+      LH2 := LH2 * 5 + $38495AB5;
+      Inc(LData, 16);
+      Dec(LRemaining, 16);
+    end;
+    AContext.H1 := LH1;
+    AContext.H2 := LH2;
   end;
 
   if (LRemaining > 0) then
   begin
-    Inc(AContext.Length, LRemaining);
     AContext.Count := LRemaining;
     Move(LData^, AContext.Tail[0], LRemaining);
   end;
 end;
 
 function MurmurHash3_x64_128Final(var AContext: TMurmurHash3_x64_128Context): TArray<UInt64>;
+begin
+  Result := nil;
+  SetLength(Result, 2);
+  // The two words have the same layout; write directly into the allocated result.
+  PMurmurHash3_x64_128Digest(@Result[0])^ := MurmurHash3_x64_128FinalDigest(AContext);
+end;
+
+function MurmurHash3_x64_128FinalDigest(
+  const AContext: TMurmurHash3_x64_128Context): TMurmurHash3_x64_128Digest;
 var
   LH1, LH2: UInt64;
   LK1, LK2: UInt64;
@@ -1180,8 +1328,6 @@ begin
   LH1 := LH1 + LH2;
   LH2 := LH2 + LH1;
 
-  Result := nil;
-  SetLength(Result, 2);
   Result[0] := LH1;
   Result[1] := LH2;
 end;
