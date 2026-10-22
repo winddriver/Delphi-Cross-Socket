@@ -1488,19 +1488,13 @@ end;
 function THashSipHash.Finish: TBytes;
 var
   LHash64: UInt64;
-  P: PByte;
+  I: Integer;
 begin
   SetLength(Result, GetHashSize);
   LHash64 := SipHashFinal(FSipHashState);
-  P := @LHash64;
-  Result[0] := P[7];
-  Result[1] := P[6];
-  Result[2] := P[5];
-  Result[3] := P[4];
-  Result[4] := P[3];
-  Result[5] := P[2];
-  Result[6] := P[1];
-  Result[7] := P[0];
+  // 固定按最高有效字节在前输出，保持原有小端平台的摘要格式。
+  for I := 0 to 7 do
+    Result[I] := Byte((LHash64 shr (56 - I * 8)) and $FF);
 end;
 
 class function THashSipHash.GetBlockSize: Integer;
@@ -1578,10 +1572,10 @@ end;
 
 function THashMurmurHash3_x64_128.Finish: TBytes;
 var
-  LHash128: TArray<UInt64>;
+  LHash128: TMurmurHash3_x64_128Digest;
   P: PByte;
 begin
-  LHash128 := MurmurHash3_x64_128Final(FMurmurHash3_x64_128Context);
+  LHash128 := MurmurHash3_x64_128FinalDigest(FMurmurHash3_x64_128Context);
   SetLength(Result, GetHashSize);
   P := @LHash128[0];
   Result[0] := P[7];
@@ -1636,10 +1630,10 @@ end;
 
 function THashMurmurHash3_x86_128.Finish: TBytes;
 var
-  LHash128: TArray<Cardinal>;
+  LHash128: TMurmurHash3_x86_128Digest;
   P: PByte;
 begin
-  LHash128 := MurmurHash3_x86_128Final(FMurmurHash3_x86_128Context);
+  LHash128 := MurmurHash3_x86_128FinalDigest(FMurmurHash3_x86_128Context);
   SetLength(Result, GetHashSize);
   P := @LHash128[0];
   Result[0] := P[3];
