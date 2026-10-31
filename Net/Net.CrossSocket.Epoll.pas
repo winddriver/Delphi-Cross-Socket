@@ -750,7 +750,6 @@ begin
     end;
 
     LConnectCb := LState.CreateCallback();
-    // 从调用构造函数起，句柄由连接对象及其构造失败析构路径负责。
     LClientSocket := LSocket;
     LSocket := INVALID_SOCKET;
     LConnection := CreateConnection(Self, LClientSocket, ctConnect,
@@ -758,6 +757,7 @@ begin
     try
       LEpConnection := LConnection as TEpollConnection;
       LEpConnection._SetConnectOp(AOp);
+      PrepareConnection(LConnection, LState.Host, LState.LogicalPort);
       TriggerConnecting(LConnection);
       // 用户关闭或 CloseAllConnections 已终止整次操作，不再回退。
       if LConnection.IsClosed then Exit(True);

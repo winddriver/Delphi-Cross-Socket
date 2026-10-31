@@ -28,6 +28,7 @@ uses
   Generics.Collections,
 
   Net.SocketAPI,
+  Net.CrossProxy,
   Net.CrossSocket.Base,
   Net.CrossSslSocket.Base,
   Net.CrossSslSocket,
@@ -425,6 +426,10 @@ type
   ['{8944949B-EC8D-406E-B471-F1BF6BEDA15B}']
     function GetLocalPort: Word;
     procedure SetLocalPort(const AValue: Word);
+    procedure ConnectTarget(const APhysicalHost: string;
+      const APhysicalPort, ALocalPort: Word; const ALogicalHost: string;
+      const ALogicalPort: Word;
+      const ACallback: TCrossConnectionCallback = nil);
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -486,6 +491,7 @@ type
     function GetAutoUrlEncode: Boolean;
     function GetLocalPort: Word;
     function GetVerifyPeer: Boolean;
+    function GetProxySettings: TCrossProxySettings;
 
     procedure SetIdleout(const AValue: Integer);
     procedure SetIoThreads(const AValue: Integer);
@@ -497,6 +503,7 @@ type
     procedure SetAutoUrlEncode(const AValue: Boolean);
     procedure SetLocalPort(const AValue: Word);
     procedure SetVerifyPeer(const AValue: Boolean);
+    procedure SetProxySettings(const AValue: TCrossProxySettings);
 
     /// <summary>
     ///   设置客户端证书
@@ -973,6 +980,7 @@ type
     ///   是否强制验证对端证书。服务端要求客户端证书，客户端同时验证服务端主机名。
     /// </summary>
     property VerifyPeer: Boolean read GetVerifyPeer write SetVerifyPeer;
+    property ProxySettings: TCrossProxySettings read GetProxySettings write SetProxySettings;
   end;
 
   TCrossHttpClientConnection = class(TCrossSslConnection, ICrossHttpClientConnection)
@@ -1311,6 +1319,7 @@ type
     FServerDockDict: TServerDockDict;
     FServerDockLock: ILock;
     FLocalPort: Word;
+    FProxySettings: TCrossProxySettings;
 
     procedure _LockServerDock; inline;
     procedure _UnlockServerDock; inline;
@@ -1322,10 +1331,18 @@ type
   protected
     function GetLocalPort: Word;
     procedure SetLocalPort(const AValue: Word);
+    procedure ConnectTarget(const APhysicalHost: string;
+      const APhysicalPort, ALocalPort: Word; const ALogicalHost: string;
+      const ALogicalPort: Word;
+      const ACallback: TCrossConnectionCallback = nil); override;
+  public
+    procedure SyncProxySettings(const AValue: TCrossProxySettings);
   protected
     function CreateConnection(const AOwner: TCrossSocketBase; const AClientSocket: TSocket;
       const AConnectType: TConnectType; const AHost: string;
       const AConnectCb: TCrossConnectionCallback): ICrossConnection; override;
+    procedure PrepareConnection(const AConnection: ICrossConnection;
+      const ALogicalHost: string; const ALogicalPort: Word); override;
     procedure TriggerConnecting(const AConnection: ICrossConnection); override;
     procedure LogicReceived(const AConnection: ICrossConnection; const ABuf: Pointer; const ALen: Integer); override;
     procedure LogicDisconnected(const AConnection: ICrossConnection); override;
@@ -1369,6 +1386,7 @@ type
     FResponseStorage: THttpResponseStorageOptions;
     FLocalPort: Word;
     FVerifyPeer: Boolean;
+    FProxySettings: TCrossProxySettings;
     FCertificate, FPrivateKey: TBytes;
     FPrivateKeyPassword: string;
     FCACertificates: TArray<TBytes>;
@@ -1393,6 +1411,7 @@ type
     function GetAutoUrlEncode: Boolean;
     function GetLocalPort: Word;
     function GetVerifyPeer: Boolean;
+    function GetProxySettings: TCrossProxySettings;
     function GetPreserveResponseEntity: Boolean;
     procedure SetPreserveResponseEntity(const AValue: Boolean);
     procedure SetResponseStorageOptions(const AValue: THttpResponseStorageOptions);
@@ -1408,6 +1427,7 @@ type
     procedure SetAutoUrlEncode(const AValue: Boolean);
     procedure SetLocalPort(const AValue: Word);
     procedure SetVerifyPeer(const AValue: Boolean);
+    procedure SetProxySettings(const AValue: TCrossProxySettings); virtual;
   public
     constructor Create(const AIoThreads, AMaxConnsPerServer: Integer;
       const ACompressType: TCompressType = ctNone); overload;
@@ -1523,6 +1543,7 @@ type
     property AutoUrlEncode: Boolean read GetAutoUrlEncode write SetAutoUrlEncode;
     property LocalPort: Word read GetLocalPort write SetLocalPort;
     property VerifyPeer: Boolean read GetVerifyPeer write SetVerifyPeer;
+    property ProxySettings: TCrossProxySettings read GetProxySettings write SetProxySettings;
   end;
 
 const
@@ -2685,12 +2706,21 @@ end;
 function TCrossHttpClientConnection._CreateRequestHeader(const ABodySize: Int64;
   AChunked: Boolean): TBytes;
 var
-  LHeaderStr, LCookieStr, LPathStr: string;
+  LHeaderStr, LCookieStr, LPathStr, LProxyAuthorization: string;
+  LHttpSocket: TCrossHttpClientSocket;
+  LUseHttpForwardProxy: Boolean;
   LParam: TParamEntry;
   I: Integer;
 begin
   _ReqLock;
   try
+    LHttpSocket := Owner as TCrossHttpClientSocket;
+    LUseHttpForwardProxy :=
+      not Ssl and
+      LHttpSocket.FProxySettings.IsEnabled and
+      (LHttpSocket.FProxySettings.ProxyType = cptHttp) and
+      not LHttpSocket.FProxySettings.ShouldBypass(FHost);
+
     if (FRequestObj.FHeader[HEADER_CACHE_CONTROL] = '') then
       FRequestObj.FHeader[HEADER_CACHE_CONTROL] := 'no-cache';
 
@@ -2700,7 +2730,7 @@ begin
     if (FRequestObj.FHeader[HEADER_CONNECTION] = '') then
     begin
           // Owner 在 TCrossHttpClientSocket.CreateConnection 中固定为 TCrossHttpClientSocket
-      if (Owner as TCrossHttpClientSocket).FReUseConnection then
+      if LHttpSocket.FReUseConnection then
         FRequestObj.FHeader[HEADER_CONNECTION] := 'keep-alive'
       else
         FRequestObj.FHeader[HEADER_CONNECTION] := 'close';
@@ -2777,6 +2807,16 @@ begin
         LPathStr := LPathStr + '?' + FRequestObj.FQuery.Encode;
     end else
       LPathStr := FRequestObj.FPathAndParams;
+
+    if LUseHttpForwardProxy then
+    begin
+      LPathStr := FRequestObj.FProtocol + '://' +
+        FRequestObj.FHeader[HEADER_HOST] + LPathStr;
+      LProxyAuthorization := LHttpSocket.FProxySettings.HttpProxyAuthorization;
+      if (LProxyAuthorization <> '') and
+        (FRequestObj.FHeader['Proxy-Authorization'] = '') then
+        FRequestObj.FHeader['Proxy-Authorization'] := LProxyAuthorization;
+    end;
 
     // 设置请求行
     LHeaderStr := FRequestObj.FMethod + ' '
@@ -3626,6 +3666,7 @@ begin
   FMaxConnsPerServer := AMaxConnsPerServer;
   FMaxCompressRatio := AMaxCompressRatio;
   FCompressType := ACompressType;
+  FProxySettings := AHttpClient.FProxySettings;
 
   inherited Create(AIoThreads, ASsl);
 
@@ -3651,6 +3692,21 @@ begin
     AConnectType,
     AHost,
     AConnectCb);
+end;
+
+procedure TCrossHttpClientSocket.PrepareConnection(
+  const AConnection: ICrossConnection; const ALogicalHost: string;
+  const ALogicalPort: Word);
+begin
+  inherited PrepareConnection(AConnection, ALogicalHost, ALogicalPort);
+  if not Ssl and FProxySettings.IsEnabled and
+    (FProxySettings.ProxyType = cptHttp) and
+    not FProxySettings.ShouldBypass(ALogicalHost) then
+    (AConnection as TCrossConnectionBase).ConfigureProxy(
+      TCrossProxySettings.Direct, ALogicalHost, ALogicalPort)
+  else
+    (AConnection as TCrossConnectionBase).ConfigureProxy(
+      FProxySettings, ALogicalHost, ALogicalPort);
 end;
 
 destructor TCrossHttpClientSocket.Destroy;
@@ -3762,6 +3818,22 @@ begin
   FLocalPort := AValue;
 end;
 
+procedure TCrossHttpClientSocket.ConnectTarget(
+  const APhysicalHost: string; const APhysicalPort, ALocalPort: Word;
+  const ALogicalHost: string; const ALogicalPort: Word;
+  const ACallback: TCrossConnectionCallback);
+begin
+  inherited ConnectTarget(APhysicalHost, APhysicalPort, ALocalPort,
+    ALogicalHost, ALogicalPort, ACallback);
+end;
+
+procedure TCrossHttpClientSocket.SyncProxySettings(
+  const AValue: TCrossProxySettings);
+begin
+  FProxySettings := AValue;
+  CloseAll;
+end;
+
 function TCrossHttpClientSocket._GetServerDock(const AProtocol, AHost: string;
   const APort: Word): IServerDock;
 var
@@ -3794,8 +3866,9 @@ end;
 function TCrossHttpClientSocket._MakeServerDockKey(const AProtocol,
   AHost: string; const APort: Word): string;
 begin
-  // 键保留协议/主机原文和十进制端口；直接拼接省去FormatSettings复制及格式扫描。
-  Result := AProtocol + '://' + AHost + ':' + APort.ToString;
+  // 连接池按代理配置隔离，避免跨代理复用连接。
+  Result := AProtocol + '://' + AHost + ':' + APort.ToString + '|' +
+    FProxySettings.CacheKey;
 end;
 
 procedure TCrossHttpClientSocket._UnlockServerDock;
@@ -3870,6 +3943,7 @@ begin
   FMaxConnsPerServer := AMaxConnsPerServer;
   FMaxCompressRatio := DEFAULT_MAX_COMPRESS_RATIO;
   FCompressType := ACompressType;
+  FProxySettings := TCrossProxySettings.Direct;
   FLock := TLock.Create;
   FHttpCliArr := [];
 
@@ -3946,6 +4020,7 @@ begin
         FMaxConnsPerServer, FMaxCompressRatio, False,
         FReUseConnection, FAutoUrlEncode,
         FCompressType);
+      (FHttpCli as TObject as TCrossHttpClientSocket).SyncProxySettings(FProxySettings);
       FHttpCliArr := FHttpCliArr + [FHttpCli];
     end;
 
@@ -3960,6 +4035,7 @@ begin
         FReUseConnection, FAutoUrlEncode,
         FCompressType);
       _ApplyTlsOptions(LHttpsCli);
+      (LHttpsCli as TObject as TCrossHttpClientSocket).SyncProxySettings(FProxySettings);
       FHttpsCli := LHttpsCli;
       FHttpCliArr := FHttpCliArr + [FHttpsCli];
     end;
@@ -4665,6 +4741,16 @@ begin
   end;
 end;
 
+function TCrossHttpClient.GetProxySettings: TCrossProxySettings;
+begin
+  _Lock;
+  try
+    Result := FProxySettings;
+  finally
+    _Unlock;
+  end;
+end;
+
 function TCrossHttpClient.GetMaxConnsPerServer: Integer;
 begin
   Result := FMaxConnsPerServer;
@@ -4737,6 +4823,24 @@ begin
   finally
     _Unlock;
   end;
+end;
+
+procedure TCrossHttpClient.SetProxySettings(
+  const AValue: TCrossProxySettings);
+var
+  LHttpCli: ICrossHttpClientSocket;
+  LHttpCliArr: TArray<ICrossHttpClientSocket>;
+begin
+  _Lock;
+  try
+    FProxySettings := AValue;
+    LHttpCliArr := Copy(FHttpCliArr);
+  finally
+    _Unlock;
+  end;
+
+  for LHttpCli in LHttpCliArr do
+    (LHttpCli as TObject as TCrossHttpClientSocket).SyncProxySettings(AValue);
 end;
 
 procedure TCrossHttpClient.SetMaxCompressRatio(const AValue: Integer);
@@ -4914,8 +5018,11 @@ begin
   LErrMsg := 'Connect failed';
   if (AConnection <> nil) then
   begin
+    // 代理握手错误优先于底层 socket 错误, 这样 407/认证失败不会被吞掉。
+    if AConnection.ProxyError <> '' then
+      LErrMsg := 'Connect failed: ' + AConnection.ProxyError;
     LErrCode := AConnection.LastNetError;
-    if (LErrCode <> 0) then
+    if (LErrCode <> 0) and (Pos('Connect failed:', LErrMsg) = 0) then
       LErrMsg := TStrUtils.Format('Connect failed (code=%d)', [LErrCode]);
   end;
   try
@@ -4999,7 +5106,8 @@ var
   LRequestObj: TCrossHttpClientRequest;
   LClientSocket: TCrossHttpClientSocket;
   LProtocol, LRawHost, LHost: string;
-  LPort, LLocalPort: Word;
+  LPort, LLocalPort, LPhysicalPort: Word;
+  LPhysicalHost: string;
 begin
   LRequest := ARequest;
   LRequestObj := LRequest as TCrossHttpClientRequest;
@@ -5059,9 +5167,18 @@ begin
     LHost := FHost;
     LPort := FPort;
     LLocalPort := FLocalPort;
+    LPhysicalHost := LHost;
+    LPhysicalPort := LPort;
+    if LClientSocket.FProxySettings.IsEnabled and
+      not LClientSocket.FProxySettings.ShouldBypass(LHost) then
+    begin
+      LPhysicalHost := LClientSocket.FProxySettings.Host;
+      LPhysicalPort := LClientSocket.FProxySettings.Port;
+    end;
 
     try
-      LClientSocket.Connect(LHost, LPort, LLocalPort,
+      LClientSocket.ConnectTarget(LPhysicalHost, LPhysicalPort, LLocalPort,
+        LHost, LPort,
         procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
       begin
         try

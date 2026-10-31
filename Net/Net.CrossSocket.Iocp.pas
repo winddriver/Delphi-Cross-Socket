@@ -614,6 +614,7 @@ begin
       LConnection := CreateConnection(Self, LSocket, ctConnect, LState.Host, LConnectCb);
       LConnObj := LConnection as TIocpConnection;
       LConnObj._SetConnectOp(AOp);
+      PrepareConnection(LConnection, LState.Host, LState.LogicalPort);
       TriggerConnecting(LConnection);
       if LConnection.IsClosed then Exit(True);
 
