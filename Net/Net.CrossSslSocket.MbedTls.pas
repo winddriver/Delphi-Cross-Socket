@@ -26,14 +26,15 @@ interface
 uses
   SysUtils,
   Classes,
+  Generics.Collections,
+  Utils.SyncObjs,
 
   Net.SocketAPI,
   Net.CrossSocket.Base,
   Net.CrossSocket,
   Net.CrossSslSocket.Base,
   Net.CrossSslSocket.Types,
-  Net.MbedTls,
-  Net.MbedBIO;
+  Net.MbedTls;
 
 const
   DEFAULT_CIPHERSUITES_SERVER: array [0..12] of Integer = (
@@ -93,16 +94,31 @@ type
   end;
 
   TCrossMbedTlsConnection = class(TCrossSslConnectionBase)
+  private type
+    TWrite = record
+      Data: PByte;
+      Count: Integer;
+      Callback: TCrossConnectionCallback;
+    end;
+    TAction = (maIdle, maContinue, maCipher, maConnected, maReceived, maDone, maFailed, maClose);
   private
     FSsl: TMbedtls_SSL_Context;
-    FSslBIO, FAppBIO: PBIO;
+    FLock: ILock;
+    FInput: TBytes;
+    FInputHead, FInputCount: Integer;
+    FOutput: TMemoryStream;
+    FWrites: TQueue<TWrite>;
+    FActive: TWrite;
+    FHasActive, FPumping, FCipherPending, FClosed: Boolean;
+    FStarted, FHandshakeDone, FConnectedNotified, FReadReady: Boolean;
+    FRetryWrite, FWriteNeedsInput: Boolean;
 
-    procedure _Lock; inline;
-    procedure _Unlock; inline;
-
-    function _SslHandshake: Boolean;
-    procedure _SendBIOPendingData(const ACallback: TCrossConnectionCallback = nil);
+    function _Step(out AData: TBytes; out ACallback: TCrossConnectionCallback): TAction;
+    procedure _Pump;
+    procedure _SendCipher(const AData: TBytes);
+    procedure _Receive(const ABuf: Pointer; const ALen: Integer);
   protected
+    procedure InternalClose; override;
     procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback = nil); override;
   public
@@ -116,10 +132,6 @@ type
   ///   若要继承该类, 请重载 LogicXXX, 而不是 TriggerXXX
   /// </remarks>
   TCrossMbedTlsSocket = class(TCrossSslSocketBase)
-  private const
-    SSL_BUF_SIZE = 32768;
-  private class threadvar
-    FSslInBuf: array [0..SSL_BUF_SIZE-1] of Byte;
   private
     FSrvConf, FCliConf: TMbedtls_SSL_Config;
     FEntropy: TMbedtls_Entropy_Context;
@@ -135,6 +147,8 @@ type
 
     function _MbedCert(const ACertBytes: TBytes): TBytes;
     procedure _UpdateCert;
+    procedure _Connected(const AConnection: ICrossConnection);
+    procedure _Received(const AConnection: ICrossConnection; const AData: TBytes);
   protected
     procedure ApplyVerifyPeer(const AValue: Boolean); override;
     procedure TriggerConnected(const AConnection: ICrossConnection); override;
@@ -161,6 +175,9 @@ type
   end;
 
 {$IFDEF CROSS_MBEDTLS_SELFTEST}
+var
+  CrossMbedTlsTestWrite: function(const AData: Pointer; const ACount: Integer;
+    out AResult: Integer): Boolean;
 procedure CrossMbedTlsSelfTest_GetMinProtocolVersions(const ASocket: TCrossMbedTlsSocket;
   out AClientVersion, AServerVersion: Integer);
 {$ENDIF}
@@ -197,7 +214,7 @@ var
     Result := AValue in [9, 10, 13, 32];
   end;
 
-  function _Matches(const AMarker: AnsiString): Boolean; inline;
+  function _Matches(const AMarker: AnsiString): Boolean;
   begin
     Result := (LPos + Length(AMarker) <= LSize)
       and CompareMem(PByte(NativeUInt(LData) + NativeUInt(LPos)),
@@ -281,6 +298,40 @@ end;
 
 { TCrossMbedTlsConnection }
 
+// 读回调返回当前全部可用密文；输出缓冲限制为一个块，真实背压由发送泵恢复。
+function MbedRecv(AContext: Pointer; ABuffer: Pointer; ASize: Size_T): Integer; cdecl;
+var
+  LConnection: TCrossMbedTlsConnection;
+begin
+  LConnection := TCrossMbedTlsConnection(AContext);
+  if LConnection.FInputCount = 0 then Exit(MBEDTLS_ERR_SSL_WANT_READ);
+  Result := Length(LConnection.FInput) - LConnection.FInputHead;
+  if Result > LConnection.FInputCount then Result := LConnection.FInputCount;
+  if ASize < Size_T(Result) then Result := ASize;
+  Move(LConnection.FInput[LConnection.FInputHead], ABuffer^, Result);
+  Dec(LConnection.FInputCount, Result);
+  Inc(LConnection.FInputHead, Result);
+  if (LConnection.FInputCount = 0) or
+    (LConnection.FInputHead = Length(LConnection.FInput)) then LConnection.FInputHead := 0;
+end;
+
+function MbedSend(AContext: Pointer; ABuffer: Pointer; ASize: Size_T): Integer; cdecl;
+const
+  CIPHER_BLOCK = 16384;
+var
+  LOutput: TMemoryStream;
+begin
+  try
+    LOutput := TCrossMbedTlsConnection(AContext).FOutput;
+    Result := CIPHER_BLOCK - Integer(LOutput.Size);
+    if Result = 0 then Exit(MBEDTLS_ERR_SSL_WANT_WRITE);
+    if ASize < Size_T(Result) then Result := ASize;
+    LOutput.WriteBuffer(ABuffer^, Result);
+  except
+    Result := MBEDTLS_ERR_SSL_ALLOC_FAILED;
+  end;
+end;
+
 constructor TCrossMbedTlsConnection.Create(const AOwner: TCrossSocketBase;
   const AClientSocket: TSocket; const AConnectType: TConnectType;
   const AHost: string; const AConnectedCb: TCrossConnectionCallback);
@@ -291,6 +342,9 @@ begin
 
   if Ssl then
   begin
+    FLock := TLock.Create;
+    FOutput := TMemoryStream.Create;
+    FWrites := TQueue<TWrite>.Create;
     TCrossMbedTlsSocket(Owner).LockTlsConfiguration;
     mbedtls_ssl_init(@FSsl);
 
@@ -299,11 +353,7 @@ begin
     else
       MbedCheck(mbedtls_ssl_setup(@Fssl, @TCrossMbedTlsSocket(Owner).FCliConf), 'mbedtls_ssl_setup Connect:');
 
-    FSslBIO := SSL_BIO_new(BIO_BIO);
-    FAppBIO := SSL_BIO_new(BIO_BIO);
-    BIO_make_bio_pair(FSslBIO, FAppBIO);
-
-    mbedtls_ssl_set_bio(@FSsl, FSslBIO, BIO_net_send, BIO_net_recv, nil);
+    mbedtls_ssl_set_bio(@FSsl, Self, MbedSend, MbedRecv, nil);
 
     if ConnectType = ctConnect then
     begin
@@ -325,112 +375,271 @@ begin
   if Ssl then
   begin
     mbedtls_ssl_free(@FSsl);
-    BIO_free_all(FSslBIO);
-    BIO_free_all(FAppBIO);
+    FWrites.Free;
+    FOutput.Free;
   end;
-
   inherited;
 end;
 
-procedure TCrossMbedTlsConnection._Lock;
+procedure TCrossMbedTlsConnection.InternalClose;
 begin
-  // mbedtls 的多线程支持比 openssl 完善
-  // 调用 mbedtls_threading_set_alt 设置了相应的线程同步函数之后不用再自己
-  // _Lock _Unlock 了
-//  System.TMonitor.Enter(Self);
+  try
+    if FLock <> nil then
+    begin
+      FLock.Enter;
+      try
+        FClosed := True;
+        FInput := nil;
+        FInputHead := 0;
+        FInputCount := 0;
+        FOutput.Clear;
+      finally FLock.Leave; end;
+      _Pump;
+    end;
+  finally
+    inherited;
+  end;
 end;
 
-procedure TCrossMbedTlsConnection._SendBIOPendingData(
-  const ACallback: TCrossConnectionCallback);
+procedure TCrossMbedTlsConnection._SendCipher(const AData: TBytes);
+var
+  LData: TBytes;
+  LConnection: ICrossConnection;
+  LCompleted: Integer;
+  LFinish: TCrossConnectionCallback;
+begin
+  LData := AData;
+  LConnection := Self;
+  LCompleted := 0;
+  LFinish := procedure(const C: ICrossConnection; const OK: Boolean)
+    begin
+      if AtomicExchange(LCompleted, 1) <> 0 then Exit;
+      FLock.Enter;
+      try
+        FCipherPending := False;
+        if not OK then FClosed := True;
+      finally FLock.Leave; end;
+      LData := nil;
+      if not OK then _CloseCrossData(LConnection);
+      _Pump;
+    end;
+  try
+    inherited DirectSend(Pointer(LData), Length(LData), LFinish);
+  except
+    LFinish(LConnection, False);
+    raise;
+  end;
+end;
+
+function TCrossMbedTlsConnection._Step(out AData: TBytes;
+  out ACallback: TCrossConnectionCallback): TAction;
+var
+  LCode: Integer;
+begin
+  Result := maIdle;
+  if (FClosed or IsClosed) then
+  begin
+    if not FHasActive then
+    begin
+      if FWrites.Count = 0 then Exit;
+      FActive := FWrites.Dequeue;
+    end;
+    ACallback := FActive.Callback;
+    FActive := Default(TWrite);
+    FHasActive := False;
+    Exit(maFailed);
+  end;
+  if not FStarted then Exit;
+
+  if FOutput.Size > 0 then
+  begin
+    if FCipherPending then Exit;
+    SetLength(AData, FOutput.Size);
+    Move(FOutput.Memory^, AData[0], Length(AData));
+    FOutput.Size := 0;
+    FCipherPending := True;
+    Exit(maCipher);
+  end;
+
+  if not FHandshakeDone then
+  begin
+    if not FReadReady then Exit;
+    LCode := mbedtls_ssl_handshake(@FSsl);
+    case LCode of
+      0: FHandshakeDone := True;
+      MBEDTLS_ERR_SSL_WANT_READ: FReadReady := False;
+      MBEDTLS_ERR_SSL_WANT_WRITE: if FOutput.Size = 0 then Exit(maClose);
+    else Exit(maClose);
+    end;
+    Exit(maContinue);
+  end;
+  if not FConnectedNotified then
+  begin
+    if FCipherPending then Exit;
+    FConnectedNotified := True;
+    Exit(maConnected);
+  end;
+
+  if FReadReady and not FRetryWrite then
+  begin
+    SetLength(AData, 16384);
+    LCode := mbedtls_ssl_read(@FSsl, Pointer(AData), Length(AData));
+    if LCode > 0 then
+    begin
+      SetLength(AData, LCode);
+      Exit(maReceived);
+    end;
+    case LCode of
+      MBEDTLS_ERR_SSL_WANT_READ: FReadReady := False;
+      MBEDTLS_ERR_SSL_WANT_WRITE: if FOutput.Size = 0 then Exit(maClose);
+    else Exit(maClose);
+    end;
+    Exit(maContinue);
+  end;
+
+  if FCipherPending or FWriteNeedsInput then Exit;
+  if not FHasActive then
+  begin
+    if FWrites.Count = 0 then Exit;
+    FActive := FWrites.Dequeue;
+    FHasActive := True;
+  end;
+  if FActive.Count <= 0 then
+  begin
+    ACallback := FActive.Callback;
+    FActive := Default(TWrite);
+    FHasActive := False;
+    Exit(maDone);
+  end;
+
+  // WANT 必须用同一指针和长度重试。只有正数返回才允许推进本次写入。
+  {$IFDEF CROSS_MBEDTLS_SELFTEST}
+  if not Assigned(CrossMbedTlsTestWrite) or
+    not CrossMbedTlsTestWrite(FActive.Data, FActive.Count, LCode) then
+  {$ENDIF}
+    LCode := mbedtls_ssl_write(@FSsl, FActive.Data, FActive.Count);
+  FRetryWrite := LCode < 0;
+  case LCode of
+    MBEDTLS_ERR_SSL_WANT_READ: FWriteNeedsInput := True;
+    MBEDTLS_ERR_SSL_WANT_WRITE: if FOutput.Size = 0 then Exit(maClose);
+  else
+    if (LCode <= 0) or (LCode > FActive.Count) then Exit(maClose);
+    Inc(FActive.Data, LCode);
+    Dec(FActive.Count, LCode);
+  end;
+  Result := maContinue;
+end;
+
+procedure TCrossMbedTlsConnection._Pump;
 var
   LConnection: ICrossConnection;
-  LRetCode: Integer;
-  LBuffer: TBytesStream;
-
-  procedure _Success;
-  begin
-    if (LBuffer <> nil) then
-      FreeAndNil(LBuffer);
-    if Assigned(ACallback) then
-      ACallback(LConnection, True);
-  end;
-
+  LAction: TAction;
+  LData: TBytes;
+  LCallback: TCrossConnectionCallback;
 begin
   LConnection := Self;
-  LBuffer := nil;
-
-  {$region '将BIO中已加密的数据全部读到缓存中'}
-  // 检查 BIO 中是否有数据
-  LRetCode := BIO_ctrl_pending(FAppBIO);
-  if (LRetCode <= 0) then
+  FLock.Enter;
+  try
+    if FPumping then Exit;
+    FPumping := True;
+  finally FLock.Leave; end;
+  while True do
   begin
-    _Success;
-    Exit;
+    LCallback := nil;
+    LData := nil;
+    try
+      FLock.Enter;
+      try
+        LAction := _Step(LData, LCallback);
+        if LAction = maIdle then
+        begin
+          FPumping := False;
+          Exit;
+        end;
+        if LAction = maClose then FClosed := True;
+      finally FLock.Leave; end;
+      case LAction of
+        maCipher: _SendCipher(LData);
+        maConnected: TCrossMbedTlsSocket(Owner)._Connected(LConnection);
+        maReceived: TCrossMbedTlsSocket(Owner)._Received(LConnection, LData);
+        maDone, maFailed:
+          if not _CallConnectionCallback(LCallback, LConnection, LAction = maDone) then
+            _CloseCrossData(LConnection);
+        maClose: _CloseCrossData(LConnection);
+      end;
+    except
+      on E: Exception do
+      begin
+        _LogException('Mbed TLS I/O', E);
+        _CloseCrossData(LConnection);
+      end;
+    end;
   end;
+end;
 
-  LBuffer := TBytesStream.Create(nil);
-  while (LRetCode > 0) do
-  begin
-    LBuffer.Size := LBuffer.Size + LRetCode;
-
-    // 读取加密后的数据
-    LRetCode := BIO_read(FAppBIO, PByte(LBuffer.Memory) + LBuffer.Position, LRetCode);
-    if (LRetCode <= 0) then Break;
-
-    LBuffer.Position := LBuffer.Position + LRetCode;
-
-    // 检查 BIO 中是否还有数据
-    LRetCode := BIO_ctrl_pending(FAppBIO);
-  end;
-
-  if (LBuffer.Memory = nil) or (LBuffer.Size <= 0) then
-  begin
-    _Success;
-    Exit;
-  end;
-  {$endregion}
-
-  {$region '发送缓存中已加密的数据'}
-  inherited DirectSend(LBuffer.Memory, LBuffer.Size,
-    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+procedure TCrossMbedTlsConnection._Receive(const ABuf: Pointer; const ALen: Integer);
+const
+  MAX_PENDING_INPUT = 128 * 1024;
+var
+  LCapacity, LNewCapacity, LFirst, LPosition: Integer;
+  LBuffer: TBytes;
+  LExceeded: Boolean;
+begin
+  if ALen <= 0 then Exit;
+  LExceeded := False;
+  FLock.Enter;
+  try
+    if FClosed or IsClosed then Exit;
+    // 慢业务回调或反方向写阻塞时，只接纳有界的未消费密文。
+    LExceeded := ALen > MAX_PENDING_INPUT - FInputCount;
+    if LExceeded then
+      FClosed := True
+    else
     begin
-      FreeAndNil(LBuffer);
-      if Assigned(ACallback) then
-        ACallback(AConnection, ASuccess);
-    end);
-  {$endregion}
+      LCapacity := Length(FInput);
+      if ALen > LCapacity - FInputCount then
+      begin
+        LNewCapacity := LCapacity;
+        if LNewCapacity = 0 then LNewCapacity := 16384;
+        while LNewCapacity < FInputCount + ALen do LNewCapacity := LNewCapacity * 2;
+        SetLength(LBuffer, LNewCapacity);
+        LFirst := LCapacity - FInputHead;
+        if LFirst > FInputCount then LFirst := FInputCount;
+        if LFirst > 0 then Move(FInput[FInputHead], LBuffer[0], LFirst);
+        if FInputCount > LFirst then Move(FInput[0], LBuffer[LFirst], FInputCount - LFirst);
+        FInput := LBuffer;
+        FInputHead := 0;
+        LCapacity := LNewCapacity;
+      end;
+      LPosition := (FInputHead + FInputCount) mod LCapacity;
+      LFirst := LCapacity - LPosition;
+      if LFirst > ALen then LFirst := ALen;
+      Move(ABuf^, FInput[LPosition], LFirst);
+      if ALen > LFirst then Move((PByte(ABuf) + LFirst)^, FInput[0], ALen - LFirst);
+      Inc(FInputCount, ALen);
+      FReadReady := True;
+      FWriteNeedsInput := False;
+    end;
+  finally FLock.Leave; end;
+  if LExceeded then _CloseCrossData(Self as ICrossConnection)
+  else _Pump;
 end;
 
 procedure TCrossMbedTlsConnection.DirectSend(const ABuffer: Pointer;
   const ACount: Integer; const ACallback: TCrossConnectionCallback);
 var
-  LRetCode: Integer;
+  LWrite: TWrite;
 begin
-  if Ssl then
-  begin
-    LRetCode := mbedtls_ssl_write(@FSsl, ABuffer, ACount);
-    if (LRetCode <> ACount) then
-    begin
-      _Log('mbedtls_ssl_write, %d / %d', [LRetCode, ACount]);
-    end;
-
-    // 将待发送数据加密后发送
-    if (MbedCheck(LRetCode, 'mbedtls_ssl_write DirectSend:') > 0) then
-      _SendBIOPendingData(ACallback);
-  end else
-    inherited DirectSend(ABuffer, ACount, ACallback);
-end;
-
-function TCrossMbedTlsConnection._SslHandshake: Boolean;
-begin
-  // 开始握手
-  Result := (MbedCheck(mbedtls_ssl_handshake(@FSsl), 'mbedtls_ssl_handshake _SslHandshake:') = 0);
-  _SendBIOPendingData;
-end;
-
-procedure TCrossMbedTlsConnection._Unlock;
-begin
-//  System.TMonitor.Exit(Self);
+  if not Ssl then
+  begin inherited DirectSend(ABuffer, ACount, ACallback); Exit; end;
+  if (ACount < 0) or ((ACount > 0) and (ABuffer = nil)) then
+  begin _CallConnectionCallback(ACallback, Self, False); Exit; end;
+  LWrite.Data := ABuffer;
+  LWrite.Count := ACount;
+  LWrite.Callback := ACallback;
+  FLock.Enter;
+  try FWrites.Enqueue(LWrite); finally FLock.Leave; end;
+  _Pump;
 end;
 
 { TCrossMbedTlsSocket }
@@ -584,88 +793,38 @@ begin
   end;
 end;
 
+procedure TCrossMbedTlsSocket._Connected(const AConnection: ICrossConnection);
+begin
+  inherited TriggerConnected(AConnection);
+end;
+
+procedure TCrossMbedTlsSocket._Received(const AConnection: ICrossConnection; const AData: TBytes);
+begin
+  inherited TriggerReceived(AConnection, Pointer(AData), Length(AData));
+end;
+
 procedure TCrossMbedTlsSocket.TriggerConnected(const AConnection: ICrossConnection);
 var
   LConnection: TCrossMbedTlsConnection;
 begin
+  if not Ssl then
+  begin inherited; Exit; end;
   LConnection := AConnection as TCrossMbedTlsConnection;
-
-  if Ssl then
-  begin
-    // 网络连接已建立, 等待握手
+  LConnection.FLock.Enter;
+  try
+    if LConnection.FClosed or (LConnection.ConnectStatus in [csDisconnected, csClosed]) then Exit;
     LConnection.ConnectStatus := csHandshaking;
-
-    if LConnection._SslHandshake then
-    begin
-      LConnection.ConnectStatus := csConnected;
-      inherited TriggerConnected(LConnection);
-    end;
-  end else
-    inherited TriggerConnected(LConnection);
+    LConnection.FStarted := True;
+    LConnection.FReadReady := True;
+  finally LConnection.FLock.Leave; end;
+  LConnection._Pump;
 end;
 
 procedure TCrossMbedTlsSocket.TriggerReceived(const AConnection: ICrossConnection;
   const ABuf: Pointer; const ALen: Integer);
-var
-  LConnection: TCrossMbedTlsConnection;
-  LRetCode: Integer;
 begin
-  LConnection := AConnection as TCrossMbedTlsConnection;
-
-  if Ssl then
-  begin
-    LConnection._Lock;
-    try
-      // 将收到的加密数据写入 BIO
-      LRetCode := BIO_write(LConnection.FAppBIO, ABuf, ALen);
-      if (LRetCode <= 0) then
-      begin
-        _Log('BIO_write, error: %d', [LRetCode]);
-        LConnection.Close;
-        Exit;
-      end;
-
-      if (LRetCode <> ALen) then
-      begin
-        _Log('BIO_write, %d / %d', [LRetCode, ALen]);
-      end;
-
-      // 握手
-      if (LConnection.ConnectStatus = csHandshaking) then
-      begin
-        // 已完成握手才视为连接真正建立
-        if LConnection._SslHandshake then
-        begin
-          LConnection.ConnectStatus := csConnected;
-          inherited TriggerConnected(AConnection);
-        end else
-          Exit;
-      end;
-
-      while True do
-      begin
-        // 读取解密后的数据
-        LRetCode := mbedtls_ssl_read(@LConnection.FSsl, @FSslInBuf, SSL_BUF_SIZE);
-
-        if (LRetCode > 0) then
-        begin
-          inherited TriggerReceived(AConnection, @FSslInBuf, LRetCode);
-        end else
-        begin
-          case LRetCode of
-            MBEDTLS_ERR_SSL_WANT_READ, MBEDTLS_ERR_SSL_WANT_WRITE:;
-          else
-            _Log('mbedtls_ssl_read, error: %d', [LRetCode]);
-            LConnection.Close;
-          end;
-          Break;
-        end;
-      end;
-    finally
-      LConnection._Unlock;
-    end;
-  end else
-    inherited TriggerReceived(AConnection, ABuf, ALen);
+  if Ssl then (AConnection as TCrossMbedTlsConnection)._Receive(ABuf, ALen)
+  else inherited;
 end;
 
 procedure TCrossMbedTlsSocket._FreeSslConf;

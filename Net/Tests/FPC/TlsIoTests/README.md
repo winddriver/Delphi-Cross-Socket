@@ -209,3 +209,14 @@ python -B run_base_limits.py --label base-combination --targets fpc-linux64 delp
 ```
 
 Linux 在相同目录用 `python3 -B run_base_limits.py --label base-combination --run bin/base-combination/fpc-linux64/TlsIoTests bin/base-combination/delphi-linux64/TlsIoTests --cert <rsa-cert.pem> --key <rsa-key.pem>` 实际运行。没有验证 macOS/Kqueue、静态链接或其他 OpenSSL 版本；不将这些最小功能用例作为吞吐或全部关闭竞态的证明。
+
+## 2026-11-02 Mbed TLS 收发回归
+
+MbedIoRegression.dpr 使用真实 Mbed TLS 2.14.0 静态对象，与 Python TLS 1.2 对端双向比较 262177 字节。验证握手前排队写、16 KiB 输出背压、同一指针和长度的 WANT_READ 重试、断线取消以及未消费密文的 128 KiB 上限。输入上限只约束暂存量，完整传输大小可以超过上限。业务通知重入接收的测试在达到上限时保持连接，超过一个字节后要求关闭。
+
+在本目录使用与目标架构匹配的现有原生对象运行。对象目录由调用者提供，编译产物写入忽略的 bin/lib。
+
+    python -B run_mbed_io.py --arch win32 --objects <MbedTLS-2.14.0-Win32对象目录>
+    python -B run_mbed_io.py --arch win64 --objects <MbedTLS-2.14.0-Win64对象目录>
+
+本轮 Delphi 13.1 Win32、Win64 均通过。测试仅在本机回环使用仓库测试证书，Python 对端关闭证书验证，专门检查收发状态和字节完整性。Mbed TLS 的 FPC、Linux 和移动端尚未运行验证。
