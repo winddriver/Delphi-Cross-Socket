@@ -2428,6 +2428,10 @@ type
     property OnRequestException: TCrossHttpRequestExceptionEvent read GetOnRequestException write SetOnRequestException;
   end;
 
+// 接管已打开的文件流；缓存、Range 和普通 SendFile 共用同一套响应规则。
+procedure SendOpenedHttpFile(const AResponse: ICrossHttpResponse; const AFileName: string;
+  const AModified: TDateTime; AStream: TStream; const ACallback: TCrossConnectionCallback = nil);
+
 implementation
 
 uses
@@ -5797,11 +5801,7 @@ procedure TCrossHttpResponse.SendFile(const AFileName: string;
   const ACallback: TCrossConnectionCallback);
 var
   LStream: TStream;
-  LLastModified: TDateTime;
-  LRequest: TCrossHttpRequest;
-  LLastModifiedStr, LETag: string;
-  LRangeStr: string;
-  LRangeBegin, LRangeEnd, LOffset, LCount, LFileSize: Int64;
+  LModified: TDateTime;
 begin
   if not FileExists(AFileName) then
   begin
@@ -5809,99 +5809,105 @@ begin
     SendStatus(404, ACallback);
     Exit;
   end;
-
-  if (GetContentType = '') then
-    SetContentType(TCrossHttpUtils.GetFileMIMEType(AFileName));
-
   try
-    // 根据请求头中的时间戳决定是否需要发送文件数据
-    // 当请求头中的时间戳与文件时间一致时, 浏览器会自动从本地加载文件数据
-    // 服务端无需发送文件数据
-    LRequest := GetRequest as TCrossHttpRequest;
-    LLastModified := TFileUtils.GetLastWriteTime(AFileName);
-
-    if (LRequest.IfModifiedSince > 0) and (LRequest.IfModifiedSince >= (LLastModified - (1 / SecsPerDay))) then
-    begin
-      // 304不要带任何body数据, 否则部分浏览器会报告无效的RESPONSE
-      SendStatus(304, '', ACallback);
-      Exit;
-    end;
-
-    LLastModifiedStr := TCrossHttpUtils.RFC1123_DateToStr(LLastModified);
-
-    LETag := '"' + TUtils.BytesToHex(THashMD5.GetHashBytes(
-      ExtractFileName(AFileName) + LLastModifiedStr)) + '"';
-    if (LRequest.IfNoneMatch = LETag) then
-    begin
-      // 304不要带任何body数据, 否则部分浏览器会报告无效的RESPONSE
-      SendStatus(304, '', ACallback);
-      Exit;
-    end;
-
+    LModified := TFileUtils.GetLastWriteTime(AFileName);
     LStream := TFileUtils.OpenRead(AFileName, fmShareDenyNone);
   except
-    on e: Exception do
+    on E: Exception do
     begin
       FHeader.Remove(HEADER_CONTENT_DISPOSITION);
-      SendStatus(404, TStrUtils.Format('%s, %s', [e.ClassName, e.Message]), ACallback);
+      SendStatus(404, TStrUtils.Format('%s, %s', [E.ClassName, E.Message]), ACallback);
       Exit;
     end;
   end;
+  SendOpenedHttpFile(Self, AFileName, LModified, LStream, ACallback);
+end;
 
-  LFileSize := LStream.Size;
-
-  // 在响应头中加入文件时间戳
-  // 浏览器会根据该时间戳决定是否从本地缓存中直接加载数据
-  FHeader[HEADER_LAST_MODIFIED] := LLastModifiedStr;
-  FHeader[HEADER_ETAG] := LETag;
-
-  // 告诉浏览器支持分块传输
-  FHeader[HEADER_ACCEPT_RANGES] := 'bytes';
-
-  // Range 请求处理 (RFC 7233 §3.1)
-  // 仅当 Range 头存在且 If-Range 校验通过 (无 If-Range 或 If-Range == ETag) 时才走分块逻辑.
-  // If-Range 不匹配时, RFC 7233 §3.2 要求回退为完整 200 响应.
-  LRangeStr := LRequest.Range;
-  if (LRangeStr <> '')
-    and ((LRequest.IfRange = '') or (LRequest.IfRange = LETag)) then
-  begin
-    if not TCrossHttpUtils.ParseSingleByteRange(LRangeStr, LFileSize, LRangeBegin, LRangeEnd) then
+procedure SendOpenedHttpFile(const AResponse: ICrossHttpResponse; const AFileName: string;
+  const AModified: TDateTime; AStream: TStream; const ACallback: TCrossConnectionCallback);
+var
+  LStream: TStream;
+  LRequest: ICrossHttpRequest;
+  LLastModifiedStr, LETag, LRangeStr: string;
+  LRangeBegin, LRangeEnd, LOffset, LCount, LFileSize: Int64;
+begin
+  LStream := AStream;
+  try
+    if AResponse.ContentType = '' then
+      AResponse.ContentType := TCrossHttpUtils.GetFileMIMEType(AFileName);
+    LRequest := AResponse.Request;
+    if (LRequest.IfModifiedSince > 0) and (LRequest.IfModifiedSince >= (AModified - (1 / SecsPerDay))) then
     begin
-      // 不可满足的 Range -> 416 Range Not Satisfiable (RFC 7233 §4.4)
-      // 必须返回 Content-Range: bytes */<size> 告知客户端实际资源大小.
       FreeAndNil(LStream);
-      FHeader.Remove(HEADER_CONTENT_DISPOSITION);
-      FHeader[HEADER_CONTENT_RANGE] := TStrUtils.Format('bytes */%d', [LFileSize]);
-      SendStatus(416, ACallback);
+      AResponse.SendStatus(304, '', ACallback);
       Exit;
     end;
-
-    LOffset := LRangeBegin;
-    LCount := LRangeEnd - LRangeBegin + 1;
-
-    // 返回分块信息
-    // Content-Range: bytes <start>-<end>/<size>
-    FHeader[HEADER_CONTENT_RANGE] := TStrUtils.Format('bytes %d-%d/%d',
-      [LRangeBegin, LRangeEnd, LFileSize]);
-
-    // 断点续传需要返回206状态码, 而不是200
-    FStatusCode := 206;
-  end else
-  begin
-    LOffset := 0;
-    LCount := LFileSize;
-  end;
-
-  // 206 Range 响应禁止压缩：Content-Range 描述的是原始字节偏移，
-  // 压缩后字节与范围不对应，会导致断点续传客户端数据错乱 (RFC 7233)
-  SendNoCompress(LStream, LOffset, LCount,
-    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+    LLastModifiedStr := TCrossHttpUtils.RFC1123_DateToStr(AModified);
+    LETag := '"' + TUtils.BytesToHex(THashMD5.GetHashBytes(ExtractFileName(AFileName) + LLastModifiedStr)) + '"';
+    if LRequest.IfNoneMatch = LETag then
     begin
       FreeAndNil(LStream);
+      AResponse.SendStatus(304, '', ACallback);
+      Exit;
+    end;
+    LFileSize := LStream.Size;
 
-      if Assigned(ACallback) then
-        ACallback(AConnection, ASuccess);
-    end);
+    // 在响应头中加入文件时间戳
+    // 浏览器会根据该时间戳决定是否从本地缓存中直接加载数据
+    AResponse.Header[HEADER_LAST_MODIFIED] := LLastModifiedStr;
+    AResponse.Header[HEADER_ETAG] := LETag;
+
+    // 告诉浏览器支持分块传输
+    AResponse.Header[HEADER_ACCEPT_RANGES] := 'bytes';
+
+    // Range 请求处理 (RFC 7233 §3.1)
+    // 仅当 Range 头存在且 If-Range 校验通过 (无 If-Range 或 If-Range == ETag) 时才走分块逻辑.
+    // If-Range 不匹配时, RFC 7233 §3.2 要求回退为完整 200 响应.
+    LRangeStr := LRequest.Range;
+    if (LRangeStr <> '')
+      and ((LRequest.IfRange = '') or (LRequest.IfRange = LETag)) then
+    begin
+      if not TCrossHttpUtils.ParseSingleByteRange(LRangeStr, LFileSize, LRangeBegin, LRangeEnd) then
+      begin
+        // 不可满足的 Range -> 416 Range Not Satisfiable (RFC 7233 §4.4)
+        // 必须返回 Content-Range: bytes */<size> 告知客户端实际资源大小.
+        FreeAndNil(LStream);
+        AResponse.Header.Remove(HEADER_CONTENT_DISPOSITION);
+        AResponse.Header[HEADER_CONTENT_RANGE] := TStrUtils.Format('bytes */%d', [LFileSize]);
+        AResponse.SendStatus(416, ACallback);
+        Exit;
+      end;
+
+      LOffset := LRangeBegin;
+      LCount := LRangeEnd - LRangeBegin + 1;
+
+      // 返回分块信息
+      // Content-Range: bytes <start>-<end>/<size>
+      AResponse.Header[HEADER_CONTENT_RANGE] := TStrUtils.Format('bytes %d-%d/%d',
+        [LRangeBegin, LRangeEnd, LFileSize]);
+
+      // 断点续传需要返回206状态码, 而不是200
+      AResponse.StatusCode := 206;
+    end else
+    begin
+      LOffset := 0;
+      LCount := LFileSize;
+    end;
+
+    // 206 Range 响应禁止压缩：Content-Range 描述的是原始字节偏移，
+    // 压缩后字节与范围不对应，会导致断点续传客户端数据错乱 (RFC 7233)
+    AResponse.SendNoCompress(LStream, LOffset, LCount,
+      procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+      begin
+        FreeAndNil(LStream);
+
+        if Assigned(ACallback) then
+          ACallback(AConnection, ASuccess);
+      end);
+  except
+    FreeAndNil(LStream);
+    raise;
+  end;
 end;
 
 procedure TCrossHttpResponse.SetContentType(const Value: string);

@@ -18,7 +18,7 @@ NAMES = ["plain.txt", "name&copy;.txt", "中文 空格%+.txt", "quote'file.txt"]
 CASES = ["reflected-tag", "reflected-attribute", "canonical-breadcrumb", "root",
          "root-slash", "nested", "nested-slash", "filename-entities", "extensionless-entries", "download-special",
          "breadcrumb-parent", "mount-root", "mount-special", "download-direct",
-         "traversal-outside", "traversal-encoded", "linux-html-filename", "linux-quote-filename"]
+         "traversal-outside", "traversal-encoded", "traversal-link", "opened-object", "file-headers", "linux-html-filename", "linux-quote-filename"]
 
 
 class Page(HTMLParser):
@@ -90,8 +90,13 @@ def main():
     (nested / "second.dir" / "deep.txt").write_bytes(b"deep-file")
     results = []
 
-    def request(target, mount="/files"):
-        result = subprocess.run([str(executable), str(base), target, quote(mount, safe="/")], capture_output=True, timeout=10)
+    def request(target, mount="/files", mode=None, extra_header=None, response_fields=None):
+        args = [str(executable), str(base), target, quote(mount, safe="/")]
+        if mode:
+            args.extend(["0", mode])
+        if extra_header:
+            args.append(quote(extra_header, safe=""))
+        result = subprocess.run(args, capture_output=True, timeout=10)
         assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
         header, separator, body = result.stdout.partition(b"\r\n\r\n")
         assert separator, "缺少响应头边界"
@@ -100,7 +105,10 @@ def main():
         status = int(lines[0].split()[1])
         fields = dict(line.split(b":", 1) for line in lines[1:])
         lengths = [value for key, value in fields.items() if key.lower() == b"content-length"]
-        assert lengths and int(lengths[0]) == len(body), "正文长度不一致"
+        if status != 304:
+            assert lengths and int(lengths[0]) == len(body), "正文长度不一致"
+        if response_fields is not None:
+            response_fields.update((k.lower(), v.strip()) for k, v in fields.items())
         return status, body
 
     def listing(target, mount="/files"):
@@ -124,7 +132,48 @@ def main():
                 print("SKIP:", case)
                 continue
             try:
-                if case.startswith("reflected-"):
+                if case == "opened-object":
+                    (base / "pin-file").write_bytes(b"A")
+                    (base / "pin-file.replacement").write_bytes(b"B")
+                    for part, child in [("pin-dir", "original"), ("pin-dir.replacement", "replacement")]:
+                        (base / part).mkdir()
+                        (base / part / child).touch()
+                    for part in ("pin-file", "pin-dir"):
+                        subprocess.run([str(executable), "--pin", str(base), part],
+                                       check=True, capture_output=True, timeout=10)
+                elif case == "file-headers":
+                    fields = {}
+                    assert request("/files/plain.txt", mode="static", response_fields=fields)[0] == 200
+                    assert fields[b"content-type"].startswith(b"text/plain") and fields[b"last-modified"]
+                    tag = fields[b"etag"].decode("ascii")
+                    assert request("/files/plain.txt", mode="static", extra_header="If-None-Match: " + tag) == (304, b"")
+                    assert request("/files/plain.txt", mode="static", extra_header="Range: bytes=1-3",
+                                   response_fields=fields) == (206, b"ody")
+                    assert fields[b"content-range"] == b"bytes 1-3/14"
+                elif case == "traversal-link":
+                    outside = root / "private"
+                    outside.mkdir()
+                    (outside / "outside.txt").write_bytes(b"outside-secret")
+                    link = base / "jump"
+                    if os.name == "nt":
+                        env = dict(os.environ, DCS_LINK=str(link), DCS_TARGET=str(outside))
+                        subprocess.run(["powershell", "-NoProfile", "-Command",
+                                        "New-Item -ItemType Junction -Path $env:DCS_LINK -Target $env:DCS_TARGET -ErrorAction Stop | Out-Null"],
+                                       check=True, capture_output=True, env=env)
+                    else:
+                        link.symlink_to(outside, target_is_directory=True)
+                    try:
+                        for target, mode in [("/files/jump/", None), ("/files/jump/outside.txt", None),
+                                             ("/files/jump/outside.txt", "static"), ("/files/", "index")]:
+                            status, body = request(target, mode=mode)
+                            assert status == 404 and b"outside-secret" not in body, (target, mode, status)
+                        assert request("/files/plain.txt", mode="static") == (200, b"body:plain.txt")
+                    finally:
+                        if os.name == "nt":
+                            link.rmdir()
+                        else:
+                            link.unlink()
+                elif case.startswith("reflected-"):
                     payload = '<svg onload=alert(1)>' if case == "reflected-tag" else '" onmouseover="alert(1)'
                     target = "/files/" + quote(payload + "/../", safe="")
                     page = listing(target)

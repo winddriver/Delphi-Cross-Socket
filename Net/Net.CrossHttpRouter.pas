@@ -67,10 +67,25 @@ uses
   SysUtils,
   Classes,
 
-  Net.CrossHttpRouterDirUtils,
+  Net.CrossHttpRouterDirUtils, Net.CrossHttpRouteFile,
   Net.CrossHttpUtils,
 
   Utils.IOUtils;
+
+function SendRouteFile(const AResponse: ICrossHttpResponse; const ABaseDir, APath: string): Boolean;
+var
+  LFile: THttpRouteFile;
+begin
+  LFile := THttpRouteFile.Open(ABaseDir, APath);
+  if LFile = nil then Exit(False);
+  if LFile.Directory then
+  begin
+    LFile.Free;
+    Exit(False);
+  end;
+  SendOpenedHttpFile(AResponse, LFile.RelativePath, LFile.Modified, LFile);
+  Result := True;
+end;
 
 { TNetCrossRouter }
 
@@ -94,35 +109,21 @@ begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
-      LLocalBaseDir, LFileName, LDefMainFileName, LResolvedPath: string;
+      LFileName, LIndex: string;
     begin
-      LLocalBaseDir := TPathUtils.GetFullPath(ALocalDir);
       LFileName := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[AFileParamName]);
-
-      if (LFileName = '') then
+      if LFileName <> '' then
+        AHandled := SendRouteFile(AResponse, ALocalDir, LFileName)
+      else
       begin
-        for LDefMainFileName in LDefIndexFiles do
-        begin
-          if TCrossHttpUtils.TryUrlPathToLocalPath(LLocalBaseDir, LDefMainFileName, LResolvedPath)
-            and TFileUtils.Exists(LResolvedPath) then
+        AHandled := False;
+        for LIndex in LDefIndexFiles do
+          if SendRouteFile(AResponse, ALocalDir, LIndex) then
           begin
-            AResponse.SendFile(LResolvedPath);
             AHandled := True;
-            Exit;
+            Break;
           end;
-        end;
-      end else
-      begin
-        if TCrossHttpUtils.TryUrlPathToLocalPath(LLocalBaseDir, LFileName, LResolvedPath)
-          and TFileUtils.Exists(LResolvedPath) then
-        begin
-          AResponse.SendFile(LResolvedPath);
-          AHandled := True;
-          Exit;
-        end;
       end;
-
-      AHandled := False;
     end;
 end;
 
@@ -132,21 +133,10 @@ begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
-      LFileName, LResolvedPath: string;
+      LFileName: string;
     begin
       LFileName := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[AFileParamName]);
-      if not TCrossHttpUtils.TryUrlPathToLocalPath(ALocalDir, LFileName, LResolvedPath) then
-      begin
-        AHandled := False;
-        Exit;
-      end;
-      if not TFileUtils.Exists(LResolvedPath) then
-      begin
-        AHandled := False;
-        Exit;
-      end;
-      AResponse.SendFile(LResolvedPath);
-      AHandled := True;
+      AHandled := SendRouteFile(AResponse, ALocalDir, LFileName);
     end;
 end;
 
@@ -165,36 +155,25 @@ begin
   Result :=
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
     var
-      LFileName, LResolvedPath, LLocalBaseDir, LRelativePath, LRequestPath: string;
+      LFile: THttpRouteFile;
+      LFileName, LRelativePath, LRequestPath: string;
     begin
-      AHandled := True;
-
-      LLocalBaseDir := TPathUtils.GetFullPath(ALocalDir);
       LFileName := TCrossHttpUtils.GetPathWithoutParams(ARequest.Params[ADirParamName]);
-      if not TCrossHttpUtils.TryUrlPathToLocalPath(LLocalBaseDir, LFileName, LResolvedPath) then
-      begin
-        AHandled := False;
-        Exit;
-      end;
-
-      if (TDirectoryUtils.Exists(LResolvedPath)) then
-      begin
-        // 导航使用已通过边界检查的路径，不能重新展示被 .. 消除的请求片段。
-        if TPathUtils.IsSamePath(LLocalBaseDir, LResolvedPath) then
-          LRelativePath := ''
-        else
-          LRelativePath := Copy(LResolvedPath,
-            Length(IncludeTrailingPathDelimiter(LLocalBaseDir)) + 1, MaxInt);
+      LFile := THttpRouteFile.Open(ALocalDir, LFileName);
+      AHandled := LFile <> nil;
+      if not AHandled then Exit;
+      if LFile.Directory then
+      try
+        LRelativePath := LFile.RelativePath;
         {$IFDEF MSWINDOWS}
         LRelativePath := LRelativePath.Replace('\', '/');
         {$ENDIF}
         LRequestPath := TPathUtils.Combine(APath, LRelativePath, '/');
-        AResponse.Send(BuildDirList(LResolvedPath, LRequestPath, APath, AMaxEntries));
+        AResponse.Send(BuildDirList('', LRequestPath, APath, AMaxEntries, LFile));
+      finally
+        LFile.Free;
       end else
-      if TFileUtils.Exists(LResolvedPath) then
-        AResponse.SendFile(LResolvedPath)
-      else
-        AHandled := False;
+        SendOpenedHttpFile(AResponse, LFile.RelativePath, LFile.Modified, LFile);
     end;
 end;
 

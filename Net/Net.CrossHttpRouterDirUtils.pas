@@ -14,7 +14,7 @@ uses
   DTF.Generics,
   {$ENDIF}
 
-  Net.CrossHttpUtils,
+  Net.CrossHttpUtils, Net.CrossHttpRouteFile,
   Utils.StrUtils,
   Utils.Utils,
   Utils.IOUtils;
@@ -23,6 +23,8 @@ function BuildDirList(const ARealPath, ARequestPath, AHome: string): string; ove
 // 0 保留完整列表；正数最多枚举 N+1 个有效条目，选取前 N 项后排序。
 function BuildDirList(const ARealPath, ARequestPath, AHome: string;
   const AMaxEntries: Integer): string; overload;
+function BuildDirList(const ARealPath, ARequestPath, AHome: string;
+  const AMaxEntries: Integer; const AOpened: THttpRouteFile): string; overload;
 
 {$IFDEF CROSS_HTTP_DIRECTORY_TESTS}
 type
@@ -37,16 +39,6 @@ implementation
 
 {$region 'Dir辅助代码'}
 type
-  THttpFileEntry = record
-    Name: string;
-    Size: Int64;
-    Time: TDateTime;
-    Directory: Boolean;
-    ReadOnly: Boolean;
-    SysFile: Boolean;
-    Hidden: Boolean;
-  end;
-
   TPathComparer = {$IFDEF DELPHI}TDelegatedComparer{$ELSE}TDelegatedComparerAnonymousFunc{$ENDIF}<THttpFileEntry>;
 
   {$IFDEF CROSS_HTTP_DIRECTORY_TESTS}
@@ -87,6 +79,12 @@ end;
 
 function BuildDirList(const ARealPath, ARequestPath, AHome: string;
   const AMaxEntries: Integer): string;
+begin
+  Result := BuildDirList(ARealPath, ARequestPath, AHome, AMaxEntries, nil);
+end;
+
+function BuildDirList(const ARealPath, ARequestPath, AHome: string;
+  const AMaxEntries: Integer; const AOpened: THttpRouteFile): string;
   function EncodeDirPath(const APath: string): string;
   var
     LParts: TArray<string>;
@@ -236,12 +234,22 @@ begin
     DirList := TDirectoryEntryList.Create;
     {$IFDEF CROSS_HTTP_DIRECTORY_TESTS}DirectoryTestStep(dsListCreated);{$ENDIF}
     FileList := TDirectoryEntryList.Create;
-    Status := FindFirst(TPathUtils.Combine(ARealPath, '*'), faAnyFile, F);
+    if AOpened = nil then
+      Status := FindFirst(TPathUtils.Combine(ARealPath, '*'), faAnyFile, F)
+    else
+      Status := 0;
     try
       {$IFDEF CROSS_HTTP_DIRECTORY_TESTS}DirectoryTestStep(dsSearchOpened);{$ENDIF}
       while Status = 0 do
       begin
-        if (F.Name <> '.') and (F.Name <> '..') then
+        if AOpened <> nil then
+        begin
+          if not AOpened.NextEntry(Data) then Break;
+        end else
+        begin
+          Data.Name := F.Name;
+        end;
+        if (Data.Name <> '.') and (Data.Name <> '..') then
         begin
           {$IFDEF CROSS_HTTP_DIRECTORY_TESTS}DirectoryTestStep(dsEntry);{$ENDIF}
           if (AMaxEntries > 0) and (LSelected >= AMaxEntries) then
@@ -249,27 +257,29 @@ begin
             LTruncated := True;
             Break;
           end;
-          Data.Name := F.Name;
-          Data.Size := F.Size;
-          Data.Time := F.TimeStamp;
-          Data.Directory := ((F.Attr and faDirectory) <> 0);
-          Data.ReadOnly := ((F.Attr and faReadOnly) <> 0);
-          {$WARN SYMBOL_PLATFORM OFF}
-          Data.SysFile := ((F.Attr and faSysFile) <> 0);
-          Data.Hidden := ((F.Attr and faHidden) <> 0);
-          {$WARN SYMBOL_PLATFORM ON}
+          if AOpened = nil then
+          begin
+            Data.Size := F.Size;
+            Data.Time := F.TimeStamp;
+            Data.Directory := ((F.Attr and faDirectory) <> 0);
+            Data.ReadOnly := ((F.Attr and faReadOnly) <> 0);
+            {$WARN SYMBOL_PLATFORM OFF}
+            Data.SysFile := ((F.Attr and faSysFile) <> 0);
+            Data.Hidden := ((F.Attr and faHidden) <> 0);
+            {$WARN SYMBOL_PLATFORM ON}
+          end;
 
-          if ((F.Attr and faDirectory) <> 0) then
+          if Data.Directory then
             DirList.Add(Data)
           else
             FileList.Add(Data);
           Inc(LSelected);
         end;
 
-        Status := FindNext(F);
+        if AOpened = nil then Status := FindNext(F);
       end;
     finally
-      FindClose(F);
+      if AOpened = nil then FindClose(F);
     end;
     {$IFDEF CROSS_HTTP_DIRECTORY_TESTS}DirectoryTestStep(dsBeforeSort);{$ENDIF}
     DirList.Sort(LComparer);

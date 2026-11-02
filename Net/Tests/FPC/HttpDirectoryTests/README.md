@@ -119,3 +119,17 @@ wsl.exe -d Ubuntu-22.04 --cd /mnt/d/GitHub/Delphi-Cross-Socket/Net/Tests/FPC/Htt
 被淘汰的整页候选四目标记录为 `bin/perf-compare-*.json`，64K 候选仅完成 Windows 双目标实测，记录为 `bin/perf-chunks-*-win64.json`；相关二进制、源码快照和构建哈希保存在各自 `perf-green-*` / `perf-chunks-*`、`stringbuilder-source` / `chunks-source` 目录，不作为最终版本成绩。不同轮次数据各自配对，不能把早一轮原版数值与后一轮最终数值拼成速度收益。
 
 本轮未覆盖实际 TCP/TLS、冷盘/网络目录、权限拒绝的系统异常、磁盘或堆分配失败、符号链接/重解析点安全性、并发目录增删；异常注入验证的是当前函数已经拥有资源后的清理路径。测试宏未提供生产公开 API，也没有线程或后台清理任务。
+
+## 2026-11-02 以已打开对象限定静态文件路由
+
+Static、Index、Dir 现在逐段从根目录句柄打开子对象，并直接从验证后的同一文件或目录句柄读取。Windows 拒绝子级重解析点，POSIX 拒绝子级符号链接；指向根内的子级链接也会被拒绝。配置的根目录由应用控制。文件下载复用 SendFile 的缓存、Range 和 MIME 逻辑。
+
+新增回归验证根外链接被拒绝、已打开对象不会因路径替换转而读取另一对象，以及 MIME、ETag/304、Range/206。测试参数中的额外请求头采用 URL 编码传递，避免 Delphi 命令行对双引号的解析影响 ETag 对比。
+
+本轮标签 resume-route-green 的 Delphi/FPC Win64 各通过功能 19/19、页面兼容 20/20、资源清理 14/14，每个 Windows 目标跳过两个平台不支持的文件名；Delphi/FPC Linux64 在 Ubuntu 22.04 WSL 各通过 21/21、20/20、14/14。两个 macOS Delphi 目标完成单元交叉编译，尚未实机运行。FreeBSD、Android 和其它架构没有本轮实机验证。
+
+    python -B build_windows.py delphi-win64 fpc-win64 --label resume-route-green --new-api
+    python -B build_windows.py delphi-win64 fpc-win64 --label resume-route-green --new-api --hooks --resources
+    python -B run_suite.py delphi-win64 fpc-win64 --label resume-route-green
+
+Linux 按已有 build_linux.py 交叉编译后，在目标系统运行 run_suite.py。整体 HTTP 失败和响应队列回归使用 HttpFailureTests，Delphi/FPC Win64 各 143/143 通过。
