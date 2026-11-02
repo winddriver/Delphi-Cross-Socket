@@ -7,12 +7,15 @@ uses
   {$IF DEFINED(FPC) AND DEFINED(POSIX)}cthreads, cwstring,{$ENDIF}
   SysUtils, Classes, SyncObjs,
   Net.OpenSSL, Net.CrossSocket.Base, Net.CrossSslSocket.Types,
-  Net.CrossWebSocketParser, Net.CrossWebSocketServer;
+  Net.CrossWebSocketParser, Net.CrossWebSocketServer, Net.CrossWebSocketClient,
+  Net.CrossHttpClient, Net.CrossHttpServer;
 
 procedure Require(const AValue: Boolean; const AMessage: string);
 begin
   if not AValue then raise Exception.Create(AMessage);
 end;
+
+{$I WebSocketClientCertificateTests.inc}
 
 procedure RunServer;
 var
@@ -169,10 +172,12 @@ end;
 begin
   SetTextCodePage(Output, 65001);
   try
-    Require(ParamCount = 6, '用法: 模式 SSL Crypto 证书 私钥 TLS版本');
+    Require(ParamCount >= 6, '缺少测试参数');
     TSSLTools.LibSSL := ParamStr(2); TSSLTools.LibCRYPTO := ParamStr(3);
     TSSLTools.LoadSSL;
-    try RunServer; finally TSSLTools.UnloadSSL; end;
+    try
+      if ParamStr(1) = 'certificates' then RunClientCertificates else RunServer;
+    finally TSSLTools.UnloadSSL; end;
     Writeln('PASS ', ParamStr(1));
   except
     on E: Exception do begin Writeln('FAIL ', E.ClassName, ': ', E.Message); Halt(1); end;

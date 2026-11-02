@@ -1363,6 +1363,7 @@ type
     FTimer: IEasyTimer;
     FHttpCli, FHttpsCli: ICrossHttpClientSocket;
     FHttpCliArr: TArray<ICrossHttpClientSocket>;
+    FTlsClients: TArray<ICrossHttpClientSocket>;
     FRequestTimeout, FIdleout, FConnectTimeout: Integer;
     FReUseConnection, FAutoUrlEncode: Boolean;
     FPreserveResponseEntity: Boolean;
@@ -1375,13 +1376,15 @@ type
 
     procedure _ProcTimeout;
     procedure _UpdateCliOptions;
-    procedure _ApplyTlsOptions(const ACli: ICrossHttpClientSocket);
+    type TTlsClientUpdate = reference to procedure(const AClient: ICrossHttpClientSocket);
+    procedure _UpdateTlsClients(const AUpdate: TTlsClientUpdate);
     procedure _SubmitRequest(const ARequest: ICrossHttpClientRequest);
   protected
     procedure _Lock; inline;
     procedure _Unlock; inline;
 
     function CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket; virtual;
+    procedure RegisterTlsClient(const AClient: ICrossHttpClientSocket);
 
     function GetIdleout: Integer;
     function GetIoThreads: Integer;
@@ -3959,7 +3962,7 @@ begin
         FMaxConnsPerServer, FMaxCompressRatio, True,
         FReUseConnection, FAutoUrlEncode,
         FCompressType);
-      _ApplyTlsOptions(LHttpsCli);
+      RegisterTlsClient(LHttpsCli);
       FHttpsCli := LHttpsCli;
       FHttpCliArr := FHttpCliArr + [FHttpsCli];
     end;
@@ -4196,18 +4199,51 @@ begin
     ACallback);
 end;
 
-procedure TCrossHttpClient._ApplyTlsOptions(
-  const ACli: ICrossHttpClientSocket);
+procedure TCrossHttpClient.RegisterTlsClient(
+  const AClient: ICrossHttpClientSocket);
 var
   LCACertificate: TBytes;
 begin
   if Length(FCertificate) > 0 then
-    ACli.SetCertificate(FCertificate);
+    AClient.SetCertificate(FCertificate);
   if Length(FPrivateKey) > 0 then
-    ACli.SetPrivateKey(FPrivateKey, FPrivateKeyPassword);
+    AClient.SetPrivateKey(FPrivateKey, FPrivateKeyPassword);
   for LCACertificate in FCACertificates do
-    ACli.AddCACertificate(LCACertificate);
-  ACli.VerifyPeer := FVerifyPeer;
+    AClient.AddCACertificate(LCACertificate);
+  AClient.VerifyPeer := FVerifyPeer;
+  FTlsClients := FTlsClients + [AClient];
+end;
+
+procedure TCrossHttpClient._UpdateTlsClients(const AUpdate: TTlsClientUpdate);
+var
+  I, LLocked, LUpdated: Integer;
+begin
+  // 调用者持有管理器锁；依登记顺序取得所有配置锁，避免首次连接和多上下文更新交错。
+  LLocked := 0;
+  LUpdated := 0;
+  try
+    for I := 0 to High(FTlsClients) do
+    begin
+      (FTlsClients[I] as TCrossHttpClientSocket).BeginTlsConfigUpdate;
+      Inc(LLocked);
+    end;
+    try
+      for I := 0 to High(FTlsClients) do
+      begin
+        AUpdate(FTlsClients[I]);
+        Inc(LUpdated);
+      end;
+    except
+      // 原生上下文不支持回滚。部分成功时禁止这组上下文继续建立连接。
+      if LUpdated > 0 then
+        for I := 0 to High(FTlsClients) do
+          (FTlsClients[I] as TCrossHttpClientSocket).InvalidateTlsConfiguration;
+      raise;
+    end;
+  finally
+    for I := LLocked - 1 downto 0 do
+      (FTlsClients[I] as TCrossHttpClientSocket).EndTlsConfigUpdate;
+  end;
 end;
 
 procedure TCrossHttpClient.AddCACertificate(const ABuf: Pointer;
@@ -4223,8 +4259,8 @@ begin
 
   _Lock;
   try
-    if FHttpsCli <> nil then
-      FHttpsCli.AddCACertificate(LBytes);
+    _UpdateTlsClients(procedure(const AClient: ICrossHttpClientSocket)
+      begin AClient.AddCACertificate(LBytes); end);
     FCACertificates := FCACertificates + [LBytes];
   finally
     _Unlock;
@@ -4259,8 +4295,8 @@ begin
 
   _Lock;
   try
-    if FHttpsCli <> nil then
-      FHttpsCli.SetCertificate(LBytes);
+    _UpdateTlsClients(procedure(const AClient: ICrossHttpClientSocket)
+      begin AClient.SetCertificate(LBytes); end);
     FCertificate := LBytes;
   finally
     _Unlock;
@@ -4295,8 +4331,8 @@ begin
 
   _Lock;
   try
-    if FHttpsCli <> nil then
-      FHttpsCli.SetPrivateKey(LBytes, APassword);
+    _UpdateTlsClients(procedure(const AClient: ICrossHttpClientSocket)
+      begin AClient.SetPrivateKey(LBytes, APassword); end);
     if Length(FPrivateKey) > 0 then
       FillChar(FPrivateKey[0], Length(FPrivateKey), 0);
     FPrivateKey := LBytes;
@@ -4731,8 +4767,8 @@ begin
     if AValue and (Length(FCACertificates) = 0) then
       raise ECrossHttpClient.Create(
         'At least one CA certificate is required before enabling peer verification.');
-    if FHttpsCli <> nil then
-      FHttpsCli.VerifyPeer := AValue;
+    _UpdateTlsClients(procedure(const AClient: ICrossHttpClientSocket)
+      begin AClient.VerifyPeer := AValue; end);
     FVerifyPeer := AValue;
   finally
     _Unlock;

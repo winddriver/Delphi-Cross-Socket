@@ -1689,6 +1689,8 @@ end;
 
 function TCrossWebSocketMgr.CreateHttpCli(
   const AProtocol: string): ICrossHttpClientSocket;
+var
+  LWssClient: ICrossHttpClientSocket;
 begin
   if TStrUtils.SameText(AProtocol, WS) then
   begin
@@ -1706,9 +1708,11 @@ begin
   begin
     if (FWssCli = nil) then
     begin
-      FWssCli := TCrossWebSocketClient.Create(
+      LWssClient := TCrossWebSocketClient.Create(
         Self, FIoThreads, -1, -1,
         True, False, False, ctNone);
+      RegisterTlsClient(LWssClient);
+      FWssCli := LWssClient;
       FWsCliArr := FWsCliArr + [FWssCli];
     end;
 
