@@ -2627,15 +2627,27 @@ procedure TCrossConnectionBase.SendStream(const AStream: TStream;
 var
   LBuffer: TBytes;
   LSender: TCrossConnectionCallback;
+  LPosition, LSize: Int64;
 begin
+  if AStream = nil then
+  begin
+    _CallConnectionCallback(ACallback, Self, False);
+    Exit;
+  end;
   if (AStream is TBytesStream) then
   begin
-    SendBytes(
-      TBytesStream(AStream).Bytes,
-      TBytesStream(AStream).Position,
-      TBytesStream(AStream).Size - TBytesStream(AStream).Position,
-      ACallback);
-    Exit;
+    LPosition := AStream.Position;
+    LSize := AStream.Size;
+    if (LPosition < 0) or (LSize < LPosition) then
+    begin
+      _CallConnectionCallback(ACallback, Self, False);
+      Exit;
+    end;
+    if (LPosition <= High(Integer)) and (LSize - LPosition <= High(Integer)) then
+    begin
+      SendBytes(TBytesStream(AStream).Bytes, Integer(LPosition), Integer(LSize - LPosition), ACallback);
+      Exit;
+    end;
   end;
 
   SetLength(LBuffer, SND_BUF_SIZE);
@@ -2643,37 +2655,36 @@ begin
   LSender :=
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
     var
-      LData: Pointer;
       LCount: Integer;
     begin
-      if not ASuccess then
+      LCount := -1;
+      if ASuccess then
       begin
-        LSender := nil;
-        LBuffer := nil;
-
-        if Assigned(ACallback) then
-          ACallback(AConnection, False);
-
-        AConnection.Close;
-
+        try
+          // 使用 Longint 重载，兼容仅覆盖该签名的自定义流。
+          LCount := AStream.Read(LBuffer[0], SND_BUF_SIZE);
+        except
+          on E: Exception do
+          begin
+            LCount := -1;
+            _LogException('SendStream.Read', E);
+          end;
+        end;
+      end;
+      if (LCount > 0) and (LCount <= Length(LBuffer)) then
+      begin
+        (AConnection as TCrossConnectionBase).SendBuf(@LBuffer[0], LCount, LSender);
         Exit;
       end;
 
-      LData := @LBuffer[0];
-      LCount := AStream.Read(LBuffer[0], SND_BUF_SIZE);
-
-      if (LData = nil) or (LCount <= 0) then
-      begin
-        LSender := nil;
-        LBuffer := nil;
-
-        if Assigned(ACallback) then
-          ACallback(AConnection, True);
-
-        Exit;
+      // 读取异常和发送失败共用终态，先解开闭包自引用，再通知调用者。
+      LSender := nil;
+      LBuffer := nil;
+      try
+        if Assigned(ACallback) then ACallback(AConnection, LCount = 0);
+      finally
+        if LCount <> 0 then AConnection.Close;
       end;
-
-      (AConnection as TCrossConnectionBase).SendBuf(LData, LCount, LSender);
     end;
 
   LSender(Self, True);

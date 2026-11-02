@@ -9,7 +9,7 @@ from pathlib import Path
 
 CASES = ["batch", "accept", "sent-event", "send-callback", "pending-send", "cancel-sends", "cancel-error", "stop", "connect-callback", "connect-race", "send-close-race", "closed-state", "closed-send", "early-failure"]
 CASES += ["listen-dns", "listen-socket", "listen-bind", "listen-listen", "listen-register", "listen-callback", "listen-register-callback"]
-CASES.append("send-slices")
+CASES.extend(["send-slices", "stream-reads"])
 if sys.platform.startswith("linux"):
     CASES.extend(["register-failure", "welcome", "half-close", "half-close-chain"])
 
@@ -78,7 +78,7 @@ def run(executable, case):
 
     error = ""
     try:
-        if case in ("connect-race", "send-close-race", "closed-state", "closed-send", "early-failure", "send-slices"):
+        if case in ("connect-race", "send-close-race", "closed-state", "closed-send", "early-failure", "send-slices", "stream-reads"):
             process.wait(timeout=15)
         elif case == "connect-callback":
             peer, _ = listener.accept()

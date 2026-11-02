@@ -114,3 +114,12 @@ Kqueue x64/ARM64 再次仅编译通过，无 macOS/FreeBSD 运行验证。F16 �
 F05 修复后，arm64 macOS14 / FPC3.3.1 实机13/13通过：batch、accept、sent-event、send-callback、pending-send、cancel-sends、cancel-error、stop、connect-callback、connect-race、send-close-race、closed-state、closed-send。两种竞争各100轮。Mac不接受零大小发送缓冲区，测试仅在MACOS使用4096，其它平台保持0；未运行基于/proc或Linux seccomp的用例。
 
 Base线程ID调试格式、FPC Darwin地址声明和读写锁零值比较另经Windows三个目标各13/13、Linux两个目标各14/14回归，共67/67，记录在bin/mac-prereq/manifest.json。该组保留构建时的测试源快照，后续MACOS条件分支适配不改变Windows/Linux展开代码。最终Kqueue的Delphi OSX64/OSXARM64仍仅编译单元通过；Mac原生FPC结果及边界详见[生命周期回归](../KqueueLifecycleTests/README.md)。历史章节保留当时尚未实机验证的事实。
+
+## 2026-11-02 流读取失败的结算
+
+新增 stream-reads 覆盖首读失败、首块物理完成后的续读失败和正常 EOF，断言回调仅执行一次、失败连接关闭、回调捕获对象及时释放。测试自定义流只覆盖 Read(Longint)，同时约束 Delphi 13 的重载选择。SendStream 也拒绝 nil、无效内存流位置，超出 Integer 单笔范围时走分块读取。
+
+本轮从现有 build.py 完整构建。标签 resume-stream-green 的 Delphi Win32、Win64 和 FPC Win64 全套各 23/23；Delphi/FPC Linux64 在 Ubuntu 22.04 WSL 实际运行，各 27/27。结果保存在每个目标的 results.json。示例命令如下。
+
+    python -B build.py win64 win32 fpc64 fpc-linux64 delphi-linux64 --label resume-stream-green
+    python -B run_tests.py bin/resume-stream-green/win64/SocketCallbackTests.exe --output bin/resume-stream-green/win64/results.json

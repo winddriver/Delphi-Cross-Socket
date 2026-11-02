@@ -16,8 +16,22 @@ type
   TInputConnection = class(TCrossConnectionBase)
     Submissions, LastCount: Integer;
     LastBuffer: Pointer;
+    Hold: Boolean;
+    Pending: TCrossConnectionCallback;
     procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
       const ACallback: TCrossConnectionCallback); override;
+    procedure Complete;
+  end;
+
+  TReadFailureStream = class(TMemoryStream)
+    GoodReads: Integer;
+    FailRead: Boolean;
+    function Read(var Buffer; Count: Longint): Longint; override;
+  end;
+
+  TFinishMarker = class(TInterfacedObject)
+    class var Destroyed: Integer;
+    destructor Destroy; override;
   end;
 
   TSendProbe = class(TThread)
@@ -687,7 +701,18 @@ begin
   Inc(Submissions);
   LastBuffer := ABuffer;
   LastCount := ACount;
-  if Assigned(ACallback) then ACallback(Self, True);
+  if Hold then Pending := ACallback
+  else if Assigned(ACallback) then ACallback(Self, True);
+end;
+
+procedure TInputConnection.Complete;
+var
+  Callback: TCrossConnectionCallback;
+begin
+  Callback := Pending;
+  Pending := nil;
+  Check(Assigned(Callback), 'missing pending stream send');
+  Callback(Self, True);
 end;
 
 procedure SendSlices;
@@ -734,6 +759,79 @@ begin
   Socket.Stop;
   Owner := nil;
   Print('PASS send-slices');
+end;
+
+function TReadFailureStream.Read(var Buffer; Count: Longint): Longint;
+begin
+  if GoodReads > 0 then
+  begin
+    Dec(GoodReads);
+    PByte(@Buffer)^ := 11;
+    Exit(1);
+  end;
+  if FailRead then raise EReadError.Create('injected source read failure');
+  Result := 0;
+end;
+
+destructor TFinishMarker.Destroy;
+begin
+  Inc(Destroyed);
+  inherited;
+end;
+
+procedure StartStream(const C: ICrossConnection; const Source: TStream; const AExpected: Boolean;
+  const ACalls: PInteger);
+var
+  Marker: IInterface;
+begin
+  Marker := TFinishMarker.Create;
+  C.SendStream(Source,
+    procedure(const Completed: ICrossConnection; const Ok: Boolean)
+    begin
+      Check((Marker <> nil) and (Ok = AExpected), Format('stream completion result differs: marker=%d actual=%d expected=%d',
+        [Ord(Marker <> nil), Ord(Ok), Ord(AExpected)]));
+      Inc(ACalls^);
+    end);
+end;
+
+procedure StreamReads;
+var
+  Socket: TTestSocket;
+  Owner: ICrossSocket;
+  Probe: TInputConnection;
+  Connection: ICrossConnection;
+  Source: TReadFailureStream;
+  I, Calls: Integer;
+begin
+  Socket := TTestSocket.Create('stream-reads');
+  Owner := Socket;
+  for I := 0 to 2 do
+  begin
+    Probe := TInputConnection.Create(Socket, TSocketAPI.NewTcp, ctAccept, '', nil);
+    Connection := Probe;
+    Probe.Hold := True;
+    Source := TReadFailureStream.Create;
+    try
+      Source.GoodReads := Ord(I > 0);
+      Source.FailRead := I < 2;
+      Calls := 0;
+      StartStream(Connection, Source, I = 2, @Calls);
+      if I > 0 then
+      begin
+        Check((Calls = 0) and (Probe.Submissions = 1), 'unexpected early completion');
+        Probe.Complete;
+      end;
+      Check((Calls = 1) and (Connection.IsClosed = Source.FailRead), 'stream end not settled');
+      Check(TFinishMarker.Destroyed = I + 1, 'stream callback retained after completion');
+      Connection.Close;
+      Connection := nil;
+    finally
+      Source.Free;
+    end;
+  end;
+  Socket.Stop;
+  Owner := nil;
+  Print('PASS stream-reads');
 end;
 
 procedure ClosedConnection(const ASend: Boolean);
@@ -937,6 +1035,8 @@ begin
   try
     if ParamStr(1) = 'send-slices' then
       SendSlices
+    else if ParamStr(1) = 'stream-reads' then
+      StreamReads
     else if ParamStr(1) = 'early-failure' then
       EarlyFailure(StrToInt(ParamStr(2)))
     else if ParamStr(1) = 'connect-race' then
