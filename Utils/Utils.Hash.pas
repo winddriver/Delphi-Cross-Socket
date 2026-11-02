@@ -741,14 +741,13 @@ begin
 
   while (LSize > 0) do
   begin
-    LBytesRead := AStream.ReadData(LBuffer, LBufSize);
+    if LBufSize > LSize then LBufSize := LSize;
+    LBytesRead := AStream.Read(LBuffer[0], LBufSize);
     if (LBytesRead <= 0) then Break;
 
     Update(PByte(LBuffer), LBytesRead);
 
     Dec(LSize, LBytesRead);
-
-    if (LBytesRead < LBufSize) or (LSize <= 0) then Break;
   end;
 end;
 

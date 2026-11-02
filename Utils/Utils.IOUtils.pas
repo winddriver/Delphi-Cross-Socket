@@ -358,7 +358,9 @@ begin
   end
   else
   begin
-    if (FBufStartPos > FFilePos) or (FFilePos + ACount > FBufStartPos + FBufferSize) then
+    // 小写入不能越过有效数据末端，否则刷新时会把空隙里的旧数据写回磁盘。
+    if (FFilePos < FBufStartPos) or (FFilePos > FBufEndPos)
+      or (FFilePos + ACount > FBufStartPos + FBufferSize) then
       SyncBuffer(True);
     Result := ACount;
     PDest := FBuffer + (FFilePos - FBufStartPos);
@@ -541,10 +543,13 @@ begin
   if (LDstDirName <> '') then
     TDirectoryUtils.CreateDirectory(LDstDirName);
 
-  if Exists(ADstFileName) then
-    Delete(ADstFileName);
-
+  // 让系统在同一次重命名中替换目标；失败时保留原来的两端。
+  {$IFDEF MSWINDOWS}
+  if SameStr(ExpandFileName(ASrcFileName), ExpandFileName(ADstFileName)) then Exit(True);
+  Result := MoveFileExW(PWideChar(ASrcFileName), PWideChar(ADstFileName), MOVEFILE_REPLACE_EXISTING);
+  {$ELSE}
   Result := RenameFile(ASrcFileName, ADstFileName);
+  {$ENDIF}
 end;
 
 class function TFileUtils.OpenCreate(const AFileName: string): TStream;

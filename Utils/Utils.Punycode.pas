@@ -72,78 +72,85 @@ end;
 
 class function TPunycode.Codepoint2Digit(c: Integer): Integer;
 begin
-  if c - ord('0') < 10 then
-    Result := c - ord('0') + 26
-  else if c - ord('a') < 26 then
-    Result := c - ord('a')
+  case c of
+    Ord('0')..Ord('9'): Result := c - Ord('0') + 26;
+    Ord('a')..Ord('z'): Result := c - Ord('a');
+    Ord('A')..Ord('Z'): Result := c - Ord('A');
   else
     raise EPunycode.Create(BAD_INPUT);
+  end;
 end;
 
 class function TPunycode.Decode(const AInput: string): string;
 var
-  n, i, j, bias, d, oldi, w, k, LDigit, t: Integer;
+  n, i, bias, d, oldi, w, k, LDigit, t, LCount, j, LChar: Integer;
+  LPoints: TArray<Integer>;
   LOutput: {$IFDEF FPC}TUnicodeStringBuilder{$ELSE}TStringBuilder{$ENDIF};
-  LChar: Char;
 begin
+  SetLength(LPoints, Length(AInput));
+  LCount := 0;
   n := INITIAL_N;
   i := 0;
   bias := INITIAL_BIAS;
+  d := AInput.LastIndexOf(DELIMITER);
+  if d > 0 then
+  begin
+    for j := 1 to d do
+    begin
+      if not IsBasic(AInput[j]) then raise EPunycode.Create(BAD_INPUT);
+      LPoints[LCount] := Ord(AInput[j]);
+      Inc(LCount);
+    end;
+    Inc(d);
+  end else
+    d := 0;
+
+  while d < Length(AInput) do
+  begin
+    oldi := i;
+    w := 1;
+    k := BASE;
+    while True do
+    begin
+      if d >= Length(AInput) then raise EPunycode.Create(BAD_INPUT);
+      Inc(d);
+      LDigit := Codepoint2Digit(Ord(AInput[d]));
+      if LDigit > (MaxInt - i) div w then raise EPunycode.Create(OVERFLOW);
+      Inc(i, LDigit * w);
+      if k <= bias then t := TMIN
+      else if k >= bias + TMAX then t := TMAX
+      else t := k - bias;
+      if LDigit < t then Break;
+      if w > MaxInt div (BASE - t) then raise EPunycode.Create(OVERFLOW);
+      w := w * (BASE - t);
+      Inc(k, BASE);
+    end;
+    bias := Adapt(i - oldi, LCount + 1, oldi = 0);
+    if i div (LCount + 1) > $10FFFF - n then raise EPunycode.Create(BAD_INPUT);
+    Inc(n, i div (LCount + 1));
+    if (n >= $D800) and (n <= $DFFF) then raise EPunycode.Create(BAD_INPUT);
+    i := i mod (LCount + 1);
+    if i < LCount then Move(LPoints[i], LPoints[i + 1], (LCount - i) * SizeOf(Integer));
+    LPoints[i] := n;
+    Inc(LCount);
+    Inc(i);
+  end;
+
   LOutput := {$IFDEF FPC}TUnicodeStringBuilder{$ELSE}TStringBuilder{$ENDIF}.Create;
   try
-    d := AInput.LastDelimiter(DELIMITER);
-    if d > 0 then
+    for j := 0 to LCount - 1 do
     begin
-      for j := 0 to d - 1 do
+      LChar := LPoints[j];
+      if LChar < $10000 then LOutput.Append(Char(LChar))
+      else
       begin
-        LChar := AInput.Chars[j];
-        if not IsBasic(LChar) then
-          raise EPunycode.Create(BAD_INPUT);
-        LOutput.Append(LChar);
+        Dec(LChar, $10000);
+        LOutput.Append(Char($D800 + (LChar shr 10)));
+        LOutput.Append(Char($DC00 + (LChar and $3FF)));
       end;
-      Inc(d);
-    end else
-      d := 0;
-
-    while d < Length(AInput) do
-    begin
-      oldi := i;
-      w := 1;
-      k := BASE;
-      while True do
-      begin
-        if d = Length(AInput) + 1 then
-          raise EPunycode.Create(BAD_INPUT);
-        LChar := AInput.Chars[d];
-        Inc(d);
-        LDigit := Codepoint2Digit(ord(LChar));
-        if LDigit > (MAXINT - i) div w then
-          raise EPunycode.Create(OVERFLOW);
-        i := i + LDigit * w;
-        if k <= bias then
-          t := TMIN
-        else if k >= bias + TMAX then
-          t := TMAX
-        else
-          t := k - bias;
-        if LDigit < t then
-          Break;
-        w := w * (BASE - t);
-
-        Inc(k, BASE);
-      end;
-      bias := Adapt(i - oldi, LOutput.Length + 1, oldi = 0);
-      if i div (LOutput.Length + 1) > MAXINT - n then
-        raise EPunycode.Create(OVERFLOW);
-      n := n + i div (LOutput.Length + 1);
-      i := i mod (LOutput.Length + 1);
-      LOutput.Insert(i, Char(n));
-      Inc(i);
     end;
     Result := LOutput.ToString;
-  finally
-    FreeAndNil(LOutput);
-  end;
+  finally LOutput.Free; end;
 end;
 
 class function TPunycode.DecodeDomain(const ADomain: string): string;
@@ -178,7 +185,8 @@ class function TPunycode.Encode(const AInput: string): string;
 var
   n, b, LDelta, LBias, m, i, h, j, q, k, t: Integer;
   LOutput: {$IFDEF FPC}TUnicodeStringBuilder{$ELSE}TStringBuilder{$ENDIF};
-  LChar: Char;
+  LPoints: TArray<Integer>;
+  LChar, LLow, LCount: Integer;
 begin
   n := INITIAL_N;
   LDelta := 0;
@@ -186,41 +194,54 @@ begin
   LOutput := {$IFDEF FPC}TUnicodeStringBuilder{$ELSE}TStringBuilder{$ENDIF}.Create;
   try
     b := 0;
-    for i := 1 to Length(AInput) do
+    LCount := 0;
+    i := 1;
+    SetLength(LPoints, Length(AInput));
+    while i <= Length(AInput) do
     begin
-      LChar := AInput[i];
-      if IsBasic(LChar) then
+      LChar := Ord(AInput[i]);
+      Inc(i);
+      if (LChar >= $D800) and (LChar <= $DFFF) then
       begin
-        LOutput.Append(LChar);
+        if (LChar >= $DC00) or (i > Length(AInput)) then raise EPunycode.Create(BAD_INPUT);
+        LLow := Ord(AInput[i]);
+        if (LLow < $DC00) or (LLow > $DFFF) then raise EPunycode.Create(BAD_INPUT);
+        LChar := $10000 + ((LChar - $D800) shl 10) + (LLow - $DC00);
+        Inc(i);
+      end;
+      LPoints[LCount] := LChar;
+      Inc(LCount);
+      if LChar < $80 then
+      begin
+        LOutput.Append(Char(LChar));
         Inc(b);
       end;
     end;
     if b > 0 then
       LOutput.Append(DELIMITER);
     h := b;
-    while h < Length(AInput) do
+    while h < LCount do
     begin
       m := MAXINT;
-      for i := 1 to Length(AInput) do
+      for i := 0 to LCount - 1 do
       begin
-        LChar := AInput[i];
-        if (ord(LChar) >= n) and (ord(LChar) < m) then
-          m := ord(LChar);
+        LChar := LPoints[i];
+        if (LChar >= n) and (LChar < m) then
+          m := LChar;
       end;
       if m - n > (MAXINT - LDelta) div (h + 1) then
         raise EPunycode.Create(OVERFLOW);
       LDelta := LDelta + (m - n) * (h + 1);
       n := m;
-      for j := 1 to Length(AInput) do
+      for j := 0 to LCount - 1 do
       begin
-        LChar := AInput[j];
-        if ord(LChar) < n then
+        LChar := LPoints[j];
+        if LChar < n then
         begin
+          if LDelta = MaxInt then raise EPunycode.Create(OVERFLOW);
           Inc(LDelta);
-          if LDelta = 0 then
-            raise EPunycode.Create(OVERFLOW);
         end;
-        if ord(LChar) = n then
+        if LChar = n then
         begin
           q := LDelta;
           k := BASE;

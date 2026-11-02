@@ -1451,7 +1451,7 @@ end;
 
 function TStreamReader.TBufferedData.GetChars(AIndex: Integer): Char;
 begin
-  Result := FData[FStart + 1 + AIndex];
+  Result := FData[FStart + AIndex];
 end;
 
 function TStreamReader.TBufferedData.Length: Integer;
@@ -1461,12 +1461,12 @@ end;
 
 function TStreamReader.TBufferedData.PeekChar: Char;
 begin
-  Result := FData[FStart + 1];
+  Result := FData[FStart];
 end;
 
 function TStreamReader.TBufferedData.MoveChar: Char;
 begin
-  Result := FData[FStart + 1];
+  Result := FData[FStart];
   Inc(FStart);
 end;
 
