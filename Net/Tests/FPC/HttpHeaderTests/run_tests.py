@@ -149,6 +149,31 @@ def client(exe, case):
 
 # exe 启动真实 HTTP Server；output 是本轮隔离目录，上传文件只在其 tcp-uploads 子目录产生。
 # 响应状态、业务回调计数和最终文件清理一起判断，不能用“收到 400”替代完整失败链检查。
+def expect_continue(port):
+    interim = b'HTTP/1.1 100 Continue\r\n\r\n'
+    prefix = b'POST /test HTTP/1.1\r\nHost: localhost\r\nContent-Length: 3\r\n'
+    waiting = prefix + b'Connection: close\r\nExpect: 100-continue\r\n\r\n'
+    # 同一批次解析两个请求。第二个临时响应必须等第一个正文结束后才能发出。
+    with socket.create_connection(('127.0.0.1', port), timeout=5) as conn:
+        conn.sendall(prefix + b'\r\nabc' + waiting + b'abc')
+        with conn.makefile('rb') as source:
+            headers, response = source.read().split(b'\r\n\r\n', 1)
+        assert headers.startswith(b'HTTP/1.1 200 ') and b'Content-Length: 2' in headers, headers
+        assert response.startswith(b'ok' + interim + b'HTTP/1.1 200 '), response
+        assert response.endswith(b'\r\n\r\nok'), response
+    # 只发头并等 100，确保没有依赖请求正文的死锁。
+    with socket.create_connection(('127.0.0.1', port), timeout=5) as conn:
+        conn.sendall(waiting)
+        with conn.makefile('rb') as source:
+            assert source.read(len(interim)) == interim
+            conn.sendall(b'abc')
+            assert source.read().startswith(b'HTTP/1.1 200 ')
+    with socket.create_connection(('127.0.0.1', port), timeout=5) as conn:
+        conn.sendall(prefix + b'Content-Length: 2\r\nExpect: 100-continue\r\n\r\n')
+        with conn.makefile('rb') as source:
+            assert source.readline().startswith(b'HTTP/1.1 400 ')
+
+
 def server(exe, output):
     storage = output / 'tcp-uploads'
     storage.mkdir(exist_ok=False)
@@ -222,6 +247,8 @@ def server(exe, output):
                 if valid:
                     assert response.endswith(b'\r\n\r\nok'), (case, bytes(response))
                 results.append({'case': 'server-' + case, 'status': status})
+        expect_continue(port)
+        results.append({'case': 'server-100-continue'})
     finally:
         if p.poll() is None:
             try:
@@ -235,8 +262,8 @@ def server(exe, output):
         p.stdin.close()
         p.stdout.close()
         (output / 'server.log').write_text('\n'.join(lines) + '\n', encoding='utf-8')
-    # 共五个合法请求应进入路由；坏 CL/TE、重复坏字段和坏 multipart 不能被当成成功业务。
-    assert p.returncode == 0 and 'REQUESTS 5' in lines, lines
+    # 原五个合法请求，加上管线两项和等待 100 后提交正文的一项。
+    assert p.returncode == 0 and 'REQUESTS 8' in lines, lines
     assert not list(storage.iterdir()), '关闭后上传临时文件未清理'
     return results
 
@@ -270,7 +297,7 @@ def main():
         rows = [{'case': 'component', 'output': text.strip()}]
         print(target, text.strip(), flush=True)
         rows.extend(server(exe, output))
-        print(target, 'server TCP 10/10', flush=True)
+        print(target, 'server TCP', len(rows) - 1, 'passed', flush=True)
         for case in ('valid', 'cookie-values', 'opaque-response', 'empty-response', 'head-metadata', 'bad-response', 'length-bom', 'transfer-bom', 'invalid-field', 'invalid-utf16', 'invalid-method', 'invalid-query', 'invalid-query-name', 'invalid-query-tail', 'query-values'):
             rows.append(client(exe, case))
             print(target, case, rows[-1]['output'], flush=True)

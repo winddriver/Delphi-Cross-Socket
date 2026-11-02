@@ -552,6 +552,7 @@ type
     FReady: Boolean;
     FSending: Boolean;
     FCompleted: Boolean;
+    FContinuePending: Boolean;
     FKeepAlive: Boolean;
     FStatusCode: Integer;
   protected
@@ -1814,6 +1815,7 @@ type
       const ASource: TCrossHttpChunkDataFunc;
       const ACallback: TCrossConnectionCallback);
     procedure _SendQueueItem(const AItem: IHttpResponseQueueItem);
+    procedure _SendContinue(const AItem: IHttpResponseQueueItem);
     procedure _FinishQueueItem(const AItem: IHttpResponseQueueItem; const ASuccess: Boolean);
     procedure _NotifyResponseEnd(const ARequest: ICrossHttpRequest;
       const AResponse: ICrossHttpResponse; const ACallback: TCrossConnectionCallback;
@@ -2756,6 +2758,12 @@ begin
   if FResponseQueueClosed or FSendingResponse
     or (ConnectStatus in [csDisconnected, csClosed]) then Exit;
   if (FResponseQueue = nil) or (FResponseQueue.Count = 0) then Exit;
+  if (FResponseQueue.Peek as THttpResponseQueueItem).FContinuePending then
+  begin
+    // 只借出队首的临时发送权；最终响应仍占原位置，可在 100 在途时就绪。
+    FSendingResponse := True;
+    Exit(FResponseQueue.Peek);
+  end;
   if not FResponseQueue.Peek.Ready then Exit;
 
   // 从队列中移除队首, 由调用方的局部接口引用保活后续发送过程
@@ -2843,11 +2851,53 @@ begin
     _SendQueueItem(LItemToSend);
 end;
 
+procedure TCrossHttpConnection._SendContinue(const AItem: IHttpResponseQueueItem);
+var
+  LConnection: ICrossHttpConnection;
+  LFinish: TCrossConnectionCallback;
+  LDone: Integer;
+begin
+  LConnection := Self;
+  LDone := 0;
+  LFinish :=
+    procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+    var
+      LNext: IHttpResponseQueueItem;
+    begin
+      if AtomicExchange(LDone, 1) <> 0 then Exit;
+      if not ASuccess then
+      begin
+        // 保持队列占用直到关闭；不能在失败的临时响应后继续写最终响应。
+        LConnection.Close;
+        Exit;
+      end;
+      FResponseQueueLock.Enter;
+      try
+        (AItem as THttpResponseQueueItem).FContinuePending := False;
+        FSendingResponse := False;
+        LNext := _TryDequeueReadyLocked;
+      finally
+        FResponseQueueLock.Leave;
+      end;
+      if LNext <> nil then _SendQueueItem(LNext);
+    end;
+  try
+    LConnection.SendBuf(@CResponse100Continue[1], Length(CResponse100Continue), LFinish);
+  except
+    on E: Exception do LFinish(LConnection, False);
+  end;
+end;
+
 procedure TCrossHttpConnection._SendQueueItem(const AItem: IHttpResponseQueueItem);
 var
   LConnection: ICrossHttpConnection;
   LSender: TCrossConnectionCallback;
 begin
+  if (AItem as THttpResponseQueueItem).FContinuePending then
+  begin
+    _SendContinue(AItem);
+    Exit;
+  end;
   LConnection := Self;
   LSender :=
     procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
@@ -3020,6 +3070,7 @@ end;
 procedure TCrossHttpConnection._OnBodyBegin;
 var
   LMultiPart: THttpMultiPartFormData;
+  LNext: IHttpResponseQueueItem;
 begin
   {$region '创建Body'}
   case FRequestObj.GetBodyType of
@@ -3058,6 +3109,20 @@ begin
       end;
   end;
   {$endregion}
+
+  // 此时解析器已验证 CL/TE、正文上限，且确有正文。客户端可能在等 100 才发送正文。
+  if TStrUtils.SameText(FRequest.Header[HEADER_EXPECT].Trim, '100-continue') then
+  begin
+    FResponseQueueLock.Enter;
+    try
+      if FResponseQueueClosed or (FResponseObj = nil) then Exit;
+      (FResponseObj.FQueueItem as THttpResponseQueueItem).FContinuePending := True;
+      LNext := _TryDequeueReadyLocked;
+    finally
+      FResponseQueueLock.Leave;
+    end;
+    if LNext <> nil then _SendQueueItem(LNext);
+  end;
 end;
 
 procedure TCrossHttpConnection._OnBodyData(const ADataPtr: Pointer;
@@ -3166,7 +3231,6 @@ procedure TCrossHttpConnection._OnHeaderData(const ADataPtr: Pointer;
   const ADataSize: Integer);
 var
   LParsed: Boolean;
-  LExpect: string;
 begin
   // ParseHeader 内部已用 try/except 将各类解析异常转为 Result := False,
   // 这里仍再加一层护栏, 防止以后修改 ParseHeader 时遗漏局部 try/except
@@ -3186,24 +3250,6 @@ begin
     (FHttpParser as TCrossHttpParser).Fail(400, 'Invalid request header.');
   end;
 
-  // RFC 7231 §5.1.1: Expect: 100-continue 支持
-  //
-  // 协议流程:
-  //   客户端发送 header (含 Expect: 100-continue) →
-  //   服务器在此处发送 100 Continue (临时响应, 不走响应队列) →
-  //   Parser 继续接收 body (_OnBodyBegin → _OnBodyData → _OnBodyEnd) →
-  //   _OnParseSuccess → DoOnRequest 正常处理路由/中间件 →
-  //   最终发送正式响应 (200/404/500 等)
-  //
-  // 注意:
-  //   100 Continue 只是一个协议层 "请继续" 信号, 不代表服务器接受该请求.
-  //   当前实现不在此阶段做认证/校验, 意味着即使后续 DoOnRequest 返回 401,
-  //   客户端也已发送完整 body. 对于大多数客户端, 不带 Expect 头时的行为
-  //   也是如此 (body 总会随 header 一起发送), 所以无实际功能损失.
-  // SendBuf 是非阻塞操作, 在 _LockRecv 内调用安全.
-  LExpect := FRequest.Header[HEADER_EXPECT];
-  if TStrUtils.SameText(LExpect.Trim, '100-continue') then
-    Self.SendBuf(@CResponse100Continue[1], Length(CResponse100Continue), nil);
 end;
 
 procedure TCrossHttpConnection._OnParseBegin;
