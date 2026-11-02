@@ -19,14 +19,13 @@ from datetime import datetime, timezone
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[3]
-PORT = 8080
 
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def require_free_port():
+def require_free_port(port):
     """独占试绑定两个地址族；若有其他进程占用则退出，绝不停止它。"""
     guards = []
     try:
@@ -36,13 +35,13 @@ def require_free_port():
             guard.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
             if family == socket.AF_INET6:
                 guard.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
-            guard.bind((address, PORT))
+            guard.bind((address, port))
     finally:
         for guard in guards:
             guard.close()
 
 
-def listener_owners():
+def listener_owners(port):
     # 当前测试环境的 Windows PowerShell CIM 查询可能静默给出空集合；使用实际TCP表。
     result = subprocess.run(["netstat.exe", "-ano"], capture_output=True, timeout=10,
                             check=True, creationflags=subprocess.CREATE_NO_WINDOW)
@@ -50,7 +49,7 @@ def listener_owners():
     for line in result.stdout.decode(errors="replace").splitlines():
         columns = line.split()
         if (len(columns) == 5 and columns[0] == "TCP" and columns[3] == "LISTENING"
-                and columns[1].rsplit(":", 1)[-1] == str(PORT)):
+                and columns[1].rsplit(":", 1)[-1] == str(port)):
             owners.add(int(columns[4]))
     return sorted(owners)
 
@@ -104,11 +103,13 @@ def main():
     parser.add_argument("--cert", type=Path, required=True, help="带有效CA约束/SAN的现有自签名测试证书")
     parser.add_argument("--key", type=Path, required=True)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--fpc", action="store_true", help="记录 FPC 示例的源码信息")
     options = parser.parse_args()
     assert os.name == "nt", "正式示例本轮为 Windows Release Win64"
     exe, cert, key = [p.resolve(strict=True) for p in (options.exe, options.cert, options.key)]
-    require_free_port()
-    assert not listener_owners(), "8080 被其他进程使用，未启动示例"
+    port = 8090 if options.fpc else 8080
+    require_free_port(port)
+    assert not listener_owners(port), f"{port} 被其他进程使用，未启动示例"
     output = options.output or exe.parent / ("upload-" + uuid.uuid4().hex)
     output = output.resolve()
     output.mkdir(parents=False, exist_ok=False)
@@ -121,7 +122,8 @@ def main():
     for name in ("libssl-3-x64.dll", "libcrypto-3-x64.dll"):
         shutil.copy2(REPO / "Net/Tools/OpenSSL" / name, output / name)
     assert digest(exe) == digest(runtime)
-    sources = [REPO / "Net/Demos/Delphi/HttpServer/HttpServer.dpr", REPO / "Utils/Utils.Hash.pas",
+    project = "FPC/HttpServer/HttpServer.lpr" if options.fpc else "Delphi/HttpServer/HttpServer.dpr"
+    sources = [REPO / "Net/Demos" / project, REPO / "Utils/Utils.Hash.pas",
                REPO / "Net/Net.CrossHttpServer.pas", REPO / "Net/Net.CrossHttpParams.pas",
                REPO / "Net/Net.CrossHttpSessions.pas", REPO / "Net/Net.CrossSslSocket.OpenSSL.pas"]
     report = {"recorded_utc": datetime.now(timezone.utc).isoformat(), "binary": str(exe),
@@ -131,9 +133,9 @@ def main():
               "certificate_and_hostname_verification": True,
               "sources_at_run": {str(p.relative_to(REPO)): digest(p) for p in sources},
               "build_log_sha256": digest(exe.parent / "build.log"),
-              "note": "运行既有MSBuild Release Win64产物；本脚本不编译，也不把当前依赖快照当作独立构建证明。",
+              "note": "运行已编译的 Win64 示例；当前依赖快照不能单独证明构建来源。",
               "cases": [], "stopped_by_enter": False}
-    files = [("empty.bin", b""), ("中文-雪.txt", "中文、雪和🙂\n零字节前\x00零字节后".encode("utf-8")),
+    files = [("<b>empty.bin", b""), ("中文-雪.txt", "中文、雪和🙂\n零字节前\x00零字节后".encode("utf-8")),
              ("bytes.bin", bytes(range(256)) * 257 + b"\x00\xff\x80end")]
     env = os.environ.copy()
     env["TEMP"] = str(temp)
@@ -149,19 +151,19 @@ def main():
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
                 assert process.poll() is None, "正式示例在监听前退出"
-                owners = listener_owners()
-                assert not any(owner != process.pid for owner in owners), "8080 出现其他进程，停止本脚本启动的示例"
+                owners = listener_owners(port)
+                assert not any(owner != process.pid for owner in owners), f"{port} 出现其他进程，停止本脚本启动的示例"
                 if process.pid in owners:
                     break
                 time.sleep(0.1)
             else:
-                raise TimeoutError("示例没有在8080监听")
+                raise TimeoutError(f"示例没有在 {port} 监听")
             report["loaded_openssl"] = loaded_openssl(process.pid)
             for version in (ssl.TLSVersion.TLSv1_2, ssl.TLSVersion.TLSv1_3):
                 context = ssl.create_default_context(cafile=str(cert))
                 context.minimum_version = version
                 context.maximum_version = version
-                connection = http.client.HTTPSConnection("localhost", PORT, timeout=10, context=context)
+                connection = http.client.HTTPSConnection("localhost", port, timeout=10, context=context)
                 try:
                     connection.connect()
                     negotiated = connection.sock.version()
@@ -173,6 +175,7 @@ def main():
                         response = connection.getresponse()
                         text = response.read().decode("utf-8")
                         (output / f"response-{version.name}-{repeat}.txt").write_text(text, encoding="utf-8")
+                        assert response.getheader("Content-Type").split(";")[0].lower() == "text/plain"
                         assert response.status == 200, (response.status, text)
                         rows = re.findall(r"FileName: ([^\r\n]+)\r?\nMD5: ([0-9a-fA-F]+)\r?\nSHA1: ([0-9a-fA-F]+)", text)
                         assert len(rows) == len(selected), text
@@ -200,7 +203,7 @@ def main():
                         process.wait(timeout=10)
                         report["forced_stop"] = True
                 report["exit_code"] = process.returncode
-            report["remaining_listener_owners"] = listener_owners()
+            report["remaining_listener_owners"] = listener_owners(port)
             # 正式示例没有启用AutoDeleteFiles，按原有默认语义保留上传文件。
             # 只在本脚本独占TEMP且子进程已结束后收集并清理，不把它称为示例自动清理。
             retained = [p for p in temp.rglob("*") if p.is_file()]

@@ -9,6 +9,7 @@ uses
   ,Classes
   ,Net.CrossSocket.Base
   ,Net.CrossHttpServer
+  ,Net.CrossHttpUtils
   ,Net.CrossHttpParams
   ,Net.OpenSSL
   ,Utils.Utils
@@ -74,6 +75,7 @@ begin
         end;
       end;
 
+      AResponse.ContentType := TMediaType.TEXT_PLAIN_UTF8;
       AResponse.Send(LHashStr);
       AHandled := True;
     end);

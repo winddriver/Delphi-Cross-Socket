@@ -1,4 +1,4 @@
-program HttpServer;
+﻿program HttpServer;
 
 {$I zLib.inc}
 
@@ -11,6 +11,7 @@ uses
   ,Classes
   ,Net.CrossSocket.Base
   ,Net.CrossHttpServer
+  ,Net.CrossHttpUtils
   ,Net.CrossHttpParams
   ,Net.OpenSSL
   ,Utils.Utils
@@ -22,6 +23,33 @@ const
 
 var
   __HttpServer: ICrossHttpServer;
+
+procedure SendUpload(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean);
+var
+  LHashStr: string;
+  LFormField: TFormField;
+begin
+  LHashStr := '';
+  if (ARequest.BodyType = btMultiPart) then
+  begin
+    for LFormField in (ARequest.Body as THttpMultiPartFormData) do
+    begin
+      if (LFormField.ContentType <> '') then
+      begin
+        if (LHashStr <> '') then
+          LHashStr := LHashStr + sLineBreak;
+
+        LHashStr := LHashStr + 'FileName: ' + LFormField.FileName + sLineBreak;
+        LHashStr := LHashStr + 'MD5: ' + THashMD5.GetHashStringFromStream(LFormField.Value) + sLineBreak;
+        LHashStr := LHashStr + 'SHA1: ' + THashSHA1.GetHashStringFromStream(LFormField.Value) + sLineBreak;
+      end;
+    end;
+  end;
+
+  AResponse.ContentType := TMediaType.TEXT_PLAIN_UTF8;
+  AResponse.Send(LHashStr);
+  AHandled := True;
+end;
 
 procedure TestCrossHttpServer;
 var
@@ -56,32 +84,7 @@ begin
       AHandled := True;
     end);
 
-  __HttpServer.Post('/upload',
-    procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse; var AHandled: Boolean)
-    var
-      LHashStr: string;
-      LFormField: TFormField;
-    begin
-      LHashStr := '';
-      if (ARequest.BodyType = btMultiPart) then
-      begin
-        for LFormField in (ARequest.Body as THttpMultiPartFormData) do
-        begin
-          if (LFormField.ContentType <> '') then
-          begin
-            if (LHashStr <> '') then
-              LHashStr := LHashStr + sLineBreak;
-
-            LHashStr := LHashStr + 'FileName: ' + LFormField.FileName + sLineBreak;
-            LHashStr := LHashStr + 'MD5: ' + THashMD5.GetHashString(LFormField.Value) + sLineBreak;
-            LHashStr := LHashStr + 'SHA1: ' + THashSHA1.GetHashString(LFormField.Value) + sLineBreak;
-          end;
-        end;
-      end;
-
-      AResponse.Send(LHashStr);
-      AHandled := True;
-    end);
+  __HttpServer.Post('/upload', SendUpload);
 end;
 
 begin
