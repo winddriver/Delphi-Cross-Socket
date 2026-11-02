@@ -263,6 +263,19 @@ begin
       end;
     'S':
       begin
+        if FMode = 'half-close-chain' then
+        begin
+          Check(TSocketAPI.SetSndBuf(AConnection.Socket, 4096) = 0, 'cannot set send buffer');
+          SetLength(LBytes, 256 * 1024);
+          FillChar(LBytes[0], Length(LBytes), Ord('A'));
+          AConnection.SendBytes(LBytes,
+            procedure(const C: ICrossConnection; const Ok: Boolean)
+            begin
+              if Ok then C.SendBytes(TBytes.Create(90))
+              else Print('HALF_CLOSE_CANCELLED');
+            end);
+          Exit;
+        end;
         if (FMode = 'cancel-sends') or (FMode = 'cancel-error') then
         begin
           // Darwin 不接受零大小发送缓冲区；小缓冲区仍能令大块发送挂起。

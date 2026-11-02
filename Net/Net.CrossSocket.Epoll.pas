@@ -79,6 +79,8 @@ type
     FEpLock: ILock;
     FOpCode: Integer;
     FInPending, FOutPending: Integer;
+    FReadEnded: Boolean;
+    FNotifyingWrites: Integer;
 
     function _UpdateIoEvent(const AIoEvents: TIoEvents; out ACloseRequired: Boolean): Boolean;
     procedure _Rearm(out ACloseRequired: Boolean);
@@ -325,7 +327,7 @@ begin
 
   LEvent.Events := 0;
 
-  if (ieRead in AIoEvents) and (AtomicCmpExchange(FInPending, 0, 0) = 0) then
+  if (ieRead in AIoEvents) and not FReadEnded and (AtomicCmpExchange(FInPending, 0, 0) = 0) then
     LEvent.Events := LEvent.Events or EPOLLIN;
 
   if (ieWrite in AIoEvents) and (AtomicCmpExchange(FOutPending, 0, 0) = 0) then
@@ -354,6 +356,10 @@ begin
   try
     if FSendQueue.Count > 0 then
       _UpdateIoEvent([ieRead, ieWrite], ACloseRequired)
+    else if FReadEnded then
+      ACloseRequired := (AtomicCmpExchange(FInPending, 0, 0) = 0)
+        and (AtomicCmpExchange(FOutPending, 0, 0) = 0)
+        and (AtomicCmpExchange(FNotifyingWrites, 0, 0) = 0)
     else
       _UpdateIoEvent([ieRead], ACloseRequired);
   finally
@@ -479,17 +485,21 @@ begin
   LConnection := AConnection;
   LEpConnection := LConnection as TEpollConnection;
 
-  AtomicIncrement(LEpConnection.FInPending);
+  if AtomicCmpExchange(LEpConnection.FInPending, 1, 0) <> 0 then Exit;
   try
     while True do
     begin
       LRcvd := TSocketAPI.Recv(LConnection.Socket, FRecvBuf[0], RCV_BUF_SIZE);
 
-      // 对方主动断开连接
+      // 对方不再写入，仍可接收回包。由 _Rearm 在排队数据及其完成回调结束后关闭。
       if (LRcvd = 0) then
       begin
-        _Log('Recv=0(Close), %s', [LConnection.DebugInfo]);
-        LConnection.Close;
+        LEpConnection._EpLock;
+        try
+          LEpConnection.FReadEnded := True;
+        finally
+          LEpConnection._EpUnlock;
+        end;
         Break;
       end;
 
@@ -613,20 +623,26 @@ begin
         Inc(LSendItem.Data, LSent);
       end;
     end;
+    if LCallbackCount > 0 then AtomicIncrement(LEpConnection.FNotifyingWrites);
   finally
     LEpConnection._EpUnlock;
     AtomicDecrement(LEpConnection.FOutPending);
   end;
 
   // 关闭和回调均在发送队列锁外，单个回调异常不能跳过其余通知。
-  if LSendFailed then _CloseCrossData(LConnection);
-  for I := 0 to LCallbackCount - 1 do
-  begin
-    LSendCb := LSendCbArr[I];
-    if not _CallConnectionCallback(LSendCb, LConnection, True) then
-      LCallbackFailed := True;
+  try
+    if LSendFailed then _CloseCrossData(LConnection);
+    for I := 0 to LCallbackCount - 1 do
+    begin
+      LSendCb := LSendCbArr[I];
+      if not _CallConnectionCallback(LSendCb, LConnection, True) then
+        LCallbackFailed := True;
+    end;
+    if LCallbackFailed then _CloseCrossData(LConnection);
+  finally
+    // 流式发送可在成功回调里追加下一块，期间暂时空队列不能关闭连接。
+    if LCallbackCount > 0 then AtomicDecrement(LEpConnection.FNotifyingWrites);
   end;
-  if LCallbackFailed then _CloseCrossData(LConnection);
 end;
 
 procedure TEpollCrossSocket._OpenIdleHandle;
