@@ -1,4 +1,23 @@
-﻿procedure TestClientCertificate(const AName, AProtocol, AHost: string;
+﻿type
+  TBeforeStreamSize = reference to procedure;
+  TReconnectStream = class(TMemoryStream)
+  public
+    BeforeSize: TBeforeStreamSize;
+  protected
+    function GetSize: Int64; override;
+  end;
+
+function TReconnectStream.GetSize: Int64;
+var
+  LProc: TBeforeStreamSize;
+begin
+  LProc := BeforeSize;
+  BeforeSize := nil;
+  if Assigned(LProc) then LProc();
+  Result := inherited GetSize;
+end;
+
+procedure TestClientCertificate(const AName, AProtocol, AHost: string;
   const APrepare, ATrustServer, AVerify, AMutual, AProvideKey, ASuccess: Boolean);
 var
   LServer: ICrossWebSocketServer;
@@ -7,6 +26,8 @@ var
   LListen, LResult: TEvent;
   LPort: Word;
   LSuccess, LRejected: Boolean;
+  LStream: TReconnectStream;
+  LSendCalls: Integer;
   LUrl: string;
 begin
   LPort := 0;
@@ -54,6 +75,34 @@ begin
         begin LSuccess := (Resp <> nil) and (Resp.StatusCode = 200); LResult.SetEvent; end);
     Require(LResult.WaitFor(7000) = wrSignaled, AName + ' 缺少握手结果');
     Require(LSuccess = ASuccess, AName + ' 握手结果不符');
+    if AName = 'wss-trusted' then
+    begin
+      LStream := TReconnectStream.Create;
+      try
+        LStream.Size := 16;
+        LStream.BeforeSize := procedure
+          begin
+            // 流开始取数时，外观已经取到旧连接；先在 I/O 线程完成断线并建立新连接。
+            LResult.ResetEvent;
+            LWs.Close;
+            Require(LResult.WaitFor(7000) = wrSignaled, '旧连接关闭超时');
+            LResult.ResetEvent;
+            LWs.Open;
+            Require((LResult.WaitFor(7000) = wrSignaled) and (LWs.Status = wsConnected), '重新打开失败');
+          end;
+        LSendCalls := 0;
+        LWs.Send(LStream, procedure(const OK: Boolean)
+          begin Inc(LSendCalls); LSuccess := OK; end);
+        Require((LSendCalls = 1) and not LSuccess, '旧连接发送必须恰好失败一次');
+        LWs.Ping;
+        LResult.ResetEvent;
+        LWs.Send('new', procedure(const OK: Boolean)
+          begin LSuccess := OK; LResult.SetEvent; end);
+        Require((LResult.WaitFor(7000) = wrSignaled) and LSuccess, '新连接不能正常发送');
+      finally
+        LStream.Free;
+      end;
+    end;
     if APrepare and AVerify and ASuccess and (AProtocol = 'wss') then
     begin
       // WSS 已冻结，先登记的 HTTPS 也不能被失败的 setter 单独改为不验证。

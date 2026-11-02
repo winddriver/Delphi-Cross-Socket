@@ -447,6 +447,7 @@ type
   protected
     function GetStatus: TWsStatus;
     function GetUrl: string;
+    function GetConnectedForSend: ICrossWebSocketClientConnection;
     function GetConnection: ICrossWebSocketClientConnection;
     procedure PrepareOpenRequest(const ARequest: ICrossHttpClientRequest); virtual;
     procedure ValidateOpenRequest(const ARequest: ICrossHttpClientRequest); virtual;
@@ -1386,80 +1387,117 @@ begin
     end);
 end;
 
-procedure TCrossWebSocket.Ping;
+function TCrossWebSocket.GetConnectedForSend: ICrossWebSocketClientConnection;
 begin
-  if (GetStatus = wsConnected) then
-    FConnection.WsPing;
+  _Lock;
+  try
+    if FStatus = wsConnected then Result := FConnection else Result := nil;
+  finally
+    _Unlock;
+  end;
+end;
+
+procedure TCrossWebSocket.Ping;
+var
+  LConnection: ICrossWebSocketClientConnection;
+begin
+  LConnection := GetConnectedForSend;
+  if LConnection <> nil then
+    LConnection.WsPing;
 end;
 
 procedure TCrossWebSocket.Send(const AData: Pointer; const ACount: NativeInt;
   const ACallback: TWsClientCallback);
+var
+  LConnection: ICrossWebSocketClientConnection;
 begin
-  if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, ACount, ACallback)
+  LConnection := GetConnectedForSend;
+  if LConnection <> nil then
+    (LConnection as TCrossWebSocketClientConnection).WsSend(AData, ACount, ACallback)
   else if Assigned(ACallback) then
     ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData; const ACount: NativeInt;
   const ACallback: TWsClientCallback);
+var
+  LConnection: ICrossWebSocketClientConnection;
 begin
-  if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, ACount, ACallback)
+  LConnection := GetConnectedForSend;
+  if LConnection <> nil then
+    LConnection.WsSend(AData, ACount, ACallback)
   else if Assigned(ACallback) then
     ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData: TBytes; const AOffset,
   ACount: NativeInt; const ACallback: TWsClientCallback);
+var
+  LConnection: ICrossWebSocketClientConnection;
 begin
-  if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, AOffset, ACount, ACallback)
+  LConnection := GetConnectedForSend;
+  if LConnection <> nil then
+    LConnection.WsSend(AData, AOffset, ACount, ACallback)
   else if Assigned(ACallback) then
     ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData: TBytes;
   const ACallback: TWsClientCallback);
+var
+  LConnection: ICrossWebSocketClientConnection;
 begin
-  if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, ACallback)
+  LConnection := GetConnectedForSend;
+  if LConnection <> nil then
+    LConnection.WsSend(AData, ACallback)
   else if Assigned(ACallback) then
     ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData: string;
   const ACallback: TWsClientCallback);
+var
+  LConnection: ICrossWebSocketClientConnection;
 begin
-  if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, ACallback)
+  LConnection := GetConnectedForSend;
+  if LConnection <> nil then
+    LConnection.WsSend(AData, ACallback)
   else if Assigned(ACallback) then
     ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData: TWsClientChunkDataFunc;
   const ACallback: TWsClientCallback);
+var
+  LConnection: ICrossWebSocketClientConnection;
 begin
-  if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, ACallback)
+  LConnection := GetConnectedForSend;
+  if LConnection <> nil then
+    LConnection.WsSend(AData, ACallback)
   else if Assigned(ACallback) then
     ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData: TStream; const AOffset,
   ACount: Int64; const ACallback: TWsClientCallback);
+var
+  LConnection: ICrossWebSocketClientConnection;
 begin
-  if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, AOffset, ACount, ACallback)
+  LConnection := GetConnectedForSend;
+  if LConnection <> nil then
+    LConnection.WsSend(AData, AOffset, ACount, ACallback)
   else if Assigned(ACallback) then
     ACallback(False);
 end;
 
 procedure TCrossWebSocket.Send(const AData: TStream;
   const ACallback: TWsClientCallback);
+var
+  LConnection: ICrossWebSocketClientConnection;
 begin
-  if (GetStatus = wsConnected) then
-    FConnection.WsSend(AData, ACallback)
+  LConnection := GetConnectedForSend;
+  if LConnection <> nil then
+    LConnection.WsSend(AData, ACallback)
   else if Assigned(ACallback) then
     ACallback(False);
 end;
