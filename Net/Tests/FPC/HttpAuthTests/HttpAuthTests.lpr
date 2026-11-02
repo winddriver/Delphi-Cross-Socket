@@ -52,6 +52,7 @@ type
     FServer: ICrossHttpServer;
     FBusinessCalls: Integer;
   public
+    MiddlewareTrace: string;
     PasswordHook: TAuthGetPasswordProc;
     RaiseInBusiness: Boolean;
     constructor Create(const ADigest, AUseCallback: Boolean;
@@ -62,6 +63,9 @@ type
     function Challenge: string;
     function BusinessCalls: Integer;
     procedure ClearAuth;
+    procedure LocalMiddleware(const ARequest: ICrossHttpRequest;
+      const AResponse: ICrossHttpResponse; var AHandled: Boolean);
+
   end;
 
 procedure Check(const AValue: Boolean; const AMessage: string);
@@ -144,14 +148,14 @@ begin
   else
     FServer.Use(TNetCrossMiddleware.AuthenticateBasic(LPasswordProc, ARealm));
 
-  FServer.Get('*',
+  FServer.Get('*', TCrossHttpRouterProc(
     procedure(const ARequest: ICrossHttpRequest; const AResponse: ICrossHttpResponse;
       var AHandled: Boolean)
     begin
       AtomicIncrement(FBusinessCalls);
       if RaiseInBusiness then raise Exception.Create('业务测试异常');
       AResponse.Send('ok');
-    end);
+    end));
 end;
 
 function TAuthFixture.Request(const ATarget, AAuthorization: string): TTestResponse;
@@ -225,6 +229,12 @@ begin
   Result := AtomicCmpExchange(FBusinessCalls, 0, 0);
 end;
 
+procedure TAuthFixture.LocalMiddleware(const ARequest: ICrossHttpRequest;
+  const AResponse: ICrossHttpResponse; var AHandled: Boolean);
+begin
+  MiddlewareTrace := MiddlewareTrace + 'M';
+end;
+
 procedure TAuthFixture.ClearAuth;
 begin
   FServer.ClearMiddlewares;
@@ -285,6 +295,8 @@ var
   LFixture: TAuthFixture;
   LAuth, LNonce, LTarget: string;
   LExpected: Integer;
+  LMethod: TCrossHttpRouterMethod;
+  LProc: TCrossHttpRouterProc;
 begin
   {$IFDEF CROSS_HTTP_AUTH_TESTS}
   if RunAdditionalCase(AName) then Exit;
@@ -292,6 +304,43 @@ begin
   LFixture := TAuthFixture.Create(AName.StartsWith('digest-'),
     (AName <> 'basic-nil') and (AName <> 'digest-nil'));
   try
+    if AName = 'middleware-order' then
+    begin
+      LFixture.FServer.Use('/admin', TCrossHttpRouterProc(TNetCrossMiddleware.NoCache()));
+      LFixture.Expect('/admin', '', 401);
+      LFixture.Expect('/admin', Basic('root:secret'), 200);
+      LFixture.ClearAuth;
+      // 不完整的候选不能把捕获参数写入后续处理器。
+      LMethod := LFixture.LocalMiddleware;
+      LFixture.FServer.Use('/:failed/other', LMethod);
+      LProc :=
+        procedure(const Req: ICrossHttpRequest; const Resp: ICrossHttpResponse; var Handled: Boolean)
+        begin
+          Check((Req.Params['id'] = 'admin') and not Req.Params.ExistsParam('failed'), '正则捕获泄漏');
+          LFixture.MiddlewareTrace := LFixture.MiddlewareTrace + 'R';
+        end;
+      LFixture.FServer.Use('GET', '/:id', LProc);
+      LFixture.FServer.Use('/admin', LMethod);
+      LProc :=
+        procedure(const Req: ICrossHttpRequest; const Resp: ICrossHttpResponse; var Handled: Boolean)
+        begin
+          LFixture.MiddlewareTrace := LFixture.MiddlewareTrace + 'P';
+          LFixture.ClearAuth;
+        end;
+      LFixture.FServer.Use('/admin', LProc);
+      LProc :=
+        procedure(const Req: ICrossHttpRequest; const Resp: ICrossHttpResponse; var Handled: Boolean)
+        begin
+          Check(Req.Params['*'] = 'admin?q=1', '通配参数缺少路径或查询');
+          LFixture.MiddlewareTrace := LFixture.MiddlewareTrace + 'W';
+        end;
+      LFixture.FServer.Use(LProc);
+      LFixture.Expect('/admin?q=1', '', 200);
+      Check(LFixture.MiddlewareTrace = 'RMPW', '混合注册或重入快照顺序错误');
+      LFixture.Expect('/admin', '', 200);
+      Check(LFixture.MiddlewareTrace = 'RMPW', '清除后仍执行旧注册');
+      Exit;
+    end;
     LExpected := 401;
     LTarget := '/private';
     if AName.StartsWith('basic-') then

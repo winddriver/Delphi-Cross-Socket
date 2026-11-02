@@ -18,6 +18,7 @@ CASES = [
 ]
 
 STATE_CASES = [
+    "middleware-order",
     "basic-invalid-utf8", "basic-control", "basic-truncated", "basic-duplicate-header",
     "basic-unicode", "basic-realm", "basic-realm-control", "basic-callback-error",
     "digest-wrong-realm", "digest-wrong-qop", "digest-wrong-algorithm",
