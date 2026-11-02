@@ -12,7 +12,8 @@ DELPHI = Path(r"D:\Design\Delphi\D13.1")
 FPC = Path(r"D:\Design\FreePascal\fpc\bin\x86_64-win64\ppcx64.exe")
 LAZ = Path(r"D:\Design\FreePascal\lazarus\components\lazutils\lib\x86_64-win64")
 CN = Path(r"D:\Design\Delphi\VclFmxRtl\cncrypto\Source")
-MODES = ["no-key", "failed-key", "tls12", "tls13", "rsa-no-key", "key-error", "ssl-reset", "cert-reset"]
+MODES = ["no-key", "failed-key", "tls12", "tls13", "rsa-no-key", "key-error", "ssl-reset", "cert-reset",
+         "usage", "usage-eku"]
 
 
 def execute(args, timeout=90):
@@ -77,11 +78,11 @@ def main():
             raise FileNotFoundError("需要匹配位数的 OpenSSL DLL")
         cert = output / "test-cert.pem"
         key = output / "test-key.pem"
+        # 只生成本地短期测试证书，不访问系统证书配置。
+        config = output / "certificate.cnf"
+        if not config.exists():
+            config.write_text("[req]\ndistinguished_name=subject\n[subject]\n", encoding="ascii")
         if not cert.exists():
-            # 只生成本地短期测试证书，不访问系统证书配置。
-            config = output / "certificate.cnf"
-            if not config.exists():
-                config.write_text("[req]\ndistinguished_name=subject\n[subject]\n", encoding="ascii")
             result = execute([REPO / "Net/Tools/OpenSSL/openssl.exe", "req", "-x509",
                               "-config", config, "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost",
                               "-keyout", key, "-out", cert])
@@ -90,8 +91,18 @@ def main():
                 raise RuntimeError("生成测试证书失败")
         results = []
         for mode in options.modes:
+            mode_cert = cert
+            if mode in ("usage", "usage-eku"):
+                mode_cert = output / (mode + ".pem")
+                extensions = ["-addext", "keyUsage=critical,digitalSignature"]
+                if mode == "usage-eku":
+                    extensions += ["-addext", "extendedKeyUsage=serverAuth"]
+                generated = execute([REPO / "Net/Tools/OpenSSL/openssl.exe", "req", "-x509",
+                                     "-config", config, "-key", key, "-days", "1", "-subj", "/CN=localhost",
+                                     *extensions, "-out", mode_cert])
+                generated.check_returncode()
             try:
-                result = execute([output / "SslInfoTests.exe", mode, ssl, crypto, cert, key], 20)
+                result = execute([output / "SslInfoTests.exe", mode, ssl, crypto, mode_cert, key], 20)
                 data = result.stdout + result.stderr
                 code = result.returncode
             except subprocess.TimeoutExpired as error:

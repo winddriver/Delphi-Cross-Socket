@@ -10,6 +10,7 @@ type
     AData: Pointer): NativeInt; cdecl;
   TFreeKey = procedure(AKey: PEVP_PKEY); cdecl;
   TKeyBits = function(AKey: PEVP_PKEY): Integer; cdecl;
+  TFreeCert = procedure(ACert: PX509); cdecl;
 
 var
   OriginalCtrl: TSslCtrl;
@@ -18,6 +19,9 @@ var
   KeysAcquired, KeysReleased: Integer;
   LastKey: PEVP_PKEY;
   RejectKey, RaiseOnKey: Boolean;
+  OriginalFreeCert: TFreeCert;
+  PeerCert: PX509;
+  CertReleases: Integer;
 
 procedure Check(const ACondition: Boolean; const AMessage: string);
 begin
@@ -54,8 +58,16 @@ begin
   Result := OriginalKeyBits(AKey);
 end;
 
+procedure ObserveFreeCert(ACert: PX509); cdecl;
+begin
+  if (ACert <> nil) and (ACert = PeerCert) then Inc(CertReleases);
+  OriginalFreeCert(ACert);
+end;
+
 procedure InstallObservers;
 begin
+  OriginalFreeCert := X509_free;
+  X509_free := ObserveFreeCert;
   OriginalCtrl := SSL_ctrl;
   OriginalFreeKey := EVP_PKEY_free;
   OriginalKeyBits := EVP_PKEY_get_bits;
@@ -66,6 +78,7 @@ end;
 
 procedure RestoreObservers;
 begin
+  X509_free := OriginalFreeCert;
   SSL_ctrl := OriginalCtrl;
   EVP_PKEY_free := OriginalFreeKey;
   EVP_PKEY_get_bits := OriginalKeyBits;
@@ -146,6 +159,8 @@ begin
   KeysReleased := 0;
   LastKey := nil;
   RaiseOnKey := AInjectError;
+  PeerCert := SSL_get0_peer_certificate(ASsl);
+  CertReleases := 0;
   InstallObservers;
   try
     for I := 1 to 32 do
@@ -174,6 +189,10 @@ begin
       end;
     end;
     if AExpectKey then Check(KeysAcquired = 32, '未观察到预期的原生临时密钥引用');
+    if (OpenSSL_version_num() < $30000000) and (PeerCert <> nil) and not AInjectError then
+      Check(CertReleases = 32, '1.1.1 对端证书的额外引用未归还')
+    else
+      Check(CertReleases = 0, '不应释放借用的证书或读取未到达的证书字段');
     Writeln('INFO ', ASide, ' ', AVersion, ' acquired=', KeysAcquired, ' released=', KeysReleased);
   finally
     RestoreObservers;
@@ -243,6 +262,20 @@ begin
   end;
 end;
 
+procedure TestKeyUsage;
+var
+  LCtx: PSSL_CTX;
+begin
+  LCtx := TSSLTools.NewCTX(TLS_method());
+  try
+    TSSLTools.SetCertificateFile(LCtx, ParamStr(4));
+    Check(TSSLTools.GetCertKeyUsage(SSL_CTX_get0_certificate(LCtx)) = X509v3_KU_DIGITAL_SIGNATURE,
+      '数字签名用途错误');
+  finally
+    TSSLTools.FreeCTX(LCtx);
+  end;
+end;
+
 procedure TestManagedReset(const ASslInfo: Boolean);
 var
   LInfo: TSslInfo;
@@ -294,6 +327,7 @@ begin
       else if ParamStr(1) = 'key-error' then TestHandshake(TLS1_3_VERSION, False, True)
       else if ParamStr(1) = 'ssl-reset' then TestManagedReset(True)
       else if ParamStr(1) = 'cert-reset' then TestManagedReset(False)
+      else if (ParamStr(1) = 'usage') or (ParamStr(1) = 'usage-eku') then TestKeyUsage
       else raise Exception.Create('未知测试');
     finally
       TSSLTools.UnloadSSL;

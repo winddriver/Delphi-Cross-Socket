@@ -1962,6 +1962,19 @@ end;
 function SSL_get0_peer_certificate(s: PSSL): PX509;
 begin
   Result := SSL_get_peer_certificate(s);
+  // 1.1.1 返回额外引用，归还后证书仍由 SSL 会话持有。
+  if Result <> nil then X509_free(Result);
+end;
+{$ENDIF}
+
+{$IFNDEF __SSL_STATIC__}
+var
+  LegacyGetPeerCertificate: function(ASsl: PSSL): PX509; cdecl;
+
+function BorrowLegacyPeerCertificate(ASsl: PSSL): PX509; cdecl;
+begin
+  Result := LegacyGetPeerCertificate(ASsl);
+  if Result <> nil then X509_free(Result);
 end;
 {$ENDIF}
 
@@ -3058,16 +3071,20 @@ end;
 class function TSSLTools.GetCertKeyUsage(ACert: PX509): Cardinal;
 var
   LKeyUsage: PASN1_BIT_STRING;
+  I: Integer;
 begin
   Result := 0;
   if (ACert = nil) then Exit;
   
-  LKeyUsage := X509_get_ext_d2i(ACert, NID_ext_key_usage, nil, nil);
-  if (LKeyUsage = nil) or (LKeyUsage.data = nil) then Exit;
-
-  Move(LKeyUsage.data^, Result, Min(LKeyUsage.length, SizeOf(Cardinal)));
-
-  ASN1_BIT_STRING_free(LKeyUsage);
+  LKeyUsage := X509_get_ext_d2i(ACert, NID_key_usage, nil, nil);
+  if LKeyUsage = nil then Exit;
+  try
+    if LKeyUsage.data <> nil then
+      for I := 0 to Min(LKeyUsage.length, SizeOf(Cardinal)) - 1 do
+        Result := Result or (Cardinal(PByte(LKeyUsage.data)[I]) shl (I * 8));
+  finally
+    ASN1_BIT_STRING_free(LKeyUsage);
+  end;
 end;
 
 class function TSSLTools.GetCertPEM(ACert: PX509): string;
@@ -3948,7 +3965,12 @@ begin
     @SSL_CIPHER_get_bits := GetSslLibProc(FSslLibHandle, 'SSL_CIPHER_get_bits');
     @SSL_get_servername := GetSslLibProc(FSslLibHandle, 'SSL_get_servername');
     @SSL_set1_host := GetSslLibProc(FSslLibHandle, 'SSL_set1_host');
-    @SSL_get0_peer_certificate := GetSslLibProc(FSslLibHandle, ['SSL_get0_peer_certificate', 'SSL_get_peer_certificate']);
+    @SSL_get0_peer_certificate := GetProc(FSslLibHandle, 'SSL_get0_peer_certificate');
+    if @SSL_get0_peer_certificate = nil then
+    begin
+      @LegacyGetPeerCertificate := GetSslLibProc(FSslLibHandle, 'SSL_get_peer_certificate');
+      @SSL_get0_peer_certificate := @BorrowLegacyPeerCertificate;
+    end;
 
     @SSL_ctrl := GetSslLibProc(FSslLibHandle, 'SSL_ctrl');
 
@@ -4231,6 +4253,7 @@ begin
   @SSL_get_servername := nil;
   @SSL_set1_host := nil;
   @SSL_get0_peer_certificate := nil;
+  @LegacyGetPeerCertificate := nil;
   @SSL_ctrl := nil;
   @SSL_shutdown := nil;
   @SSL_free := nil;
