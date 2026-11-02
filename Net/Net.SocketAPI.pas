@@ -993,6 +993,7 @@ class function TSocketAPI.GetSockOpt<T>(const ASocket: TSocket; const ALevel,
 var
   LOptionLen: Integer;
 begin
+  LOptionLen := SizeOf(T);
   Result := GetSockOpt(ASocket, ALevel, AOptionName, AOptionValue, LOptionLen);
 end;
 
@@ -1184,18 +1185,31 @@ begin
   Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, SO_RCVBUF, ABufSize, SizeOf(Integer));
 end;
 
+function SetSocketTimeout(const ASocket: TSocket; AOption: Integer; ATimeout: Cardinal): Integer;
+{$IFDEF POSIX}
+var
+  LTime: timeval;
+{$ENDIF}
+begin
+  {$IFDEF MSWINDOWS}
+  Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, AOption, ATimeout, SizeOf(ATimeout));
+  {$ELSE}
+  LTime.tv_sec := ATimeout div 1000;
+  LTime.tv_usec := (ATimeout mod 1000) * 1000;
+  Result := TSocketAPI.SetSockOpt(ASocket, SOL_SOCKET, AOption, LTime, SizeOf(LTime));
+  {$ENDIF}
+end;
+
 class function TSocketAPI.SetRecvTimeout(const ASocket: TSocket;
   const ATimeout: Cardinal): Integer;
 begin
-  Result := SetSockOpt(ASocket,
-    SOL_SOCKET, SO_RCVTIMEO, ATimeout, SizeOf(Cardinal));
+  Result := SetSocketTimeout(ASocket, SO_RCVTIMEO, ATimeout);
 end;
 
 class function TSocketAPI.SetSendTimeout(const ASocket: TSocket;
   const ATimeout: Cardinal): Integer;
 begin
-  Result := TSocketAPI.SetSockOpt(ASocket,
-    SOL_SOCKET, SO_SNDTIMEO, ATimeout, SizeOf(Cardinal));
+  Result := SetSocketTimeout(ASocket, SO_SNDTIMEO, ATimeout);
 end;
 
 class function TSocketAPI.SetSndBuf(const ASocket: TSocket;

@@ -1,18 +1,20 @@
-unit Net.RawSocket;
+ï»¿unit Net.RawSocket;
+
+{$I zLib.inc}
 
 interface
 
 uses
-  System.SysUtils, Net.SocketAPI,
+  SysUtils, Net.SocketAPI,
   {$IFDEF POSIX}
-  Posix.Base, Posix.SysSocket, Posix.NetinetIn
+    {$IFDEF FPC}Sockets, BaseUnix, cNetDB{$ELSE}Posix.Base, Posix.SysSocket, Posix.NetinetIn, Posix.NetDB{$ENDIF}
   {$ELSE}
-  Winapi.Windows, Net.Winsock2, Net.Wship6
+    Windows, Net.Winsock2, Net.Wship6
   {$ENDIF};
 
 type
   /// <summary>
-  ///   ¼òµ¥µÄÌ×½Ó×Ö²Ù×÷Àà
+  ///   ç®€å•çš„å¥—æ¥å­—æ“ä½œç±»
   /// </summary>
   TRawSocket = class
   private
@@ -20,57 +22,60 @@ type
     FSockAddr: TRawSockAddrIn;
     FPeerAddr: string;
     FPeerPort: Word;
+    function _Open(const AHost: string; APort: Word; ABind: Boolean): Integer;
   public
+    constructor Create;
+    destructor Destroy; override;
     /// <summary>
-    ///   ¹Ø±Õ Socket
+    ///   å…³é—­ Socket
     /// </summary>
     procedure Close;
     /// <summary>
-    ///   Á¬½Óµ½Ö÷»ú, Ö§³Ö IPv6
+    ///   è¿æ¥åˆ°ä¸»æœº, æ”¯æŒ IPv6
     /// </summary>
     function Connect(const AHost: string; APort: Word): Integer;
     /// <summary>
-    ///   °ó¶¨ Socket µ½Ö¸¶¨µØÖ·ºÍ¶Ë¿Ú, Ö§³Ö IPv6
+    ///   ç»‘å®š Socket åˆ°æŒ‡å®šåœ°å€å’Œç«¯å£, æ”¯æŒ IPv6
     /// </summary>
     function Bind(const Addr: string; APort: Word): Integer;
     /// <summary>
-    ///   Æô¶¯¼àÌı
+    ///   å¯åŠ¨ç›‘å¬
     /// </summary>
     function Listen(backlog: Integer = SOMAXCONN): Integer;
     /// <summary>
-    ///   ½ÓÊÜÒ»¸öÁ¬½ÓÇëÇó, ²¢·ÖÅä Socket
+    ///   æ¥å—ä¸€ä¸ªè¿æ¥è¯·æ±‚, å¹¶åˆ†é… Socket
     /// </summary>
     function Accept(Addr: PSockAddr; AddrLen: PInteger): THandle;
     /// <summary>
-    ///   ½ÓÊÕÊı¾İ
+    ///   æ¥æ”¶æ•°æ®
     /// </summary>
     function Recv(var Buf; len: Integer; flags: Integer = 0): Integer;
     /// <summary>
-    ///   ·¢ËÍÊı¾İ
+    ///   å‘é€æ•°æ®
     /// </summary>
     function Send(const Buf; len: Integer; flags: Integer = 0): Integer;
     /// <summary>
-    ///    ½ÓÊÕÊı¾İ´ÓÖ¸¶¨µØÖ·¶Ë¿Ú(ÓÃÓÚUDP)
+    ///    æ¥æ”¶æ•°æ®ä»æŒ‡å®šåœ°å€ç«¯å£(ç”¨äºUDP)
     /// </summary>
     function RecvFrom(const Addr: PSockAddr; var AddrLen: Integer; var Buf;
       len: Integer; flags: Integer = 0): Integer;
     /// <summary>
-    ///    ·¢ËÍÊı¾İµ½Ö¸¶¨µØÖ·¶Ë¿Ú(ÓÃÓÚUDP)
+    ///    å‘é€æ•°æ®åˆ°æŒ‡å®šåœ°å€ç«¯å£(ç”¨äºUDP)
     /// </summary>
     function SendTo(const Addr: PSockAddr; AddrLen: Integer; const Buf;
       len: Integer; flags: Integer = 0): Integer;
     /// <summary>
-    ///    ÅĞ¶ÏÌ×½Ó×ÖÊÇ·ñÓĞĞ§
+    ///    åˆ¤æ–­å¥—æ¥å­—æ˜¯å¦æœ‰æ•ˆ
     /// </summary>
     function IsValid: Boolean;
     /// <summary>
-    ///    Ì×½Ó×Ö¾ä±ú
+    ///    å¥—æ¥å­—å¥æŸ„
     /// </summary>
     property Socket: THandle read FSocket;
     /// <summary>
-    ///    Ì×½Ó×ÖµØÖ·ĞÅÏ¢
-    ///    Èç¹ûÊÇ Connect µ½Ô¶¶ËµÄÌ×½Ó×Ö, Ôò¸ÃµØÖ·±£´æµÄÊÇÔ¶¶ËµØÖ·ĞÅÏ¢
-    ///    Èç¹ûÊÇ Bind µ½±¾µØµÄÌ×½Ó×Ö, Ôò¸ÃµØÖ·±£´æµÄÊÇ±¾µØµØÖ·ĞÅÏ¢
+    ///    å¥—æ¥å­—åœ°å€ä¿¡æ¯
+    ///    å¦‚æœæ˜¯ Connect åˆ°è¿œç«¯çš„å¥—æ¥å­—, åˆ™è¯¥åœ°å€ä¿å­˜çš„æ˜¯è¿œç«¯åœ°å€ä¿¡æ¯
+    ///    å¦‚æœæ˜¯ Bind åˆ°æœ¬åœ°çš„å¥—æ¥å­—, åˆ™è¯¥åœ°å€ä¿å­˜çš„æ˜¯æœ¬åœ°åœ°å€ä¿¡æ¯
     /// </summary>
     property SockAddr: TRawSockAddrIn read FSockAddr;
     property PeerAddr: string read FPeerAddr;
@@ -81,56 +86,93 @@ implementation
 
 { TRawSocket }
 
+constructor TRawSocket.Create;
+begin
+  inherited Create;
+  FSocket := THandle(INVALID_SOCKET);
+end;
+
+destructor TRawSocket.Destroy;
+begin
+  Close;
+  inherited;
+end;
+
 procedure TRawSocket.Close;
 begin
-  if (FSocket = INVALID_HANDLE_VALUE) then Exit;
+  if (FSocket = THandle(INVALID_SOCKET)) then Exit;
   TSocketAPI.CloseSocket(FSocket);
-  FSocket := INVALID_HANDLE_VALUE;
+  FSocket := THandle(INVALID_SOCKET);
+end;
+
+function TRawSocket._Open(const AHost: string; APort: Word; ABind: Boolean): Integer;
+var
+  LHints: TRawAddrInfo;
+  LAddresses, LAddr: PRawAddrInfo;
+  LSocket: TSocket;
+  LAddress: TRawSockAddrIn;
+  LText: string;
+  LPort: Word;
+begin
+  Result := -1;
+  if ABind and IsValid then Exit;
+  FillChar(LHints, SizeOf(LHints), 0);
+  LHints.ai_family := AF_UNSPEC;
+  LHints.ai_socktype := SOCK_STREAM;
+  LHints.ai_protocol := IPPROTO_TCP;
+  if ABind then LHints.ai_flags := AI_PASSIVE;
+  LAddresses := TSocketAPI.GetAddrInfo(AHost, APort, LHints);
+  if LAddresses = nil then Exit;
+  try
+    LAddr := LAddresses;
+    while LAddr <> nil do
+    begin
+      LSocket := TSocketAPI.NewSocket(LAddr.ai_family, LAddr.ai_socktype, LAddr.ai_protocol);
+      if LSocket <> INVALID_SOCKET then
+      try
+        if ABind then
+          Result := TSocketAPI.Bind(LSocket, PSockAddr(LAddr.ai_addr), LAddr.ai_addrlen)
+        else
+        begin
+          TSocketAPI.SetKeepAlive(LSocket, 5, 3, 5);
+          Result := TSocketAPI.Connect(LSocket, PSockAddr(LAddr.ai_addr), LAddr.ai_addrlen);
+        end;
+        if Result = 0 then
+        begin
+          FillChar(LAddress, SizeOf(LAddress), 0);
+          LAddress.AddrLen := SizeOf(LAddress.Addr6);
+          if ABind then
+            Result := TSocketAPI.GetSockName(LSocket, @LAddress.Addr, LAddress.AddrLen)
+          else
+            Result := TSocketAPI.GetPeerName(LSocket, @LAddress.Addr, LAddress.AddrLen);
+          if Result = 0 then
+          begin
+            TSocketAPI.ExtractAddrInfo(@LAddress.Addr, LAddress.AddrLen, LText, LPort);
+            Close;
+            FSockAddr := LAddress;
+            FPeerAddr := LText;
+            FPeerPort := LPort;
+            FSocket := LSocket;
+            LSocket := INVALID_SOCKET;
+            Exit;
+          end;
+        end;
+      finally
+        if LSocket <> INVALID_SOCKET then TSocketAPI.CloseSocket(LSocket);
+      end;
+      LAddr := PRawAddrInfo(LAddr.ai_next);
+    end;
+  finally TSocketAPI.FreeAddrInfo(LAddresses); end;
 end;
 
 function TRawSocket.Connect(const AHost: string; APort: Word): Integer;
-var
-  LHints: TRawAddrInfo;
-  LAddrInfo: PRawAddrInfo;
 begin
-  FillChar(LHints, SizeOf(TRawAddrInfo), 0);
-  LHints.ai_family := AF_UNSPEC;
-  LHints.ai_socktype := SOCK_STREAM;
-  LHints.ai_protocol := IPPROTO_TCP;
-  LAddrInfo := TSocketAPI.GetAddrInfo(AHost, APort.ToString, LHints);
-  if (LAddrInfo = nil) then Exit(-1);
-  try
-    FSocket := TSocketAPI.NewSocket(LAddrInfo.ai_family, LAddrInfo.ai_socktype,
-      LAddrInfo.ai_protocol);
-    if (FSocket = INVALID_HANDLE_VALUE) then Exit(-1);
-
-    FSockAddr.AddrLen := LAddrInfo.ai_addrlen;
-    Move(LAddrInfo.ai_addr^, FSockAddr.Addr, LAddrInfo.ai_addrlen);
-    TSocketAPI.ExtractAddrInfo(@FSockAddr.Addr, FSockAddr.AddrLen, FPeerAddr, FPeerPort);
-
-    TSocketAPI.SetKeepAlive(FSocket, 5, 3, 5);
-    Result := TSocketAPI.Connect(FSocket, @FSockAddr.Addr, FSockAddr.AddrLen);
-  finally
-    TSocketAPI.FreeAddrInfo(LAddrInfo);
-  end;
+  Result := _Open(AHost, APort, False);
 end;
 
 function TRawSocket.Bind(const Addr: string; APort: Word): Integer;
-var
-  LHints: TRawAddrInfo;
-  LAddrInfo: PRawAddrInfo;
 begin
-  FillChar(LHints, SizeOf(TRawAddrInfo), 0);
-  LHints.ai_family := AF_UNSPEC;
-  LHints.ai_socktype := SOCK_STREAM;
-  LHints.ai_protocol := IPPROTO_TCP;
-  LAddrInfo := TSocketAPI.GetAddrInfo(Addr, APort.ToString, LHints);
-  if (LAddrInfo = nil) then Exit(-1);
-  FSockAddr.AddrLen := LAddrInfo.ai_addrlen;
-  Move(LAddrInfo.ai_addr^, FSockAddr.Addr, LAddrInfo.ai_addrlen);
-  TSocketAPI.FreeAddrInfo(LAddrInfo);
-  TSocketAPI.ExtractAddrInfo(@FSockAddr.Addr, FSockAddr.AddrLen, FPeerAddr, FPeerPort);
-  Result := TSocketAPI.Bind(FSocket, @FSockAddr.Addr, FSockAddr.AddrLen);
+  Result := _Open(Addr, APort, True);
 end;
 
 function TRawSocket.Listen(backlog: Integer): Integer;
