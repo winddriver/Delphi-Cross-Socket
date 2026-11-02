@@ -204,6 +204,7 @@ begin
   end;
   Print('CONNECTED ' + AConnection.Tag);
   inherited;
+  if FMode = 'welcome' then AConnection.SendBytes(TBytes.Create(87));
   if (FMode = 'accept') and (AConnection.Tag = '0') then
     raise Exception.Create('test connected callback');
 end;

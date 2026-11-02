@@ -10,7 +10,7 @@ from pathlib import Path
 CASES = ["batch", "accept", "sent-event", "send-callback", "pending-send", "cancel-sends", "cancel-error", "stop", "connect-callback", "connect-race", "send-close-race", "closed-state", "closed-send", "early-failure"]
 CASES += ["listen-dns", "listen-socket", "listen-bind", "listen-listen", "listen-register", "listen-callback", "listen-register-callback"]
 if sys.platform.startswith("linux"):
-    CASES.append("register-failure")
+    CASES.extend(["register-failure", "welcome"])
 
 
 def receive_closed(connection):
@@ -106,6 +106,10 @@ def run(executable, case):
                 good = connect(port)
                 ping(good)
                 receive_closed(bad)
+            elif case == "welcome":
+                peer = connect(port)
+                assert peer.recv(1) == b"W", "server greeting was not delivered"
+                ping(peer)
             elif case in ("sent-event", "send-callback"):
                 bad, good = connect(port), connect(port)
                 bad.sendall(b"S")

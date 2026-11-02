@@ -81,6 +81,7 @@ type
     FInPending, FOutPending: Integer;
 
     function _UpdateIoEvent(const AIoEvents: TIoEvents; out ACloseRequired: Boolean): Boolean;
+    procedure _Rearm(out ACloseRequired: Boolean);
     procedure _ClearSendQueue;
 
     // 为了减少死锁的可能, 不使用父类的 _Lock/_Unlock
@@ -346,6 +347,20 @@ begin
   end;
 end;
 
+procedure TEpollConnection._Rearm(out ACloseRequired: Boolean);
+begin
+  // EPOLL_CTL_MOD 会替换整个掩码，接入回调可能已将欢迎消息入队。
+  _EpLock;
+  try
+    if FSendQueue.Count > 0 then
+      _UpdateIoEvent([ieRead, ieWrite], ACloseRequired)
+    else
+      _UpdateIoEvent([ieRead], ACloseRequired);
+  finally
+    _EpUnlock;
+  end;
+end;
+
 { TEpollCrossSocket }
 
 constructor TEpollCrossSocket.Create(const AIoThreads: Integer);
@@ -423,9 +438,7 @@ begin
       if LConnection.IsClosed then Continue;
       TriggerConnected(LConnection);
       LEpConnection := LConnection as TEpollConnection;
-      LEpConnection._EpLock;
-      try LEpConnection._UpdateIoEvent([ieRead], LCloseRequired);
-      finally LEpConnection._EpUnlock; end;
+      LEpConnection._Rearm(LCloseRequired);
       if LCloseRequired then _CloseCrossData(LConnection);
     except
       on E: Exception do
@@ -1004,7 +1017,6 @@ var
   LEpConnection: TEpollConnection;
   LCloseRequired, LRearmed: Boolean;
   LListenError: Integer;
-  LIoEvents: TIoEvents;
 begin
   // 被系统信号打断或者出错会返回-1, 具体需要根据错误代码判断
   LRet := epoll_wait(FEpollHandle, @FEventList[0], MAX_EVENT_COUNT, -1);
@@ -1129,16 +1141,7 @@ begin
         if not LConnection.IsClosed then
         begin
           LEpConnection := LConnection as TEpollConnection;
-          LEpConnection._EpLock;
-          try
-            if (LEpConnection.FSendQueue.Count > 0) then
-              LIoEvents := [ieRead, ieWrite]
-            else
-              LIoEvents := [ieRead];
-            LEpConnection._UpdateIoEvent(LIoEvents, LCloseRequired);
-          finally
-            LEpConnection._EpUnlock;
-          end;
+          LEpConnection._Rearm(LCloseRequired);
           if LCloseRequired then _CloseCrossData(LConnection);
         end;
       end;
