@@ -803,10 +803,11 @@ begin
       // 输入缓冲区数据可以大于输出缓冲区
       // 这种情况可以多次调用 inflate 分批解压,
       // 直到 avail_in=0  表示当前输入缓冲区数据已解压完毕
+      LInputLeft := FZStream.avail_in;
       FZResult := inflate(FZStream, FZFlush);
 
-      // 解压出错之后直接结束
-      if (FZResult < 0) then
+      // HTTP deflate 不提供预置字典；只有正常推进或流结束才有可处理的输出。
+      if (FZResult <> Z_OK) and (FZResult <> Z_STREAM_END) then
       begin
         FZOutSize := 0;
         _OnParseFailed(400, 'inflate failed');
@@ -815,6 +816,9 @@ begin
 
       // 已解压完成的数据大小
       FZOutSize := ZLIB_BUF_SIZE - FZStream.avail_out;
+      if (FZResult = Z_OK) and (FZOutSize = 0) and (FZStream.avail_in > 0)
+        and (FZStream.avail_in = LInputLeft) then
+        _OnParseFailed(400, 'Compressed body made no progress.');
 
       if (FMaxBodyDataSize > 0) and (FDecodedBodySize + FZOutSize > FMaxBodyDataSize) then
       begin

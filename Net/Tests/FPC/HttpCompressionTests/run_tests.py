@@ -33,6 +33,8 @@ MEMBER_CASES += ["members-" + context + "-reuse" for context in CONTEXTS]
 MEMBER_CASES += ["members-" + context + "-" + kind for context in ("server-chunk", "client-chunk")
                  for kind in ("chunkmembers", "tinychunks")]
 CASES += MEMBER_CASES
+CASES += [context + "-deflate-" + action for context in CONTEXTS
+          for action in ("dictionary", "dictionarysplit")]
 HOOK_CASES = ["server-length-gzip-initfail", "server-length-gzip-windowfail"]
 
 

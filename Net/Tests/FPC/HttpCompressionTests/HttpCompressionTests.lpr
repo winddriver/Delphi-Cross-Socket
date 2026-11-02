@@ -17,7 +17,7 @@ type
     Data: AnsiString;
     RejectAt: string;
     RaiseFailure, AbortSuccess: Boolean;
-    Begins, Ends, Successes, Failures: Integer;
+    Begins, Ends, Successes, Failures, FailureCode: Integer;
     RejectAfterBytes: Integer;
     constructor Create(const AMode: TCrossHttpParseMode);
     destructor Destroy; override;
@@ -174,6 +174,7 @@ end;
 procedure TProbe.Failed(const ACode: Integer; const AError: string);
 begin
   Inc(Failures);
+  FailureCode := ACode;
   Writeln('PARSER failure=', ACode, ' ', AError);
   {$IFDEF CROSS_HTTP_COMPRESSION_TESTS}
   Check(LiveAllocations = 0, '失败通知发生在原生状态释放之前');
@@ -200,7 +201,8 @@ begin
   end;
 end;
 
-function Compressed(const AData: AnsiString; const AGzip: Boolean): AnsiString;
+function Compressed(const AData: AnsiString; const AGzip: Boolean;
+  const ADictionary: AnsiString = ''): AnsiString;
 var
   LStream: TZStreamRec;
   LBits, LResult: Integer;
@@ -211,6 +213,9 @@ begin
   Check(deflateInit2(LStream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, LBits, 8,
     Z_DEFAULT_STRATEGY) = Z_OK, '测试数据压缩初始化失败');
   try
+    if ADictionary <> '' then
+      Check(deflateSetDictionary(LStream, Pointer(PAnsiChar(ADictionary)), Length(ADictionary)) = Z_OK,
+        '测试数据预置字典初始化失败');
     SetLength(Result, Length(AData) * 2 + 1024);
     LStream.next_in := Pointer(PAnsiChar(AData));
     LStream.avail_in := Length(AData);
@@ -241,7 +246,7 @@ procedure RunCase(const ACase: string);
 var
   LParts: TArray<string>;
   LProbe: TProbe;
-  LClient, LGzip, LFail, LDestroy, LDisconnected: Boolean;
+  LClient, LGzip, LFail, LDestroy, LDisconnected, LDictionary: Boolean;
   LFraming, LAction: string;
   LPlain, LZipped, LBody, LHeader, LChunkHeader, LChunkEnd: AnsiString;
   LSize, I: Integer;
@@ -260,12 +265,16 @@ begin
     for I := 1 to Length(LPlain) do LPlain[I] := AnsiChar((I * 47 + I div 251) mod 256);
   end;
   if LAction = 'empty' then LPlain := '';
-  LZipped := Compressed(LPlain, LGzip);
+  LDictionary := (LAction = 'dictionary') or (LAction = 'dictionarysplit');
+  if LDictionary then
+    LZipped := Compressed(LPlain, LGzip, 'dictionary')
+  else
+    LZipped := Compressed(LPlain, LGzip);
   LSize := Length(LZipped);
   LFail := (LAction = 'truncated') or (LAction = 'disconnect') or (LAction = 'corrupt')
     or (LAction = 'failraise') or (LAction = 'finishraise') or (LAction = 'destroyraise')
     or (LAction = 'initfail') or (LAction = 'windowfail') or (LAction = 'limit')
-    or (LAction = 'ratio') or (LAction = 'headerfinish')
+    or (LAction = 'ratio') or (LAction = 'headerfinish') or LDictionary
     or (Pos('reject', LAction) = 1) or (Pos('throw', LAction) = 1);
   LDestroy := (LAction = 'destroy') or (LAction = 'destroyraise') or (LAction = 'headerdestroy');
   LDisconnected := (LAction = 'disconnect') or LDestroy;
@@ -311,11 +320,14 @@ begin
     {$ENDIF}
     try
       if (LAction <> 'headerdestroy') and (LAction <> 'headerfinish') then
-        LProbe.Feed(LBody, (LAction = 'split') or (LAction = 'windowfail'));
+        LProbe.Feed(LBody, (LAction = 'split') or (LAction = 'windowfail') or (LAction = 'dictionarysplit'));
     except
       on E: Exception do
         if (Pos('throw', LAction) <> 1) and not LProbe.RaiseFailure then raise;
     end;
+    if LDictionary then
+      Check((LProbe.Failures = 1) and (LProbe.FailureCode = 400) and (LProbe.Data = '') and (LProbe.Ends = 0),
+        '需要字典的正文未在接收时拒绝');
     if LDestroy then
     begin
       try FreeAndNil(LProbe.Parser); except on E: Exception do if not LProbe.RaiseFailure then raise; end;
