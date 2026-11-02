@@ -165,6 +165,7 @@ def run_server(executable):
 
 
 CLIENT_CASES = ['valid', 'case', 'tokens', 'repeated-connection', 'protocol', 'stall', 'upgraded-idle',
+                'invalid-method', 'invalid-target',
                 'status-200', 'http10', 'missing-upgrade', 'fake-upgrade', 'missing-connection',
                 'fake-connection', 'bad-accept', 'duplicate-accept', 'unsolicited-protocol',
                 'wrong-protocol-case', 'duplicate-protocol', 'extension', 'offered-extension',
@@ -178,7 +179,8 @@ def run_client(executable, case):
     offered = {'changed-key': 'key', 'invalid-protocol': 'invalid-protocol',
                'response-error': 'response-error', 'changed-key-ows': 'key-ows',
                 'filtered-protocol': 'filtered-protocol', 'stall': 'timeout',
-                'upgraded-idle': 'timeout'}.get(case, offered)
+                'upgraded-idle': 'timeout', 'invalid-method': 'invalid-method',
+                'invalid-target': 'invalid-target'}.get(case, offered)
     detail = ''
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
@@ -189,7 +191,7 @@ def run_client(executable, case):
             s, _ = listener.accept()
             with s:
                 s.settimeout(2)
-                if case == 'filtered-protocol':
+                if case in ('filtered-protocol', 'invalid-method', 'invalid-target'):
                     # 保留旧用例名便于对照；现合同是整次发送失败，不能过滤坏字段后继续握手。
                     # 对端必须收到 EOF 而没有任何请求字节，客户端只能触发一次失败通知。
                     assert s.recv(1) == b'', '非法 Header 不应发送任何字节'

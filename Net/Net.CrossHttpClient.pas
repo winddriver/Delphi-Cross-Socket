@@ -2782,7 +2782,13 @@ begin
     end else
       LPathStr := FRequestObj.FPathAndParams;
 
-    // 设置请求行
+    // 首行不经过字段编码。方法只能是 token，原样发送的目标不能含分隔符或控制字符。
+    if not TCrossHttpUtils.IsValidHeaderName(FRequestObj.FMethod) then
+      raise EConvertError.Create('Invalid HTTP request method');
+    if not FAutoUrlEncode then
+      for I := 1 to Length(LPathStr) do
+        if (LPathStr[I] <= #32) or (LPathStr[I] = #127) then
+          raise EConvertError.Create('Invalid HTTP request target');
     LHeaderStr := FRequestObj.FMethod + ' '
       + LPathStr + ' '
       + HTTP_VER_STR[FRequestObj.FHttpVersion] + CRLF;

@@ -51,13 +51,15 @@ begin
   finally Received.Free;Closed.Free;Opened.Free;end;
 end;
 procedure HandshakeClient;
-var W:ICrossWebSocket; M:ICrossWebSocketMgr; Done:TEvent; Opens,Closes:Integer; Line:string;
+var W:ICrossWebSocket; M:ICrossWebSocketMgr; Done:TEvent; Opens,Closes:Integer; Line,Url:string;
 begin
   Done:=TEvent.Create(nil,True,False,'');Opens:=0;Closes:=0;
   try
     M:=TCrossWebSocketMgr.Create(1);
     if ParamStr(3)='timeout' then begin M.RequestTimeout:=1; M.Idleout:=1; end;
-    W:=M.CreateWebSocket(ParamStr(2));
+    Url:=ParamStr(2);
+    if ParamStr(3)='invalid-target' then Url:=Url+' HTTP/1.1'+#13#10+'X-Probe: injected';
+    W:=M.CreateWebSocket(Url);
     W.OnOpenRequest(procedure(const R:ICrossHttpClientRequest)
       begin
         if ParamStr(3)='protocol' then R.Header['Sec-WebSocket-Protocol']:='chat, superchat';
@@ -72,7 +74,15 @@ begin
         begin raise Exception.Create('预期的响应观察回调异常');end);
     W.OnOpen(procedure begin AtomicIncrement(Opens);Done.SetEvent;end);
     W.OnClose(procedure begin AtomicIncrement(Closes);Done.SetEvent;end);
-    W.Open;
+    if ParamStr(3)='invalid-method' then
+      M.DoRequest('GET / HTTP/1.1'+#13#10+'X-Probe: injected', 'http'+Copy(Url,3,MaxInt),
+        nil, Pointer(nil), 0, nil, nil,
+        procedure(const R:ICrossHttpClientResponse)
+        begin
+          if (R=nil) or (R.StatusCode>=400) then AtomicIncrement(Closes);
+          Done.SetEvent;
+        end)
+    else W.Open;
     if Done.WaitFor(8000)<>wrSignaled then raise Exception.Create('handshake callback timeout');
     Writeln('RESULT ',AtomicCmpExchange(Opens,0,0),' ',AtomicCmpExchange(Closes,0,0));Flush(Output);
     // 父进程先检查线上关闭行为，再允许析构，避免把析构关闭误判成握手拒绝。
