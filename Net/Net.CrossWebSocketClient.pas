@@ -502,6 +502,7 @@ type
     class function GetDefault: ICrossWebSocketMgr; static;
   protected
     function CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket; override;
+    function GetTimeoutClients: TArray<ICrossHttpClientSocket>; override;
   public
     constructor Create(const AIoThreads: Integer = 2); reintroduce;
     destructor Destroy; override;
@@ -1729,6 +1730,11 @@ begin
   LWebSocket := TCrossWebSocket.Create(Self, AUrl);
 
   Result := LWebSocket;
+end;
+
+function TCrossWebSocketMgr.GetTimeoutClients: TArray<ICrossHttpClientSocket>;
+begin
+  Result := inherited GetTimeoutClients + FWsCliArr;
 end;
 
 destructor TCrossWebSocketMgr.Destroy;

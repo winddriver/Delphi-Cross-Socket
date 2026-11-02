@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 
 KEY = 'dGhlIHNhbXBsZSBub25jZQ=='
 MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -163,7 +164,7 @@ def run_server(executable):
     return results
 
 
-CLIENT_CASES = ['valid', 'case', 'tokens', 'repeated-connection', 'protocol',
+CLIENT_CASES = ['valid', 'case', 'tokens', 'repeated-connection', 'protocol', 'stall', 'upgraded-idle',
                 'status-200', 'http10', 'missing-upgrade', 'fake-upgrade', 'missing-connection',
                 'fake-connection', 'bad-accept', 'duplicate-accept', 'unsolicited-protocol',
                 'wrong-protocol-case', 'duplicate-protocol', 'extension', 'offered-extension',
@@ -171,12 +172,13 @@ CLIENT_CASES = ['valid', 'case', 'tokens', 'repeated-connection', 'protocol',
 
 
 def run_client(executable, case):
-    valid = case in ('valid', 'case', 'tokens', 'repeated-connection', 'protocol', 'changed-key', 'changed-key-ows')
+    valid = case in ('valid', 'case', 'tokens', 'repeated-connection', 'protocol', 'changed-key', 'changed-key-ows', 'upgraded-idle')
     offered = 'protocol' if case in ('protocol', 'wrong-protocol-case', 'duplicate-protocol', 'bom-protocol') else (
         'extension' if case == 'offered-extension' else '')
     offered = {'changed-key': 'key', 'invalid-protocol': 'invalid-protocol',
                'response-error': 'response-error', 'changed-key-ows': 'key-ows',
-               'filtered-protocol': 'filtered-protocol'}.get(case, offered)
+                'filtered-protocol': 'filtered-protocol', 'stall': 'timeout',
+                'upgraded-idle': 'timeout'}.get(case, offered)
     detail = ''
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
@@ -192,6 +194,10 @@ def run_client(executable, case):
                     # 对端必须收到 EOF 而没有任何请求字节，客户端只能触发一次失败通知。
                     assert s.recv(1) == b'', '非法 Header 不应发送任何字节'
                     assert process.next() == 'RESULT 0 1', process.lines
+                elif case == 'stall':
+                    read_headers(s)
+                    assert process.next() == 'RESULT 0 1', process.lines
+                    closed(s)
                 else:
                     _, req = read_headers(s)
                     expected_accept = accept(req['sec-websocket-key'][0])
@@ -228,6 +234,11 @@ def run_client(executable, case):
                     s.sendall((f'{version} {status}\r\n' + ''.join(f'{n}: {v}\r\n' for n, v in headers) + '\r\n').encode())
                     result = process.next()
                     assert result == ('RESULT 1 0' if valid else 'RESULT 0 1'), result
+                    if case == 'upgraded-idle':
+                        # 越过一次真实 HTTP 扫描后，已升级连接仍能回复 Ping。
+                        time.sleep(5.5)
+                        s.sendall(b'\x89\x00')
+                        assert s.recv(1) == b'\x8a', '已升级连接被 HTTP 超时关闭'
                     if not valid: closed(s)
         except Exception as error:
             detail = f'{type(error).__name__}: {error}'

@@ -56,6 +56,7 @@ begin
   Done:=TEvent.Create(nil,True,False,'');Opens:=0;Closes:=0;
   try
     M:=TCrossWebSocketMgr.Create(1);
+    if ParamStr(3)='timeout' then begin M.RequestTimeout:=1; M.Idleout:=1; end;
     W:=M.CreateWebSocket(ParamStr(2));
     W.OnOpenRequest(procedure(const R:ICrossHttpClientRequest)
       begin
@@ -72,7 +73,7 @@ begin
     W.OnOpen(procedure begin AtomicIncrement(Opens);Done.SetEvent;end);
     W.OnClose(procedure begin AtomicIncrement(Closes);Done.SetEvent;end);
     W.Open;
-    if Done.WaitFor(5000)<>wrSignaled then raise Exception.Create('handshake callback timeout');
+    if Done.WaitFor(8000)<>wrSignaled then raise Exception.Create('handshake callback timeout');
     Writeln('RESULT ',AtomicCmpExchange(Opens,0,0),' ',AtomicCmpExchange(Closes,0,0));Flush(Output);
     // 父进程先检查线上关闭行为，再允许析构，避免把析构关闭误判成握手拒绝。
     Readln(Line);

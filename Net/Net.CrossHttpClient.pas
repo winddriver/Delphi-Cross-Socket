@@ -1384,6 +1384,7 @@ type
     procedure _Unlock; inline;
 
     function CreateHttpCli(const AProtocol: string): ICrossHttpClientSocket; virtual;
+    function GetTimeoutClients: TArray<ICrossHttpClientSocket>; virtual;
     procedure RegisterTlsClient(const AClient: ICrossHttpClientSocket);
 
     function GetIdleout: Integer;
@@ -4558,13 +4559,19 @@ var
 begin
   _Lock;
   try
-    LHttpCliArr := Copy(FHttpCliArr);
+    LHttpCliArr := GetTimeoutClients;
   finally
     _Unlock;
   end;
 
   for LHttpCli in LHttpCliArr do
     _Proc(LHttpCli);
+end;
+
+function TCrossHttpClient.GetTimeoutClients: TArray<ICrossHttpClientSocket>;
+begin
+  // _ProcTimeout 已持有管理器锁，返回快照后才扫描连接。
+  Result := Copy(FHttpCliArr);
 end;
 
 procedure TCrossHttpClient._Unlock;
