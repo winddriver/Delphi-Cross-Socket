@@ -5151,14 +5151,102 @@ begin
   end;
 end;
 
+function _HostRegChar(C: Char): Boolean; inline;
+begin
+  Result := CharInSet(C, ['a'..'z', 'A'..'Z', '0'..'9', '-', '.', '_', '~',
+    '!', '$', '&', '''', '(', ')', '*', '+', ';', '=']);
+end;
+
+function _HostHex(C: Char): Boolean; inline;
+begin
+  Result := CharInSet(C, ['0'..'9', 'a'..'f', 'A'..'F']);
+end;
+
+function _ValidHostLiteral(const AHost: string): Boolean;
+const
+  // Windows、Linux 和 BSD 的 getaddrinfo 数字地址标志；禁止 DNS 查询。
+  NUMERIC_HOST = 4;
+var
+  I: Integer;
+  LHints: TRawAddrInfo;
+  LInfo: PRawAddrInfo;
+begin
+  if Length(AHost) < 2 then Exit(False);
+  if CharInSet(AHost[1], ['v', 'V']) then
+  begin
+    I := 2;
+    while (I <= Length(AHost)) and _HostHex(AHost[I]) do Inc(I);
+    if (I = 2) or (I >= Length(AHost)) or (AHost[I] <> '.') then Exit(False);
+    for I := I + 1 to Length(AHost) do
+      if not (_HostRegChar(AHost[I]) or (AHost[I] = ':')) then Exit(False);
+    Exit(True);
+  end;
+  if Pos(':', AHost) = 0 then Exit(False);
+  for I := 1 to Length(AHost) do
+    if not (_HostHex(AHost[I]) or CharInSet(AHost[I], [':', '.'])) then Exit(False);
+  FillChar(LHints, SizeOf(LHints), 0);
+  LHints.ai_flags := NUMERIC_HOST;
+  LInfo := TSocketAPI.GetAddrInfo(AHost, '', LHints);
+  Result := LInfo <> nil;
+  if Result then TSocketAPI.FreeAddrInfo(LInfo);
+end;
+
+function _ParseRequestHost(const AValue: string; const ADefaultPort: Word;
+  out AHost: string; out APort: Word): Boolean;
+var
+  I, LPort: Integer;
+begin
+  Result := False;
+  if AValue = '' then Exit;
+  if AValue[1] = '[' then
+  begin
+    I := Pos(']', AValue);
+    if I = 0 then Exit;
+    AHost := Copy(AValue, 2, I - 2);
+    if not _ValidHostLiteral(AHost) then Exit;
+    Inc(I);
+  end else
+  begin
+    I := 1;
+    while (I <= Length(AValue)) and (AValue[I] <> ':') do
+    begin
+      if AValue[I] = '%' then
+      begin
+        if (Length(AValue) - I < 2) or not _HostHex(AValue[I + 1]) or not _HostHex(AValue[I + 2]) then Exit;
+        Inc(I, 2);
+      end else
+      if not _HostRegChar(AValue[I]) then Exit;
+      Inc(I);
+    end;
+    if I = 1 then Exit;
+    AHost := Copy(AValue, 1, I - 1);
+  end;
+  APort := ADefaultPort;
+  if I <= Length(AValue) then
+  begin
+    if AValue[I] <> ':' then Exit;
+    Inc(I);
+    if I > Length(AValue) then Exit(True);
+    LPort := 0;
+    while I <= Length(AValue) do
+    begin
+      if not CharInSet(AValue[I], ['0'..'9']) then Exit;
+      LPort := LPort * 10 + Ord(AValue[I]) - Ord('0');
+      if LPort > High(Word) then Exit;
+      Inc(I);
+    end;
+    APort := Word(LPort);
+  end;
+  Result := True;
+end;
+
 function TCrossHttpRequest.ParseHeader(const ADataPtr: Pointer;
   const ADataSize: Integer): Boolean;
 var
-  LPortStr, LName, LValue: string;
-  LCookieValues, LCLValues: TArray<string>;
+  LName, LValue: string;
+  LCookieValues, LCLValues, LHosts: TArray<string>;
   LFirstCL: string;
   I, J, K, LLineEnd, LTargetStart, LTargetEnd, LQueryStart, LStart: Integer;
-  LPortInt: Integer;
   P: PByte;
 begin
   Assert(Self <> nil, 'FRequest is nil');
@@ -5291,44 +5379,19 @@ begin
     end else
       FContentLength := -1;
 
-    // IPv4: 192.168.1.100:8080
-    //       192.168.1.100
-    // IPv6: [fc00::20:80:5:2]:8080
-    //       [fc00::20:80:5:2]
-    FRequestHost := FHeader[HEADER_HOST];
-    LPortStr := '';
-
-    J := FRequestHost.IndexOf(']');
-    if (J >= 0) then
+    // RFC 9112 §3.2：HTTP/1.1 要求 Host，同名字段不能被合并或只使用第一项。
+    FHostPort := GetConnection.Server.Port;
+    if FHeader.GetHeaderValues(HEADER_HOST, LHosts) then
     begin
-      FHostName := FRequestHost.Substring(1, J - 1);
-      J := FRequestHost.IndexOf(':', J);
-      if (J >= 0) then
-        LPortStr := FRequestHost.Substring(J + 1);
-    end else
-    begin
-      J := FRequestHost.IndexOf(':');
-      if (J >= 0) then
+      if Length(LHosts) <> 1 then Exit(False);
+      FRequestHost := LHosts[0];
+      if FRequestHost = '' then
       begin
-        FHostName := FRequestHost.Substring(0, J);
-        LPortStr := FRequestHost.Substring(J + 1);
+        if (FHttpVerNum = 11) and (FRawPathAndQuery <> '*') then Exit(False);
       end else
-        FHostName := FRequestHost;
-    end;
-    // RFC 7230 §5.4: Host 头中 port 必须是十进制数字. 这里用 TryStrToInt
-    // 避免 ToInteger 在畸形输入 (如 "abc"、超出 Int32 范围) 时抛 EConvertError;
-    // 超出 Word (0..65535) 范围亦视为非法 port, 不静默截断高位
-    if (LPortStr <> '') then
-    begin
-      if not TryStrToInt(LPortStr, LPortInt)
-        or (LPortInt < 0) or (LPortInt > High(Word)) then
-      begin
-        _Log('Invalid port:%s', [LPortStr]);
-        Exit(False);
-      end;
-      FHostPort := Word(LPortInt);
+      if not _ParseRequestHost(FRequestHost, GetConnection.Server.Port, FHostName, FHostPort) then Exit(False);
     end else
-      FHostPort := GetConnection.Server.Port;
+    if FHttpVerNum = 11 then Exit(False);
 
     FRequestConnection := FHeader[HEADER_CONNECTION];
     // 合并所有同名字段的 token；close 优先于 keep-alive，包括 HTTP/1.0。

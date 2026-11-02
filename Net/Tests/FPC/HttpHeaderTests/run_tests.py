@@ -149,6 +149,28 @@ def client(exe, case):
 
 # exe 启动真实 HTTP Server；output 是本轮隔离目录，上传文件只在其 tcp-uploads 子目录产生。
 # 响应状态、业务回调计数和最终文件清理一起判断，不能用“收到 400”替代完整失败链检查。
+def check_request_host(port):
+    cases = [
+        (b'1.1', [], 400), (b'1.1', [b'a', b'a'], 400), (b'1.1', [b'a', b'b'], 400),
+        (b'1.1', [b''], 400), (b'1.1', [b'a, b'], 400), (b'1.1', [b'user@a'], 400),
+        (b'1.1', [b'a/path'], 400), (b'1.1', [b'a:65536'], 400), (b'1.1', [b'a:+80'], 400),
+        (b'1.1', [b'a:$50'], 400), (b'1.1', [b'::1'], 400), (b'1.1', [b'[::1]x'], 400),
+        (b'1.1', [b'[foo]'], 400), (b'1.1', [b'[1::2::3]'], 400),
+        (b'1.1', [b'\xef\xbb\xbfa'], 400), (b'1.0', [b'a', b'b'], 400),
+        (b'1.0', [], 200), (b'1.1', [b'api.example.test:65535'], 200),
+        (b'1.1', [b'[::ffff:192.0.2.1]:443'], 200), (b'1.1', [b'[2001:db8::1]'], 200),
+    ]
+    for version, hosts, status in cases:
+        headers = b''.join(b'Host: ' + name + b'\r\n' for name in hosts)
+        with socket.create_connection(('127.0.0.1', port), timeout=5) as conn:
+            conn.sendall(b'POST /test HTTP/' + version + b'\r\n' + headers
+                         + b'Connection: close\r\nContent-Length: 3\r\n\r\nabc')
+            with conn.makefile('rb') as source:
+                received = source.readline()
+            assert int(received.split(b' ')[1]) == status, (version, hosts, received)
+    return sum(status == 200 for _, _, status in cases)
+
+
 def expect_continue(port):
     interim = b'HTTP/1.1 100 Continue\r\n\r\n'
     prefix = b'POST /test HTTP/1.1\r\nHost: localhost\r\nContent-Length: 3\r\n'
@@ -247,6 +269,8 @@ def server(exe, output):
                 if valid:
                     assert response.endswith(b'\r\n\r\nok'), (case, bytes(response))
                 results.append({'case': 'server-' + case, 'status': status})
+        host_calls = check_request_host(port)
+        results.append({'case': 'server-host'})
         expect_continue(port)
         results.append({'case': 'server-100-continue'})
     finally:
@@ -263,7 +287,7 @@ def server(exe, output):
         p.stdout.close()
         (output / 'server.log').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     # 原五个合法请求，加上管线两项和等待 100 后提交正文的一项。
-    assert p.returncode == 0 and 'REQUESTS 8' in lines, lines
+    assert p.returncode == 0 and f'REQUESTS {8 + host_calls}' in lines, lines
     assert not list(storage.iterdir()), '关闭后上传临时文件未清理'
     return results
 

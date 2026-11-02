@@ -1667,6 +1667,7 @@ function _GetControlHeaderKind(const AName: string): TControlHeaderKind;
 begin
   Result := chkAscii;
   case Length(AName) of
+    4: if _SameAsciiHeaderName(AName, 'host') then Exit;
     6: if _SameAsciiHeaderName(AName, 'expect') then Exit(chkQuotedText);
     7: if _SameAsciiHeaderName(AName, 'upgrade') then Exit;
     10: if _SameAsciiHeaderName(AName, 'connection') then Exit;
