@@ -10,6 +10,7 @@ uses
     {$IFDEF FPC}BaseUnix, Sockets, NetDB,{$ELSE}
     Posix.SysSocket, Posix.NetinetIn, Posix.ArpaInet, Posix.NetDB,{$ENDIF}
   {$ENDIF}
+  {$IFDEF FREEBSD}BSD.kqueue,{$ENDIF}
   Net.SocketAPI;
 
 procedure Check(const Value: Boolean; const MessageText: string);
@@ -17,9 +18,49 @@ begin
   if not Value then raise Exception.Create(MessageText);
 end;
 
+{$IFDEF FREEBSD}
+procedure TestKqueueLayout;
+var
+  Changes, Receipts: array[0..1] of TKEvent;
+  Timeout: TTimeSpec;
+  Queue, I, J: Integer;
+begin
+  {$IFNDEF CROSS_FREEBSD11_KEVENT}
+  if SizeOf(Pointer) = 8 then
+    Check((SizeOf(TKEvent) = 64) and
+      (NativeUInt(@Changes[0].Ext) - NativeUInt(@Changes[0]) = 32), 'FreeBSD 64-bit kevent ABI differs');
+  {$IFDEF CPU386}
+  Check((SizeOf(TKEvent) = 56) and
+    (NativeUInt(@Changes[0].Ext) - NativeUInt(@Changes[0]) = 24), 'FreeBSD i386 kevent ABI differs');
+  {$ENDIF}
+  {$ENDIF}
+  Queue := kqueue();
+  Check(Queue >= 0, 'kqueue failed');
+  try
+    FillChar(Changes, SizeOf(Changes), $ff);
+    for I := 0 to High(Changes) do
+    begin
+      EV_SET(@Changes[I], I + 10, EVFILT_TIMER, EV_ADD or EV_RECEIPT, 0, 60000, nil);
+      {$IFNDEF CROSS_FREEBSD11_KEVENT}
+      for J := 0 to High(Changes[I].Ext) do
+        Check(Changes[I].Ext[J] = 0, 'EV_SET left extension data');
+      {$ENDIF}
+    end;
+    FillChar(Timeout, SizeOf(Timeout), 0);
+    Check(kevent(Queue, @Changes[0], 2, @Receipts[0], 2, @Timeout) = 2, 'two receipts expected');
+    for I := 0 to High(Receipts) do
+      Check((Receipts[I].Ident = UIntPtr(I + 10)) and (Receipts[I].Flags and EV_ERROR <> 0)
+        and (Receipts[I].Data = 0), 'kevent array stride or registration differs');
+  finally
+    fpClose(Queue);
+  end;
+end;
+{$ENDIF}
+
 procedure TestLayout;
 var Info: TRawAddrInfo; CanonOffset, AddrOffset, NextOffset: NativeUInt;
 begin
+  {$IFDEF FREEBSD}TestKqueueLayout;{$ENDIF}
   CanonOffset := NativeUInt(@Info.ai_canonname) - NativeUInt(@Info);
   AddrOffset := NativeUInt(@Info.ai_addr) - NativeUInt(@Info);
   NextOffset := NativeUInt(@Info.ai_next) - NativeUInt(@Info);

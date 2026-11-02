@@ -10,6 +10,9 @@
 unit BSD.kqueue;
 
 {$I zLib.inc}
+{$IF DEFINED(FREEBSD) AND NOT DEFINED(CROSS_FREEBSD11_KEVENT)}
+  {$DEFINE FREEBSD_KEVENT_EXT}
+{$ENDIF}
 
 interface
 
@@ -83,15 +86,29 @@ const
   NOTE_LINKINV    = $0004;  { link state is invalid  }
 
 type
+  {$IFDEF FREEBSD_KEVENT_EXT}
+  TKEventData = Int64;     { FreeBSD 12 及以上的原生 kevent ABI }
+  {$ELSE}
+  TKEventData = IntPtr;
+  {$ENDIF}
   PKEvent = ^TKEvent;
+  {$IF DEFINED(FPC) AND DEFINED(FREEBSD)}
+  {$PUSH}{$PACKRECORDS C}
+  {$ENDIF}
   TKEvent = record
     Ident  : UIntPtr;      { identifier for this event }
     Filter : SmallInt;     { filter for event }
     Flags  : Word;
     FFlags : Cardinal;
-    Data   : IntPtr;
+    Data   : TKEventData;
     uData  : Pointer;    { opaque user data identifier }
+    {$IFDEF FREEBSD_KEVENT_EXT}
+    Ext    : array[0..3] of UInt64;
+    {$ENDIF}
   end;
+  {$IF DEFINED(FPC) AND DEFINED(FREEBSD)}
+  {$POP}
+  {$ENDIF}
 
 {$IF DEFINED(FPC)}
 {$LINKLIB c}
@@ -102,16 +119,20 @@ function kqueue: Integer; cdecl;
 
 function kevent(kq: Integer; ChangeList: PKEvent; nChanged: Integer;
   EventList: PKevent; nEvents: Integer; Timeout: PTimeSpec): Integer; cdecl;
+  {$IFDEF FREEBSD}
+  external 'c' name {$IFDEF FREEBSD_KEVENT_EXT}'kevent@FBSD_1.5'{$ELSE}'kevent@FBSD_1.0'{$ENDIF};
+  {$ELSE}
   external {$IFDEF DELPHI}libc name _PU + 'kevent'{$ENDIF};
+  {$ENDIF}
 
 procedure EV_SET(kevp: PKEvent; const aIdent: UIntPtr; const aFilter: SmallInt;
-  const aFlags: Word; const aFFlags: Cardinal; const aData: IntPtr;
+  const aFlags: Word; const aFFlags: Cardinal; const aData: TKEventData;
   const auData: Pointer); inline;
 
 implementation
 
 procedure EV_SET(kevp: PKEvent; const aIdent: UIntPtr; const aFilter: SmallInt;
-  const aFlags: Word; const aFFlags: Cardinal; const aData: IntPtr;
+  const aFlags: Word; const aFFlags: Cardinal; const aData: TKEventData;
   const auData: Pointer); inline;
 begin
   kevp^.Ident  := aIdent;
@@ -120,6 +141,9 @@ begin
   kevp^.FFlags := aFFlags;
   kevp^.Data   := aData;
   kevp^.uData  := auData;
+  {$IFDEF FREEBSD_KEVENT_EXT}
+  FillChar(kevp^.Ext, SizeOf(kevp^.Ext), 0);
+  {$ENDIF}
 end;
 
 end.

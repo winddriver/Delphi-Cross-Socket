@@ -1,5 +1,7 @@
 # Kqueue 注册引用与析构回归
 
+FreeBSD 12 及以上默认链接 `kevent@FBSD_1.5`。使用 FreeBSD 10/11 sysroot 构建时需定义 `CROSS_FREEBSD11_KEVENT`，以匹配 `FBSD_1.0` 的旧结构。FreeBSD 上运行 `SocketAddressTests abi` 会检查扩展字段清零、记录大小以及一次提交两个计时器后收到的两个注册回执。
+
 对应 F05/A06，首批建立无生产钩子的真实 TCP 红例，随后补充单一观察钩子控制的事件在途窗口。测试使用独立进程，父进程通过回环 TCP 建立一个连接，通过标准输入控制主线程；不替换 `kevent`、不模拟发送完成、不手工追加 `_Release` 回收缺陷引用。
 
 单 worker 派生 `ProcessIoEvent` 在 inherited 返回后阻塞：此时 accept 批次和其中临时连接接口均已退出，初始 READ 已注册，下一次 `kevent` 尚未执行。主线程执行测试步骤后放行 worker 并 Stop，避免依赖长 Sleep 碰概率。
