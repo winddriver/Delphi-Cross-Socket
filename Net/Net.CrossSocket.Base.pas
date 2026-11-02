@@ -2589,6 +2589,17 @@ procedure TCrossConnectionBase.SendBytes(const ABytes: TBytes;
 var
   LBytes: TBytes;
 begin
+  if (AOffset < 0) or (ACount < 0) or (Int64(AOffset) + ACount > Length(ABytes)) then
+  begin
+    _CallConnectionCallback(ACallback, Self, False);
+    Exit;
+  end;
+  if ACount = 0 then
+  begin
+    SendBuf(Pointer(nil), 0, ACallback);
+    Exit;
+  end;
+
   // 增加引用计数
   // 由于 SendBuf 的 ABuffer 参数是直接传递的内存地址
   // 所以并不会增加 ABytes 的引用计数, 这里为了保证发送过程中数据的有效性

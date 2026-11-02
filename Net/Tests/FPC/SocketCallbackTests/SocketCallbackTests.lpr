@@ -12,6 +12,14 @@ uses
 type
   TTestSocket = class;
 
+  // 只记录提交的指针与长度，旧版错误传入的越界范围不会被解引用或发送。
+  TInputConnection = class(TCrossConnectionBase)
+    Submissions, LastCount: Integer;
+    LastBuffer: Pointer;
+    procedure DirectSend(const ABuffer: Pointer; const ACount: Integer;
+      const ACallback: TCrossConnectionCallback); override;
+  end;
+
   TSendProbe = class(TThread)
   private
     FOwner: TTestSocket;
@@ -673,6 +681,61 @@ begin
   Print('PASS callback-race rounds=100');
 end;
 
+procedure TInputConnection.DirectSend(const ABuffer: Pointer; const ACount: Integer;
+  const ACallback: TCrossConnectionCallback);
+begin
+  Inc(Submissions);
+  LastBuffer := ABuffer;
+  LastCount := ACount;
+  if Assigned(ACallback) then ACallback(Self, True);
+end;
+
+procedure SendSlices;
+var
+  Socket: TTestSocket;
+  Owner: ICrossSocket;
+  Probe: TInputConnection;
+  Connection: ICrossConnection;
+  Bytes: TBytes;
+
+  procedure Slice(const AData: TBytes; const AOffset, ACount: Integer; const AValid: Boolean);
+  var
+    Before, Calls: Integer;
+  begin
+    Before := Probe.Submissions;
+    Calls := 0;
+    Connection.SendBytes(AData, AOffset, ACount,
+      procedure(const C: ICrossConnection; const Ok: Boolean)
+      begin
+        Inc(Calls);
+        Check(Ok = AValid, 'slice completion result differs');
+      end);
+    Check((Calls = 1) and (Probe.Submissions = Before + Ord(AValid)), 'slice submission or callback count differs');
+    if AValid and (ACount > 0) then
+      Check((Probe.LastBuffer = @AData[AOffset]) and (Probe.LastCount = ACount), 'valid slice changed');
+  end;
+
+begin
+  Socket := TTestSocket.Create('send-slices');
+  Owner := Socket;
+  Probe := TInputConnection.Create(Socket, TSocketAPI.NewTcp, ctAccept, '', nil);
+  Connection := Probe;
+  Bytes := TBytes.Create(11, 22, 33);
+  Slice(Bytes, 1, 2, True);
+  Slice(Bytes, 2, 2, False);
+  Slice(Bytes, -1, 1, False);
+  Slice(Bytes, 0, -1, False);
+  Slice(Bytes, 4, 0, False);
+  Slice(Bytes, High(Integer), High(Integer), False);
+  Slice(Bytes, 3, 0, True);
+  Slice(nil, 0, 0, True);
+  Connection.Close;
+  Connection := nil;
+  Socket.Stop;
+  Owner := nil;
+  Print('PASS send-slices');
+end;
+
 procedure ClosedConnection(const ASend: Boolean);
 var
   LSocket: TTestSocket;
@@ -872,7 +935,9 @@ end;
 
 begin
   try
-    if ParamStr(1) = 'early-failure' then
+    if ParamStr(1) = 'send-slices' then
+      SendSlices
+    else if ParamStr(1) = 'early-failure' then
       EarlyFailure(StrToInt(ParamStr(2)))
     else if ParamStr(1) = 'connect-race' then
       CallbackRace(False)
