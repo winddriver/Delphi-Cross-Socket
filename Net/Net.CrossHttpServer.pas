@@ -1881,6 +1881,7 @@ type
     FRequestCmdLine: string;
     FContentType: string;
     FRequestBoundary: string;
+    FMultiPartComplete: Boolean;
     FTransferEncoding: string;
     FContentEncoding: string;
     FRequestCookies: string;
@@ -3064,7 +3065,11 @@ procedure TCrossHttpConnection._OnBodyPolicy(var APreserveEntity: Boolean);
 begin
   if Assigned(FServer.FBodyPolicy) then
     FServer.FBodyPolicy(FRequest, APreserveEntity);
-  if APreserveEntity then FRequestObj.FBodyType := btBinary;
+  if APreserveEntity then
+    FRequestObj.FBodyType := btBinary
+  else if (FRequestObj.FBodyType = btMultiPart) and not FRequestObj.FIsChunked
+    and (FRequestObj.FContentLength <= 0) then
+    (FHttpParser as TCrossHttpParser).Fail(400, 'Incomplete multipart form data.');
 end;
 
 procedure TCrossHttpConnection._OnBodyBegin;
@@ -3143,11 +3148,12 @@ begin
 
   case FRequestObj.GetBodyType of
     btMultiPart:
-      // 输入可能只是正文的一段，frContinue 不是错误；frFailed 必须传播到 HTTP 失败态，
-      // 否则外层收够 Content-Length 后会把部分表单当成功请求发布。
-      // Fail 中止当前解析，队列/连接收尾负责释放表单，文件删除仍遵循 AutoDeleteFiles。
-      if (FRequestObj.FBody as THttpMultiPartFormData).Decode(ADataPtr, ADataSize) = frFailed then
-        (FHttpParser as TCrossHttpParser).Fail(400, 'Invalid multipart form data.');
+      // 完成后只剩 MIME 尾声，后续分包也不能再成为另一个表单。
+      if not FRequestObj.FMultiPartComplete then
+        case (FRequestObj.FBody as THttpMultiPartFormData).Decode(ADataPtr, ADataSize) of
+          frComplete: FRequestObj.FMultiPartComplete := True;
+          frFailed: (FHttpParser as TCrossHttpParser).Fail(400, 'Invalid multipart form data.');
+        end;
 
     btUrlEncoded, btBinary:
       if (FRequestObj.FRawBody <> nil) then
@@ -3183,6 +3189,11 @@ begin
   if (FRequestObj.FBody = nil) then Exit;
 
   case FRequestObj.GetBodyType of
+    btMultiPart:
+      if not FRequestObj.FMultiPartComplete and
+        not (FRequestObj.FBody as THttpMultiPartFormData).EndsAtClosingBoundary then
+        (FHttpParser as TCrossHttpParser).Fail(400, 'Incomplete multipart form data.');
+
     btUrlEncoded:
       begin
         if (FRequestObj.FRawBody = nil) then Exit;

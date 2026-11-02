@@ -674,6 +674,8 @@ type
     /// </summary>
     {$ENDREGION}
     procedure InitWithBoundary(const ABoundary: string);
+    // Decode 仍为 frContinue 时，仅在外层已确定 EOF 后判断无尾部 CRLF 的结束行。
+    function EndsAtClosingBoundary: Boolean;
 
     {$REGION 'Documentation'}
     /// <summary>
@@ -2853,6 +2855,11 @@ begin
   Result := nil;
 end;
 
+function THttpMultiPartFormData.EndsAtClosingBoundary: Boolean;
+begin
+  Result := (FDecodeState = dsDetect) and (FPostBoundaryState = pbsEnd2);
+end;
+
 procedure THttpMultiPartFormData.InitWithBoundary(const ABoundary: string);
 begin
   // Decode 返回 frFailed 后, 调用方应调用 InitWithBoundary 重用实例;
@@ -3070,6 +3077,8 @@ begin
             pbsEnd2:
               if (C = 13) then          // '\r'
                 FPostBoundaryState := pbsEnd3
+              else if (C = 32) or (C = 9) then
+                { 结束分隔行允许尾随 SP/HTAB }
               else
               begin
                 AConsumed := I + 1;

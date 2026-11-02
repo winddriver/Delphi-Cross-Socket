@@ -568,10 +568,10 @@ begin
   finally FindClose(Search); end;
 end;
 
-// ACase: 0 合法；1 首个 part 坏头；2 后续 part 坏头；3 先收齐文件 part 再分段送来坏头。
+// 0 正常；1..3 坏字段头；4 结束边界截断；5 结束行无 CRLF；6 分包尾声；7 空正文。
 // 必须经完整 HTTP Parser/路由验证，单独检查 multipart.Decode=frFailed 不足以证明失败传播。
 procedure TestMultipartRequest(const ACase: Integer);
-var F: TFixture; Calls: Integer; ValidForm: Boolean; Body, Prefix, Tail, Dir: string;
+var F: TFixture; Calls: Integer; ValidForm: Boolean; Body, Prefix, Tail, Epilogue, Dir: string;
 begin
   Dir := ExtractFilePath(ParamStr(0)) + 'multipart-reject-' + IntToStr(ACase);
   Check(not DirectoryExists(Dir) and CreateDir(Dir), '创建隔离上传目录');
@@ -593,12 +593,23 @@ begin
     if ACase = 1 then Body := Body + 'Bad Name: x'#13#10;
     Body := Body + 'Content-Type: application/octet-stream'#13#10#13#10'abc'#13#10'--b'#13#10;
     Tail := 'Content-Disposition: form-data; name="text"'#13#10;
-    if ACase >= 2 then Tail := Tail + 'Bad Name: x'#13#10;
+    if ACase in [2, 3] then Tail := Tail + 'Bad Name: x'#13#10;
     Tail := Tail + #13#10'two'#13#10'--b--'#13#10;
+    case ACase of
+      4: Delete(Tail, Length(Tail) - 3, 4);
+      5: Delete(Tail, Length(Tail) - 1, 2);
+      6: Epilogue := '忽略尾声 --bX';
+      7: begin Body := ''; Tail := ''; end;
+    end;
     // filename 含中文，Content-Length 必须计算实际 UTF-8 字节数，不能直接用字符串 Length。
     Prefix := 'POST /upload HTTP/1.1'#13#10'Host: localhost'#13#10
       + 'Content-Type: multipart/form-data; boundary=b'#13#10
-      + 'Content-Length: ' + IntToStr(Length(Bytes(Body + Tail))) + #13#10#13#10;
+      + 'Content-Length: ' + IntToStr(Length(Bytes(Body + Tail + Epilogue))) + #13#10#13#10;
+    if ACase = 6 then
+    begin
+      F.ConnectionObj.Feed(Wire(Prefix + Body + Tail));
+      F.ConnectionObj.Feed(Wire(Epilogue));
+    end else
     if ACase = 3 then
     begin
       F.ConnectionObj.Feed(Wire(Prefix + Body));
@@ -606,7 +617,7 @@ begin
       F.ConnectionObj.Feed(Wire(Tail));
     end
     else F.ConnectionObj.Feed(Wire(Prefix + Body + Tail));
-    if ACase = 0 then
+    if ACase in [0, 5, 6] then
       Check((Calls = 1) and ValidForm and (Pos(AnsiString('200 OK'), F.ConnectionObj.Sent) > 0), '合法表单完整发布')
     else begin
       Check((Calls = 0) and (Pos(AnsiString('400 Bad Request'), F.ConnectionObj.Sent) > 0), '非法表单必须失败，不发布部分数据');
@@ -809,7 +820,7 @@ begin
       Writeln('url-encode'); Inc(Checks, RunUrlEncodeTests);
       Writeln('query-encode'); Inc(Checks, RunQueryEncodeTests);
       {$IFDEF MSWINDOWS}Writeln('decode-guard'); TestDecodeGuard;{$ENDIF}
-      Writeln('multipart-request'); for I := 0 to 3 do TestMultipartRequest(I);
+      Writeln('multipart-request'); for I := 0 to 7 do TestMultipartRequest(I);
       Writeln('server-output');
       // Feed会直接累计全局断言；先取得局部计数，避免Inc求值顺序覆盖函数内部的增量。
       Inc(Checks, RunResponseCookieEncodeTests);
