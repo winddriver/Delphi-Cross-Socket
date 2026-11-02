@@ -21,6 +21,9 @@ type
     ExitFirst, ExitClaimed: Integer;
     DeferredSocket: TSocket;
     DeferredCloseCalls: Integer;
+    GateSocket: TSocket;
+    GateOperation: Integer;
+    IoEntered, IoResume, HandleClosed: TEvent;
     constructor Create;
     destructor Destroy; override;
     procedure ClearLatest;
@@ -67,9 +70,15 @@ type
     constructor Create(const AState: TTestState);
   end;
 
+  TCloseThread = class(TThread)
+    Connection: ICrossConnection;
+    procedure Execute; override;
+  end;
+
 var
   GState: TTestState;
   GRecv: LPFN_WSARECV;
+  GNativeRecv: LPFN_RECV;
   GSend: LPFN_WSASEND;
   GClose: LPFN_CLOSESOCKET;
 
@@ -93,11 +102,18 @@ begin
   WorkersEnded := TEvent.Create(nil, True, False, '');
   Reads := TDictionary<TSocket, Integer>.Create;
   DeferredSocket := INVALID_SOCKET;
+  GateSocket := INVALID_SOCKET;
+  IoEntered := TEvent.Create(nil, True, False, '');
+  IoResume := TEvent.Create(nil, True, False, '');
+  HandleClosed := TEvent.Create(nil, True, False, '');
 end;
 
 destructor TTestState.Destroy;
 begin
   Latest := nil;
+  HandleClosed.Free;
+  IoResume.Free;
+  IoEntered.Free;
   Reads.Free;
   WorkersEnded.Free;
   Changed.Free;
@@ -228,7 +244,14 @@ var
 begin
   SetLength(LBytes, ALen);
   Move(ABuf^, LBytes[0], ALen);
-  AConnection.SendBytes(LBytes);
+  if FState.GateOperation = 1 then
+    AConnection.SendBytes(LBytes,
+      procedure(const AConnection: ICrossConnection; const ASuccess: Boolean)
+      begin
+        InterlockedIncrement(GState.SendCallbacks);
+      end)
+  else
+    AConnection.SendBytes(LBytes);
 end;
 
 function TTestSocket.StartListen: ICrossListen;
@@ -255,12 +278,26 @@ begin
   StopLoop;
 end;
 
+procedure GateIo(const ASocket: TSocket; const AOperation: Integer);
+begin
+  if (ASocket <> GState.GateSocket) or (GState.GateOperation <> AOperation) then Exit;
+  GState.IoEntered.SetEvent;
+  Check(GState.IoResume.WaitFor(WAIT_MS) = wrSignaled, 'I/O gate timeout');
+end;
+
+function ObserveNativeRecv(const s: TSocket; var Buf; len, flags: Integer): Integer; stdcall;
+begin
+  GateIo(s, 2);
+  Result := GNativeRecv(s, Buf, len, flags);
+end;
+
 function ObserveRecv(const s: TSocket; lpBuffers: LPWSABUF; dwBufferCount: DWORD;
   var lpNumberOfBytesRecvd: DWORD; var lpFlags: DWORD; AOverlapped: LPWSAOVERLAPPED;
   lpCompletionRoutine: LPWSAOVERLAPPED_COMPLETION_ROUTINE): Integer; stdcall;
 var
   LError: Integer;
 begin
+  GateIo(s, 3);
   Result := GRecv(s, lpBuffers, dwBufferCount, lpNumberOfBytesRecvd, lpFlags,
     AOverlapped, lpCompletionRoutine);
   LError := WSAGetLastError;
@@ -285,6 +322,7 @@ var
   LError: Integer;
 begin
   InterlockedIncrement(GState.SendCalls);
+  GateIo(s, 1);
   Result := GSend(s, lpBuffers, dwBufferCount, lpNumberOfBytesSent, dwFlags,
     AOverlapped, lpCompletionRoutine);
   LError := WSAGetLastError;
@@ -299,6 +337,7 @@ end;
 
 function ObserveClose(const s: TSocket): Integer; stdcall;
 begin
+  if s = GState.GateSocket then GState.HandleClosed.SetEvent;
   if s = GState.DeferredSocket then
   begin
     InterlockedIncrement(GState.DeferredCloseCalls);
@@ -317,13 +356,16 @@ begin
   LBytes := 0;
   LFlags := 0;
   Net.Winsock2.WSARecv(INVALID_SOCKET, nil, 0, LBytes, LFlags, nil, nil);
+  Net.Winsock2.recv(INVALID_SOCKET, LBytes, 0, 0);
   Net.Winsock2.WSASend(INVALID_SOCKET, nil, 0, LBytes, 0, nil, nil);
   LSocket := TSocketAPI.NewTcp;
   Net.Winsock2.closesocket(LSocket);
   GRecv := Net.Winsock2.WSARecv;
+  GNativeRecv := Net.Winsock2.recv;
   GSend := Net.Winsock2.WSASend;
   GClose := Net.Winsock2.closesocket;
   Net.Winsock2.WSARecv := ObserveRecv;
+  Net.Winsock2.recv := ObserveNativeRecv;
   Net.Winsock2.WSASend := ObserveSend;
   Net.Winsock2.closesocket := ObserveClose;
 end;
@@ -387,6 +429,51 @@ begin
   Check(GState.Created = GState.Destroyed,
     Format('connection leak: created=%d destroyed=%d', [GState.Created, GState.Destroyed]));
   AServer.Free;
+end;
+
+procedure TCloseThread.Execute;
+begin
+  Connection.Close;
+end;
+
+procedure CloseDuringIo(const AOperation: Integer);
+var
+  Server: TTestSocket;
+  Listener, Peer: TSocket;
+  Port: Word;
+  Connection: ICrossConnection;
+  Closer: TCloseThread;
+  Deadline: UInt64;
+  B: Byte;
+begin
+  Server := TTestSocket.Create(GState);
+  Listener := NativeListen(Port);
+  Peer := ConnectOwned(Server, Listener, Port, Connection);
+  GState.GateSocket := Connection.Socket;
+  GState.GateOperation := AOperation;
+  B := 42;
+  Check(TSocketAPI.Send(Peer, B, 1) = 1, 'trigger send failed');
+  Check(GState.IoEntered.WaitFor(WAIT_MS) = wrSignaled, 'native I/O gate not reached');
+  Closer := TCloseThread.Create(True);
+  Closer.Connection := Connection;
+  Closer.Start;
+  Deadline := GetTickCount64 + WAIT_MS;
+  while not Connection.IsClosed do
+  begin
+    Check(GetTickCount64 < Deadline, 'close did not claim connection');
+    Sleep(1);
+  end;
+  Check(GState.HandleClosed.WaitFor(100) = wrTimeout, 'socket closed while native I/O held its handle');
+  GState.IoResume.SetEvent;
+  Closer.WaitFor;
+  Closer.Free;
+  Check(GState.HandleClosed.WaitFor(WAIT_MS) = wrSignaled, 'socket not closed after I/O returned');
+  Connection := nil;
+  CheckReleased(Server);
+  if AOperation = 1 then Check(GState.SendCallbacks = 1, 'send callback missing or repeated');
+  GClose(Peer);
+  GClose(Listener);
+  Writeln('PASS close during native I/O ', AOperation);
 end;
 
 procedure Churn(const ACancel: Boolean);
@@ -551,9 +638,13 @@ begin
     if ParamStr(1) = 'listen-close' then ListenCancellation(True) else
     if ParamStr(1) = 'listen-cancel' then ListenCancellation(False) else
     if ParamStr(1) = 'pending-stop' then PendingStop else
+    if ParamStr(1) = 'close-send' then CloseDuringIo(1) else
+    if ParamStr(1) = 'close-recv' then CloseDuringIo(2) else
+    if ParamStr(1) = 'close-rearm' then CloseDuringIo(3) else
     if ParamStr(1) = 'extra-sentinel' then ExtraSentinel else
       Check(False, 'unknown test case');
     Net.Winsock2.WSARecv := GRecv;
+    Net.Winsock2.recv := GNativeRecv;
     Net.Winsock2.WSASend := GSend;
     Net.Winsock2.closesocket := GClose;
     GState.Free;

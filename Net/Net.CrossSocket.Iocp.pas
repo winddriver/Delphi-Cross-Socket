@@ -197,29 +197,40 @@ end;
 
 function TIocpCrossSocket._NewReadZero(const AConnection: ICrossConnection): Boolean;
 var
+  LConnection: TIocpConnection;
   LPerIoData: PPerIoData;
   LBytes, LFlags: Cardinal;
+  LError: Integer;
 begin
-  LPerIoData := _NewIoData;
-  LPerIoData.Buffer.DataBuf.buf := nil;
-  LPerIoData.Buffer.DataBuf.len := 0;
-  LPerIoData.Action := ioRead;
-  LPerIoData.Socket := AConnection.Socket;
-  LPerIoData.CrossData := AConnection;
-
-  LFlags := 0;
-  LBytes := 0;
-  if (WSARecv(AConnection.Socket, @LPerIoData.Buffer.DataBuf, 1, LBytes, LFlags, PWSAOverlapped(LPerIoData), nil) < 0)
-    and (WSAGetLastError <> WSA_IO_PENDING) then
-  begin
-    {$IFDEF DEBUG}
-    _LogLastOsError(Self.ClassName + '._NewReadZero.WSARecv, %s', [AConnection.DebugInfo]);
-    {$ENDIF}
-    _FreeIoData(LPerIoData);
-    Exit(False);
+  LConnection := AConnection as TIocpConnection;
+  LConnection._Lock;
+  try
+    if AConnection.ConnectStatus in [csDisconnected, csClosed] then Exit(False);
+    LPerIoData := _NewIoData;
+    LPerIoData.Buffer.DataBuf.buf := nil;
+    LPerIoData.Buffer.DataBuf.len := 0;
+    LPerIoData.Action := ioRead;
+    LPerIoData.Socket := AConnection.Socket;
+    LPerIoData.CrossData := AConnection;
+    LFlags := 0;
+    LBytes := 0;
+    Result := WSARecv(LPerIoData.Socket, @LPerIoData.Buffer.DataBuf, 1,
+      LBytes, LFlags, PWSAOverlapped(LPerIoData), nil) = 0;
+    if not Result then
+    begin
+      LError := WSAGetLastError;
+      Result := LError = WSA_IO_PENDING;
+    end;
+  finally
+    LConnection._Unlock;
   end;
-
-  Result := True;
+  if not Result then
+  begin
+    _FreeIoData(LPerIoData);
+    {$IFDEF DEBUG}
+    _Log('%s._NewReadZero.WSARecv error %d, %s', [Self.ClassName, LError, AConnection.DebugInfo]);
+    {$ENDIF}
+  end;
 end;
 
 procedure TIocpCrossSocket._HandleAccept(const APerIoData: PPerIoData);
@@ -342,6 +353,7 @@ end;
 procedure TIocpCrossSocket._HandleRead(const APerIoData: PPerIoData);
 var
   LConnection: ICrossConnection;
+  LConnObj: TIocpConnection;
   LRcvd, LError: Integer;
 begin
   if (APerIoData.CrossData = nil) then
@@ -352,10 +364,18 @@ begin
   end;
 
   LConnection := APerIoData.CrossData as ICrossConnection;
+  LConnObj := LConnection as TIocpConnection;
 
   while True do
   begin
-    LRcvd := TSocketAPI.Recv(LConnection.Socket, FRecvBuf[0], RCV_BUF_SIZE);
+    LConnObj._Lock;
+    try
+      if LConnection.IsClosed then Exit;
+      LRcvd := TSocketAPI.Recv(LConnection.Socket, FRecvBuf[0], RCV_BUF_SIZE);
+      if LRcvd < 0 then LError := WSAGetLastError;
+    finally
+      LConnObj._Unlock;
+    end;
 
     // 对方主动断开连接
     if (LRcvd = 0) then
@@ -367,8 +387,6 @@ begin
 
     if (LRcvd < 0) then
     begin
-      LError := GetLastError;
-
       // 被系统信号中断, 可以重新recv
       if (LError = WSAEINTR) then
         Continue
@@ -845,6 +863,7 @@ end;
 procedure TIocpCrossSocket.Send(const AConnection: ICrossConnection;
   const ABuf: Pointer; const ALen: Integer; const ACallback: TCrossConnectionCallback);
 var
+  LConnection: TIocpConnection;
   LPerIoData: PPerIoData;
   LBytes, LFlags: Cardinal;
   LPrepared: TCrossConnectionCallback;
@@ -858,7 +877,6 @@ begin
     LPerIoData.Buffer.DataBuf.buf := ABuf;
     LPerIoData.Buffer.DataBuf.len := ALen;
     LPerIoData.Action := ioWrite;
-    LPerIoData.Socket := AConnection.Socket;
     LPerIoData.CrossData := AConnection;
     if Assigned(LPrepared) then LPerIoData.Callback := LPrepared
     else LPerIoData.Callback := ACallback;
@@ -866,9 +884,19 @@ begin
     LFlags := 0;
     LBytes := 0;
     // 已投递项由完成包/停止drain结算，关闭连接本身不能提前释放额度或缓冲。
-    LSubmitted := (WSASend(AConnection.Socket, @LPerIoData.Buffer.DataBuf, 1,
-      LBytes, LFlags, PWSAOverlapped(LPerIoData), nil) = 0)
-      or (WSAGetLastError = WSA_IO_PENDING);
+    LConnection := AConnection as TIocpConnection;
+    LConnection._Lock;
+    try
+      if not (AConnection.ConnectStatus in [csDisconnected, csClosed]) then
+      begin
+        LPerIoData.Socket := AConnection.Socket;
+        LSubmitted := (WSASend(LPerIoData.Socket, @LPerIoData.Buffer.DataBuf, 1,
+          LBytes, LFlags, PWSAOverlapped(LPerIoData), nil) = 0)
+          or (WSAGetLastError = WSA_IO_PENDING);
+      end;
+    finally
+      LConnection._Unlock;
+    end;
     {$IFDEF DEBUG}
     if not LSubmitted then
       _LogLastOsError(Self.ClassName + '.WSASend, %s', [AConnection.DebugInfo]);

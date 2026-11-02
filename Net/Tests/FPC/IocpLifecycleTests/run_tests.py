@@ -12,6 +12,7 @@ REPO = HERE.parents[3]
 DELPHI = Path(r"D:\Design\Delphi\D13.1")
 LAZBUILD = Path(r"D:\Design\FreePascal\lazarus\lazbuild.exe")
 CASES = ["churn", "connection-cancel", "listen-close", "listen-cancel", "pending-stop", "extra-sentinel"]
+CASES += ["close-send", "close-recv", "close-rearm"]
 
 
 def execute(args, timeout):

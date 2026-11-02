@@ -755,6 +755,7 @@ type
     function _TakeConnectCallback: TCrossConnectionCallback;
     function _TakeConnectOp: IInterface;
     procedure _Close;
+    procedure _CloseSocket;
   protected
     procedure _LockRecv; inline;
     procedure _UnlockRecv; inline;
@@ -2154,9 +2155,14 @@ begin
   {$region '本地地址信息'}
   FillChar(LAddr, SizeOf(TRawSockAddrIn), 0);
   LAddr.AddrLen := SizeOf(LAddr.Addr6);
-  if (TSocketAPI.GetSockName(FSocket, @LAddr.Addr, LAddr.AddrLen) = 0) then
-    TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen,
-      FLocalAddr, FLocalPort);
+  _Lock;
+  try
+    if (FSocket = INVALID_SOCKET) or
+      (TSocketAPI.GetSockName(FSocket, @LAddr.Addr, LAddr.AddrLen) <> 0) then Exit;
+    TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen, FLocalAddr, FLocalPort);
+  finally
+    _Unlock;
+  end;
   {$endregion}
 end;
 
@@ -2293,11 +2299,7 @@ begin
         InternalClose;
       finally
         // 派生类的清理或用户回调异常也不能泄漏句柄。
-        if FSocket <> INVALID_SOCKET then
-        begin
-          TSocketAPI.CloseSocket(FSocket);
-          FSocket := INVALID_SOCKET;
-        end;
+        if FSocket <> INVALID_SOCKET then _CloseSocket;
       end;
     end;
   end;
@@ -2418,7 +2420,12 @@ begin
     if TConnectStatus(LStatus) in [csDisconnected, csClosed] then Exit;
   until AtomicCmpExchange(FConnectStatus, Integer(csDisconnected), LStatus) = LStatus;
 
-  TSocketAPI.Shutdown(FSocket, 2);
+  _Lock;
+  try
+    if FSocket <> INVALID_SOCKET then TSocketAPI.Shutdown(FSocket, 2);
+  finally
+    _Unlock;
+  end;
 end;
 
 function TCrossConnectionBase.GetConnectStatus: TConnectStatus;
@@ -2466,12 +2473,26 @@ begin
   Result := UID_CONNECTION;
 end;
 
+procedure TCrossConnectionBase._CloseSocket;
+var
+  LSocket: TSocket;
+begin
+  // 原生调用取得的句柄在解锁前始终有效；取走句柄后才允许系统复用它。
+  _Lock;
+  try
+    LSocket := FSocket;
+    FSocket := INVALID_SOCKET;
+  finally
+    _Unlock;
+  end;
+  if LSocket <> INVALID_SOCKET then TSocketAPI.CloseSocket(LSocket);
+end;
+
 procedure TCrossConnectionBase.InternalClose;
 var
   LConnectCb: TCrossConnectionCallback;
 begin
-  TSocketAPI.CloseSocket(FSocket);
-  FSocket := INVALID_SOCKET;
+  _CloseSocket;
 
   _TakeConnectOp;
   LConnectCb := _TakeConnectCallback();
@@ -2656,8 +2677,14 @@ begin
   {$region '远端地址信息'}
   FillChar(LAddr, SizeOf(TRawSockAddrIn), 0);
   LAddr.AddrLen := SizeOf(LAddr.Addr6);
-  if (TSocketAPI.GetPeerName(FSocket, @LAddr.Addr, LAddr.AddrLen) = 0) then
+  _Lock;
+  try
+    if (FSocket = INVALID_SOCKET) or
+      (TSocketAPI.GetPeerName(FSocket, @LAddr.Addr, LAddr.AddrLen) <> 0) then Exit;
     TSocketAPI.ExtractAddrInfo(@LAddr.Addr, LAddr.AddrLen, FPeerAddr, FPeerPort);
+  finally
+    _Unlock;
+  end;
   {$endregion}
 end;
 
